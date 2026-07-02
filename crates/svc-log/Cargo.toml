@@ -1,0 +1,10 @@
+[package]
+name = "svc-log"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume log service — single Game.log tailer broadcasting typed events"
+
+[dependencies]

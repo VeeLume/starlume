@@ -1,0 +1,10 @@
+[package]
+name = "svc-sync"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume sync service — server client: device-token auth, outbox drain, reference upload"
+
+[dependencies]

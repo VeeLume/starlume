@@ -1,0 +1,42 @@
+# Rust
+/target/
+
+# Node / Svelte
+node_modules/
+/build/
+/.svelte-kit/
+/package/
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Local server database (dev runs of starlume-server)
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local cargo path overrides (dev only)
+.cargo/
+src-tauri/.cargo/
+
+# Claude Code memory (local-only)
+.claude/
+
+# Maintainer-private agent notes (vault path etc.) — never commit
+CLAUDE.local.md
+
+# Tauri updater signing keys — never commit. The private key lives outside the
+# repo (GitHub secret TAURI_SIGNING_PRIVATE_KEY); only the public key is in
+# tauri.conf.json. This is a belt-and-suspenders guard.
+*.key
+*.key.pub

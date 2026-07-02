@@ -1,0 +1,63 @@
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "crates/app-kit",
+    "crates/server",
+    "crates/svc-discovery",
+    "crates/svc-data",
+    "crates/svc-log",
+    "crates/svc-sync",
+]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Valerie"]
+license = "MIT"
+edition = "2024"
+repository = "https://github.com/VeeLume/starlume"
+
+[workspace.dependencies]
+# Generic
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+tokio = { version = "1", features = ["full"] }
+url = "2"
+dirs = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Device-token storage in Windows Credential Manager (the fleetsync pattern).
+keyring = { version = "3", features = ["windows-native"] }
+
+# HTTP client — desktop (token exchange, /api/me) and server (Discord OAuth).
+# rustls-tls keeps Windows builds clean of OpenSSL (the Hearth pattern).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+# Server stack (crates/server) — the planned axum + sqlx + SQLite shape.
+axum = "0.8"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+sha2 = "0.10"
+hex = "0.4"
+dotenvy = "0.15"
+
+# Type-safe Tauri IPC + TypeScript bindings (matches Hearth / sc-langpatch).
+specta = { version = "2.0.0-rc.21", features = ["derive"] }
+specta-typescript = "0.0.9"
+tauri-specta = { version = "2.0.0-rc.21", features = ["typescript"] }
+
+# Internal crates
+app-kit = { path = "crates/app-kit" }
+svc-discovery = { path = "crates/svc-discovery" }
+svc-data = { path = "crates/svc-data" }
+svc-log = { path = "crates/svc-log" }
+svc-sync = { path = "crates/svc-sync" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

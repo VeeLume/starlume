@@ -1,0 +1,52 @@
+/* Minimal dark shell — real theming comes with the first module. */
+:root {
+  color-scheme: dark;
+  --bg: #131316;
+  --bg-raised: #1c1c21;
+  --border: #2a2a31;
+  --text: #e4e4e8;
+  --text-dim: #9a9aa4;
+  --accent: #e8b26b;
+  --accent-dim: #b07f3f;
+  --on-accent: #1c1206;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  font: inherit;
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+input[type="text"],
+input[type="url"] {
+  font: inherit;
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}

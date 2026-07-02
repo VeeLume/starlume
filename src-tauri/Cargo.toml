@@ -1,0 +1,71 @@
+[package]
+name = "starlume"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume — the Star Citizen companion (desktop shell)"
+default-run = "starlume"
+
+[[bin]]
+name = "starlume"
+path = "src/main.rs"
+
+# Dev-only bindings exporter. Gated behind the non-default `bindgen` feature so
+# `cargo build` / `tauri build` skip it — Tauri compiles every [[bin]] and bundles
+# it into the installer otherwise (tauri-apps/tauri#7592). Kept a [[bin]] (not an
+# example) so it links beside the WebView2 DLLs the lib needs at load time.
+[[bin]]
+name = "export-bindings"
+path = "src/bin/export_bindings.rs"
+required-features = ["bindgen"]
+
+[lib]
+name = "starlume_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+# Auto-update: check GitHub Releases on launch, prompt + install, relaunch.
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+# Open the system browser for the server's Discord OAuth flow.
+tauri-plugin-opener = "2"
+# starlume:// scheme — the auth callback (and future cross-app hooks).
+tauri-plugin-deep-link = "2"
+# One resident companion per machine. The `deep-link` feature forwards a
+# second instance's starlume:// argv to this instance's on_open_url.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+# Run at login (resident-tray companion mode).
+tauri-plugin-autostart = "2"
+
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+url.workspace = true
+keyring.workspace = true
+reqwest.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Type-safe IPC bindings exported to src/lib/bindings.ts.
+specta.workspace = true
+specta-typescript.workspace = true
+tauri-specta.workspace = true
+
+# Internal crates
+app-kit.workspace = true
+
+[features]
+default = []
+# Enables the `export-bindings` bin. Non-default so release builds don't compile
+# and bundle it (see the [[bin]] note above).
+bindgen = []
