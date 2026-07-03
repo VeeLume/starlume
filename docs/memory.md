@@ -30,16 +30,25 @@ The rule that keeps the spike from becoming resident cost:
 - **Parse spikes only on build change**, never on a timer — `InstallChanged` is the only
   trigger, and the snapshot cache makes re-launches cheap.
 
-### 2. WebView suspension when hidden (planned)
+### 2. WebView suspension when hidden (implemented 2026-07-03)
 
-WebView2 supports suspension (`CoreWebView2.TrySuspendAsync`) — the renderer pauses
-timers/JS and Windows can reclaim most of its working set. Requirements: window hidden
-(true in tray mode) + resume on show. Tauri doesn't expose this directly; it's reachable
-via `WebviewWindow::with_webview` + the `webview2-com` controller on Windows. Wire it to
-the same hide/show paths as the tray (`show_main_window` resumes). Verify: suspended
-webviews still receive `emit`ed events only after resume — notifications raised while
-suspended must land in the store on resume (the backend native-toast fallback already
-covers user visibility while hidden).
+WebView2 supports suspension (`TrySuspend`) — the renderer pauses timers/JS and Windows
+can reclaim most of its working set. Implementation: `src-tauri/src/suspend.rs` via
+`WebviewWindow::with_webview` + `webview2-com` (version-pinned to wry's — the COM types
+are shared). Details that matter:
+
+- The browser view must be set invisible (`ICoreWebView2Controller::IsVisible = false`)
+  before `TrySuspend` — hiding the Win32 window alone doesn't qualify. Resume is just
+  `IsVisible = true` (auto-resumes), done in `show_main_window` before `show()`.
+- Hooked on every hide path: close-to-tray, minimize-to-tray, and start-minimized
+  (delayed 5 s — `TrySuspend` fails before the first navigation completes).
+- `TrySuspend` stays best-effort (declines with DevTools open etc.); failures are logged
+  at debug/warn and cost nothing.
+- **Consequence handled:** a suspended webview runs no JS, so `emit`ed events die. The
+  notification session log therefore lives Rust-side (`notify::NotifLog` ring buffer);
+  the frontend hydrates via `recent_notifications` on mount and on window focus, and
+  hydrated backlog entries skip the toast stack (badge + native toasts already covered
+  them). This also knocks out part of lever 3's disposable-frontend prerequisite.
 
 ### 3. Destroy & recreate the window (planned, further out — biggest webview win)
 
@@ -75,6 +84,6 @@ Measure before shipping — some flags regress startup or break the updater dial
 ## Current state (2026-07-03)
 
 - Shell only, no SC data yet — footprint is essentially the WebView2 baseline.
-- Implemented today: hide-to-tray on close (default) and on minimize (opt-in setting) —
-  hiding is the *prerequisite* for levers 2/3, not a saving in itself (a hidden WebView
-  keeps its memory until suspended/destroyed).
+- Implemented: hide-to-tray on close (default) and on minimize (opt-in setting), and
+  **WebView2 suspension on every hide path** (lever 2). TODO: record before/after
+  commit-size numbers here once measured on a real session.

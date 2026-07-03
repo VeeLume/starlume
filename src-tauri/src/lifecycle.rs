@@ -12,13 +12,25 @@ use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_deep_link::DeepLinkExt;
 
-use crate::{AppState, auth, ipc};
+use crate::{AppState, auth, ipc, suspend};
 
 fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        // Restore browser-view visibility first — auto-resumes a suspended
+        // webview (docs/memory.md lever 2).
+        suspend::resume_webview(&w);
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+    }
+}
+
+/// Hide the main window to the tray and suspend its webview so the hidden
+/// WebView2 releases its working set instead of idling at ~100+ MB.
+fn hide_to_tray(window: &tauri::Window) {
+    let _ = window.hide();
+    if let Some(w) = window.app_handle().get_webview_window("main") {
+        suspend::suspend_webview(&w);
     }
 }
 
@@ -107,6 +119,19 @@ pub fn run() {
             // mode never flashes a frame; show it unless we're told not to.
             if !start_minimized {
                 show_main_window(app.handle());
+            } else {
+                // Companion start: suspend the never-shown webview once its
+                // first navigation has had time to complete (TrySuspend
+                // fails before that — the delay is the cheap fix).
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    if let Some(w) = handle.get_webview_window("main")
+                        && !w.is_visible().unwrap_or(true)
+                    {
+                        suspend::suspend_webview(&w);
+                    }
+                });
             }
 
             Ok(())
@@ -121,7 +146,7 @@ pub fn run() {
                     .unwrap()
                     .close_to_tray;
                 if close_to_tray {
-                    let _ = window.hide();
+                    hide_to_tray(window);
                     api.prevent_close();
                 }
             }
@@ -138,7 +163,7 @@ pub fn run() {
                     .unwrap()
                     .minimize_to_tray;
                 if minimize_to_tray && window.is_minimized().unwrap_or(false) {
-                    let _ = window.hide();
+                    hide_to_tray(window);
                 }
             }
             _ => {}

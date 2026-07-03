@@ -4456,6 +4456,8 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "webview2-com",
+ "windows-core 0.61.2",
 ]
 
 [[package]]

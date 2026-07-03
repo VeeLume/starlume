@@ -4,6 +4,7 @@
 use std::sync::Mutex;
 
 use crate::error::AppError;
+use crate::notify::NotifLog;
 use crate::settings::AppSettings;
 
 pub struct AppState {
@@ -12,6 +13,9 @@ pub struct AppState {
     /// Nonce of an in-flight browser login, if any. Set by `login_start`,
     /// consumed by the deep-link callback.
     pub pending_login: Mutex<Option<String>>,
+    /// Session notification log (Rust-side so webview suspension can't lose
+    /// entries — see `notify.rs`).
+    pub notif_log: Mutex<NotifLog>,
 }
 
 impl AppState {
@@ -20,6 +24,7 @@ impl AppState {
         Self {
             settings: Mutex::new(AppSettings::load()),
             pending_login: Mutex::new(None),
+            notif_log: Mutex::new(NotifLog::default()),
         }
     }
 
@@ -81,6 +86,7 @@ mod tests {
         AppState {
             settings: Mutex::new(settings),
             pending_login: Mutex::new(None),
+            notif_log: Mutex::new(NotifLog::default()),
         }
     }
 

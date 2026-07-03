@@ -16,7 +16,13 @@
 //! notification center.
 //!
 //! Notifications are **session-memory only** — no DB, no persistence across
-//! a restart (the Hearth alpha decision, kept).
+//! a restart (the Hearth alpha decision, kept). The session log lives
+//! **Rust-side** ([`NotifLog`], a bounded ring buffer) because the webview is
+//! suspended while hidden (see [`crate::suspend`]) and runs no JS — events
+//! emitted during suspension would otherwise be lost. The frontend hydrates
+//! from [`recent_notifications`] on mount and on window focus.
+
+use std::collections::VecDeque;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -105,13 +111,85 @@ impl Notification {
     }
 }
 
+/// A notification as stored/emitted: the payload plus backend-assigned
+/// identity. `ts` is epoch milliseconds as f64 (JS-friendly; u64 would need
+/// BigInt handling in the TS export).
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct NotificationRecord {
+    pub id: u32,
+    pub ts: f64,
+    #[serde(flatten)]
+    pub payload: Notification,
+}
+
+/// Bounded session ring buffer of notifications, held in `AppState`.
+pub struct NotifLog {
+    items: VecDeque<NotificationRecord>,
+    next_id: u32,
+}
+
+/// Keep the in-memory log bounded so a long session can't grow without limit
+/// (matches the frontend store's cap).
+const MAX_ITEMS: usize = 100;
+
+impl Default for NotifLog {
+    fn default() -> Self {
+        Self {
+            items: VecDeque::with_capacity(MAX_ITEMS),
+            next_id: 0,
+        }
+    }
+}
+
+impl NotifLog {
+    fn push(&mut self, n: Notification) -> NotificationRecord {
+        let record = NotificationRecord {
+            id: self.next_id,
+            ts: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as f64)
+                .unwrap_or(0.0),
+            payload: n,
+        };
+        self.next_id += 1;
+        if self.items.len() == MAX_ITEMS {
+            self.items.pop_front();
+        }
+        self.items.push_back(record.clone());
+        record
+    }
+}
+
+/// The session backlog, newest first — the frontend store hydrates from this
+/// on mount and on window focus (catching up on anything raised while the
+/// webview was suspended).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn recent_notifications(state: tauri::State<'_, AppState>) -> Vec<NotificationRecord> {
+    state
+        .notif_log
+        .lock()
+        .unwrap()
+        .items
+        .iter()
+        .rev()
+        .cloned()
+        .collect()
+}
+
 /// Emit a notification. Best-effort on every path: a failed emit/toast is
 /// logged, never propagated — a missed notification must not break the caller.
 pub fn notify(app: &AppHandle, n: Notification) {
-    // In-app surfaces (toast stack + notification center).
-    if let Err(e) = app.emit(NOTIFY_EVENT, n.clone()) {
+    // Record in the Rust-side session log first — this is the source of
+    // truth the frontend re-hydrates from after webview suspension.
+    let record = app.state::<AppState>().notif_log.lock().unwrap().push(n);
+
+    // In-app surfaces (toast stack + notification center) — a no-op while
+    // the webview is suspended; the focus re-sync covers that window.
+    if let Err(e) = app.emit(NOTIFY_EVENT, record.clone()) {
         tracing::warn!("failed to emit notification: {e}");
     }
+    let n = record.payload;
 
     // Native OS toast when nobody can see the in-app one (window hidden or
     // minimized — companion mode). User-toggleable, default on.

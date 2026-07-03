@@ -66,6 +66,12 @@ tauri-specta.workspace = true
 # Internal crates
 app-kit.workspace = true
 
+# WebView2 suspension (docs/memory.md lever 2). Versions MUST match wry's own
+# webview2-com — the COM interface types are shared with `with_webview`.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"
+
 [features]
 default = []
 # Enables the `export-bindings` bin. Non-default so release builds don't compile

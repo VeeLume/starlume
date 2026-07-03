@@ -11,6 +11,7 @@
     notifications,
     markAllRead,
     listenForNotifications,
+    syncNotifications,
   } from "$lib/state/notifications.svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
   import Avatar from "$lib/components/Avatar.svelte";
@@ -44,9 +45,11 @@
 
   onMount(() => {
     void (async () => {
-      // The single notification funnel — every backend `notify` event lands
-      // in the store driving the toast stack + the center.
+      // The single notification funnel — live events plus a hydration pass
+      // for anything raised before mount (or while the webview was
+      // suspended; the focus handler below covers later suspensions).
       unlistenNotify = await listenForNotifications();
+      await syncNotifications();
       // Settings first — the online master switch gates loadAuth's profile
       // fetch (backend-side). The update check is exempt by design.
       await loadSettings();
@@ -62,6 +65,8 @@
     unlistenNotify?.();
   });
 </script>
+
+<svelte:window onfocus={() => void syncNotifications()} />
 
 <div class="shell">
   <aside class="sidebar">

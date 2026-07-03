@@ -34,6 +34,14 @@ async listGrpcFeatures() : Promise<GrpcFeatureInfo[]> {
 async listModules() : Promise<ModuleInfo[]> {
     return await TAURI_INVOKE("list_modules");
 },
+/**
+ * The session backlog, newest first — the frontend store hydrates from this
+ * on mount and on window focus (catching up on anything raised while the
+ * webview was suspended).
+ */
+async recentNotifications() : Promise<NotificationRecord[]> {
+    return await TAURI_INVOKE("recent_notifications");
+},
 async authStatus() : Promise<AuthStatus> {
     return await TAURI_INVOKE("auth_status");
 },
@@ -184,6 +192,27 @@ server_configured: boolean }
  */
 export type GrpcFeatureInfo = { id: string; name: string; description: string }
 export type ModuleInfo = { id: string; name: string; description: string; enabled: boolean }
+/**
+ * An optional action on a notification — a labelled link the frontend turns
+ * into a "View →" affordance that navigates to `href` (an in-app route).
+ */
+export type NotifAction = { label: string; href: string }
+/**
+ * Severity of a notification. Drives colour and the toast auto-dismiss
+ * policy on the frontend: `info` / `success` fade, `warning` / `error`
+ * persist until dismissed.
+ */
+export type NotifLevel = "info" | "success" | "warning" | "error"
+/**
+ * A notification as stored/emitted: the payload plus backend-assigned
+ * identity. `ts` is epoch milliseconds as f64 (JS-friendly; u64 would need
+ * BigInt handling in the TS export).
+ */
+export type NotificationRecord = ({ level: NotifLevel; title: string; body: string | null; action: NotifAction | null; 
+/**
+ * Module/service id that raised this ("auth", "langpatch", …).
+ */
+source: string | null }) & { id: number; ts: number }
 export type Profile = { username: string; avatar_url: string | null }
 
 /** tauri-specta globals **/

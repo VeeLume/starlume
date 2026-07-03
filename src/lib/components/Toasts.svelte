@@ -36,13 +36,16 @@
     };
   });
 
-  // Detect newly-added notifications and surface each as a toast.
+  // Detect newly-added notifications and surface each as a toast. Hydrated
+  // backlog entries (popToast: false — raised while the webview was
+  // suspended) skip the stack; they're in the center with the badge.
   $effect(() => {
     const list = notifications.items;
     if (!ready) return;
     for (const n of list) {
       if (seen.has(n.id)) continue;
       seen.add(n.id);
+      if (!n.popToast) continue;
       const t: ActiveToast = { n };
       if (!isSticky(n.level)) {
         t.timer = setTimeout(() => remove(n.id), AUTO_DISMISS_MS);

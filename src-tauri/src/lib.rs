@@ -23,6 +23,7 @@ mod modules;
 pub mod notify;
 mod settings;
 mod state;
+mod suspend;
 
 pub use ipc::{export_bindings, ipc_builder};
 pub use lifecycle::run;

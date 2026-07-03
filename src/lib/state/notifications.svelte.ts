@@ -1,21 +1,22 @@
 // Global notification store — the single frontend funnel (the Hearth
 // pattern, plus a `source` field naming the module/service that raised it).
 //
-// Every notification, whether from the backend `notify` event
-// (src-tauri/src/notify.rs) or from in-app code, flows through `notify()`
-// into one list. That list drives two surfaces: the transient toast stack
-// (Toasts.svelte) and the persistent notification center
-// (NotificationCenter.svelte). Session-memory only — cleared on restart.
-// While the window is hidden, the backend additionally raises native OS
-// toasts; this store still records those, so the center shows them on return.
+// The session log's source of truth is **Rust-side** (notify.rs `NotifLog`):
+// while the window is hidden the webview is suspended and runs no JS, so
+// events raised then never reach this store live. Instead the store hydrates
+// from `recent_notifications` on mount and re-syncs on window focus; live
+// `notify` events cover the visible case. Hydrated entries keep their unread
+// state but don't pop toasts (returning to a wall of stale toasts is noise —
+// the bell badge + native toasts already covered them).
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { commands, type NotificationRecord } from "$lib/bindings";
 
 export type NotifLevel = "info" | "success" | "warning" | "error";
 
 export type NotifAction = { label: string; href: string };
 
-/** Shape emitted by the Rust `notify` helper; also the input to `notify()`. */
+/** Input for purely-frontend notifications. */
 export type NotifPayload = {
   level: NotifLevel;
   title: string;
@@ -24,11 +25,14 @@ export type NotifPayload = {
   source?: string | null;
 };
 
-/** A notification once it's in the store (id/timestamp/read added here). */
+/** A notification once it's in the store. */
 export type Notification = NotifPayload & {
+  /** Store key: `b<id>` for backend records, `l<n>` for local ones. */
   id: string;
   ts: number;
   read: boolean;
+  /** Whether the toast stack should surface it (false for hydrated backlog). */
+  popToast: boolean;
 };
 
 /** Levels whose toasts persist until dismissed (vs auto-fading). */
@@ -39,11 +43,11 @@ const STICKY: Record<NotifLevel, boolean> = {
   error: true,
 };
 
-/** Keep the in-memory log bounded so a long session can't grow without limit. */
+/** Keep the in-memory log bounded (matches the backend ring buffer). */
 const MAX_ITEMS = 100;
 
 let items = $state<Notification[]>([]);
-let counter = 0;
+let localCounter = 0;
 
 /** Reactive read access. Components use `notifications.items` / `.unread`. */
 export const notifications = {
@@ -58,20 +62,38 @@ export const notifications = {
   },
 };
 
-/** Add a notification. The one entry point — backend events and in-app code
- *  both call this. Returns the created notification. */
+function insert(n: Notification) {
+  items = [n, ...items].sort((a, b) => b.ts - a.ts).slice(0, MAX_ITEMS);
+}
+
+function fromRecord(r: NotificationRecord, popToast: boolean): Notification {
+  return {
+    id: `b${r.id}`,
+    ts: r.ts,
+    read: false,
+    popToast,
+    level: r.level,
+    title: r.title,
+    body: r.body ?? null,
+    action: r.action ?? null,
+    source: r.source ?? null,
+  };
+}
+
+/** Add a purely-frontend notification (backend ones arrive via the event). */
 export function notify(input: NotifPayload): Notification {
   const n: Notification = {
-    id: `n${counter++}`,
+    id: `l${localCounter++}`,
     ts: Date.now(),
     read: false,
+    popToast: true,
     level: input.level,
     title: input.title,
     body: input.body ?? null,
     action: input.action ?? null,
     source: input.source ?? null,
   };
-  items = [n, ...items].slice(0, MAX_ITEMS);
+  insert(n);
   return n;
 }
 
@@ -94,9 +116,29 @@ export function isSticky(level: NotifLevel): boolean {
   return STICKY[level];
 }
 
-/** Subscribe to backend `notify` events. Call once, in the root layout. */
+/**
+ * Pull the backend session log and merge anything we haven't seen (raised
+ * while the webview was suspended, or before this view mounted). Call on
+ * mount and on window focus. Dismissed entries stay dismissed: sync only
+ * adds records newer than the newest backend record we've ever seen.
+ */
+let highestSeenBackendId = -1;
+
+export async function syncNotifications(): Promise<void> {
+  const records = await commands.recentNotifications();
+  for (const r of records) {
+    if (r.id <= highestSeenBackendId) continue;
+    highestSeenBackendId = Math.max(highestSeenBackendId, r.id);
+    insert(fromRecord(r, false));
+  }
+}
+
+/** Subscribe to live backend `notify` events. Call once, in the root layout. */
 export function listenForNotifications(): Promise<UnlistenFn> {
-  return listen<NotifPayload>("notify", (event) => {
-    notify(event.payload);
+  return listen<NotificationRecord>("notify", (event) => {
+    const r = event.payload;
+    if (r.id <= highestSeenBackendId) return; // already hydrated via sync
+    highestSeenBackendId = Math.max(highestSeenBackendId, r.id);
+    insert(fromRecord(r, true));
   });
 }
