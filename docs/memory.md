@@ -85,5 +85,8 @@ Measure before shipping — some flags regress startup or break the updater dial
 
 - Shell only, no SC data yet — footprint is essentially the WebView2 baseline.
 - Implemented: hide-to-tray on close (default) and on minimize (opt-in setting), and
-  **WebView2 suspension on every hide path** (lever 2). TODO: record before/after
-  commit-size numbers here once measured on a real session.
+  **WebView2 suspension on every hide path** (lever 2).
+- **Measured 2026-07-03** (Task Manager memory column, whole WebView2 tree, shell-only
+  build): visible **89.6 MB** → hidden+suspended **4.2 MB** (~95% reclaimed; Windows
+  flags the suspended renderer as Efficiency mode). Note these are working-set numbers —
+  fine for confirming suspension works; use commit size for regression comparisons.
