@@ -9,6 +9,9 @@
   --accent: #e8b26b;
   --accent-dim: #b07f3f;
   --on-accent: #1c1206;
+  --good: #6cc07a;
+  --warn: #d9a13d;
+  --bad: #e06c6c;
 }
 
 * {

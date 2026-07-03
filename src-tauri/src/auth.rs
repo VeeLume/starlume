@@ -19,6 +19,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::AppState;
 use crate::error::AppError;
+use crate::notify::{Notification, notify};
 
 const KEYRING_SERVICE: &str = "starlume";
 const KEYRING_USER: &str = "device-token";
@@ -111,6 +112,12 @@ pub(crate) async fn fetch_profile(app: AppHandle) -> Result<Profile, AppError> {
                 .map_err(|e| AppError::Auth(e.to_string()))
         });
         let _ = app.emit("auth-changed", ());
+        notify(
+            &app,
+            Notification::warning("Session expired")
+                .with_body("This device was signed out — sign in again.")
+                .with_source("auth"),
+        );
         return Err(AppError::Auth("session expired — sign in again".into()));
     }
     if !response.status().is_success() {
@@ -186,7 +193,7 @@ fn handle_auth_callback(app: &AppHandle, url: &url::Url) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         match exchange_login_code(&server, &code).await {
-            Ok(token) => {
+            Ok((token, profile)) => {
                 match token_entry().and_then(|e| {
                     e.set_password(&token)
                         .map_err(|e| AppError::Auth(format!("failed to store token: {e}")))
@@ -194,19 +201,34 @@ fn handle_auth_callback(app: &AppHandle, url: &url::Url) {
                     Ok(()) => {
                         tracing::info!("device token stored");
                         let _ = app.emit("auth-changed", ());
+                        notify(
+                            &app,
+                            Notification::success("Signed in")
+                                .with_body(format!("as {} via Discord", profile.username))
+                                .with_source("auth"),
+                        );
                     }
                     Err(e) => tracing::error!("auth callback: {e}"),
                 }
             }
-            Err(e) => tracing::error!("login-code exchange failed: {e}"),
+            Err(e) => {
+                tracing::error!("login-code exchange failed: {e}");
+                notify(
+                    &app,
+                    Notification::error("Sign-in failed")
+                        .with_body(e.to_string())
+                        .with_source("auth"),
+                );
+            }
         }
     });
 }
 
-async fn exchange_login_code(server: &str, code: &str) -> Result<String, AppError> {
+async fn exchange_login_code(server: &str, code: &str) -> Result<(String, Profile), AppError> {
     #[derive(serde::Deserialize)]
     struct ExchangeResponse {
         token: String,
+        profile: Profile,
     }
 
     let response = reqwest::Client::new()
@@ -221,9 +243,9 @@ async fn exchange_login_code(server: &str, code: &str) -> Result<String, AppErro
             response.status()
         )));
     }
-    Ok(response
+    let body = response
         .json::<ExchangeResponse>()
         .await
-        .map_err(|e| AppError::Internal(format!("bad exchange response: {e}")))?
-        .token)
+        .map_err(|e| AppError::Internal(format!("bad exchange response: {e}")))?;
+    Ok((body.token, body.profile))
 }

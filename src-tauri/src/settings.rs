@@ -48,6 +48,10 @@ pub struct AppSettings {
     /// missions. A feature is live only when `online_enabled` +
     /// `grpc_enabled` + membership here all hold.
     pub grpc_features: Vec<String>,
+    /// Show native OS toasts for notifications raised while the window is
+    /// hidden/minimized (companion mode). Default ON — a hidden tray app has
+    /// no other way to reach the user.
+    pub native_notifications: bool,
 }
 
 impl Default for AppSettings {
@@ -63,6 +67,7 @@ impl Default for AppSettings {
             grpc_enabled: false,
             grpc_consented: false,
             grpc_features: Vec::new(),
+            native_notifications: true,
         }
     }
 }

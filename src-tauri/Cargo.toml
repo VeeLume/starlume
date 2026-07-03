@@ -43,6 +43,8 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # Run at login (resident-tray companion mode).
 tauri-plugin-autostart = "2"
+# Native OS toasts — the notification fallback while hidden to tray.
+tauri-plugin-notification = "2"
 
 serde.workspace = true
 serde_json.workspace = true

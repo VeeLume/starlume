@@ -11,6 +11,8 @@
 //!   callback + Windows Credential Manager storage).
 //! - [`modules`] — the feature-module registry (empty until the first
 //!   carve-out; the trait + enabled-set live here).
+//! - [`notify`] — the global notification funnel (toast/center event +
+//!   native-toast fallback when the window is hidden).
 //! - [`error`] — the shared IPC error type.
 
 mod auth;
@@ -18,6 +20,7 @@ mod error;
 mod ipc;
 mod lifecycle;
 mod modules;
+pub mod notify;
 mod settings;
 mod state;
 

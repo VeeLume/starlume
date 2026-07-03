@@ -100,6 +100,14 @@
       />
       Run at login
     </label>
+    <label>
+      <input
+        type="checkbox"
+        checked={settings.native_notifications}
+        onchange={(e) => apply({ native_notifications: e.currentTarget.checked })}
+      />
+      Windows notifications while hidden to tray
+    </label>
     <div class="row-buttons">
       <button onclick={() => checkForUpdates(true)}>Check for updates</button>
       <button onclick={openOnboarding}>Re-run setup</button>

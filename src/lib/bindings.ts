@@ -154,7 +154,13 @@ grpc_consented: boolean;
  * missions. A feature is live only when `online_enabled` +
  * `grpc_enabled` + membership here all hold.
  */
-grpc_features: string[] }
+grpc_features: string[]; 
+/**
+ * Show native OS toasts for notifications raised while the window is
+ * hidden/minimized (companion mode). Default ON — a hidden tray app has
+ * no other way to reach the user.
+ */
+native_notifications: boolean }
 export type AuthStatus = { 
 /**
  * A device token is present in the credential store.

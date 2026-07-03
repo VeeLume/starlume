@@ -7,13 +7,29 @@
   import { settingsStore, loadSettings } from "$lib/state/settings.svelte";
   import { authStore, loadAuth, listenForAuthChanges } from "$lib/state/auth.svelte";
   import { onboarding, maybeStartOnboarding } from "$lib/state/onboarding.svelte";
+  import {
+    notifications,
+    markAllRead,
+    listenForNotifications,
+  } from "$lib/state/notifications.svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
   import Avatar from "$lib/components/Avatar.svelte";
+  import Toasts from "$lib/components/Toasts.svelte";
+  import NotificationCenter from "$lib/components/NotificationCenter.svelte";
   import { checkForUpdates } from "$lib/updater";
 
   let { children } = $props();
 
   let unlistenAuth: UnlistenFn | undefined;
+  let unlistenNotify: UnlistenFn | undefined;
+
+  // Notification center (sidebar bell). Opening it marks everything read so
+  // the bell badge clears; the per-session log stays in the panel.
+  let centerOpen = $state(false);
+  function toggleCenter() {
+    centerOpen = !centerOpen;
+    if (centerOpen) markAllRead();
+  }
 
   // Home + one entry per enabled module (registry order).
   const nav = $derived([
@@ -28,6 +44,9 @@
 
   onMount(() => {
     void (async () => {
+      // The single notification funnel — every backend `notify` event lands
+      // in the store driving the toast stack + the center.
+      unlistenNotify = await listenForNotifications();
       // Settings first — the online master switch gates loadAuth's profile
       // fetch (backend-side). The update check is exempt by design.
       await loadSettings();
@@ -38,12 +57,40 @@
     })();
   });
 
-  onDestroy(() => unlistenAuth?.());
+  onDestroy(() => {
+    unlistenAuth?.();
+    unlistenNotify?.();
+  });
 </script>
 
 <div class="shell">
   <aside class="sidebar">
-    <div class="brand">Starlume</div>
+    <div class="brand">
+      <span class="brand-name">Starlume</span>
+      <button
+        class="bell"
+        class:open={centerOpen}
+        onclick={toggleCenter}
+        title="Notifications"
+        aria-label="Notifications"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+        {#if notifications.unread > 0}
+          <span class="bell-badge">{notifications.unread > 9 ? "9+" : notifications.unread}</span>
+        {/if}
+      </button>
+    </div>
 
     <nav>
       {#each nav as item (item.href)}
@@ -113,6 +160,9 @@
   </main>
 </div>
 
+<NotificationCenter open={centerOpen} onClose={() => (centerOpen = false)} />
+<Toasts />
+
 {#if onboarding.open}
   <Onboarding />
 {/if}
@@ -133,10 +183,57 @@
   }
 
   .brand {
+    display: flex;
+    align-items: center;
+    padding: 0 8px 14px;
+  }
+
+  .brand-name {
     font-weight: 600;
     color: var(--accent);
-    padding: 0 8px 14px;
     letter-spacing: 0.01em;
+  }
+
+  .bell {
+    position: relative;
+    margin-left: auto;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    padding: 0.25rem 0.3rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-dim);
+    transition: color 90ms, transform 90ms;
+  }
+  .bell svg {
+    display: block;
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+  .bell:hover {
+    color: var(--text);
+    transform: scale(1.12);
+  }
+  .bell.open {
+    color: var(--accent);
+  }
+  .bell-badge {
+    position: absolute;
+    top: -0.1rem;
+    right: -0.1rem;
+    min-width: 1rem;
+    height: 1rem;
+    padding: 0 0.2rem;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 0.6rem;
+    font-weight: 700;
+    line-height: 1;
   }
 
   nav {
