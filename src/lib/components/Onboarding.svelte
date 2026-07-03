@@ -1,21 +1,40 @@
 <script lang="ts">
-  // The onboarding framework. Core steps sandwich module-contributed ones:
+  // The onboarding framework. Fixed frame around module-contributed steps:
   //
-  //   Welcome → Modules (picker) → [steps of each SELECTED module] → Finish
+  //   Welcome → [core framework steps] → Modules (picker)
+  //           → [steps of each SELECTED module] → Finish
   //
-  // Modules never touch this file — they contribute steps via their
-  // `ModuleDescriptor.onboardingSteps` in the registry. The step list is
-  // derived from the current selection, so toggling a module in the picker
-  // adds/removes its steps live.
+  // Core steps (online/privacy, Discord sign-in, SC account) are app-level —
+  // every install goes through them. Modules never touch this file; they
+  // contribute steps via `ModuleDescriptor.onboardingSteps`. The list is
+  // derived from the current selection, so toggling a module adds/removes its
+  // steps live.
 
   import type { Component } from "svelte";
   import { moduleRegistry } from "$lib/modules/registry";
   import type { OnboardingStepProps } from "$lib/modules/types";
   import { settingsStore, applySettings } from "$lib/state/settings.svelte";
   import { closeOnboarding } from "$lib/state/onboarding.svelte";
+  import OnboardingOnline from "$lib/components/onboarding/OnboardingOnline.svelte";
+  import OnboardingDiscord from "$lib/components/onboarding/OnboardingDiscord.svelte";
+  import OnboardingRsi from "$lib/components/onboarding/OnboardingRsi.svelte";
+
+  // App-level framework steps, in order. Each is optional (nothing gates
+  // Next); they exist so the posture + identity are set deliberately.
+  const CORE_STEPS: { id: string; title: string; component: Component<OnboardingStepProps> }[] = [
+    { id: "online", title: "Online & privacy", component: OnboardingOnline },
+    { id: "discord", title: "Sign in", component: OnboardingDiscord },
+    { id: "rsi", title: "Your Star Citizen account", component: OnboardingRsi },
+  ];
 
   type Step =
     | { kind: "welcome"; id: string; title: string }
+    | {
+        kind: "core-step";
+        id: string;
+        title: string;
+        component: Component<OnboardingStepProps>;
+      }
     | { kind: "modules"; id: string; title: string }
     | {
         kind: "module-step";
@@ -35,6 +54,9 @@
 
   const steps: Step[] = $derived([
     { kind: "welcome", id: "welcome", title: "Welcome" },
+    ...CORE_STEPS.map(
+      (s): Step => ({ kind: "core-step", id: s.id, title: s.title, component: s.component }),
+    ),
     { kind: "modules", id: "modules", title: "Choose your modules" },
     ...moduleRegistry
       .filter((d) => selected.has(d.id))
@@ -139,7 +161,7 @@
             {/each}
           </div>
         {/if}
-      {:else if step.kind === "module-step"}
+      {:else if step.kind === "core-step" || step.kind === "module-step"}
         <step.component setCanContinue={(ok: boolean) => (canContinue = ok)} />
       {:else}
         <p>

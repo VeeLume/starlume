@@ -1,8 +1,19 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { commands, type FriendGroup, type FriendUser } from "$lib/bindings";
   import { authStore, loadAuth } from "$lib/state/auth.svelte";
   import { notify } from "$lib/state/notifications.svelte";
+
+  // No push channel yet (v2 plan is "polling, not realtime"), so a friend
+  // adding you back — or joining a group — wouldn't show until re-navigation.
+  // Refresh on window focus (instant when you tab back) plus a slow poll while
+  // the page is open. Both are silent no-ops when signed out.
+  const POLL_MS = 20_000;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+  function quietRefresh() {
+    if (authStore.current?.logged_in) void refresh();
+  }
 
   let friends = $state<FriendUser[]>([]);
   let groups = $state<FriendGroup[]>([]);
@@ -114,8 +125,12 @@
     await loadAuth();
     if (authStore.current?.logged_in) await refresh();
     else loaded = true;
+    pollTimer = setInterval(quietRefresh, POLL_MS);
   });
+  onDestroy(() => clearInterval(pollTimer));
 </script>
+
+<svelte:window onfocus={quietRefresh} />
 
 <h1>Friends</h1>
 
