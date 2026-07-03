@@ -6,6 +6,7 @@
   import { moduleRegistry } from "$lib/modules/registry";
   import { settingsStore, loadSettings } from "$lib/state/settings.svelte";
   import { authStore, loadAuth, listenForAuthChanges } from "$lib/state/auth.svelte";
+  import { scStore, loadSc } from "$lib/state/sc.svelte";
   import { onboarding, maybeStartOnboarding } from "$lib/state/onboarding.svelte";
   import {
     notifications,
@@ -55,6 +56,9 @@
       // Settings first — the online master switch gates loadAuth's profile
       // fetch (backend-side). The update check is exempt by design.
       await loadSettings();
+      // RSI identity is local-only (no online gate) — the primary identity
+      // for the sidebar banner. Discord is a secondary connector.
+      void loadSc();
       await loadAuth();
       unlistenAuth = await listenForAuthChanges();
       await maybeStartOnboarding();
@@ -109,33 +113,41 @@
     </nav>
 
     <div class="account">
+      <!-- Primary identity is the RSI account (who you are in the game).
+           Discord is a secondary connector, surfaced on the Me page. -->
       <a class="account-link" href="/me" title="Me">
-      {#if authStore.current?.logged_in}
-        {#if authStore.profile}
-          <Avatar
-            text={authStore.profile.username.charAt(0).toUpperCase()}
-            src={authStore.profile.avatar_url}
-            title={authStore.profile.username}
-          />
-          <div class="account-meta">
-            <span class="account-line">{authStore.profile.username}</span>
-            <span class="account-sub">via Discord</span>
-          </div>
-        {:else}
-          <!-- Signed in but the server is unreachable right now. -->
-          <Avatar text="✓" title="Signed in" />
-          <div class="account-meta">
-            <span class="account-line">Signed in</span>
-            <span class="account-sub">profile unavailable</span>
-          </div>
-        {/if}
-      {:else}
-        <Avatar text="?" muted title="Not signed in" />
+      {#if scStore.account}
+        <Avatar
+          text={scStore.account.handle.charAt(0).toUpperCase()}
+          title={scStore.account.handle}
+        />
         <div class="account-meta">
-          <span class="account-line">Not signed in</span>
+          <span class="account-line">{scStore.account.handle}</span>
           <span class="account-sub">
-            {authStore.current?.server_configured ? "sign in via Settings" : "offline"}
+            {#if scStore.account.citizen_record}
+              ✓ Citizen #{scStore.account.citizen_record}
+            {:else}
+              RSI · unverified
+            {/if}
+            {#if authStore.current?.logged_in}<span class="linked" title="Discord linked">◆</span>{/if}
           </span>
+        </div>
+      {:else if authStore.current?.logged_in && authStore.profile}
+        <!-- No SC account recognized yet, but Discord is linked. -->
+        <Avatar
+          text={authStore.profile.username.charAt(0).toUpperCase()}
+          src={authStore.profile.avatar_url}
+          title={authStore.profile.username}
+        />
+        <div class="account-meta">
+          <span class="account-line">{authStore.profile.username}</span>
+          <span class="account-sub">Discord · no SC account</span>
+        </div>
+      {:else}
+        <Avatar text="?" muted title="Not set up" />
+        <div class="account-meta">
+          <span class="account-line">Not set up</span>
+          <span class="account-sub">open to set up →</span>
         </div>
       {/if}
       </a>
@@ -321,6 +333,10 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .linked {
+    color: #5865f2; /* Discord blurple */
+    margin-left: 0.2rem;
   }
 
   .cog {

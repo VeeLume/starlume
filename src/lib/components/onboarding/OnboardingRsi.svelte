@@ -4,29 +4,24 @@
   // installs, reads the launcher handle, and offers an optional online verify
   // that captures the immutable RSI anchors. All optional.
   import { onMount } from "svelte";
-  import { commands, type ScStatus, type RsiAccount } from "$lib/bindings";
   import type { OnboardingStepProps } from "$lib/modules/types";
   import { settingsStore } from "$lib/state/settings.svelte";
+  import { scStore, loadSc, verifyAccount } from "$lib/state/sc.svelte";
 
   // Typed for the step contract; optional step, never blocks Next.
   const {}: OnboardingStepProps = $props();
 
   const settings = $derived(settingsStore.current);
+  // Shared store: a verify here propagates live to the sidebar + Me page.
+  const status = $derived(scStore.status);
+  const account = $derived(scStore.account);
 
-  let status = $state<ScStatus | null>(null);
-  let account = $state<RsiAccount | null>(null);
   let loading = $state(true);
   let verifying = $state(false);
   let error = $state("");
 
   onMount(async () => {
-    const result = await commands.scStatus();
-    if (result.status === "ok") {
-      status = result.data;
-      account = result.data.account;
-    } else {
-      error = result.error.message;
-    }
+    await loadSc();
     loading = false;
   });
 
@@ -34,9 +29,8 @@
     if (!status?.launcher_handle) return;
     error = "";
     verifying = true;
-    const result = await commands.verifyRsiAccount(status.launcher_handle);
-    if (result.status === "ok") account = result.data;
-    else error = result.error.message;
+    const err = await verifyAccount(status.launcher_handle);
+    if (err) error = err;
     verifying = false;
   }
 </script>
