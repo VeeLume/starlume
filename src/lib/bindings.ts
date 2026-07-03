@@ -83,6 +83,47 @@ async logout() : Promise<Result<null, AppError>> {
     else return { status: "error", error: e  as any };
 }
 },
+async listFriends() : Promise<Result<FriendUser[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_friends") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Mint a friend code (7-day expiry, multi-use).
+ */
+async createFriendInvite() : Promise<Result<string, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_friend_invite") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Redeem a friend code → mutual friendship. Returns the updated list.
+ */
+async addFriend(code: string) : Promise<Result<FriendUser[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("add_friend", { code }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Drop a friendship (both directions). Returns the updated list.
+ */
+async removeFriend(userId: string) : Promise<Result<FriendUser[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("remove_friend", { userId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listGroups() : Promise<Result<FriendGroup[], AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_groups") };
@@ -237,6 +278,7 @@ server_configured: boolean;
  */
 dev_profile: string | null }
 export type FriendGroup = { id: string; name: string; is_owner: boolean; members: GroupMember[] }
+export type FriendUser = { user_id: string; username: string }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
  * A gRPC sub-feature users can individually allow. The registry grows as

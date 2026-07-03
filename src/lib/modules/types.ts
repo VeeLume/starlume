@@ -36,6 +36,18 @@ export interface NavEntry {
   icon: string;
 }
 
+/** A section a module contributes to the Me page — the unified place for
+ *  per-module visibility/sharing settings ("what of mine does this module
+ *  share, with whom"). Keep sections about the *user's* data exposure;
+ *  module feature settings stay on the module's own pages. */
+export interface MeSection {
+  /** Unique within the module. */
+  id: string;
+  /** Section heading on the Me page. */
+  title: string;
+  component: Component;
+}
+
 export interface ModuleDescriptor {
   /** Must match the Rust `Module::id`. */
   id: string;
@@ -47,4 +59,6 @@ export interface ModuleDescriptor {
   nav?: NavEntry[];
   /** Extra wizard steps, rendered while the module is selected in onboarding. */
   onboardingSteps?: OnboardingStep[];
+  /** Visibility/sharing sections on the Me page, rendered while enabled. */
+  meSections?: MeSection[];
 }

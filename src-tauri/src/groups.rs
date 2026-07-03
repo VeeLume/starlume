@@ -23,8 +23,9 @@ pub struct FriendGroup {
 }
 
 /// Authenticated JSON request against the configured server. The one place
-/// desktop group calls touch the network — gated by `require_online`.
-async fn api<T: serde::de::DeserializeOwned>(
+/// desktop community calls (groups + friends) touch the network — gated by
+/// `require_online`.
+pub(crate) async fn api<T: serde::de::DeserializeOwned>(
     app: &AppHandle,
     method: reqwest::Method,
     path: &str,

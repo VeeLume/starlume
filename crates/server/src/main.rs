@@ -28,6 +28,7 @@ use sha2::Digest;
 use tokio::sync::Mutex;
 
 mod discord;
+mod friends;
 mod groups;
 
 const STATE_TTL: Duration = Duration::from_secs(10 * 60);
@@ -140,6 +141,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/auth/discord/callback", get(discord_callback))
         .route("/auth/desktop/exchange", post(desktop_exchange))
         .route("/api/me", get(api_me))
+        .route("/api/friends", get(friends::list_friends))
+        .route("/api/friends/invites", post(friends::create_invite))
+        .route("/api/friends/add", post(friends::add_friend))
+        .route("/api/friends/remove", post(friends::remove_friend))
         .route(
             "/api/groups",
             get(groups::list_groups).post(groups::create_group),

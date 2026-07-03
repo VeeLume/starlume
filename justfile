@@ -27,8 +27,9 @@ server-env:
 server-db-reset:
     rm -f starlume.db starlume.db-shm starlume.db-wal
 
-# Needs `just dev` running (shares its vite server). Own data dir + keyring slot,
-# no single-instance lock, loopback auth. See README "Testing with two accounts".
+# Needs `just dev` running (shares its vite server, and provides the build —
+# this runs the existing exe directly: cargo can't relink while the first
+# instance holds the file lock). See README "Testing with two accounts".
 # Run a second app instance under a dev profile
 dev-alt profile="alt":
-    STARLUME_PROFILE={{profile}} cargo run -p starlume
+    STARLUME_PROFILE={{profile}} ./target/debug/starlume.exe

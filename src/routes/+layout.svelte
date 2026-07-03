@@ -109,6 +109,7 @@
     </nav>
 
     <div class="account">
+      <a class="account-link" href="/me" title="Me">
       {#if authStore.current?.logged_in}
         {#if authStore.profile}
           <Avatar
@@ -137,6 +138,7 @@
           </span>
         </div>
       {/if}
+      </a>
       <a
         class="cog"
         class:active={isActive("/settings")}
@@ -285,6 +287,23 @@
     border-top: 1px solid var(--border);
     padding: 10px 6px 2px;
     margin-top: 8px;
+  }
+
+  .account-link {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: 1;
+    min-width: 0;
+    text-decoration: none;
+    color: inherit;
+    border-radius: 7px;
+    padding: 3px 4px;
+    margin: -3px -4px;
+    transition: background 90ms;
+  }
+  .account-link:hover {
+    background: var(--bg-raised);
   }
   .account-meta {
     display: flex;
