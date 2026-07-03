@@ -16,6 +16,8 @@ pub struct AppState {
     /// Session notification log (Rust-side so webview suspension can't lose
     /// entries — see `notify.rs`).
     pub notif_log: Mutex<NotifLog>,
+    /// Recognized RSI accounts (durable copy: `accounts.json`).
+    pub accounts: Mutex<Vec<crate::sc::RsiAccount>>,
 }
 
 impl AppState {
@@ -25,6 +27,7 @@ impl AppState {
             settings: Mutex::new(AppSettings::load()),
             pending_login: Mutex::new(None),
             notif_log: Mutex::new(NotifLog::default()),
+            accounts: Mutex::new(app_kit::load_json(&crate::sc::accounts_path())),
         }
     }
 
@@ -87,6 +90,7 @@ mod tests {
             settings: Mutex::new(settings),
             pending_login: Mutex::new(None),
             notif_log: Mutex::new(NotifLog::default()),
+            accounts: Mutex::new(Vec::new()),
         }
     }
 

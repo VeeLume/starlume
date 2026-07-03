@@ -23,6 +23,7 @@ mod ipc;
 mod lifecycle;
 mod modules;
 pub mod notify;
+mod sc;
 mod settings;
 mod state;
 mod suspend;

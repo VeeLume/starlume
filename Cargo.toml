@@ -27,6 +27,14 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 tokio = { version = "1", features = ["full"] }
 url = "2"
 dirs = "6"
+chrono = "0.4"
+# RSI public-profile parsing (svc-discovery) — pure HTML parsing, no HTTP.
+scraper = "0.20"
+
+# The SC data backbone — ONE pin for the whole app (the whole point of the
+# consolidation). `installs` only for now; extract/domain features join with
+# svc-data.
+sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.15.0", features = ["installs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

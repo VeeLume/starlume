@@ -42,6 +42,32 @@ async listModules() : Promise<ModuleInfo[]> {
 async recentNotifications() : Promise<NotificationRecord[]> {
     return await TAURI_INVOKE("recent_notifications");
 },
+/**
+ * Scan installs + recognize the launcher account. Local reads only — no
+ * network, no online gate. First sight of a handle creates an unverified
+ * account row (the Hearth bootstrap pattern).
+ */
+async scStatus() : Promise<Result<ScStatus, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sc_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Verify an account against the RSI public profile: capture the immutable
+ * anchors (citizen record + enlisted). Online-gated — the profile scrape is
+ * a network call the user controls.
+ */
+async verifyRsiAccount(handle: string) : Promise<Result<RsiAccount, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("verify_rsi_account", { handle }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async authStatus() : Promise<AuthStatus> {
     return await TAURI_INVOKE("auth_status");
 },
@@ -287,6 +313,10 @@ export type GroupMember = { username: string; is_owner: boolean }
  * feature id here and gates through `AppState::require_grpc(id)`.
  */
 export type GrpcFeatureInfo = { id: string; name: string; description: string }
+/**
+ * Shell mirror of `svc_discovery::InstallInfo` (specta shape).
+ */
+export type InstallView = { channel: string; platform: string; directory: string; version: string; build_id: string }
 export type ModuleInfo = { id: string; name: string; description: string; enabled: boolean }
 /**
  * An optional action on a notification — a labelled link the frontend turns
@@ -310,6 +340,38 @@ export type NotificationRecord = ({ level: NotifLevel; title: string; body: stri
  */
 source: string | null }) & { id: number; ts: number }
 export type Profile = { username: string; avatar_url: string | null }
+/**
+ * A recognized RSI account. `citizen_record`/`enlisted` are the immutable
+ * anchors from the public profile — `None` until verified.
+ */
+export type RsiAccount = { id: string; 
+/**
+ * Current handle (mutable — display + scrape key, never identity).
+ */
+handle: string; 
+/**
+ * UEE Citizen Record number (immutable anchor 1). f64 for the TS
+ * export; values are ~7 digits.
+ */
+citizen_record: number | null; 
+/**
+ * Enlisted date, ISO `YYYY-MM-DD` (immutable anchor 2).
+ */
+enlisted: string | null; primary_org_sid: string | null; 
+/**
+ * Epoch ms of the last successful profile verification.
+ */
+last_verified: number | null }
+export type ScStatus = { installs: InstallView[]; 
+/**
+ * Handle the RSI launcher is currently signed in as, if any.
+ */
+launcher_handle: string | null; 
+/**
+ * The known account matching the launcher handle (auto-created
+ * unverified on first sight).
+ */
+account: RsiAccount | null }
 
 /** tauri-specta globals **/
 

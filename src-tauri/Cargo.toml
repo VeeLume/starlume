@@ -65,6 +65,7 @@ tauri-specta.workspace = true
 
 # Internal crates
 app-kit.workspace = true
+svc-discovery.workspace = true
 
 # WebView2 suspension (docs/memory.md lever 2). Versions MUST match wry's own
 # webview2-com — the COM interface types are shared with `with_webview`.
