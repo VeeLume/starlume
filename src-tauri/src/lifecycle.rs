@@ -111,8 +111,8 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
                 let close_to_tray = window
                     .app_handle()
                     .state::<AppState>()
@@ -125,6 +125,23 @@ pub fn run() {
                     api.prevent_close();
                 }
             }
+            // There is no "minimize requested" event with a prevent API —
+            // the standard Tauri pattern is to catch the resize into the
+            // minimized state and hide instead. `show_main_window`
+            // unminimizes on the way back, so tray → Show restores normally.
+            WindowEvent::Resized(_) => {
+                let minimize_to_tray = window
+                    .app_handle()
+                    .state::<AppState>()
+                    .settings
+                    .lock()
+                    .unwrap()
+                    .minimize_to_tray;
+                if minimize_to_tray && window.is_minimized().unwrap_or(false) {
+                    let _ = window.hide();
+                }
+            }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -54,6 +54,13 @@ migrate in as feature modules over time.
 - Updater signing: private key is a GitHub secret (`TAURI_SIGNING_PRIVATE_KEY`), only the
   pubkey lives in `tauri.conf.json`. Never commit `*.key`.
 
+## Memory
+
+Resident tray app — idle footprint is a product feature. The strategy (svc-data
+lifecycle/eviction rules, WebView2 suspension, disposable-frontend prerequisite for
+window destroy/recreate, honest measurement) lives in [docs/memory.md](docs/memory.md).
+Read it before adding caches or long-lived state.
+
 ## Gotchas
 
 - `src-tauri/icons/` are **placeholders copied from Hearth** — replace before any public

@@ -117,6 +117,12 @@ start_minimized: boolean;
  */
 close_to_tray: boolean; 
 /**
+ * Minimizing the main window hides it to tray instead of the taskbar.
+ * Default off — taskbar minimize is the common expectation; tray purists
+ * opt in.
+ */
+minimize_to_tray: boolean; 
+/**
  * Run at login (delegated to the autostart plugin on update).
  */
 autostart: boolean; 

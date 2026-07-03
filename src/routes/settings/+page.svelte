@@ -87,6 +87,14 @@
     <label>
       <input
         type="checkbox"
+        checked={settings.minimize_to_tray}
+        onchange={(e) => apply({ minimize_to_tray: e.currentTarget.checked })}
+      />
+      Minimize to tray (instead of the taskbar)
+    </label>
+    <label>
+      <input
+        type="checkbox"
         checked={settings.start_minimized}
         onchange={(e) => apply({ start_minimized: e.currentTarget.checked })}
       />

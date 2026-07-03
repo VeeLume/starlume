@@ -23,6 +23,10 @@ pub struct AppSettings {
     pub start_minimized: bool,
     /// Closing the main window hides to tray instead of quitting.
     pub close_to_tray: bool,
+    /// Minimizing the main window hides it to tray instead of the taskbar.
+    /// Default off — taskbar minimize is the common expectation; tray purists
+    /// opt in.
+    pub minimize_to_tray: bool,
     /// Run at login (delegated to the autostart plugin on update).
     pub autostart: bool,
     /// Starlume server base URL. `None` → all online features disabled.
@@ -60,6 +64,7 @@ impl Default for AppSettings {
             onboarding_completed: false,
             start_minimized: false,
             close_to_tray: true,
+            minimize_to_tray: false,
             autostart: false,
             server_url: None,
             enabled_modules: Vec::new(),
