@@ -13,6 +13,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         settings::get_settings,
         settings::update_settings,
+        settings::list_grpc_features,
         modules::list_modules,
         auth::auth_status,
         auth::login_start,

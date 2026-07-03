@@ -4,8 +4,18 @@
 import { check } from "@tauri-apps/plugin-updater";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { settingsStore } from "$lib/state/settings.svelte";
 
 export async function checkForUpdates(interactive = false): Promise<void> {
+  // Honor the online master switch — the update check is a network call too.
+  if (settingsStore.current && !settingsStore.current.online_enabled) {
+    if (interactive) {
+      await message("Online features are disabled (Settings → Online).", {
+        title: "Updater",
+      });
+    }
+    return;
+  }
   try {
     const update = await check();
     if (update) {

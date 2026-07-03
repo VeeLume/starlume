@@ -35,6 +35,14 @@ migrate in as feature modules over time.
 - **Settings** are one JSON snapshot (`AppSettings`, `#[serde(default)]`) under
   `app_kit::app_data_root()`. Add fields, never rename/repurpose them. Side effects of a
   settings change (autostart registration) happen in `update_settings`.
+- **Online policy gates — INVARIANT.** Every outbound network call, anywhere in the app
+  (shell, `svc-*`, modules, frontend), passes a gate first: `AppState::require_online()`
+  for any network call (Discord, RSI, server, update check — the frontend updater reads
+  `settings.online_enabled` for the same reason), and `AppState::require_grpc("<feature>")`
+  for CIG game-services calls (ToS-grey; master opt-in + per-feature allow-list in
+  `AppSettings::grpc_features`, feature ids registered in `settings::GRPC_FEATURES`).
+  New network code without a gate call is a bug, not a style issue. Offline trumps
+  everything: gRPC settings are preserved but inert while online is off.
 - **Secrets** (the device token) go in the Windows Credential Manager via `keyring`,
   never in JSON.
 - **Data dirs are build-namespaced**: debug → `%APPDATA%\starlume-dev`, release →

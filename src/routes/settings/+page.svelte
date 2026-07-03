@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { commands } from "$lib/bindings";
+  import { ask } from "@tauri-apps/plugin-dialog";
+  import { commands, type GrpcFeatureInfo } from "$lib/bindings";
   import { moduleRegistry } from "$lib/modules/registry";
   import { settingsStore, applySettings, loadSettings } from "$lib/state/settings.svelte";
   import { authStore, loadAuth } from "$lib/state/auth.svelte";
@@ -9,6 +10,7 @@
 
   let serverUrlInput = $state("");
   let error = $state("");
+  let grpcFeatures = $state<GrpcFeatureInfo[]>([]);
 
   const settings = $derived(settingsStore.current);
   const auth = $derived(authStore.current);
@@ -16,8 +18,31 @@
   onMount(async () => {
     const s = await loadSettings();
     serverUrlInput = s.server_url ?? "";
+    grpcFeatures = await commands.listGrpcFeatures();
     await loadAuth();
   });
+
+  async function toggleGrpc(on: boolean) {
+    // First enable shows the one-time ToS consent (the Hearth pattern);
+    // the backend records grpc_consented on the transition.
+    if (on && settings && !settings.grpc_consented) {
+      const consent = await ask(
+        "Live game-services sync connects to CIG's backend using your launcher " +
+          "session. This is not an official API — it sits in a ToS-grey area. " +
+          "Calls are read-only, manual or startup-only, never polled. " +
+          "Your account, your risk.\n\nEnable game-services calls?",
+        { title: "Game-services (gRPC) consent", kind: "warning" },
+      );
+      if (!consent) return;
+    }
+    await apply({ grpc_enabled: on });
+  }
+
+  function toggleGrpcFeature(id: string, on: boolean) {
+    const current = settings?.grpc_features ?? [];
+    const next = on ? [...current, id] : current.filter((f) => f !== id);
+    void apply({ grpc_features: next });
+  }
 
   async function apply(patch: Parameters<typeof applySettings>[0]) {
     error = "";
@@ -100,6 +125,47 @@
   </section>
 
   <section>
+    <h2>Online</h2>
+    <label>
+      <input
+        type="checkbox"
+        checked={settings.online_enabled}
+        onchange={(e) => apply({ online_enabled: e.currentTarget.checked })}
+      />
+      Enable online features
+      <span class="dim">— master switch; off = no network calls at all</span>
+    </label>
+    <label class:disabled={!settings.online_enabled}>
+      <input
+        type="checkbox"
+        checked={settings.grpc_enabled}
+        disabled={!settings.online_enabled}
+        onchange={(e) => toggleGrpc(e.currentTarget.checked)}
+      />
+      Allow game-services (gRPC) calls
+      <span class="dim">— ToS-grey, read-only, opt-in per feature below</span>
+    </label>
+    {#if grpcFeatures.length === 0}
+      <p class="dim indent">
+        No game-services features in this build yet — per-feature toggles appear here as
+        they land (blueprints, missions, …).
+      </p>
+    {:else}
+      {#each grpcFeatures as f (f.id)}
+        <label class="indent" class:disabled={!settings.online_enabled || !settings.grpc_enabled}>
+          <input
+            type="checkbox"
+            checked={settings.grpc_features.includes(f.id)}
+            disabled={!settings.online_enabled || !settings.grpc_enabled}
+            onchange={(e) => toggleGrpcFeature(f.id, e.currentTarget.checked)}
+          />
+          {f.name} <span class="dim">— {f.description}</span>
+        </label>
+      {/each}
+    {/if}
+  </section>
+
+  <section>
     <h2>Account</h2>
     <label class="row">
       Server URL
@@ -112,7 +178,9 @@
       />
     </label>
     {#if auth}
-      {#if auth.logged_in}
+      {#if !settings.online_enabled}
+        <p class="dim">Online features are disabled — sign-in unavailable.</p>
+      {:else if auth.logged_in}
         <p>
           Signed in{authStore.profile ? ` as ${authStore.profile.username}` : ""} on this
           device.
@@ -121,7 +189,7 @@
       {:else if auth.server_configured}
         <button onclick={login}>Sign in with Discord</button>
       {:else}
-        <p class="dim">Online features are off — no server configured.</p>
+        <p class="dim">No server configured.</p>
       {/if}
     {/if}
   </section>
@@ -164,6 +232,14 @@
 
   .dim {
     color: var(--text-dim);
+  }
+
+  .indent {
+    margin-left: 24px;
+  }
+
+  .disabled {
+    opacity: 0.55;
   }
 
   .error {

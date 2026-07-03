@@ -74,6 +74,7 @@ pub(crate) fn login_start(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), AppError> {
+    state.require_online()?;
     let server =
         server_url(&state).ok_or_else(|| AppError::Config("no server URL configured".into()))?;
 
@@ -91,6 +92,7 @@ pub(crate) fn login_start(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn fetch_profile(app: AppHandle) -> Result<Profile, AppError> {
+    app.state::<AppState>().require_online()?;
     let server = server_url(&app.state::<AppState>())
         .ok_or_else(|| AppError::Config("no server URL configured".into()))?;
     let token = stored_token().ok_or_else(|| AppError::Auth("not signed in".into()))?;
@@ -163,6 +165,11 @@ fn handle_auth_callback(app: &AppHandle, url: &url::Url) {
     };
 
     let state = app.state::<AppState>();
+    if state.require_online().is_err() {
+        // Online was switched off between login_start and the callback.
+        tracing::warn!("auth callback while online features are disabled — ignoring");
+        return;
+    }
     let pending = state.pending_login.lock().unwrap().take();
     if pending.as_deref() != Some(nonce.as_str()) {
         // Stale or unsolicited callback — a login we didn't start this

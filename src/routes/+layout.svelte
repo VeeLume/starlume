@@ -28,6 +28,9 @@
 
   onMount(() => {
     void (async () => {
+      // Settings first — the online master switch gates everything below
+      // (checkForUpdates reads it; loadAuth's profile fetch is gated
+      // backend-side).
       await loadSettings();
       await loadAuth();
       unlistenAuth = await listenForAuthChanges();

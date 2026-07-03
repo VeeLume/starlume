@@ -22,6 +22,12 @@ async updateSettings(settings: AppSettings) : Promise<Result<AppSettings, AppErr
 }
 },
 /**
+ * List the gRPC sub-features this build knows — drives the Settings toggles.
+ */
+async listGrpcFeatures() : Promise<GrpcFeatureInfo[]> {
+    return await TAURI_INVOKE("list_grpc_features");
+},
+/**
  * List compiled-in modules with their enabled state — drives the onboarding
  * picker and the settings module list.
  */
@@ -123,7 +129,31 @@ server_url: string | null;
  * Feature modules the user enabled in onboarding/settings. Module ids
  * not in this list stay invisible in the UI.
  */
-enabled_modules: string[] }
+enabled_modules: string[]; 
+/**
+ * Master online switch (default ON). Off → the app makes **no** network
+ * calls at all: no Discord auth, no RSI fetch, no update check, no gRPC.
+ * Enforced via [`AppState::require_online`](crate::AppState).
+ */
+online_enabled: boolean; 
+/**
+ * Master switch for CIG game-services (gRPC) calls — the ToS-grey
+ * surface (default OFF, opt-in). Preserved but inert while
+ * `online_enabled` is off. Enforced via `AppState::require_grpc`.
+ */
+grpc_enabled: boolean; 
+/**
+ * One-time ToS acknowledgement — set automatically the first time
+ * `grpc_enabled` flips on (the UI shows the consent dialog before that).
+ */
+grpc_consented: boolean; 
+/**
+ * Per-sub-feature allow-list for gRPC calls (ids from
+ * [`GRPC_FEATURES`]), so users can enable e.g. blueprints but not
+ * missions. A feature is live only when `online_enabled` +
+ * `grpc_enabled` + membership here all hold.
+ */
+grpc_features: string[] }
 export type AuthStatus = { 
 /**
  * A device token is present in the credential store.
@@ -133,6 +163,13 @@ logged_in: boolean;
  * A server URL is configured — login is possible at all.
  */
 server_configured: boolean }
+/**
+ * A gRPC sub-feature users can individually allow. The registry grows as
+ * dossier-backed features land (blueprints, missions, inventory,
+ * reputation, entitlements/ships…) — each new gRPC call site names its
+ * feature id here and gates through `AppState::require_grpc(id)`.
+ */
+export type GrpcFeatureInfo = { id: string; name: string; description: string }
 export type ModuleInfo = { id: string; name: string; description: string; enabled: boolean }
 export type Profile = { username: string; avatar_url: string | null }
 
