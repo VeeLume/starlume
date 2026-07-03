@@ -13,6 +13,14 @@
 //!    the Windows Credential Manager (`keyring`); `auth-changed` is emitted.
 //! 3. `fetch_profile` reads `GET /api/me` with the token — Discord username +
 //!    avatar for the sidebar. `svc-sync` (later) uses the same token.
+//!
+//! **Dev profile mode** (`STARLUME_PROFILE`, debug builds only — see
+//! `app_kit::profile` and the README "Testing with two accounts"): the login
+//! uses a **loopback callback** (ephemeral `127.0.0.1` port) instead of the
+//! deep link — deep links are machine-global and always land in the first
+//! instance — and `login_start` returns the sign-in URL instead of opening
+//! the browser, so the URL can be pasted into whichever browser session holds
+//! the second Discord account. The keyring slot is profile-suffixed.
 
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
@@ -22,10 +30,16 @@ use crate::error::AppError;
 use crate::notify::{Notification, notify};
 
 const KEYRING_SERVICE: &str = "starlume";
-const KEYRING_USER: &str = "device-token";
+
+fn keyring_user() -> String {
+    match app_kit::profile() {
+        Some(p) => format!("device-token--{p}"),
+        None => "device-token".into(),
+    }
+}
 
 fn token_entry() -> Result<keyring::Entry, AppError> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+    keyring::Entry::new(KEYRING_SERVICE, &keyring_user())
         .map_err(|e| AppError::Auth(format!("keyring unavailable: {e}")))
 }
 
@@ -51,6 +65,9 @@ pub struct AuthStatus {
     pub logged_in: bool,
     /// A server URL is configured — login is possible at all.
     pub server_configured: bool,
+    /// Dev profile name when running in multi-instance test mode (debug
+    /// builds only) — the UI shows the manual sign-in URL flow then.
+    pub dev_profile: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -65,16 +82,21 @@ pub(crate) fn auth_status(state: tauri::State<'_, AppState>) -> AuthStatus {
     AuthStatus {
         logged_in: stored_token().is_some(),
         server_configured: state.settings.lock().unwrap().server_url.is_some(),
+        dev_profile: app_kit::profile(),
     }
 }
 
 /// Kick off the browser login. Fails fast when no server is configured.
+///
+/// Returns `None` in the normal flow (browser opened, deep-link callback
+/// expected). In dev profile mode it returns `Some(sign-in URL)` for the
+/// user to open manually — with a loopback callback already listening.
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn login_start(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
-) -> Result<(), AppError> {
+) -> Result<Option<String>, AppError> {
     state.require_online()?;
     let server =
         server_url(&state).ok_or_else(|| AppError::Config("no server URL configured".into()))?;
@@ -82,11 +104,60 @@ pub(crate) fn login_start(
     let nonce = uuid::Uuid::new_v4().to_string();
     *state.pending_login.lock().unwrap() = Some(nonce.clone());
 
+    if app_kit::profile().is_some() {
+        let redirect = start_loopback_listener(app.clone(), server.clone())?;
+        let url = format!(
+            "{server}/auth/desktop/start?nonce={nonce}&redirect={}",
+            url::form_urlencoded::byte_serialize(redirect.as_bytes()).collect::<String>()
+        );
+        return Ok(Some(url));
+    }
+
     let url = format!("{server}/auth/desktop/start?nonce={nonce}");
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|e| AppError::Internal(format!("failed to open browser: {e}")))?;
-    Ok(())
+    Ok(None)
+}
+
+/// One-shot loopback HTTP listener for the dev-profile login. Returns the
+/// redirect URI to hand to the server. Dev-only plumbing: the thread lives
+/// until a connection arrives (leaks on an abandoned login — acceptable).
+fn start_loopback_listener(app: AppHandle, server: String) -> Result<String, AppError> {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|e| AppError::Internal(format!("loopback bind failed: {e}")))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| AppError::Internal(format!("loopback addr failed: {e}")))?
+        .port();
+
+    std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
+        let mut buf = [0u8; 4096];
+        let n = stream.read(&mut buf).unwrap_or(0);
+        let request = String::from_utf8_lossy(&buf[..n]);
+        let path = request
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .unwrap_or("")
+            .to_string();
+        let _ = stream.write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n\
+              <html><body style=\"font-family:sans-serif\">Signed in \xe2\x80\x94 you can close this tab and return to Starlume.</body></html>",
+        );
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+
+        if let Ok(url) = url::Url::parse(&format!("http://localhost{path}")) {
+            complete_login_from_url(&app, server, &url);
+        }
+    });
+
+    Ok(format!("http://127.0.0.1:{port}/callback"))
 }
 
 /// The signed-in user's Discord profile, from `GET /api/me`.
@@ -151,12 +222,21 @@ pub(crate) fn logout(app: AppHandle) -> Result<(), AppError> {
 pub(crate) fn handle_deep_link(app: &AppHandle, url: &url::Url) {
     tracing::info!("deep link: {url}");
     match url.host_str() {
-        Some("auth") => handle_auth_callback(app, url),
+        Some("auth") => {
+            let state = app.state::<AppState>();
+            let Some(server) = server_url(&state) else {
+                tracing::warn!("auth callback with no server configured — ignoring");
+                return;
+            };
+            complete_login_from_url(app, server, url);
+        }
         other => tracing::warn!("unhandled deep-link host: {other:?}"),
     }
 }
 
-fn handle_auth_callback(app: &AppHandle, url: &url::Url) {
+/// Shared tail of both callback transports (deep link + dev loopback):
+/// parse nonce/code, verify the pending nonce, exchange, store, announce.
+fn complete_login_from_url(app: &AppHandle, server: String, url: &url::Url) {
     let mut nonce = None;
     let mut code = None;
     for (k, v) in url.query_pairs() {
@@ -184,12 +264,8 @@ fn handle_auth_callback(app: &AppHandle, url: &url::Url) {
         tracing::warn!("auth callback nonce mismatch — ignoring");
         return;
     }
-    let Some(server) = server_url(&state) else {
-        tracing::warn!("auth callback with no server configured — ignoring");
-        return;
-    };
 
-    // The exchange is a network call; don't block the deep-link handler.
+    // The exchange is a network call; don't block the caller.
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         match exchange_login_code(&server, &code).await {

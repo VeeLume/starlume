@@ -28,6 +28,7 @@ use sha2::Digest;
 use tokio::sync::Mutex;
 
 mod discord;
+mod groups;
 
 const STATE_TTL: Duration = Duration::from_secs(10 * 60);
 const LOGIN_CODE_TTL: Duration = Duration::from_secs(5 * 60);
@@ -54,18 +55,18 @@ struct Pending<T> {
     expires: Instant,
 }
 
-struct AppCtx {
+pub(crate) struct AppCtx {
     config: Config,
-    db: sqlx::SqlitePool,
+    pub(crate) db: sqlx::SqlitePool,
     http: reqwest::Client,
-    /// OAuth `state` → the desktop's nonce.
-    states: Mutex<HashMap<String, Pending<String>>>,
+    /// OAuth `state` → the desktop's pending login (nonce + callback).
+    states: Mutex<HashMap<String, Pending<PendingLogin>>>,
     /// One-time login code → user id.
     login_codes: Mutex<HashMap<String, Pending<String>>>,
 }
 
 /// 256-bit random hex string (uuid v4 uses the OS RNG).
-fn random_token() -> String {
+pub(crate) fn random_token() -> String {
     format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
@@ -139,6 +140,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/auth/discord/callback", get(discord_callback))
         .route("/auth/desktop/exchange", post(desktop_exchange))
         .route("/api/me", get(api_me))
+        .route(
+            "/api/groups",
+            get(groups::list_groups).post(groups::create_group),
+        )
+        .route("/api/groups/join", post(groups::join_group))
+        .route("/api/groups/{id}/invites", post(groups::create_invite))
+        .route("/api/groups/{id}/leave", post(groups::leave_group))
         .with_state(ctx);
 
     tracing::info!("listening on http://{bind}");
@@ -152,24 +160,49 @@ async fn main() -> anyhow::Result<()> {
 #[derive(serde::Deserialize)]
 struct StartQuery {
     nonce: String,
+    /// Optional callback override for dev multi-instance testing. Restricted
+    /// to loopback — anything else would be an open redirect.
+    redirect: Option<String>,
+}
+
+/// What a completed OAuth flow needs to hand control back to the desktop.
+struct PendingLogin {
+    nonce: String,
+    redirect: Option<String>,
+}
+
+fn valid_loopback_redirect(redirect: &str) -> bool {
+    url::Url::parse(redirect).is_ok_and(|u| {
+        u.scheme() == "http" && matches!(u.host_str(), Some("127.0.0.1") | Some("localhost"))
+    })
 }
 
 async fn desktop_start(
     State(ctx): State<Arc<AppCtx>>,
     Query(q): Query<StartQuery>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, AppError> {
+    if let Some(r) = &q.redirect
+        && !valid_loopback_redirect(r)
+    {
+        return Err(AppError::bad_request(
+            "redirect must be a loopback http URL".into(),
+        ));
+    }
     let state = random_token();
     insert_pending(
         &mut *ctx.states.lock().await,
         state.clone(),
-        q.nonce,
+        PendingLogin {
+            nonce: q.nonce,
+            redirect: q.redirect,
+        },
         STATE_TTL,
     );
-    Redirect::temporary(&discord::authorize_url(
+    Ok(Redirect::temporary(&discord::authorize_url(
         &ctx.config.discord_client_id,
         &ctx.config.redirect_uri(),
         &state,
-    ))
+    )))
 }
 
 #[derive(serde::Deserialize)]
@@ -192,7 +225,7 @@ async fn discord_callback(
         .zip(q.state)
         .ok_or_else(|| AppError::bad_request("missing code/state".into()))?;
 
-    let nonce = take_pending(&mut *ctx.states.lock().await, &state).ok_or_else(|| {
+    let pending = take_pending(&mut *ctx.states.lock().await, &state).ok_or_else(|| {
         AppError::bad_request("unknown or expired state — restart the sign-in from the app".into())
     })?;
 
@@ -234,10 +267,15 @@ async fn discord_callback(
         LOGIN_CODE_TTL,
     );
 
-    // Hand control back to the desktop app. The page body is a fallback for
-    // browsers that ask before opening the app.
+    // Hand control back to the desktop app — deep link normally, loopback
+    // for dev profile instances.
+    let base = pending
+        .redirect
+        .as_deref()
+        .unwrap_or("starlume://auth/callback");
+    let nonce = pending.nonce;
     Ok(Redirect::temporary(&format!(
-        "starlume://auth/callback?nonce={nonce}&code={login_code}"
+        "{base}?nonce={nonce}&code={login_code}"
     )))
 }
 
@@ -277,10 +315,9 @@ async fn desktop_exchange(
     Ok(Json(ExchangeResponse { token, profile }))
 }
 
-async fn api_me(
-    State(ctx): State<Arc<AppCtx>>,
-    headers: HeaderMap,
-) -> Result<Json<Profile>, AppError> {
+/// Resolve the Bearer device token to a user id (updating `last_seen`).
+/// Shared by every `/api/*` handler.
+pub(crate) async fn authenticate(ctx: &AppCtx, headers: &HeaderMap) -> Result<String, AppError> {
     let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -294,8 +331,15 @@ async fn api_me(
     .bind(sha256_hex(token))
     .fetch_optional(&ctx.db)
     .await?;
-    let (user_id,) = row.ok_or_else(|| AppError::unauthorized("invalid token".into()))?;
+    row.map(|(user_id,)| user_id)
+        .ok_or_else(|| AppError::unauthorized("invalid token".into()))
+}
 
+async fn api_me(
+    State(ctx): State<Arc<AppCtx>>,
+    headers: HeaderMap,
+) -> Result<Json<Profile>, AppError> {
+    let user_id = authenticate(&ctx, &headers).await?;
     Ok(Json(load_profile(&ctx.db, &user_id).await?))
 }
 
@@ -314,21 +358,27 @@ async fn load_profile(db: &sqlx::SqlitePool, user_id: &str) -> Result<Profile, A
 
 // ── Error plumbing ──────────────────────────────────────────────────────
 
-struct AppError {
+pub(crate) struct AppError {
     status: StatusCode,
     message: String,
 }
 
 impl AppError {
-    fn bad_request(message: String) -> Self {
+    pub(crate) fn bad_request(message: String) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
             message,
         }
     }
-    fn unauthorized(message: String) -> Self {
+    pub(crate) fn unauthorized(message: String) -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
+            message,
+        }
+    }
+    pub(crate) fn not_found(message: String) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
             message,
         }
     }

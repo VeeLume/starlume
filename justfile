@@ -26,3 +26,9 @@ server-env:
 # Delete the local server database
 server-db-reset:
     rm -f starlume.db starlume.db-shm starlume.db-wal
+
+# Needs `just dev` running (shares its vite server). Own data dir + keyring slot,
+# no single-instance lock, loopback auth. See README "Testing with two accounts".
+# Run a second app instance under a dev profile
+dev-alt profile="alt":
+    STARLUME_PROFILE={{profile}} cargo run -p starlume

@@ -47,8 +47,12 @@ async authStatus() : Promise<AuthStatus> {
 },
 /**
  * Kick off the browser login. Fails fast when no server is configured.
+ * 
+ * Returns `None` in the normal flow (browser opened, deep-link callback
+ * expected). In dev profile mode it returns `Some(sign-in URL)` for the
+ * user to open manually — with a loopback callback already listening.
  */
-async loginStart() : Promise<Result<null, AppError>> {
+async loginStart() : Promise<Result<string | null, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("login_start") };
 } catch (e) {
@@ -74,6 +78,49 @@ async fetchProfile() : Promise<Result<Profile, AppError>> {
 async logout() : Promise<Result<null, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("logout") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listGroups() : Promise<Result<FriendGroup[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_groups") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createGroup(name: string) : Promise<Result<FriendGroup, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_group", { name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Mint an invite code for a group (member-only; 7-day expiry server-side).
+ */
+async createInvite(groupId: string) : Promise<Result<string, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_invite", { groupId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async joinGroup(code: string) : Promise<Result<FriendGroup, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("join_group", { code }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async leaveGroup(groupId: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("leave_group", { groupId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -183,7 +230,14 @@ logged_in: boolean;
 /**
  * A server URL is configured — login is possible at all.
  */
-server_configured: boolean }
+server_configured: boolean; 
+/**
+ * Dev profile name when running in multi-instance test mode (debug
+ * builds only) — the UI shows the manual sign-in URL flow then.
+ */
+dev_profile: string | null }
+export type FriendGroup = { id: string; name: string; is_owner: boolean; members: GroupMember[] }
+export type GroupMember = { username: string; is_owner: boolean }
 /**
  * A gRPC sub-feature users can individually allow. The registry grows as
  * dossier-backed features land (blueprints, missions, inventory,

@@ -57,10 +57,21 @@
     void apply({ enabled_modules: next });
   }
 
+  // Dev profile mode returns the sign-in URL instead of opening the browser
+  // (two-account testing — paste it into the browser session that holds the
+  // right Discord account).
+  let manualLoginUrl = $state("");
+
   async function login() {
     error = "";
+    manualLoginUrl = "";
     const result = await commands.loginStart();
-    if (result.status === "error") error = result.error.message;
+    if (result.status === "error") {
+      error = result.error.message;
+    } else if (result.data) {
+      manualLoginUrl = result.data;
+      await navigator.clipboard.writeText(result.data).catch(() => {});
+    }
   }
 
   async function logout() {
@@ -204,6 +215,18 @@
         <button onclick={logout}>Sign out</button>
       {:else if auth.server_configured}
         <button onclick={login}>Sign in with Discord</button>
+        {#if auth.dev_profile}
+          <p class="dim">
+            Dev profile <code>{auth.dev_profile}</code> — the sign-in link is shown here
+            instead of opening the browser.
+          </p>
+          {#if manualLoginUrl}
+            <p class="manual-url">
+              Copied to clipboard — open it in the browser session with the right Discord
+              account:<br /><code>{manualLoginUrl}</code>
+            </p>
+          {/if}
+        {/if}
       {:else}
         <p class="dim">No server configured.</p>
       {/if}
@@ -256,6 +279,17 @@
 
   .disabled {
     opacity: 0.55;
+  }
+
+  .manual-url {
+    font-size: 12px;
+    color: var(--text-dim);
+    max-width: 480px;
+    word-break: break-all;
+  }
+
+  .manual-url code {
+    color: var(--accent);
   }
 
   .error {

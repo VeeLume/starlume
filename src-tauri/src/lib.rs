@@ -17,6 +17,7 @@
 
 mod auth;
 mod error;
+mod groups;
 mod ipc;
 mod lifecycle;
 mod modules;

@@ -81,6 +81,27 @@ device token (`POST /auth/desktop/exchange`, token stored in the Windows
 Credential Manager) → `GET /api/me` powers the sidebar profile. Tokens are
 stored server-side as sha256 hashes, one row per device.
 
+## Testing with two accounts
+
+Community features (friend groups, later sharing) need two signed-in users to
+test against each other. Dev profile mode (`STARLUME_PROFILE`, debug builds
+only) runs a second instance side by side — own data dir
+(`starlume-dev-<profile>`), own keyring slot, no single-instance lock, and a
+**loopback auth callback** instead of the deep link (deep links are
+machine-global and always land in the first instance).
+
+1. `just server` and `just dev` — server + first instance; sign in normally
+   (your main Discord account).
+2. `just dev-alt` — second instance under profile `alt`, sharing the first
+   instance's vite dev server.
+3. In the second instance: Settings → same server URL → Sign in. Instead of
+   opening a browser it shows + copies the sign-in URL — **paste it into a
+   browser session where the second Discord account is logged in** (private
+   window, second browser, or a browser profile). The browser session, not
+   the Discord client, decides which account OAuth uses.
+4. Both instances are now different users against the same local server —
+   create a group in one, mint an invite, join from the other.
+
 ## License
 
 MIT

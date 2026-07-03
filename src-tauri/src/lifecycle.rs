@@ -74,14 +74,20 @@ pub fn run() {
     let start_minimized = std::env::args().any(|a| a == "--minimized")
         || state.settings.lock().unwrap().start_minimized;
 
-    tauri::Builder::default()
-        // MUST be first — see module docs.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+    let mut builder = tauri::Builder::default();
+    // MUST be first — see module docs. Skipped in dev profile mode: a
+    // profile instance runs *beside* the default instance by design (the
+    // two-account test setup; its auth uses a loopback callback, so it
+    // doesn't need the deep-link forwarding either).
+    if app_kit::profile().is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // A second launch without a deep link is the user looking for the
             // window — bring it up. (Deep-link argv is forwarded separately by
             // the plugin's deep-link feature.)
             show_main_window(app);
-        }))
+        }));
+    }
+    builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -103,8 +109,13 @@ pub fn run() {
 
             // Dev builds aren't installed, so the NSIS-time scheme
             // registration never ran — register starlume:// at runtime.
+            // Not in profile mode: registration is machine-global and would
+            // steal the scheme from the default instance (profiles use the
+            // loopback auth callback instead).
             #[cfg(debug_assertions)]
-            app.deep_link().register_all()?;
+            if app_kit::profile().is_none() {
+                app.deep_link().register_all()?;
+            }
 
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {

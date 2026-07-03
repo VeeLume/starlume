@@ -10,11 +10,26 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+/// Dev profile for multi-instance testing (two Discord accounts side by
+/// side). Honored in **debug builds only** — release users can't footgun
+/// themselves into a shadow profile. A profile gets its own data dir, its
+/// own keyring slot, no single-instance lock, and a loopback (instead of
+/// deep-link) auth callback — see the repo README, "Testing with two
+/// accounts".
+pub fn profile() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::env::var("STARLUME_PROFILE")
+        .ok()
+        .filter(|p| !p.is_empty())
+}
+
 /// Root directory for all persisted app data.
 ///
 /// Debug and release builds are namespaced apart (the Hearth pattern) so a dev
 /// schema experiment never touches real data:
-/// - debug   → `%APPDATA%\starlume-dev\`
+/// - debug   → `%APPDATA%\starlume-dev\` (or `starlume-dev-<profile>`)
 /// - release → `%APPDATA%\starlume\`
 /// - `STARLUME_DATA_DIR` overrides both.
 pub fn app_data_root() -> PathBuf {
@@ -22,12 +37,11 @@ pub fn app_data_root() -> PathBuf {
         return PathBuf::from(dir);
     }
     let base = dirs::config_dir().expect("no platform config dir");
-    let name = if cfg!(debug_assertions) {
-        "starlume-dev"
-    } else {
-        "starlume"
-    };
-    base.join(name)
+    match profile() {
+        Some(p) => base.join(format!("starlume-dev-{p}")),
+        None if cfg!(debug_assertions) => base.join("starlume-dev"),
+        None => base.join("starlume"),
+    }
 }
 
 /// Write `bytes` to `path` atomically: write a sibling `.tmp` file, then swap

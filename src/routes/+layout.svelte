@@ -32,9 +32,11 @@
     if (centerOpen) markAllRead();
   }
 
-  // Home + one entry per enabled module (registry order).
+  // Home + Friends (shell-level) + one entry per enabled module (registry
+  // order).
   const nav = $derived([
     { href: "/", label: "Home", icon: "✦" },
+    { href: "/friends", label: "Friends", icon: "◈" },
     ...moduleRegistry
       .filter((d) => settingsStore.current?.enabled_modules.includes(d.id))
       .flatMap((d) => d.nav ?? []),
