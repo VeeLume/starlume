@@ -10,9 +10,11 @@ migrate in as feature modules over time.
 - The design doc (target picture, per-project disposition, migration order, open decisions)
   lives in the maintainer's vault, not in this repo. `CLAUDE.local.md` (gitignored) carries
   the pointer on the maintainer's machine.
-- Sibling repos this consolidates (read-only reference): `E:\vscode\rust\hearth` (the
-  architecture donor — when in doubt, mirror its patterns), `E:\vscode\rust\sc-langpatch`,
-  `E:\vscode\rust\sc-cargo-planner`, `E:\vscode\rust\sc-fleetsync`.
+- Sibling repos this consolidates (read-only reference): [hearth](https://github.com/VeeLume/hearth)
+  (the architecture donor — when in doubt, mirror its patterns),
+  [sc-langpatch](https://github.com/VeeLume/sc-langpatch),
+  [sc-cargo-planner](https://github.com/VeeLume/sc-cargo-planner), and sc-fleetsync.
+  Local checkout paths are in `CLAUDE.local.md`.
 
 ## Workspace shape
 
