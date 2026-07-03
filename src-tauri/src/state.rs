@@ -30,7 +30,9 @@ impl AppState {
     // that talks to the network without a gate call is a bug.
 
     /// Master online switch. `Err` when the user has turned all online
-    /// features off — no Discord, no RSI fetch, no update check, nothing.
+    /// features off — no Discord, no RSI fetch, no gRPC, nothing. Sole
+    /// exception: **update checks** (see CLAUDE.md — legit app function,
+    /// no ToS implications).
     pub fn require_online(&self) -> Result<(), AppError> {
         if self.settings.lock().unwrap().online_enabled {
             Ok(())

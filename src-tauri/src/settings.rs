@@ -31,9 +31,10 @@ pub struct AppSettings {
     /// Feature modules the user enabled in onboarding/settings. Module ids
     /// not in this list stay invisible in the UI.
     pub enabled_modules: Vec<String>,
-    /// Master online switch (default ON). Off → the app makes **no** network
-    /// calls at all: no Discord auth, no RSI fetch, no update check, no gRPC.
-    /// Enforced via [`AppState::require_online`](crate::AppState).
+    /// Master online switch (default ON). Off → no Discord auth, no RSI
+    /// fetch, no gRPC — no network calls except **update checks** (the one
+    /// documented exception; see CLAUDE.md). Enforced via
+    /// [`AppState::require_online`](crate::AppState).
     pub online_enabled: bool,
     /// Master switch for CIG game-services (gRPC) calls — the ToS-grey
     /// surface (default OFF, opt-in). Preserved but inert while

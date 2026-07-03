@@ -37,12 +37,14 @@ migrate in as feature modules over time.
   settings change (autostart registration) happen in `update_settings`.
 - **Online policy gates — INVARIANT.** Every outbound network call, anywhere in the app
   (shell, `svc-*`, modules, frontend), passes a gate first: `AppState::require_online()`
-  for any network call (Discord, RSI, server, update check — the frontend updater reads
-  `settings.online_enabled` for the same reason), and `AppState::require_grpc("<feature>")`
+  for any network call (Discord, RSI, server), and `AppState::require_grpc("<feature>")`
   for CIG game-services calls (ToS-grey; master opt-in + per-feature allow-list in
   `AppSettings::grpc_features`, feature ids registered in `settings::GRPC_FEATURES`).
   New network code without a gate call is a bug, not a style issue. Offline trumps
   everything: gRPC settings are preserved but inert while online is off.
+  **Sole exception: update checks** (`src/lib/updater.ts`) — a legitimate app function
+  with no ToS implications; offline-mode users still get (security-)fixed builds. Do not
+  add further exceptions without the same level of justification, documented here.
 - **Secrets** (the device token) go in the Windows Credential Manager via `keyring`,
   never in JSON.
 - **Data dirs are build-namespaced**: debug → `%APPDATA%\starlume-dev`, release →

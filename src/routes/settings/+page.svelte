@@ -133,7 +133,7 @@
         onchange={(e) => apply({ online_enabled: e.currentTarget.checked })}
       />
       Enable online features
-      <span class="dim">— master switch; off = no network calls at all</span>
+      <span class="dim">— master switch; off = no network calls (except update checks)</span>
     </label>
     <label class:disabled={!settings.online_enabled}>
       <input

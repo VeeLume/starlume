@@ -131,9 +131,10 @@ server_url: string | null;
  */
 enabled_modules: string[]; 
 /**
- * Master online switch (default ON). Off → the app makes **no** network
- * calls at all: no Discord auth, no RSI fetch, no update check, no gRPC.
- * Enforced via [`AppState::require_online`](crate::AppState).
+ * Master online switch (default ON). Off → no Discord auth, no RSI
+ * fetch, no gRPC — no network calls except **update checks** (the one
+ * documented exception; see CLAUDE.md). Enforced via
+ * [`AppState::require_online`](crate::AppState).
  */
 online_enabled: boolean; 
 /**
