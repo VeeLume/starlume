@@ -123,6 +123,6 @@
     color: var(--accent);
   }
   .error {
-    color: #e06c6c;
+    color: var(--bad);
   }
 </style>

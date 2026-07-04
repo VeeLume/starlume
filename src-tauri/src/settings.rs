@@ -56,6 +56,12 @@ pub struct AppSettings {
     /// hidden/minimized (companion mode). Default ON — a hidden tray app has
     /// no other way to reach the user.
     pub native_notifications: bool,
+    /// Warm the game-data cache in the background at app start (scan installs,
+    /// cook the newest PU build if its snapshot is missing/stale). Default ON —
+    /// catalogs are instantly browsable instead of gated on a manual Load.
+    /// Local file reads only, no online implications; the heavy parse runs at
+    /// most once per game patch.
+    pub auto_load_game_data: bool,
 }
 
 impl Default for AppSettings {
@@ -73,6 +79,7 @@ impl Default for AppSettings {
             grpc_consented: false,
             grpc_features: Vec::new(),
             native_notifications: true,
+            auto_load_game_data: true,
         }
     }
 }

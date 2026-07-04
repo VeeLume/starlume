@@ -68,6 +68,101 @@ async verifyRsiAccount(handle: string) : Promise<Result<RsiAccount, AppError>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Scan installs and report each one's cache/load state. Local reads only.
+ */
+async dataStatus() : Promise<Result<DataStatusView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Run the load waterfall for one channel (processed snapshot → extract
+ * snapshot → live parse). The slow tiers take ~15–45s; progress streams
+ * via the `data:progress` event.
+ */
+async dataLoad(channel: string) : Promise<Result<DataStatusView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_load", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Delete cached snapshots for one channel (or all). The next load is a
+ * full live parse.
+ */
+async dataWipe(channel: string | null) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_wipe", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Search inventory items by name/GUID substring, optionally filtered to
+ * one item type. Paginated; `total` counts all matches.
+ */
+async dataSearchItems(channel: string, query: string, itemType: string | null, offset: number, limit: number) : Promise<Result<ItemPageView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_search_items", { channel, query, itemType, offset, limit }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async dataItemDetail(channel: string, guid: string) : Promise<Result<ItemDetailView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_item_detail", { channel, guid }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async dataResources(channel: string) : Promise<Result<ResourceRowView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_resources", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async dataManufacturers(channel: string) : Promise<Result<ManufacturerRowView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_manufacturers", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Distinct item types with counts — feeds the search type filter.
+ */
+async dataItemTypes(channel: string) : Promise<Result<ItemTypeFacetView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_item_types", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The full pooled mission catalog for a channel. A few hundred templates
+ * after pooling — ships whole; the frontend filters/sorts client-side.
+ */
+async dataMissions(channel: string) : Promise<Result<MissionEntryView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_missions", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async authStatus() : Promise<AuthStatus> {
     return await TAURI_INVOKE("auth_status");
 },
@@ -288,7 +383,15 @@ grpc_features: string[];
  * hidden/minimized (companion mode). Default ON — a hidden tray app has
  * no other way to reach the user.
  */
-native_notifications: boolean }
+native_notifications: boolean; 
+/**
+ * Warm the game-data cache in the background at app start (scan installs,
+ * cook the newest PU build if its snapshot is missing/stale). Default ON —
+ * catalogs are instantly browsable instead of gated on a manual Load.
+ * Local file reads only, no online implications; the heavy parse runs at
+ * most once per game patch.
+ */
+auto_load_game_data: boolean }
 export type AuthStatus = { 
 /**
  * A device token is present in the credential store.
@@ -303,6 +406,38 @@ server_configured: boolean;
  * builds only) — the UI shows the manual sign-in URL flow then.
  */
 dev_profile: string | null }
+export type BpPoolEntryView = { blueprint_record_guid: string; name: string | null; weight: number }
+export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
+export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
+/**
+ * Cache/load state of one install, for the status cards.
+ */
+export type DataStatusView = { 
+/**
+ * Channel label as discovery reports it, e.g. `"Live"`.
+ */
+channel: string; version: string; build_id: string; loaded: boolean; predicted_tier: DataTierView; item_count: number | null; resource_count: number | null; mission_count: number | null; 
+/**
+ * The channel the app treats as "the one the user wants" — newest PU
+ * build (Live/Hotfix), warmed at startup, preselected by the catalogs.
+ */
+is_default: boolean }
+/**
+ * Which cache tier the next load of a channel will likely hit.
+ */
+export type DataTierView = 
+/**
+ * Cooked snapshot on disk — loads in about a second.
+ */
+"processed" | 
+/**
+ * Raw extract snapshot only — re-parse, ~15–20s.
+ */
+"extract" | 
+/**
+ * Nothing cached — full `Data.p4k` parse, ~30s+.
+ */
+"live"
 export type FriendGroup = { id: string; name: string; is_owner: boolean; members: GroupMember[] }
 export type FriendUser = { user_id: string; username: string }
 export type GroupMember = { username: string; is_owner: boolean }
@@ -317,6 +452,22 @@ export type GrpcFeatureInfo = { id: string; name: string; description: string }
  * Shell mirror of `svc_discovery::InstallInfo` (specta shape).
  */
 export type InstallView = { channel: string; platform: string; directory: string; version: string; build_id: string }
+export type ItemDetailView = { guid: string; name: string; short_name: string | null; description: string | null; item_type: string; item_sub_type: string; size: number; grade: number; record_path: string | null }
+export type ItemPageView = { total: number; rows: ItemRowView[] }
+export type ItemRewardView = { entity_guid: string; name: string | null; amount: number }
+export type ItemRowView = { guid: string; name: string; item_type: string; item_sub_type: string; size: number; grade: number }
+export type ItemTypeFacetView = { item_type: string; count: number }
+export type ManufacturerRowView = { guid: string; code: string; name: string | null }
+export type MissionCategoryView = { name: string | null; icon: string }
+export type MissionDifficultyView = { mechanical_skill: number; mental_load: number; risk_of_loss: number; game_knowledge: number }
+export type MissionEncounterView = { label: string; difficulty: string | null; waves: MissionWaveView[] }
+export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number }
+export type MissionFactionView = { guid: string; name: string | null }
+export type MissionPayoutView = { calculated: boolean; fixed: number | null; estimate: number | null; buy_in: number; time_to_complete: number }
+export type MissionPlaceView = { name: string | null; record_name: string; kind: string | null }
+export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean }
+export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
+export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[] }
 export type ModuleInfo = { id: string; name: string; description: string; enabled: boolean }
 /**
  * An optional action on a notification — a labelled link the frontend turns
@@ -340,6 +491,9 @@ export type NotificationRecord = ({ level: NotifLevel; title: string; body: stri
  */
 source: string | null }) & { id: number; ts: number }
 export type Profile = { username: string; avatar_url: string | null }
+export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
+export type RepRewardView = { faction_guid: string | null; amount: number | null }
+export type ResourceRowView = { guid: string; name: string; description: string | null; refined_into: string | null; density_kg_per_m3: number | null }
 /**
  * A recognized RSI account. `citizen_record`/`enlisted` are the immutable
  * anchors from the public profile — `None` until verified.
@@ -372,6 +526,8 @@ launcher_handle: string | null;
  * unverified on first sight).
  */
 account: RsiAccount | null }
+export type ScripRewardView = { name: string | null; amount: number }
+export type ShipSlotView = { count_min: number; count_max: number; ships: string[]; factions: string[] }
 
 /** tauri-specta globals **/
 

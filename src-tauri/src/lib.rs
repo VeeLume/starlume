@@ -9,6 +9,8 @@
 //! - [`settings`] — app-global preferences (JSON on disk via app-kit).
 //! - [`auth`] — device-token auth against the Starlume server (deep-link
 //!   callback + Windows Credential Manager storage).
+//! - [`data`] — SC game-data commands over `svc-data` (parse/snapshot
+//!   status, load, item/resource/manufacturer queries).
 //! - [`modules`] — the feature-module registry (empty until the first
 //!   carve-out; the trait + enabled-set live here).
 //! - [`notify`] — the global notification funnel (toast/center event +
@@ -16,6 +18,7 @@
 //! - [`error`] — the shared IPC error type.
 
 mod auth;
+mod data;
 mod error;
 mod friends;
 mod groups;

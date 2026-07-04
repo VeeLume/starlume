@@ -8,3 +8,16 @@ repository.workspace = true
 description = "Starlume data service — one shared DCB parse + snapshot cache per build"
 
 [dependencies]
+# The umbrella pin lands here, nowhere else (see workspace root for the
+# one-pin rule). `foundations` = items, tags, manufacturers, resources,
+# locations, gathering + RecordPaths — the HolotableSnapshot bundle.
+# `missions-payout` adds the contracts pipeline + the DCB-read UecCurve for
+# the mission catalog cook.
+sc-holotable = { workspace = true, features = ["foundations", "missions-payout"] }
+serde.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

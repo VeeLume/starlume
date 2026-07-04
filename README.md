@@ -31,6 +31,14 @@ src/                SvelteKit frontend (static SPA)
 2. The user picks modules in onboarding; modules not enabled stay invisible. The app must
    stay lightweight for someone who only wants one module.
 3. New Star Citizen features land here as modules — not as new apps.
+4. **Reference vs personal.** Reference catalogs (items / resources / missions /
+   manufacturers, later blueprints) are **app framework**: cooked in `svc-data`, served
+   by shell commands, browsable by everyone — they cost nothing until loaded. Modules
+   own **personal state and behavior** (ownership, wishlists, tracking, patching) and
+   attach to catalogs by GUID — decorating catalog rows/details through registry
+   extension points (the `meSections` pattern), never owning or re-cooking reference
+   data. Litmus test: disabling a module leaves every catalog fully functional, just
+   undecorated.
 
 ### Adding a module
 

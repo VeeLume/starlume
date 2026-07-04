@@ -327,7 +327,7 @@
     color: var(--text-dim);
   }
   .error {
-    color: #e06c6c;
+    color: var(--bad);
     margin: 0 0 8px;
   }
 </style>

@@ -1,7 +1,7 @@
 //! Shared app state, managed by Tauri and reachable from every command via
 //! `tauri::State<'_, AppState>`.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::error::AppError;
 use crate::notify::NotifLog;
@@ -18,6 +18,13 @@ pub struct AppState {
     pub notif_log: Mutex<NotifLog>,
     /// Recognized RSI accounts (durable copy: `accounts.json`).
     pub accounts: Mutex<Vec<crate::sc::RsiAccount>>,
+    /// The shared SC data service (internally synchronized). `Arc` so the
+    /// long-running `load` can be moved into `spawn_blocking`.
+    pub data: Arc<svc_data::DataService>,
+    /// Installs from the most recent scan, as svc-data refs — so data query
+    /// commands resolve a channel without rescanning. Refreshed by
+    /// `data_status` / `data_load`.
+    pub installs: Mutex<Vec<svc_data::InstallRef>>,
 }
 
 impl AppState {
@@ -28,6 +35,10 @@ impl AppState {
             pending_login: Mutex::new(None),
             notif_log: Mutex::new(NotifLog::default()),
             accounts: Mutex::new(app_kit::load_json(&crate::sc::accounts_path())),
+            data: Arc::new(svc_data::DataService::new(
+                app_kit::app_data_root().join("cache"),
+            )),
+            installs: Mutex::new(Vec::new()),
         }
     }
 
@@ -91,6 +102,8 @@ mod tests {
             pending_login: Mutex::new(None),
             notif_log: Mutex::new(NotifLog::default()),
             accounts: Mutex::new(Vec::new()),
+            data: Arc::new(svc_data::DataService::new(std::env::temp_dir())),
+            installs: Mutex::new(Vec::new()),
         }
     }
 

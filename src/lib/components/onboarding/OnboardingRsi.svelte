@@ -16,7 +16,10 @@
   const status = $derived(scStore.status);
   const account = $derived(scStore.account);
 
-  let loading = $state(true);
+  // Render from the shared store immediately when the layout's startup
+  // hydration already scanned (docs/frontend.md rule 4) — the spinner is
+  // for the genuine first scan only; re-runs refresh silently.
+  let loading = $state(!scStore.loaded);
   let verifying = $state(false);
   let error = $state("");
 
@@ -109,6 +112,6 @@
     font-size: 0.9em;
   }
   .error {
-    color: #e06c6c;
+    color: var(--bad);
   }
 </style>

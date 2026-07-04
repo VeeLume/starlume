@@ -1,24 +1,30 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { commands, type FriendGroup, type FriendUser } from "$lib/bindings";
+  import type { FriendGroup, FriendUser } from "$lib/bindings";
   import { authStore, loadAuth } from "$lib/state/auth.svelte";
   import { notify } from "$lib/state/notifications.svelte";
+  import {
+    friendsStore,
+    refreshFriends,
+    mintFriendCode,
+    addFriend,
+    removeFriend,
+    createGroup,
+    joinGroup,
+    createInvite,
+    leaveGroup,
+  } from "$lib/state/friends.svelte";
 
-  // No push channel yet (v2 plan is "polling, not realtime"), so a friend
-  // adding you back — or joining a group — wouldn't show until re-navigation.
-  // Refresh on window focus (instant when you tab back) plus a slow poll while
-  // the page is open. Both are silent no-ops when signed out.
+  // Data lives in friendsStore (renders instantly on revisit); this page
+  // only owns input fields + freshly minted codes. No push channel yet
+  // (v2 plan is "polling, not realtime"), so refresh on focus + slow poll.
   const POLL_MS = 20_000;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
   function quietRefresh() {
-    if (authStore.current?.logged_in) void refresh();
+    if (authStore.current?.logged_in) void refreshFriends();
   }
 
-  let friends = $state<FriendUser[]>([]);
-  let groups = $state<FriendGroup[]>([]);
-  let loaded = $state(false);
-  let error = $state("");
   let friendCode = $state("");
   let myFriendCode = $state("");
   let newGroupName = $state("");
@@ -28,103 +34,60 @@
 
   const auth = $derived(authStore.current);
 
-  async function refresh() {
-    error = "";
-    const [friendsResult, groupsResult] = await Promise.all([
-      commands.listFriends(),
-      commands.listGroups(),
-    ]);
-    if (friendsResult.status === "ok") friends = friendsResult.data;
-    else error = friendsResult.error.message;
-    if (groupsResult.status === "ok") groups = groupsResult.data;
-    else error = groupsResult.error.message;
-    loaded = true;
-  }
-
-  async function mintFriendCode() {
-    error = "";
-    const result = await commands.createFriendInvite();
-    if (result.status === "ok") {
-      myFriendCode = result.data;
-      await navigator.clipboard.writeText(result.data).catch(() => {});
-    } else {
-      error = result.error.message;
+  async function mint() {
+    const code = await mintFriendCode();
+    if (code) {
+      myFriendCode = code;
+      await navigator.clipboard.writeText(code).catch(() => {});
     }
   }
 
-  async function addFriend() {
+  async function add() {
     const code = friendCode.trim();
     if (!code) return;
-    error = "";
-    const result = await commands.addFriend(code);
-    if (result.status === "ok") {
-      friends = result.data;
+    if (await addFriend(code)) {
       friendCode = "";
       notify({ level: "success", title: "Friend added", source: "friends" });
-    } else {
-      error = result.error.message;
     }
   }
 
-  async function removeFriend(friend: FriendUser) {
-    error = "";
-    const result = await commands.removeFriend(friend.user_id);
-    if (result.status === "ok") friends = result.data;
-    else error = result.error.message;
+  async function remove(friend: FriendUser) {
+    await removeFriend(friend.user_id);
   }
 
-  async function createGroup() {
+  async function create() {
     const name = newGroupName.trim();
     if (!name) return;
-    error = "";
-    const result = await commands.createGroup(name);
-    if (result.status === "ok") {
-      newGroupName = "";
-      await refresh();
-    } else {
-      error = result.error.message;
-    }
+    if (await createGroup(name)) newGroupName = "";
   }
 
   async function join() {
     const code = joinCode.trim();
     if (!code) return;
-    error = "";
-    const result = await commands.joinGroup(code);
-    if (result.status === "ok") {
+    const group = await joinGroup(code);
+    if (group) {
       joinCode = "";
-      notify({ level: "success", title: `Joined ${result.data.name}`, source: "friends" });
-      await refresh();
-    } else {
-      error = result.error.message;
+      notify({ level: "success", title: `Joined ${group.name}`, source: "friends" });
     }
   }
 
   async function invite(groupId: string) {
-    error = "";
-    const result = await commands.createInvite(groupId);
-    if (result.status === "ok") {
-      inviteCodes = { ...inviteCodes, [groupId]: result.data };
-      await navigator.clipboard.writeText(result.data).catch(() => {});
-    } else {
-      error = result.error.message;
+    const code = await createInvite(groupId);
+    if (code) {
+      inviteCodes = { ...inviteCodes, [groupId]: code };
+      await navigator.clipboard.writeText(code).catch(() => {});
     }
   }
 
   async function leave(group: FriendGroup) {
-    error = "";
-    const result = await commands.leaveGroup(group.id);
-    if (result.status === "ok") {
-      await refresh();
-    } else {
-      error = result.error.message;
-    }
+    await leaveGroup(group.id);
   }
 
-  onMount(async () => {
-    await loadAuth();
-    if (authStore.current?.logged_in) await refresh();
-    else loaded = true;
+  onMount(() => {
+    void (async () => {
+      await loadAuth();
+      void refreshFriends();
+    })();
     pollTimer = setInterval(quietRefresh, POLL_MS);
   });
   onDestroy(() => clearInterval(pollTimer));
@@ -136,12 +99,12 @@
 
 {#if !auth?.logged_in}
   <p class="dim">Sign in (Settings → Account) to add friends and create groups.</p>
-{:else if !loaded}
+{:else if !friendsStore.loaded}
   <p class="dim">Loading…</p>
 {:else}
   <section class="actions">
-    <button onclick={mintFriendCode}>My friend code</button>
-    <form onsubmit={(e) => { e.preventDefault(); void addFriend(); }}>
+    <button onclick={mint}>My friend code</button>
+    <form onsubmit={(e) => { e.preventDefault(); void add(); }}>
       <input type="text" placeholder="Friend code" bind:value={friendCode} />
       <button type="submit">Add friend</button>
     </form>
@@ -152,14 +115,14 @@
     </p>
   {/if}
 
-  {#if friends.length === 0}
+  {#if friendsStore.friends.length === 0}
     <p class="dim">No friends yet — swap friend codes to connect.</p>
   {:else}
     <ul class="friend-list">
-      {#each friends as f (f.user_id)}
+      {#each friendsStore.friends as f (f.user_id)}
         <li>
           {f.username}
-          <button class="small" onclick={() => removeFriend(f)}>Remove</button>
+          <button class="small" onclick={() => remove(f)}>Remove</button>
         </li>
       {/each}
     </ul>
@@ -169,7 +132,7 @@
   <p class="dim hint">For more than one friend at once — shared visibility for a whole circle.</p>
 
   <section class="actions">
-    <form onsubmit={(e) => { e.preventDefault(); void createGroup(); }}>
+    <form onsubmit={(e) => { e.preventDefault(); void create(); }}>
       <input type="text" placeholder="New group name" bind:value={newGroupName} maxlength="64" />
       <button type="submit">Create</button>
     </form>
@@ -179,11 +142,11 @@
     </form>
   </section>
 
-  {#if groups.length === 0}
+  {#if friendsStore.groups.length === 0}
     <p class="dim">No groups yet — create one, or join with a code from a friend.</p>
   {:else}
-    {#each groups as g (g.id)}
-      <div class="group">
+    {#each friendsStore.groups as g (g.id)}
+      <div class="card group">
         <div class="group-head">
           <span class="group-name">{g.name}</span>
           <span class="dim">{g.members.length} member{g.members.length === 1 ? "" : "s"}</span>
@@ -206,8 +169,8 @@
   {/if}
 {/if}
 
-{#if error}
-  <p class="error">{error}</p>
+{#if friendsStore.error}
+  <p class="error">{friendsStore.error}</p>
 {/if}
 
 <style>
@@ -224,9 +187,6 @@
   }
 
   .group {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
     margin-bottom: 12px;
     max-width: 480px;
   }
@@ -290,13 +250,5 @@
   .hint {
     margin: 0 0 12px;
     font-size: 13px;
-  }
-
-  .dim {
-    color: var(--text-dim);
-  }
-
-  .error {
-    color: #e06c6c;
   }
 </style>

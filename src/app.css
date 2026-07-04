@@ -1,17 +1,191 @@
-/* Minimal dark shell — real theming comes with the first module. */
+/* Starlume theme — one dark theme, warm-charcoal ground, orange-amber accent.
+ * Rules + token docs live in docs/frontend.md. Components use tokens only (no
+ * hex); a pattern used on 2+ pages belongs here, not in scoped <style>.
+ *
+ * Direction (2026): adapted from the Hearth companion app — warm-neutral
+ * charcoal ground (no blue), a confident orange-amber accent, flat surfaces,
+ * and a three-role type system (Lekton / IBM Plex Sans / JetBrains Mono). The
+ * fonts are self-hosted under static/fonts/ — no webfont CDN at runtime (the
+ * online-policy invariant forbids ungated network calls). */
+
+/* ── Fonts (self-hosted, static/fonts/) ───────────────────────────────── */
+
+@font-face {
+  font-family: "Lekton";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/lekton-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Lekton";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/lekton-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-700.woff2") format("woff2");
+}
+
 :root {
   color-scheme: dark;
-  --bg: #131316;
-  --bg-raised: #1c1c21;
-  --border: #2a2a31;
-  --text: #e4e4e8;
-  --text-dim: #9a9aa4;
-  --accent: #e8b26b;
-  --accent-dim: #b07f3f;
-  --on-accent: #1c1206;
-  --good: #6cc07a;
-  --warn: #d9a13d;
-  --bad: #e06c6c;
+
+  /* ── Base palette ─────────────────────────────────────────────────── */
+  --bg: #1a1719; /* app ground — warm charcoal */
+  --bg-raised: #241f22; /* raised surface: controls, panels, cards-on-hover */
+  --border: #342e31; /* hairline dividers + control outlines (warm gray) */
+  --text: #e9e5e2; /* primary text (warm off-white) */
+  --text-dim: #9d9490; /* secondary/muted text, labels, metadata */
+
+  --accent: #e79447; /* Starlume amber — warm orange-amber */
+  --accent-dim: #c06e2c; /* darker amber for the identity gradient */
+  --on-accent: #241405; /* text/glyphs on a solid amber fill */
+
+  --good: #6fbf7f; /* success / verified / loaded */
+  --warn: #d9a13d; /* warning / caution */
+  --bad: #e07a6a; /* error / danger / destructive (warm red) */
+
+  --discord: #5865f2; /* Discord blurple — the one non-palette brand color */
+  --em-link: #6cb6e3; /* SC in-text link/highlight blue (mission <EM4> runs) */
+
+  /* ── Semantic aliases ─────────────────────────────────────────────── */
+  --surface-app: var(--bg);
+  --surface-raised: var(--bg-raised);
+  --surface-card: transparent; /* cards are border-only by default */
+  --surface-card-hover: var(--bg-raised);
+
+  --text-body: var(--text);
+  --text-strong: #faf7f4; /* headings / handles / emphasis */
+  --text-muted: var(--text-dim);
+  --text-faint: #6f6862; /* micro-labels, tertiary */
+  --text-accent: var(--accent);
+  --text-on-accent: var(--on-accent);
+
+  --border-default: var(--border);
+  --border-strong: var(--accent); /* focus / hover / active outline */
+  --border-soft: color-mix(in srgb, var(--border) 55%, transparent);
+
+  /* Tinted accent fills — the signature "quiet highlight". */
+  --accent-fill: color-mix(in srgb, var(--accent) 15%, transparent);
+  --accent-fill-weak: color-mix(in srgb, var(--accent) 11%, transparent);
+  --accent-fill-faint: color-mix(in srgb, var(--accent) 8%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 30%, transparent);
+
+  --danger-border: color-mix(in srgb, var(--bad) 45%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 50%, transparent);
+
+  /* App backdrop — flat warm charcoal with a whisper of warm glow from the
+   * top. Applied to <body>; the shell/main are transparent over it. */
+  --app-backdrop:
+    radial-gradient(1200px 520px at 50% -20%, rgba(231, 148, 71, 0.05), transparent),
+    var(--bg);
+
+  /* ── Corner radii ─────────────────────────────────────────────────── */
+  --radius: 7px; /* controls: buttons, inputs, selects, nav items */
+  --radius-lg: 9px; /* cards, panels */
+  --radius-pill: 999px;
+  --radius-chip: 4px; /* badges */
+
+  /* ── Spacing scale (derived from observed inline usage) ───────────── */
+  --space-0: 2px;
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 14px;
+  --space-7: 16px;
+  --space-8: 24px; /* main content padding */
+
+  /* Recurring layout constants */
+  --sidebar-width: 200px;
+  --detail-panel-width: 340px;
+  --content-pad: 24px;
+
+  /* ── Motion — fast, subtle, no bounce ─────────────────────────────── */
+  --transition-fast: 90ms;
+  --transition-panel: 140ms ease-out;
+  --easing: ease-out;
+
+  /* ── Elevation — only on floating layers ──────────────────────────── */
+  --shadow-panel: 0 12px 36px rgba(0, 0, 0, 0.5);
+  --shadow-toast: 0 8px 28px rgba(0, 0, 0, 0.4);
+
+  /* ── Typography ───────────────────────────────────────────────────── */
+  --font-display: "Lekton", ui-monospace, monospace;
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-body: var(--font-sans);
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --font-size-root: 14px;
+
+  /* Type scale (observed usage across the app) */
+  --text-h1: 1.3rem; /* page title  (~18px) · display */
+  --text-h2: 1.07rem; /* section     (~15px) · display */
+  --text-h3: 0.98rem; /* panel head  (~14px) · display */
+  --text-base: 1rem; /* body        (14px)  · sans */
+  --text-control: 0.85rem; /* inputs      (~12px) · sans */
+  --text-button: 0.85rem; /* buttons     (~12px) · display */
+  --text-small: 0.78rem; /* metadata    (~11px) · sans/mono */
+  --text-badge: 0.68rem; /* chips/badges(~9.5px) */
+  --text-mono: 0.78rem; /* GUIDs, paths */
+
+  /* Weights — Lekton only has 400 / 700; sans + mono cover the rest. */
+  --weight-normal: 400;
+  --weight-medium: 500; /* sans emphasis */
+  --weight-semibold: 600; /* sans headings-in-body, names */
+  --weight-bold: 700; /* display headings, active nav/tabs, badges-on-fill */
+
+  /* Uppercase mono micro-labels (kickers, table headers, source tags). */
+  --label-transform: uppercase;
+  --label-tracking: 0.14em;
 }
 
 * {
@@ -20,36 +194,473 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
+  min-height: 100vh;
+  font-family: var(--font-body);
+  background: var(--app-backdrop);
+  background-attachment: fixed;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--font-size-root);
 }
 
 a {
   color: inherit;
 }
 
+h1 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: var(--text-h1);
+  font-weight: var(--weight-bold);
+  color: var(--text-strong);
+}
+
+h2 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: var(--text-h2);
+  font-weight: var(--weight-bold);
+}
+
+h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  font-weight: var(--weight-bold);
+}
+
+/* ── Text utilities ───────────────────────────────────────────────────── */
+
+.dim {
+  color: var(--text-dim);
+}
+.dim a {
+  color: var(--accent);
+}
+.error {
+  color: var(--bad);
+  font-size: var(--text-control);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  word-break: break-all;
+}
+
+/* Uppercase mono micro-label (kickers, source tags, section sub-headers). */
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
+  color: var(--text-dim);
+}
+
+/* ── Controls ─────────────────────────────────────────────────────────── */
+
 button {
   font: inherit;
+  font-family: var(--font-display);
+  font-size: var(--text-button);
   background: var(--bg-raised);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 14px;
+  border-radius: var(--radius);
+  padding: 5px 12px;
   cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    color var(--transition-fast);
 }
-
-button:hover {
+button:hover:not(:disabled) {
   border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.primary {
+  background: var(--accent-fill);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: var(--weight-bold);
+}
+button.subtle {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+button.subtle:hover:not(:disabled) {
+  color: var(--text);
+  border-color: transparent;
 }
 
 input[type="text"],
-input[type="url"] {
+input[type="url"],
+input[type="search"] {
   font: inherit;
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
   background: var(--bg-raised);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 6px 10px;
+  transition: border-color var(--transition-fast);
+}
+input[type="text"]:focus,
+input[type="url"]:focus,
+input[type="search"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+select {
+  font: inherit;
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  max-width: 260px;
+}
+
+/* Inline checkbox + label row (toolbar filter toggles). For on/off
+ * preferences use the Switch component instead (docs/frontend.md). */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-control);
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ── Data tables ──────────────────────────────────────────────────────── */
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+table.data th {
+  text-align: left;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-small);
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+table.data td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+table.data.clickable tbody tr {
+  cursor: pointer;
+}
+table.data.clickable tbody tr:hover {
+  background: var(--bg-raised);
+}
+table.data tr.selected {
+  background: var(--accent-fill-weak);
+}
+
+/* ── Layout primitives ────────────────────────────────────────────────── */
+
+/* Filter/search row above a list. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.toolbar input[type="search"] {
+  flex: 1;
+  min-width: 200px;
+  max-width: 380px;
+}
+
+/* List + sticky detail panel side by side. */
+.split {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.split > .list {
+  flex: 1;
+  min-width: 0;
+}
+.detail-panel {
+  width: var(--detail-panel-width);
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  font-size: var(--text-control);
+}
+.detail-panel.wide {
+  width: 400px;
+}
+.detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.detail-panel h3 {
+  margin: 0 0 6px;
+  font-size: var(--text-h3);
+}
+.detail-panel h4 {
+  margin: 12px 0 4px;
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  color: var(--text-dim);
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
+}
+.detail-panel dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+}
+.detail-panel dt {
+  color: var(--text-dim);
+}
+.detail-panel dd {
+  margin: 0;
+  min-width: 0;
+}
+.detail-panel ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.detail-panel li {
+  margin: 2px 0;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  padding: 10px 0;
+}
+
+/* Bordered surface (status cards, account blocks). */
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+}
+
+/* Small outlined status chip. */
+.badge {
+  display: inline-block;
+  font-size: var(--text-badge);
+  font-weight: var(--weight-medium);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  padding: 0 4px;
+}
+.badge.accent {
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+.badge.danger {
+  color: var(--bad);
+  border-color: var(--danger-border);
+}
+
+/* Owned-progress chip — the Hearth catalog "4/8". Amber once owned ≥ 1. */
+.count-badge {
+  display: inline-block;
+  min-width: 34px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.count-badge.owned {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+/* Unowned single-item case — an empty checkbox square (click to mark owned). */
+.count-box {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+}
+
+/* ── Catalog rows ─────────────────────────────────────────────────────── */
+
+/* Vertical list of CatalogRow components (see src/lib/components/catalog/). */
+.catalog {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Right-slot readout on a catalog row — a quiet mono metric. */
+.metric {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Custom detail block inside a row expansion (after facts/descriptions),
+ * aligned under the title with the same 52px gutter. */
+.catalog-detail {
+  margin: 0 10px 12px 52px;
+  max-width: 72ch;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.83rem;
+}
+.catalog-detail h5 {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--label-tracking);
+  text-transform: var(--label-transform);
+  color: var(--text-faint);
+}
+.catalog-detail ul {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+.catalog-detail li {
+  margin: 2px 0;
+}
+
+/* Two-column expansion body — description on the left, the rest on the right;
+ * collapses to one column on narrow windows so wide screens aren't wasted.
+ * Aligned under the row title with the same 52px gutter. Add `.single` when
+ * only one side has content. */
+.catalog-cols {
+  margin: 0 10px 10px 52px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px 40px;
+  align-items: start;
+}
+.catalog-cols > * {
+  min-width: 0;
+}
+.catalog-cols .catalog-detail {
+  margin: 0;
+  max-width: none;
+}
+@media (min-width: 1100px) {
+  .catalog-cols:not(.single) {
+    grid-template-columns: minmax(0, 60ch) minmax(0, 1fr);
+  }
+}
+
+/* Segmented filter pills — the Hearth pattern. Active = quiet amber tint. */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  line-height: 1.4;
+  padding: 5px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+.pill:hover:not(.active):not(:disabled) {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+.pill.active {
+  background: var(--accent-fill);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.pill:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.pill .count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  font-weight: var(--weight-medium);
+}
+.pill.active .count {
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
+
+/* In-page section tabs (link or button items). */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+}
+.tabs .tab {
+  text-decoration: none;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  font-size: var(--text-button);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
+}
+.tabs .tab:hover {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+.tabs .tab.active {
+  background: var(--accent-fill-weak);
+  color: var(--accent);
+  font-weight: var(--weight-bold);
 }

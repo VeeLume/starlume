@@ -33,3 +33,25 @@ server-db-reset:
 # Run a second app instance under a dev profile
 dev-alt profile="alt":
     STARLUME_PROFILE={{profile}} ./target/debug/starlume.exe
+
+# Backgrounds the server and kills it when `just dev` exits (Ctrl+C). Needs
+# `just server-env` done once first. See README "Testing with two accounts"
+# for the two-instance flow — this only starts server + first instance.
+# Run the server and the first app instance together
+# Does not work, hangs terminal after exit
+# dev-full:
+#     just server & pid=$!; trap 'kill $pid 2>/dev/null' EXIT; just dev
+
+# Debug builds only (app_data_root is build-namespaced) — release data is
+# never touched. Close any running dev instance first, files may be locked.
+# Delete the default dev data dir (%APPDATA%\starlume-dev)
+clean-dev-data:
+    rm -rf "$APPDATA/starlume-dev"
+
+# Debug builds only. Close the dev-alt instance first, files may be locked.
+# Delete a dev profile's data dir (%APPDATA%\starlume-dev-<profile>)
+clean-dev-alt-data profile="alt":
+    rm -rf "$APPDATA/starlume-dev-{{profile}}"
+
+# Delete both the default and dev-alt data dirs
+clean-dev-data-all profile="alt": clean-dev-data (clean-dev-alt-data profile)

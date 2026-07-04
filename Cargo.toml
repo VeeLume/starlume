@@ -32,11 +32,12 @@ chrono = "0.4"
 scraper = "0.20"
 
 # The SC data backbone — ONE pin for the whole app (the whole point of the
-# consolidation). `installs` only for now; extract/domain features join with
-# svc-data.
-sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.15.0", features = ["installs"] }
+# consolidation). Base features here; svc-data adds `foundations` on the same
+# pin (Cargo unions features across the workspace).
+sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.16.0", features = ["installs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tempfile = "3"
 
 # Device-token storage in Windows Credential Manager (the fleetsync pattern).
 keyring = { version = "3", features = ["windows-native"] }

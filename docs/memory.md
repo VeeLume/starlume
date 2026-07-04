@@ -83,7 +83,16 @@ Measure before shipping — some flags regress startup or break the updater dial
 
 ## Current state (2026-07-03)
 
-- Shell only, no SC data yet — footprint is essentially the WebView2 baseline.
+- **svc-data landed (2026-07-03)** with lever 1's rules baked in: the raw
+  Datacore is consumed by the cook inside the 32 MiB loader thread (by-value
+  signature — it can't outlive the build); cooked data drops on every hide
+  path (`DataService::evict` beside `suspend_webview`) and reloads tier-1 on
+  the next query; parses run only on explicit user Load. The full lease model
+  stays deferred until a resident module needs to hold data while hidden.
+  Measured on SC 4.8.3 Live, **debug build** (release will be much faster):
+  cold parse 443s, cooked snapshot (`foundations.cook`) 15.4 MB on disk,
+  extract snapshot 36.7 MB, tier-1 reload after evict 5.7s (21,003 items /
+  206 resources; release-build + commit-size numbers still to record).
 - Implemented: hide-to-tray on close (default) and on minimize (opt-in setting), and
   **WebView2 suspension on every hide path** (lever 2).
 - **Measured 2026-07-03** (Task Manager memory column, whole WebView2 tree, shell-only

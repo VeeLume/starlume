@@ -12,7 +12,7 @@ use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_deep_link::DeepLinkExt;
 
-use crate::{AppState, auth, ipc, suspend};
+use crate::{AppState, auth, data, ipc, suspend};
 
 fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -26,12 +26,15 @@ fn show_main_window(app: &AppHandle) {
 }
 
 /// Hide the main window to the tray and suspend its webview so the hidden
-/// WebView2 releases its working set instead of idling at ~100+ MB.
+/// WebView2 releases its working set instead of idling at ~100+ MB. Also
+/// evicts the cooked SC data (docs/memory.md rule 2) — reload from the
+/// processed snapshot is sub-second, so hidden means holding nothing.
 fn hide_to_tray(window: &tauri::Window) {
     let _ = window.hide();
     if let Some(w) = window.app_handle().get_webview_window("main") {
         suspend::suspend_webview(&w);
     }
+    window.app_handle().state::<AppState>().data.evict();
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -126,6 +129,11 @@ pub fn run() {
 
             build_tray(app)?;
 
+            // Warm the game-data cache in the background (default channel,
+            // setting-gated) — the scan is ~50ms; the cook only runs when the
+            // snapshot is missing/stale (new patch / first run).
+            data::spawn_startup_warm(app.handle());
+
             // Window starts hidden (tauri.conf `visible: false`) so companion
             // mode never flashes a frame; show it unless we're told not to.
             if !start_minimized {
@@ -141,6 +149,7 @@ pub fn run() {
                         && !w.is_visible().unwrap_or(true)
                     {
                         suspend::suspend_webview(&w);
+                        handle.state::<AppState>().data.evict();
                     }
                 });
             }

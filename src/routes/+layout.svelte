@@ -7,6 +7,14 @@
   import { settingsStore, loadSettings } from "$lib/state/settings.svelte";
   import { authStore, loadAuth, listenForAuthChanges } from "$lib/state/auth.svelte";
   import { scStore, loadSc } from "$lib/state/sc.svelte";
+  import {
+    loadStatus,
+    ensureChannel,
+    listenForDataProgress,
+    clearAllLoading,
+  } from "$lib/state/data.svelte";
+  import { prefetchCatalogs, invalidateCatalogs } from "$lib/state/catalog.svelte";
+  import { listen } from "@tauri-apps/api/event";
   import { onboarding, maybeStartOnboarding } from "$lib/state/onboarding.svelte";
   import {
     notifications,
@@ -24,6 +32,17 @@
 
   let unlistenAuth: UnlistenFn | undefined;
   let unlistenNotify: UnlistenFn | undefined;
+  let unlistenDataProgress: UnlistenFn | undefined;
+  let unlistenDataChanged: UnlistenFn | undefined;
+
+  // Startup hydration (docs/frontend.md rule 3): refresh install statuses
+  // and prefetch the default channel's catalogs so pages render from cache.
+  // Cheap when nothing changed; also the focus/`data:changed` catch-up.
+  async function hydrateData() {
+    await loadStatus();
+    const channel = await ensureChannel();
+    if (channel) prefetchCatalogs(channel);
+  }
 
   // Notification center (sidebar bell). Opening it marks everything read so
   // the bell badge clears; the per-session log stays in the panel.
@@ -33,11 +52,12 @@
     if (centerOpen) markAllRead();
   }
 
-  // Home + Friends (shell-level) + one entry per enabled module (registry
-  // order).
+  // Home + Friends + Game Data (shell-level) + one entry per enabled module
+  // (registry order).
   const nav = $derived([
     { href: "/", label: "Home", icon: "✦" },
     { href: "/friends", label: "Friends", icon: "◈" },
+    { href: "/data", label: "Catalogs", icon: "▤" },
     ...moduleRegistry
       .filter((d) => settingsStore.current?.enabled_modules.includes(d.id))
       .flatMap((d) => d.nav ?? []),
@@ -64,15 +84,32 @@
       await maybeStartOnboarding();
       void checkForUpdates();
     })();
+    // Game-data hydration runs independently of the auth chain — local only.
+    void (async () => {
+      unlistenDataProgress = await listenForDataProgress();
+      unlistenDataChanged = await listen("data:changed", () => {
+        clearAllLoading();
+        invalidateCatalogs();
+        void hydrateData();
+      });
+      await hydrateData();
+    })();
   });
 
   onDestroy(() => {
     unlistenAuth?.();
     unlistenNotify?.();
+    unlistenDataProgress?.();
+    unlistenDataChanged?.();
   });
 </script>
 
-<svelte:window onfocus={() => void syncNotifications()} />
+<svelte:window
+  onfocus={() => {
+    void syncNotifications();
+    void hydrateData();
+  }}
+/>
 
 <div class="shell">
   <aside class="sidebar">
@@ -210,7 +247,8 @@
   }
 
   .brand-name {
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-weight: var(--weight-bold);
     color: var(--accent);
     letter-spacing: 0.01em;
   }
@@ -269,8 +307,9 @@
     align-items: center;
     gap: 9px;
     text-decoration: none;
+    font-family: var(--font-display);
     padding: 7px 8px;
-    border-radius: 7px;
+    border-radius: var(--radius);
     color: var(--text-dim);
     transition: background 90ms, color 90ms;
   }
@@ -279,9 +318,9 @@
     color: var(--text);
   }
   .nav-item.active {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    background: var(--accent-fill-weak);
     color: var(--accent);
-    font-weight: 500;
+    font-weight: var(--weight-bold);
   }
   .nav-icon {
     width: 1.1rem;
@@ -335,7 +374,7 @@
     text-overflow: ellipsis;
   }
   .linked {
-    color: #5865f2; /* Discord blurple */
+    color: var(--discord);
     margin-left: 0.2rem;
   }
 
@@ -359,7 +398,7 @@
     color: var(--text);
   }
   .cog.active {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    background: var(--accent-fill-weak);
     color: var(--accent);
   }
 

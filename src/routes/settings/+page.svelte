@@ -6,6 +6,7 @@
   import { authStore, loadAuth } from "$lib/state/auth.svelte";
   import { openOnboarding } from "$lib/state/onboarding.svelte";
   import { checkForUpdates } from "$lib/updater";
+  import Switch from "$lib/components/Switch.svelte";
   import { onMount } from "svelte";
 
   let serverUrlInput = $state("");
@@ -87,46 +88,39 @@
 {#if settings}
   <section>
     <h2>App</h2>
-    <label>
-      <input
-        type="checkbox"
-        checked={settings.close_to_tray}
-        onchange={(e) => apply({ close_to_tray: e.currentTarget.checked })}
-      />
+    <Switch
+      checked={settings.close_to_tray}
+      onchange={(v) => apply({ close_to_tray: v })}
+    >
       Close to tray (keep running in the background)
-    </label>
-    <label>
-      <input
-        type="checkbox"
-        checked={settings.minimize_to_tray}
-        onchange={(e) => apply({ minimize_to_tray: e.currentTarget.checked })}
-      />
+    </Switch>
+    <Switch
+      checked={settings.minimize_to_tray}
+      onchange={(v) => apply({ minimize_to_tray: v })}
+    >
       Minimize to tray (instead of the taskbar)
-    </label>
-    <label>
-      <input
-        type="checkbox"
-        checked={settings.start_minimized}
-        onchange={(e) => apply({ start_minimized: e.currentTarget.checked })}
-      />
+    </Switch>
+    <Switch
+      checked={settings.start_minimized}
+      onchange={(v) => apply({ start_minimized: v })}
+    >
       Start minimized to tray
-    </label>
-    <label>
-      <input
-        type="checkbox"
-        checked={settings.autostart}
-        onchange={(e) => apply({ autostart: e.currentTarget.checked })}
-      />
+    </Switch>
+    <Switch checked={settings.autostart} onchange={(v) => apply({ autostart: v })}>
       Run at login
-    </label>
-    <label>
-      <input
-        type="checkbox"
-        checked={settings.native_notifications}
-        onchange={(e) => apply({ native_notifications: e.currentTarget.checked })}
-      />
+    </Switch>
+    <Switch
+      checked={settings.native_notifications}
+      onchange={(v) => apply({ native_notifications: v })}
+    >
       Windows notifications while hidden to tray
-    </label>
+    </Switch>
+    <Switch
+      checked={settings.auto_load_game_data}
+      onchange={(v) => apply({ auto_load_game_data: v })}
+    >
+      Load game data at startup (local only; heavy work only after a game patch)
+    </Switch>
     <div class="row-buttons">
       <button onclick={() => checkForUpdates(true)}>Check for updates</button>
       <button onclick={openOnboarding}>Re-run setup</button>
@@ -139,39 +133,33 @@
       <p class="dim">No feature modules are available in this build yet.</p>
     {:else}
       {#each moduleRegistry as m (m.id)}
-        <label>
-          <input
-            type="checkbox"
-            checked={settings.enabled_modules.includes(m.id)}
-            onchange={(e) => toggleModule(m.id, e.currentTarget.checked)}
-          />
+        <Switch
+          checked={settings.enabled_modules.includes(m.id)}
+          onchange={(v) => toggleModule(m.id, v)}
+        >
           {m.icon} {m.name} <span class="dim">— {m.description}</span>
-        </label>
+        </Switch>
       {/each}
     {/if}
   </section>
 
   <section>
     <h2>Online</h2>
-    <label>
-      <input
-        type="checkbox"
-        checked={settings.online_enabled}
-        onchange={(e) => apply({ online_enabled: e.currentTarget.checked })}
-      />
+    <Switch
+      checked={settings.online_enabled}
+      onchange={(v) => apply({ online_enabled: v })}
+    >
       Enable online features
       <span class="dim">— master switch; off = no network calls (except update checks)</span>
-    </label>
-    <label class:disabled={!settings.online_enabled}>
-      <input
-        type="checkbox"
-        checked={settings.grpc_enabled}
-        disabled={!settings.online_enabled}
-        onchange={(e) => toggleGrpc(e.currentTarget.checked)}
-      />
+    </Switch>
+    <Switch
+      checked={settings.grpc_enabled}
+      disabled={!settings.online_enabled}
+      onchange={(v) => toggleGrpc(v)}
+    >
       Allow game-services (gRPC) calls
       <span class="dim">— ToS-grey, read-only, opt-in per feature below</span>
-    </label>
+    </Switch>
     {#if grpcFeatures.length === 0}
       <p class="dim indent">
         No game-services features in this build yet — per-feature toggles appear here as
@@ -179,15 +167,15 @@
       </p>
     {:else}
       {#each grpcFeatures as f (f.id)}
-        <label class="indent" class:disabled={!settings.online_enabled || !settings.grpc_enabled}>
-          <input
-            type="checkbox"
+        <div class="indent">
+          <Switch
             checked={settings.grpc_features.includes(f.id)}
             disabled={!settings.online_enabled || !settings.grpc_enabled}
-            onchange={(e) => toggleGrpcFeature(f.id, e.currentTarget.checked)}
-          />
-          {f.name} <span class="dim">— {f.description}</span>
-        </label>
+            onchange={(v) => toggleGrpcFeature(f.id, v)}
+          >
+            {f.name} <span class="dim">— {f.description}</span>
+          </Switch>
+        </div>
       {/each}
     {/if}
   </section>
@@ -277,10 +265,6 @@
     margin-left: 24px;
   }
 
-  .disabled {
-    opacity: 0.55;
-  }
-
   .manual-url {
     font-size: 12px;
     color: var(--text-dim);
@@ -293,6 +277,6 @@
   }
 
   .error {
-    color: #e06c6c;
+    color: var(--bad);
   }
 </style>

@@ -19,8 +19,11 @@ migrate in as feature modules over time.
 ## Workspace shape
 
 - `crates/app-kit` — paths, atomic IO, JSON persistence. No Tauri, no tokio, no domain types.
-- `crates/svc-*` — shared services (install / data / log / sync). Currently doc-only stubs;
-  they get filled by carving working code out of Hearth, **not** by writing speculative APIs.
+- `crates/svc-*` — shared services. `svc-discovery` (install scan + RSI profiles) and
+  `svc-data` (DCB parse + snapshot cache + reference catalogs incl. missions) are live;
+  `svc-log` / `svc-sync` are doc-only stubs, filled by carving working code out of
+  Hearth, **not** by writing speculative APIs. Reference catalogs are app framework,
+  not modules — README module rule 4.
 - `src-tauri` — the shell: lifecycle (plugins, tray, windows), settings, auth, module
   registry, typed IPC.
 - `src` — SvelteKit static SPA (adapter-static, SSR off).
@@ -53,6 +56,19 @@ migrate in as feature modules over time.
 - **Module rules** are in the README; treat them as invariants, not guidelines.
 - Updater signing: private key is a GitHub secret (`TAURI_SIGNING_PRIVATE_KEY`), only the
   pubkey lives in `tauri.conf.json`. Never commit `*.key`.
+
+## Frontend
+
+Data-lifecycle and styling rules live in [docs/frontend.md](docs/frontend.md) —
+stores own data (pages render caches synchronously, no refetch-per-navigation),
+startup hydrates everything cheap in the background, and shared styling
+primitives live in `app.css` (tokens only, no hex in components). Read it
+before adding a page or a store. [docs/frontend.md](docs/frontend.md) is the
+**complete, self-contained design system** (foundations, primitives, the
+CatalogRow system, content + iconography rules) — the source of truth, no
+external design tool. The type system is three self-hosted faces (Lekton / IBM
+Plex Sans / JetBrains Mono) under `static/fonts/` — **no webfont CDN**, since a
+runtime font fetch would violate the online-policy invariant.
 
 ## Memory
 
