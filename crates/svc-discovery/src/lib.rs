@@ -10,11 +10,11 @@
 //!   fetch lives in the shell where the online-policy gates are.
 //! - **No UI types** — the shell mirrors these into specta shapes.
 //!
-//! Still to come (with their first consumers): the `build_manifest.id`
-//! watcher → `InstallChanged` event (lands with mod-langpatch's re-patch),
-//! and Hearth's rename detection (lands when accounts get real consumers).
+//! Still to come (with their first consumers): Hearth's rename detection
+//! (lands when accounts get real consumers).
 
 pub mod profile;
+pub mod watch;
 
 use sc_holotable::install::{Channel, Installation};
 
@@ -30,9 +30,26 @@ pub struct InstallInfo {
     /// Launcher-style version label (`"4.7.2-live.11715810"`) when the
     /// launcher store provided it; the manifest version otherwise.
     pub version: String,
-    /// `build_manifest.id` build id — the change-detection key for the
-    /// future `InstallChanged` watcher.
+    /// `build_manifest.id` build id — raw. For change detection use
+    /// [`Self::staleness_key`], never this field alone.
     pub build_id: String,
+}
+
+impl InstallInfo {
+    /// The change-detection / cache-staleness key for this install. CIG's
+    /// `build_manifest.id` carries a literal `"None"` build id on current
+    /// Live builds (verified on 4.8.3; sc-holotable's manifest fixture pins
+    /// the same), so a bare `build_id` would never change across patches.
+    /// The version label (`"4.8.3-live.12122953"`) embeds the changelist
+    /// and does change per patch — fall back to it whenever the build id
+    /// is unusable.
+    pub fn staleness_key(&self) -> String {
+        if self.build_id.is_empty() || self.build_id == "None" {
+            self.version.clone()
+        } else {
+            self.build_id.clone()
+        }
+    }
 }
 
 /// Result of one install scan.
@@ -98,5 +115,28 @@ fn platform_for(channel: Channel) -> &'static str {
     match channel {
         Channel::Live | Channel::Hotfix => "prod",
         Channel::Ptu | Channel::Eptu | Channel::TechPreview => "ptu",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn staleness_key_falls_back_to_version_when_build_id_unusable() {
+        let mut info = InstallInfo {
+            channel: "Live".into(),
+            platform: "prod".into(),
+            directory: "C:\\SC\\LIVE".into(),
+            version: "4.8.3-live.12122953".into(),
+            // The real-world case: CIG ships "BuildId": "None" on Live 4.8.x.
+            build_id: "None".into(),
+        };
+        assert_eq!(info.staleness_key(), "4.8.3-live.12122953");
+        info.build_id = String::new();
+        assert_eq!(info.staleness_key(), "4.8.3-live.12122953");
+        // A real build id wins when present.
+        info.build_id = "12345".into();
+        assert_eq!(info.staleness_key(), "12345");
     }
 }
