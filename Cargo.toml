@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "src-tauri",
     "crates/app-kit",
+    "crates/mod-langpatch",
     "crates/server",
     "crates/svc-discovery",
     "crates/svc-data",
@@ -60,10 +61,14 @@ tauri-specta = { version = "2.0.0-rc.21", features = ["typescript"] }
 
 # Internal crates
 app-kit = { path = "crates/app-kit" }
+mod-langpatch = { path = "crates/mod-langpatch" }
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
 svc-log = { path = "crates/svc-log" }
 svc-sync = { path = "crates/svc-sync" }
+
+# TOML parsing (mod-langpatch's embedded curated patchers).
+toml = "0.8"
 
 [profile.release]
 opt-level = 3

@@ -1,0 +1,29 @@
+[package]
+name = "mod-langpatch"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume langpatch module — SC localization enrichment engine (derive from svc-data, apply to global.ini)"
+
+[dependencies]
+# The one data dependency (module rule 1): everything the patchers derive
+# from comes out of svc-data's CookedData. No sc-holotable pin, no svarog,
+# no Datacore — that's the whole point of the step-1 cook extensions.
+svc-data.workspace = true
+app-kit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+toml.workspace = true
+sha2.workspace = true
+hex.workspace = true
+# UTF-16 LE decode of the base global.ini (the encoding CIG ships).
+encoding_rs = "0.8"
+
+[dev-dependencies]
+tempfile.workspace = true
