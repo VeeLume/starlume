@@ -23,8 +23,14 @@ pub struct AppState {
     pub data: Arc<svc_data::DataService>,
     /// Installs from the most recent scan, as svc-data refs — so data query
     /// commands resolve a channel without rescanning. Refreshed by
-    /// `data_status` / `data_load`.
+    /// `data_status` / `data_load` and the install watcher.
     pub installs: Mutex<Vec<svc_data::InstallRef>>,
+    /// The in-process event bus (see `bus.rs`). Subscribe via
+    /// `state.bus.subscribe()`.
+    pub bus: crate::bus::Bus,
+    /// Keeps the svc-discovery watcher thread alive for the app's lifetime
+    /// (set once in setup; dropping it stops the thread).
+    pub install_watch: Mutex<Option<svc_discovery::watch::WatchHandle>>,
 }
 
 impl AppState {
@@ -39,6 +45,8 @@ impl AppState {
                 app_kit::app_data_root().join("cache"),
             )),
             installs: Mutex::new(Vec::new()),
+            bus: crate::bus::new_bus(),
+            install_watch: Mutex::new(None),
         }
     }
 
@@ -104,6 +112,8 @@ mod tests {
             accounts: Mutex::new(Vec::new()),
             data: Arc::new(svc_data::DataService::new(std::env::temp_dir())),
             installs: Mutex::new(Vec::new()),
+            bus: crate::bus::new_bus(),
+            install_watch: Mutex::new(None),
         }
     }
 

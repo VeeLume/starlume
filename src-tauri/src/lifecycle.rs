@@ -12,7 +12,7 @@ use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_deep_link::DeepLinkExt;
 
-use crate::{AppState, auth, data, ipc, suspend};
+use crate::{AppState, auth, ipc, langpatch, suspend, watch};
 
 fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -130,9 +130,13 @@ pub fn run() {
             build_tray(app)?;
 
             // Warm the game-data cache in the background (default channel,
-            // setting-gated) — the scan is ~50ms; the cook only runs when the
-            // snapshot is missing/stale (new patch / first run).
-            data::spawn_startup_warm(app.handle());
+            // setting-gated), then reconcile text patches — sequenced so one
+            // parse serves both the catalogs and the langpatch derive.
+            langpatch::spawn_warm_then_reconcile(app.handle());
+
+            // Watch installs for settled build changes (30s stat-only poll)
+            // → InstallChanged on the bus → cache invalidation + re-warm.
+            watch::spawn(app.handle());
 
             // Window starts hidden (tauri.conf `visible: false`) so companion
             // mode never flashes a frame; show it unless we're told not to.

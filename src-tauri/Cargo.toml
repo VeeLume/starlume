@@ -50,6 +50,7 @@ serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
+chrono.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 url.workspace = true
@@ -65,8 +66,13 @@ tauri-specta.workspace = true
 
 # Internal crates
 app-kit.workspace = true
+mod-langpatch.workspace = true
 svc-discovery.workspace = true
 svc-data.workspace = true
+
+# Game-running detection (write gate for text patching): a patched
+# global.ini must never be written while StarCitizen.exe is up.
+sysinfo = "0.33"
 
 # WebView2 suspension (docs/memory.md lever 2). Versions MUST match wry's own
 # webview2-com — the COM interface types are shared with `with_webview`.

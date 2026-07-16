@@ -26,7 +26,7 @@ pub const DATA_PROGRESS_EVENT: &str = "data:progress";
 /// catalog caches on this. Payload-free by design.
 pub const DATA_CHANGED_EVENT: &str = "data:changed";
 
-fn emit_changed(app: &AppHandle) {
+pub(crate) fn emit_changed(app: &AppHandle) {
     let _ = app.emit(DATA_CHANGED_EVENT, ());
 }
 
@@ -449,23 +449,12 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
     }
 }
 
-/// The snapshot staleness key for an install. CIG's `build_manifest.id`
-/// carries a literal `"None"` build id on current Live builds (verified on
-/// 4.8.3; sc-holotable's manifest fixture pins the same), so a bare
-/// `build_id` would never invalidate across patches. The version label
-/// (`"4.8.3-live.12122953"`) embeds the changelist and does change per
-/// patch — fall back to it whenever the build id is unusable.
-fn staleness_key(build_id: &str, version: &str) -> String {
-    if build_id.is_empty() || build_id == "None" {
-        version.to_string()
-    } else {
-        build_id.to_string()
-    }
-}
-
 /// Rescan installs (cheap, ~50ms of launcher-store reads) and refresh the
 /// shared `InstallRef` cache the query commands resolve channels against.
-async fn refresh_installs(app: &AppHandle) -> Result<Vec<InstallRef>, AppError> {
+/// The snapshot staleness key comes from `InstallInfo::staleness_key` —
+/// never the raw build_id, which is literally `"None"` on current Live
+/// builds.
+pub(crate) async fn refresh_installs(app: &AppHandle) -> Result<Vec<InstallRef>, AppError> {
     let scan = tokio::task::spawn_blocking(svc_discovery::scan)
         .await
         .map_err(|e| AppError::Internal(format!("scan task failed: {e}")))?
@@ -476,7 +465,7 @@ async fn refresh_installs(app: &AppHandle) -> Result<Vec<InstallRef>, AppError> 
         .map(|i| InstallRef {
             channel_key: i.channel.to_ascii_lowercase(),
             p4k_path: std::path::PathBuf::from(&i.directory).join("Data.p4k"),
-            build_id: staleness_key(&i.build_id, &i.version),
+            build_id: i.staleness_key(),
             version: i.version,
         })
         .collect();
@@ -548,7 +537,7 @@ fn status_view(
 
 /// Restore the display casing discovery uses (`InstallRef` only keeps the
 /// lowercase cache key).
-fn display_channel(key: &str) -> String {
+pub(crate) fn display_channel(key: &str) -> String {
     let mut c = key.chars();
     match c.next() {
         Some(first) => first.to_uppercase().collect::<String>() + c.as_str(),
@@ -619,15 +608,17 @@ pub(crate) async fn data_load(app: AppHandle, channel: String) -> Result<DataSta
     Ok(status_view(&state, &install, channel, is_default))
 }
 
-/// Spawn the startup warm: scan installs and make sure the default channel's
+/// Run the startup warm: scan installs and make sure the default channel's
 /// cooked snapshot exists, so the catalogs are browsable without a manual
 /// Load. Gated on the `auto_load_game_data` setting. Local file reads only.
+/// Failures notify and return — callers sequence follow-up work (the
+/// langpatch reconcile) after this regardless.
 ///
 /// Memory discipline (docs/memory.md): the durable product of the warm is the
 /// **snapshot on disk** — if the window is hidden when the cook finishes
 /// (companion start), the in-memory bundle is evicted immediately; the first
 /// catalog query after show reloads it in under a second.
-pub fn spawn_startup_warm(app: &AppHandle) {
+pub(crate) async fn run_startup_warm(app: &AppHandle) {
     if !app
         .state::<AppState>()
         .settings
@@ -637,18 +628,15 @@ pub fn spawn_startup_warm(app: &AppHandle) {
     {
         return;
     }
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = startup_warm(&app).await {
-            tracing::warn!("startup game-data warm failed: {e}");
-            crate::notify::notify(
-                &app,
-                crate::notify::Notification::warning("Game data load failed")
-                    .with_body(e.to_string())
-                    .with_source("data"),
-            );
-        }
-    });
+    if let Err(e) = startup_warm(app).await {
+        tracing::warn!("startup game-data warm failed: {e}");
+        crate::notify::notify(
+            app,
+            crate::notify::Notification::warning("Game data load failed")
+                .with_body(e.to_string())
+                .with_source("data"),
+        );
+    }
 }
 
 async fn startup_warm(app: &AppHandle) -> Result<(), AppError> {
@@ -854,24 +842,4 @@ pub(crate) async fn data_item_types(
             count: count as u32,
         })
         .collect())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::staleness_key;
-
-    #[test]
-    fn staleness_key_falls_back_to_version_when_build_id_unusable() {
-        // The real-world case: CIG ships "BuildId": "None" on Live 4.8.x.
-        assert_eq!(
-            staleness_key("None", "4.8.3-live.12122953"),
-            "4.8.3-live.12122953"
-        );
-        assert_eq!(
-            staleness_key("", "4.8.3-live.12122953"),
-            "4.8.3-live.12122953"
-        );
-        // A real build id wins when present.
-        assert_eq!(staleness_key("12345", "4.8.3-live.12122953"), "12345");
-    }
 }

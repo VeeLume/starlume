@@ -163,6 +163,51 @@ async dataMissions(channel: string) : Promise<Result<MissionEntryView[], AppErro
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The whole Text Patching page state in one call.
+ */
+async langpatchOverview() : Promise<Result<LangpatchOverview, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("langpatch_overview") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Save the module config and reconcile. Deselected channels that carry
+ * our patch get it removed (leaving no orphaned overrides behind).
+ */
+async langpatchUpdateConfig(update: LangpatchConfigUpdate) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("langpatch_update_config", { update }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Manual apply — also the "take over" action for foreign files.
+ */
+async langpatchApply(channel: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("langpatch_apply", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Remove the patch from one install (back to vanilla text).
+ */
+async langpatchRemove(channel: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("langpatch_remove", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async authStatus() : Promise<AuthStatus> {
     return await TAURI_INVOKE("auth_status");
 },
@@ -409,6 +454,7 @@ dev_profile: string | null }
 export type BpPoolEntryView = { blueprint_record_guid: string; name: string | null; weight: number }
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
+export type ChoiceView = { value: string; label: string }
 /**
  * Cache/load state of one install, for the status cards.
  */
@@ -457,6 +503,29 @@ export type ItemPageView = { total: number; rows: ItemRowView[] }
 export type ItemRewardView = { entity_guid: string; name: string | null; amount: number }
 export type ItemRowView = { guid: string; name: string; item_type: string; item_sub_type: string; size: number; grade: number }
 export type ItemTypeFacetView = { item_type: string; count: number }
+export type LangpatchConfigUpdate = { auto_patch: boolean; channels: string[]; language_pack: string | null; 
+/**
+ * patcher id → (enabled, option values).
+ */
+patchers: Partial<{ [key in string]: PatcherConfigUpdate }> }
+export type LangpatchInstallView = { 
+/**
+ * Display channel ("Live").
+ */
+channel: string; 
+/**
+ * Lowercase key ("live").
+ */
+channel_key: string; version: string; 
+/**
+ * In the user's patch set.
+ */
+selected: boolean; 
+/**
+ * `"up-to-date" | "stale" | "foreign" | "unpatched"`.
+ */
+state: string; patched_at: string | null }
+export type LangpatchOverview = { auto_patch: boolean; channels: string[]; language_pack: string | null; patchers: PatcherInfoView[]; installs: LangpatchInstallView[] }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
 export type MissionCategoryView = { name: string | null; icon: string }
 export type MissionDifficultyView = { mechanical_skill: number; mental_load: number; risk_of_loss: number; game_knowledge: number }
@@ -490,6 +559,18 @@ export type NotificationRecord = ({ level: NotifLevel; title: string; body: stri
  * Module/service id that raised this ("auth", "langpatch", …).
  */
 source: string | null }) & { id: number; ts: number }
+export type OptionKindView = { type: "Bool" } | { type: "Choice"; choices: ChoiceView[] }
+export type PatcherConfigUpdate = { enabled: boolean | null; options: Partial<{ [key in string]: string }> }
+export type PatcherInfoView = { id: string; name: string; description: string; enabled: boolean; 
+/**
+ * Overwrites community-pack text for its keys (UI warning badge).
+ */
+uses_replace_ops: boolean; options: PatcherOptionView[]; 
+/**
+ * Chosen option values (option id → value); missing = default.
+ */
+values: Partial<{ [key in string]: string }> }
+export type PatcherOptionView = { id: string; label: string; description: string; default: string; kind: OptionKindView }
 export type Profile = { username: string; avatar_url: string | null }
 export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }

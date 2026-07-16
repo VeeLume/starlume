@@ -4,7 +4,7 @@
 use specta_typescript::Typescript;
 use tauri_specta::{Builder, collect_commands};
 
-use crate::{auth, data, friends, groups, modules, notify, sc, settings};
+use crate::{auth, data, friends, groups, langpatch, modules, notify, sc, settings};
 
 /// Single source of truth for the IPC command list. Used both by `run()` at
 /// app startup and by the `export-bindings` binary so the TypeScript file can
@@ -27,6 +27,10 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         data::data_manufacturers,
         data::data_item_types,
         data::data_missions,
+        langpatch::langpatch_overview,
+        langpatch::langpatch_update_config,
+        langpatch::langpatch_apply,
+        langpatch::langpatch_remove,
         auth::auth_status,
         auth::login_start,
         auth::fetch_profile,

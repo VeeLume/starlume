@@ -5,9 +5,8 @@
 //! no module-to-module dependencies; the enabled-set is user-controlled
 //! (onboarding picks it) and modules not enabled stay invisible in the UI.
 //!
-//! The registry is empty until the first carve-out (`mod-cargo`, per the
-//! migration order). The trait is deliberately minimal — it grows exactly the
-//! hooks the first real module needs, no speculative lifecycle API.
+//! The trait is deliberately minimal — it grows exactly the hooks real
+//! modules need, no speculative lifecycle API.
 
 use crate::AppState;
 
@@ -21,9 +20,25 @@ pub trait Module: Send + Sync {
     fn description(&self) -> &'static str;
 }
 
+/// Text patching — the sc-langpatch consolidation (engine in
+/// `crates/mod-langpatch`, orchestration in `langpatch.rs`).
+struct Langpatch;
+
+impl Module for Langpatch {
+    fn id(&self) -> &'static str {
+        "langpatch"
+    }
+    fn name(&self) -> &'static str {
+        "Text Patching"
+    }
+    fn description(&self) -> &'static str {
+        "Enrich Star Citizen's in-game text: component grades, illegal-goods markers, weapon stats — kept current automatically after game patches"
+    }
+}
+
 /// All modules compiled into this build, enabled or not.
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
-    &[]
+    &[&Langpatch]
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
