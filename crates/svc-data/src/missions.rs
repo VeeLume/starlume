@@ -20,6 +20,8 @@ use sc_holotable::missions::{Encounter, Mission, Missions, PrereqView, RewardAmo
 use sc_holotable::resources::Resources;
 use serde::{Deserialize, Serialize};
 
+pub use crate::crimestat::CrimestatRisk;
+
 /// One displayed mission — a **pooled template**, not a raw contract
 /// expansion. CIG spawns one contract per offered locality, so the raw list
 /// has thousands of near-duplicates; the cook collapses contracts sharing the
@@ -32,10 +34,19 @@ pub struct MissionEntry {
     /// Resolved title; `None` → the UI falls back to `debug_name`.
     /// `~mission(Var)` runtime markers render as readable `[Var]`.
     pub title: Option<String>,
+    /// Raw title locale key (`@`-preserved as authored) — the INI key a
+    /// text-patching consumer targets. Entries sharing one key form the
+    /// key-level pool (coarser than this entry's collapse — see
+    /// [`Self::facts`]).
+    #[serde(default)]
+    pub title_key: Option<String>,
     /// Internal contract debug name — fallback label + DCB cross-ref.
     pub debug_name: String,
     /// Resolved description, with `~mission(Var)` → `[Var]`.
     pub description: Option<String>,
+    /// Raw description locale key (`@`-preserved as authored).
+    #[serde(default)]
+    pub description_key: Option<String>,
     /// Mission category (Bounty Hunter / Hauling / Salvage / …).
     pub category: Option<MissionCategory>,
     /// Reputation faction the UI groups + filters by.
@@ -71,6 +82,40 @@ pub struct MissionEntry {
     pub placeholders: Vec<String>,
     /// How many raw contract expansions this entry collapses.
     pub instance_count: u32,
+    /// What still diverges *within* this entry's collapsed pool — the axes
+    /// the pooling key doesn't pin (see [`MissionPoolFacts`]). Cross-entry
+    /// divergence (contracts sharing a title/description key but split into
+    /// different entries) is recomputable from the entries themselves via
+    /// [`Self::title_key`] / [`Self::description_key`].
+    #[serde(default)]
+    pub facts: MissionPoolFacts,
+}
+
+/// Within-pool divergence flags + crimestat, computed where the collapse
+/// happens (the raw contracts aren't in the snapshot to recompute from).
+///
+/// The pooling key pins title/description/reward-identity/payout-variant,
+/// so aUEC and blueprint-pool sets never mix within an entry; these are the
+/// axes that still can. When a `*_mixed` flag is set, the representative's
+/// value on that axis is one of several — an honest consumer surfaces the
+/// ambiguity instead of presenting it as fact.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MissionPoolFacts {
+    pub shareable_mixed: bool,
+    pub once_only_mixed: bool,
+    pub illegal_mixed: bool,
+    pub cooldowns_mixed: bool,
+    /// Scrip **amounts** differ across members (currencies are pinned by
+    /// the pooling key).
+    pub scrip_mixed: bool,
+    /// Reputation amounts differ across members (factions are pinned).
+    pub rep_mixed: bool,
+    /// Encounter shape (waves/slots) differs across members.
+    pub encounters_mixed: bool,
+    /// Crimestat risk of the representative (unanimous across members
+    /// unless [`Self::crimestat_mixed`]).
+    pub crimestat: CrimestatRisk,
+    pub crimestat_mixed: bool,
 }
 
 /// Resolved mission category — name + icon hint.
@@ -282,12 +327,14 @@ pub(crate) fn build_missions(
         groups.entry(key).or_default().push(m);
     }
 
+    let db = datacore.db();
     let mut out = Vec::with_capacity(groups.len());
     for members in groups.values() {
         // Members share title/description/rewards/payout; the first is the
         // representative. Localities are what vary → aggregated.
         let rep = members[0];
         let r = &rep.rewards;
+        let facts = build_facts(members, &missions, db);
 
         let payout = MissionPayout {
             calculated: matches!(r.uec, RewardAmount::Calculated),
@@ -374,8 +421,10 @@ pub(crate) fn build_missions(
         out.push(MissionEntry {
             mission_id: rep.id.to_string(),
             title: missions.title_text(rep, locale),
+            title_key: rep.title_key.as_ref().map(|k| k.as_str().to_string()),
             debug_name: rep.debug_name.clone(),
             description: missions.description_text(rep, locale),
+            description_key: rep.description_key.as_ref().map(|k| k.as_str().to_string()),
             category: build_category(rep, &missions, locale),
             faction: build_faction(rep, &missions, locale),
             difficulty: rep.difficulty.map(|d| MissionDifficulty {
@@ -405,6 +454,7 @@ pub(crate) fn build_missions(
             cargo,
             placeholders: missions.unresolved_markers(rep, locale),
             instance_count: members.len() as u32,
+            facts,
         });
     }
 
@@ -417,6 +467,44 @@ pub(crate) fn build_missions(
             .then_with(|| a.mission_id.cmp(&b.mission_id))
     });
     out
+}
+
+/// Within-pool divergence + crimestat for one collapsed entry. The
+/// `*_mixed` axes come from the upstream divergence helpers on
+/// [`Missions`]; crimestat is the ported langpatch `DontHarm*` walk
+/// ([`crate::crimestat`]), classified per member so mixing is visible.
+fn build_facts(
+    members: &[&Mission],
+    missions: &Missions,
+    db: &sc_holotable::asset::DataCoreDatabase,
+) -> MissionPoolFacts {
+    let ids: Vec<Guid> = members.iter().map(|m| m.id).collect();
+
+    let mut crimestat: Option<CrimestatRisk> = None;
+    let mut crimestat_mixed = false;
+    for m in members {
+        let risk = crate::crimestat::classify(db, m);
+        match crimestat {
+            None => crimestat = Some(risk),
+            Some(prev) if prev != risk => {
+                crimestat_mixed = true;
+                // Keep the representative's (first member's) risk.
+            }
+            _ => {}
+        }
+    }
+
+    MissionPoolFacts {
+        shareable_mixed: missions.shareable_mixed(&ids),
+        once_only_mixed: missions.once_only_mixed(&ids),
+        illegal_mixed: missions.illegal_mixed(&ids),
+        cooldowns_mixed: !missions.cooldowns_consistent(&ids),
+        scrip_mixed: !missions.rewards_scrip_consistent(&ids),
+        rep_mixed: !missions.rewards_rep_consistent(&ids),
+        encounters_mixed: !missions.encounters_shape_consistent(&ids),
+        crimestat: crimestat.unwrap_or_default(),
+        crimestat_mixed,
+    }
 }
 
 /// Distinguishing reward **identity** for pooling — the *kinds* of payoff,

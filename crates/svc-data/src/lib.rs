@@ -42,9 +42,12 @@
 //! proven in Hearth / sc-langpatch / bulkhead.
 
 pub mod cooked;
+pub mod legality;
 pub mod missions;
+pub mod weapons;
 
 mod cache;
+mod crimestat;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -59,11 +62,19 @@ pub use cooked::{
     CookedData, DATA_COOK_VERSION, ItemDetail, ItemPage, ItemQuery, ItemRow, ManufacturerRow,
     ResourceRow, STARLUME_COOK_REV,
 };
+pub use legality::{JurisdictionRef, LegalityEntry, LegalityKind};
 pub use missions::{
-    BpPoolEntry, BpPoolReward, CargoLeg, ItemReward, MissionCategory, MissionDifficulty,
-    MissionEncounter, MissionEntry, MissionFaction, MissionPayout, MissionPlace, MissionRef,
-    MissionRegion, MissionWave, RepRequirement, RepReward, ScripReward, ShipSlot,
+    BpPoolEntry, BpPoolReward, CargoLeg, CrimestatRisk, ItemReward, MissionCategory,
+    MissionDifficulty, MissionEncounter, MissionEntry, MissionFaction, MissionPayout, MissionPlace,
+    MissionPoolFacts, MissionRef, MissionRegion, MissionWave, RepRequirement, RepReward,
+    ScripReward, ShipSlot,
 };
+pub use weapons::{DamageBreakdown, MissileEntry, ShipWeaponEntry, TrackingEntry, WeaponsIndex};
+
+// Selected sc-holotable surface for CookedData consumers (module crates
+// depend on svc-data ONLY — the one-pin rule — so what they need to walk
+// the snapshot is re-exported here rather than pinned again).
+pub use sc_holotable::asset::{Guid, LocaleKey, LocaleMap, RecordCollection};
 
 /// Stack size for the loader thread — see the module docs.
 pub const LOADER_STACK_SIZE: usize = 32 * 1024 * 1024;
@@ -218,6 +229,19 @@ impl DataService {
         Ok(cooked)
     }
 
+    /// Drop one channel's in-memory bundle — the `InstallChanged` path: the
+    /// build changed, so the cooked data keyed under this channel is stale
+    /// and must not be served from memory (the disk tiers re-validate by
+    /// build_id on their own).
+    pub fn evict_channel(&self, channel_key: &str) {
+        if self.loaded.lock().unwrap().remove(channel_key).is_some() {
+            tracing::debug!(
+                channel = channel_key,
+                "evicted cooked data (install changed)"
+            );
+        }
+    }
+
     /// Drop every in-memory bundle (window hidden — the tray-idle path).
     /// In-flight queries keep their own `Arc` clones alive; the next query
     /// after show reloads via [`Self::get_or_reload_fast`] in under a second.
@@ -243,6 +267,27 @@ impl DataService {
             }
         }
     }
+}
+
+/// Read the raw base `global.ini` bytes (UTF-16 LE as CIG ships it) from an
+/// install's `Data.p4k`. A single-file archive read — seconds, no DCB parse.
+/// The apply stage of text patching needs the *raw* file (line order, `,P`
+/// suffixes, duplicates), which the parsed [`LocaleMap`] deliberately
+/// doesn't preserve.
+pub fn read_base_global_ini(p4k_path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+    let assets =
+        AssetSource::open(p4k_path).with_context(|| format!("opening {}", p4k_path.display()))?;
+    assets
+        .find_and_read(|name| {
+            // Entry names come with either separator depending on the
+            // archive writer — normalize before matching.
+            name.to_ascii_lowercase()
+                .replace('\\', "/")
+                .ends_with("localization/english/global.ini")
+        })
+        .context("reading global.ini from p4k")?
+        .map(|(_, bytes)| bytes)
+        .ok_or_else(|| anyhow!("global.ini not found in {}", p4k_path.display()))
 }
 
 fn remove_dir_if_present(dir: &std::path::Path) -> std::io::Result<()> {
@@ -328,12 +373,19 @@ fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) ->
         &foundations.resources,
         &asset_data.locale,
     );
+    // Legality + weapons ride the same parse window (README module rule 4:
+    // reference catalogs are framework — these also feed mod-langpatch's
+    // derive, so the module never needs the raw Datacore).
+    let legality = legality::build_legality(&datacore, &foundations.resources);
+    let weapons = weapons::build_weapons(&datacore, &foundations.items);
     let holotable = sc_holotable::HolotableSnapshot::from_foundations(&foundations);
     drop(datacore);
     CookedData {
         holotable,
         locale: asset_data.locale,
         missions,
+        legality,
+        weapons,
     }
 }
 
@@ -390,6 +442,40 @@ mod tests {
             },
             locale,
             missions: vec![fake_mission()],
+            legality: vec![legality::LegalityEntry {
+                resource_guid: guid(5).to_string(),
+                record_name: "WiDoW".into(),
+                name_key: "@items_commodities_widow".into(),
+                kind: legality::LegalityKind::Drug,
+                jurisdictions: vec![legality::JurisdictionRef {
+                    name_key: Some("@jurisdiction_stanton".into()),
+                    record_name: "Stanton".into(),
+                }],
+            }],
+            weapons: weapons::WeaponsIndex {
+                ship_weapons: vec![weapons::ShipWeaponEntry {
+                    guid: guid(6).to_string(),
+                    record_name: "GATS_BallisticGatling_S1".into(),
+                    name_key: Some("@item_NameGATS_BallisticGatling_S1".into()),
+                    desc_key: Some("@item_DescGATS_BallisticGatling_S1".into()),
+                    size: 1,
+                    item_sub_type: "Gun".into(),
+                    damage: Some(weapons::DamageBreakdown {
+                        physical: 25.0,
+                        energy: 0.0,
+                        distortion: 0.0,
+                        thermal: 0.0,
+                        biochemical: 0.0,
+                        stun: 0.0,
+                    }),
+                    penetration_m: Some(0.5),
+                    ammo_speed: Some(1200.0),
+                    ammo_lifetime: Some(2.0),
+                    total_ammo: Some(1500),
+                    capacitor: None,
+                }],
+                missiles: Vec::new(),
+            },
         }
     }
 
@@ -399,8 +485,10 @@ mod tests {
         missions::MissionEntry {
             mission_id: guid(7).to_string(),
             title: Some("Test Delivery".into()),
+            title_key: Some("@mission_title_testdelivery".into()),
             debug_name: "TestDelivery_01".into(),
             description: None,
+            description_key: None,
             category: None,
             faction: None,
             difficulty: None,
@@ -426,6 +514,11 @@ mod tests {
             cargo: Vec::new(),
             placeholders: Vec::new(),
             instance_count: 3,
+            facts: missions::MissionPoolFacts {
+                crimestat: missions::CrimestatRisk::Moderate,
+                cooldowns_mixed: true,
+                ..Default::default()
+            },
         }
     }
 
@@ -455,6 +548,22 @@ mod tests {
         assert_eq!(loaded.mission_count(), 1);
         assert_eq!(loaded.missions[0].title.as_deref(), Some("Test Delivery"));
         assert_eq!(loaded.missions[0].payout.fixed, Some(5000));
+        // Rev-3 additions ride it too: loc keys + facts + legality + weapons.
+        assert_eq!(
+            loaded.missions[0].title_key.as_deref(),
+            Some("@mission_title_testdelivery")
+        );
+        assert_eq!(
+            loaded.missions[0].facts.crimestat,
+            missions::CrimestatRisk::Moderate
+        );
+        assert!(loaded.missions[0].facts.cooldowns_mixed);
+        assert_eq!(loaded.legality.len(), 1);
+        assert_eq!(loaded.legality[0].record_name, "WiDoW");
+        assert_eq!(loaded.legality[0].kind, legality::LegalityKind::Drug);
+        assert_eq!(loaded.legality[0].jurisdictions[0].record_name, "Stanton");
+        assert_eq!(loaded.weapons.ship_weapons.len(), 1);
+        assert_eq!(loaded.weapons.ship_weapons[0].damage.unwrap().total(), 25.0);
     }
 
     #[test]

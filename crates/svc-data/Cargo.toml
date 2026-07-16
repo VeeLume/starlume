@@ -12,8 +12,9 @@ description = "Starlume data service — one shared DCB parse + snapshot cache p
 # one-pin rule). `foundations` = items, tags, manufacturers, resources,
 # locations, gathering + RecordPaths — the HolotableSnapshot bundle.
 # `missions-payout` adds the contracts pipeline + the DCB-read UecCurve for
-# the mission catalog cook.
-sc-holotable = { workspace = true, features = ["foundations", "missions-payout"] }
+# the mission catalog cook. `weapons` adds sc-weapons (ship weapons +
+# missiles) for the weapons-index cook.
+sc-holotable = { workspace = true, features = ["foundations", "missions-payout", "weapons"] }
 serde.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

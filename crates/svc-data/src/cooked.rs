@@ -19,7 +19,9 @@ use serde::{Deserialize, Serialize};
 /// query-relevant projection changes.
 ///
 /// rev 2: mission catalog ([`CookedData::missions`]).
-pub const STARLUME_COOK_REV: u32 = 2;
+/// rev 3: mission loc keys + pool facts + crimestat; legality index
+/// ([`CookedData::legality`]); weapons index ([`CookedData::weapons`]).
+pub const STARLUME_COOK_REV: u32 = 3;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.
@@ -39,6 +41,14 @@ pub struct CookedData {
     /// [`crate::missions`] for why missions don't defer to query time).
     #[serde(default)]
     pub missions: Vec<crate::missions::MissionEntry>,
+    /// Per-commodity legality rows from `Jurisdiction` records (raw locale
+    /// keys — see [`crate::legality`]).
+    #[serde(default)]
+    pub legality: Vec<crate::legality::LegalityEntry>,
+    /// Ship weapons + missiles with combat stats (raw locale keys — see
+    /// [`crate::weapons`]).
+    #[serde(default)]
+    pub weapons: crate::weapons::WeaponsIndex,
 }
 
 /// One page of item search results.
