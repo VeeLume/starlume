@@ -288,7 +288,7 @@ impl CookedData {
                     .and_then(|u| u.to_kg_per_m3()),
                 legality: legality_by_guid.get(r.guid.to_string().as_str()).map(|e| {
                     ResourceLegality {
-                        kind: e.kind.clone(),
+                        kind: e.kind,
                         jurisdictions: e
                             .jurisdictions
                             .iter()
