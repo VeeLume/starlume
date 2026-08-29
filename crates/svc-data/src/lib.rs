@@ -142,6 +142,13 @@ pub struct DataService {
     cache_root: PathBuf,
     /// `channel_key → cooked bundle` for everything currently in memory.
     loaded: Mutex<HashMap<String, Arc<CookedData>>>,
+    /// `channel_key → parse lock` — the single-flight guard behind
+    /// [`Self::load`]. Concurrent loads of one channel serialize on this
+    /// and the losers pick up the winner's bundle instead of re-parsing
+    /// (the "ONE DCB parse per build" invariant under concurrency; without
+    /// it, every trigger landing inside the multi-minute cold-parse window
+    /// paid its own full parse).
+    parse_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl DataService {
@@ -151,6 +158,7 @@ impl DataService {
         Self {
             cache_root,
             loaded: Mutex::new(HashMap::new()),
+            parse_locks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -197,12 +205,32 @@ impl DataService {
     /// this in `spawn_blocking`. Idempotent: if the bundle is already in
     /// memory it returns immediately.
     ///
-    /// `progress` is called from the loader thread as stages begin.
+    /// Single-flight per channel: concurrent callers block until the first
+    /// one's parse finishes, then share its bundle. Only the winning
+    /// caller's `progress` sees stage events — waiters block silently.
     pub fn load(
         &self,
         install: &InstallRef,
         progress: impl Fn(Stage) + Send + 'static,
     ) -> anyhow::Result<Arc<CookedData>> {
+        if let Some(cooked) = self.get(&install.channel_key) {
+            return Ok(cooked);
+        }
+
+        // Serialize on the channel's parse lock; recover a poisoned lock
+        // (a panicked winner must not brick the channel for the process
+        // lifetime). Entries are never removed — a handful of channels,
+        // each entry a few bytes.
+        let lock = Arc::clone(
+            self.parse_locks
+                .lock()
+                .unwrap()
+                .entry(install.channel_key.clone())
+                .or_default(),
+        );
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Lost the race → the winner already stored the bundle.
         if let Some(cooked) = self.get(&install.channel_key) {
             return Ok(cooked);
         }
@@ -668,6 +696,49 @@ mod tests {
 
         std::fs::write(dir.path().join(cache::PROCESSED_SNAPSHOT_NAME), b"x").unwrap();
         assert_eq!(cache::predict_tier(dir.path()), LoadTier::Processed);
+    }
+
+    #[test]
+    fn concurrent_loads_single_flight() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let root = tempfile::tempdir().unwrap();
+        let service = std::sync::Arc::new(DataService::new(root.path().to_path_buf()));
+        let inst = install("live", "build-1");
+        cache::save_processed(&service.channel_dir("live"), &inst, &fake_cooked());
+
+        // Progress fires only inside the load waterfall — callers that
+        // lose the single-flight race return the winner's bundle without
+        // ever entering it, so exactly one thread reports stages.
+        let reporters = std::sync::Arc::new(AtomicUsize::new(0));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let service = std::sync::Arc::clone(&service);
+                let reporters = std::sync::Arc::clone(&reporters);
+                let inst = inst.clone();
+                std::thread::spawn(move || {
+                    let fired = std::sync::Arc::new(AtomicUsize::new(0));
+                    let fired_cb = std::sync::Arc::clone(&fired);
+                    let cooked = service
+                        .load(&inst, move |_| {
+                            fired_cb.store(1, Ordering::SeqCst);
+                        })
+                        .expect("load");
+                    if fired.load(Ordering::SeqCst) == 1 {
+                        reporters.fetch_add(1, Ordering::SeqCst);
+                    }
+                    assert_eq!(cooked.item_count(), 3);
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(
+            reporters.load(Ordering::SeqCst),
+            1,
+            "exactly one caller should run the load waterfall"
+        );
     }
 
     #[test]
