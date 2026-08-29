@@ -59,16 +59,23 @@ migrate in as feature modules over time.
 
 ## Frontend
 
-Data-lifecycle and styling rules live in [docs/frontend.md](docs/frontend.md) —
-stores own data (pages render caches synchronously, no refetch-per-navigation),
-startup hydrates everything cheap in the background, and shared styling
-primitives live in `app.css` (tokens only, no hex in components). Read it
-before adding a page or a store. [docs/frontend.md](docs/frontend.md) is the
-**complete, self-contained design system** (foundations, primitives, the
-CatalogRow system, content + iconography rules) — the source of truth, no
-external design tool. The type system is three self-hosted faces (Lekton / IBM
-Plex Sans / JetBrains Mono) under `static/fonts/` — **no webfont CDN**, since a
-runtime font fetch would violate the online-policy invariant.
+The component system is **@veelume/ui** (github.com/VeeLume/veelume-ui,
+pinned by tag; ships source — dev builds exclude it from Vite's dependency
+pre-bundler). The kit's rulebook (`packages/ui/CLAUDE.md` there) is binding
+for what it covers: layers, the coupling contract, surfaces, URL-backed
+browse. What stays Starlume's lives in [docs/frontend.md](docs/frontend.md):
+data-lifecycle rules (stores own data, pages render caches synchronously,
+startup hydrates in the background, `data:progress` renders as a shell
+banner), the token layer (`app.css` is the palette's source of truth,
+`theme.css` bridges it onto the kit's token names), and the cascade
+mechanics — Tailwind 4 **with preflight**, unlayered app.css wins, and
+control styling is opt-in (`.btn` / `.input` / `.select`; never element-level
+rules that would hit kit-rendered elements). Icons are lucide-svelte for
+chrome/nav, Unicode glyphs for inline data marks. The type system is three
+self-hosted faces (Lekton / IBM Plex Sans / JetBrains Mono) under
+`static/fonts/` — **no webfont CDN**, since a runtime font fetch would
+violate the online-policy invariant. Read docs/frontend.md before adding a
+page, store, or catalog surface.
 
 ## Memory
 
