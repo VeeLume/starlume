@@ -7,6 +7,7 @@
   import { authStore, loadAuth, listenForAuthChanges } from "$lib/state/auth.svelte";
   import { scStore, loadSc } from "$lib/state/sc.svelte";
   import {
+    dataStore,
     loadStatus,
     ensureChannel,
     listenForDataProgress,
@@ -16,7 +17,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { onboarding, maybeStartOnboarding } from "$lib/state/onboarding.svelte";
   import { listenForNotifications, syncNotifications } from "$lib/state/notifications.svelte";
-  import { Notify, Shell, setKitContext, type NavGroup } from "@veelume/ui";
+  import { Notify, Progress, Shell, setKitContext, type NavGroup } from "@veelume/ui";
   import { House, Library, Settings, Users } from "lucide-svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
   import { checkForUpdates } from "$lib/updater";
@@ -196,6 +197,21 @@
     {/snippet}
   </Shell.Rail>
   <Shell.Content>
+    {#snippet banner()}
+      <!-- Game-data work made visible: the cold parse takes minutes and runs
+           once per game patch — invisible background work reads as a hang.
+           One strip per channel currently loading (dataStore.loading is fed
+           by the data:progress events the root layout subscribes to). -->
+      {#each Object.entries(dataStore.loading) as [channel, stage] (channel)}
+        <div class="data-banner">
+          <Progress label="Preparing Star Citizen data ({channel})" detail={stage} />
+          <p class="data-banner-hint">
+            The heavy parse happens once per game patch — catalogs and text patching pick
+            it up automatically when it finishes.
+          </p>
+        </div>
+      {/each}
+    {/snippet}
     {@render children()}
   </Shell.Content>
 </Shell.Root>
@@ -227,6 +243,17 @@
   }
   .avatar-fallback.muted {
     background: var(--bg-raised);
+    color: var(--text-dim);
+  }
+
+  .data-banner {
+    padding: 10px var(--content-pad) 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--accent-fill-faint);
+  }
+  .data-banner-hint {
+    margin: 4px 0 0;
+    font-size: 0.78rem;
     color: var(--text-dim);
   }
 </style>
