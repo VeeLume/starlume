@@ -40,3 +40,5 @@ CLAUDE.local.md
 # tauri.conf.json. This is a belt-and-suspenders guard.
 *.key
 *.key.pub
+# Added by code-review-graph
+.code-review-graph/
