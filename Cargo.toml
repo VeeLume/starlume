@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "src-tauri",
     "crates/app-kit",
+    "crates/mod-contracts",
     "crates/mod-langpatch",
     "crates/server",
     "crates/svc-discovery",
@@ -61,6 +62,7 @@ tauri-specta = { version = "2.0.0-rc.21", features = ["typescript"] }
 
 # Internal crates
 app-kit = { path = "crates/app-kit" }
+mod-contracts = { path = "crates/mod-contracts" }
 mod-langpatch = { path = "crates/mod-langpatch" }
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }

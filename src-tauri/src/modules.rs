@@ -36,9 +36,26 @@ impl Module for Langpatch {
     }
 }
 
+/// Contract tracker — all contract types, route planning, cargo packing
+/// as the hauling view (scope + constraints documented in
+/// `crates/mod-contracts`, currently a doc-only stub).
+struct Contracts;
+
+impl Module for Contracts {
+    fn id(&self) -> &'static str {
+        "contracts"
+    }
+    fn name(&self) -> &'static str {
+        "Contract Tracker"
+    }
+    fn description(&self) -> &'static str {
+        "Track active contracts with per-objective progress, plan multi-contract routes — hauling gets cargo packing"
+    }
+}
+
 /// All modules compiled into this build, enabled or not.
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
-    &[&Langpatch]
+    &[&Langpatch, &Contracts]
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]

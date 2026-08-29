@@ -8,8 +8,9 @@
 
 import type { ModuleDescriptor } from "./types";
 import { langpatchModule } from "./langpatch/descriptor";
+import { contractsModule } from "./contracts/descriptor";
 
-export const moduleRegistry: ModuleDescriptor[] = [langpatchModule];
+export const moduleRegistry: ModuleDescriptor[] = [langpatchModule, contractsModule];
 
 export function moduleById(id: string): ModuleDescriptor | undefined {
   return moduleRegistry.find((m) => m.id === id);

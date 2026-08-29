@@ -1,0 +1,10 @@
+[package]
+name = "mod-contracts"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume contracts module — contract tracker (all types), route planning, cargo packing as the hauling view"
+
+[dependencies]

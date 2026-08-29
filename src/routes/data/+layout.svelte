@@ -32,11 +32,6 @@
 {@render children()}
 
 <style>
-  .intro {
-    font-size: 0.88rem;
-    margin: 0 0 14px;
-    max-width: 60ch;
-  }
   .tab-channel {
     margin-left: auto;
     font-size: 0.78rem;

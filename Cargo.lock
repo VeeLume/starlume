@@ -2683,6 +2683,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-contracts"
+version = "0.1.0"
+
+[[package]]
 name = "mod-langpatch"
 version = "0.1.0"
 dependencies = [
