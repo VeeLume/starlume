@@ -1,7 +1,9 @@
-// Catalog caches + browse state (docs/frontend.md rules 1–2): the reference
-// datasets are fetched once per channel and kept here, and each catalog
-// page's browse state (query, filters, selection) survives navigation — a
-// tab switch renders instantly from cache instead of refetching.
+// Catalog caches (docs/frontend.md rule 1): the reference datasets are
+// fetched once per channel and kept here — a tab switch renders instantly
+// from cache instead of refetching. Browse state moved to the kit's
+// URL-backed `createBrowseState` per page (missions/resources/
+// manufacturers); only the server-paged items page keeps a store-side
+// browse (its results are backend queries, not a client pipeline).
 //
 // Invalidation: the layout calls `invalidateCatalogs()` on the backend's
 // `data:changed` event (a load may have cooked a new build).
@@ -89,19 +91,6 @@ export const itemsBrowse = $state({
   detail: null as ItemDetailView | null,
 });
 
-export const missionsBrowse = $state({
-  channel: null as string | null,
-  query: "",
-  category: null as string | null,
-  faction: null as string | null,
-  legality: "all" as "all" | "legal" | "illegal",
-  bpOnly: false,
-  sort: "name" as "name" | "payout",
-  detail: null as MissionEntryView | null,
-});
-
-export const resourcesBrowse = $state({ query: "" });
-
 /** Reset a browse state when its channel changed under it. */
 export function syncItemsChannel(channel: string): boolean {
   if (itemsBrowse.channel === channel) return false;
@@ -114,18 +103,6 @@ export function syncItemsChannel(channel: string): boolean {
   return true;
 }
 
-export function syncMissionsChannel(channel: string): boolean {
-  if (missionsBrowse.channel === channel) return false;
-  missionsBrowse.channel = channel;
-  missionsBrowse.query = "";
-  missionsBrowse.category = null;
-  missionsBrowse.faction = null;
-  missionsBrowse.legality = "all";
-  missionsBrowse.bpOnly = false;
-  missionsBrowse.detail = null;
-  return true;
-}
-
 /** Drop every cached dataset + stale results (new build cooked / cache
  *  wiped). Browse inputs (query, filters) survive; results refetch. */
 export function invalidateCatalogs(): void {
@@ -133,6 +110,4 @@ export function invalidateCatalogs(): void {
   itemsBrowse.results = null;
   itemsBrowse.detail = null;
   itemsBrowse.channel = null;
-  missionsBrowse.detail = null;
-  missionsBrowse.channel = null;
 }
