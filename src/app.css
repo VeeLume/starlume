@@ -8,6 +8,17 @@
  * fonts are self-hosted under static/fonts/ — no webfont CDN at runtime (the
  * online-policy invariant forbids ungated network calls). */
 
+/* ── Tailwind + @veelume/ui (migration, 2026-08) ──────────────────────────
+ * Tailwind is imported WITHOUT preflight: the hand-rolled pages below must
+ * render pixel-identical while kit components arrive page by page. Unlayered
+ * rules (everything else in this file) also outrank layered utilities, so
+ * existing styling keeps winning wherever both could apply. Revisit adopting
+ * preflight once the migration is done. Token bridge lives in theme.css. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "./theme.css";
+
 /* ── Fonts (self-hosted, static/fonts/) ───────────────────────────────── */
 
 @font-face {

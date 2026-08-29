@@ -1,0 +1,86 @@
+/*
+ * The @veelume/ui theme bridge — shadcn-convention tokens expressed FROM
+ * Starlume's own palette (app.css stays the palette's source of truth
+ * during the migration; docs/frontend.md documents that palette).
+ *
+ * The token NAMES here are the kit's contract; the VALUES are Starlume's
+ * warm-charcoal / orange-amber identity. One dark theme, no `.dark` class
+ * (color-scheme is pinned dark in app.css).
+ */
+
+/* The kit's stylesheet: carries its own `@source` so Tailwind scans the
+ * kit's classes (it ships source through node_modules, which automatic
+ * source detection skips), and maps the tokens the shadcn set lacks. */
+@import "@veelume/ui/styles.css";
+
+:root {
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--bg-raised);
+  --card-foreground: var(--text);
+  --popover: var(--bg-raised);
+  --popover-foreground: var(--text);
+  --primary: var(--accent);
+  --primary-foreground: var(--on-accent);
+  --secondary: var(--bg-raised);
+  --secondary-foreground: var(--text);
+  --muted: var(--bg-raised);
+  --muted-foreground: var(--text-dim);
+  /* shadcn's `accent` is the quiet hover surface — Starlume's signature
+   * tinted-amber fill, not the solid accent (that one is `primary`). */
+  --accent-surface: var(--accent-fill-weak);
+  --accent-surface-foreground: var(--text);
+  --destructive: var(--bad);
+  --destructive-foreground: var(--text-strong);
+  --input: var(--border);
+  --ring: var(--accent);
+  --warning: var(--warn);
+  --warning-foreground: var(--on-accent);
+
+  /* Density — Starlume is a desktop mouse-first app: compact by default
+   * (the demo's "compact" values; comfortable can arrive with a setting). */
+  --density-unit: 0.875rem;
+  --density-padding: 0.75rem;
+  --density-gap: 0.5rem;
+  --density-target: 2.25rem;
+}
+
+/*
+ * Utility-token mapping. `inline` so Tailwind bakes values into utilities
+ * instead of emitting `--radius-*`/`--color-*` vars that would collide
+ * with app.css's own `--radius` / `--radius-lg` / `--border` tokens.
+ * shadcn-`accent` utilities read the *-surface vars mapped above —
+ * app.css's `--accent` (the solid amber) keeps its name and meaning.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent-surface);
+  --color-accent-foreground: var(--accent-surface-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Starlume radii verbatim (controls 7px, cards 9px — docs/frontend.md). */
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 9px;
+  --radius-xl: 13px;
+
+  /* The three-face type system (self-hosted, app.css @font-face). */
+  --font-sans: var(--font-body);
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Lekton", ui-monospace, monospace;
+}

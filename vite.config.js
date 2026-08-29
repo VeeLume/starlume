@@ -1,10 +1,11 @@
 import { sveltekit } from "@sveltejs/kit/vite";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async () => ({
-  plugins: [sveltekit()],
+  plugins: [tailwindcss(), sveltekit()],
 
   // Vite options for Tauri development
   clearScreen: false,
