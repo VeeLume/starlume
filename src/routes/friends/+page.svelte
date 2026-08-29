@@ -103,10 +103,10 @@
   <p class="dim">Loading…</p>
 {:else}
   <section class="actions">
-    <button onclick={mint}>My friend code</button>
+    <button class="btn" onclick={mint}>My friend code</button>
     <form onsubmit={(e) => { e.preventDefault(); void add(); }}>
       <input type="text" placeholder="Friend code" bind:value={friendCode} />
-      <button type="submit">Add friend</button>
+      <button class="btn" type="submit">Add friend</button>
     </form>
   </section>
   {#if myFriendCode}
@@ -122,7 +122,7 @@
       {#each friendsStore.friends as f (f.user_id)}
         <li>
           {f.username}
-          <button class="small" onclick={() => remove(f)}>Remove</button>
+          <button class="btn small" onclick={() => remove(f)}>Remove</button>
         </li>
       {/each}
     </ul>
@@ -134,11 +134,11 @@
   <section class="actions">
     <form onsubmit={(e) => { e.preventDefault(); void create(); }}>
       <input type="text" placeholder="New group name" bind:value={newGroupName} maxlength="64" />
-      <button type="submit">Create</button>
+      <button class="btn" type="submit">Create</button>
     </form>
     <form onsubmit={(e) => { e.preventDefault(); void join(); }}>
       <input type="text" placeholder="Invite code" bind:value={joinCode} />
-      <button type="submit">Join</button>
+      <button class="btn" type="submit">Join</button>
     </form>
   </section>
 
@@ -151,8 +151,8 @@
           <span class="group-name">{g.name}</span>
           <span class="dim">{g.members.length} member{g.members.length === 1 ? "" : "s"}</span>
           <span class="spacer"></span>
-          <button onclick={() => invite(g.id)}>Invite</button>
-          <button onclick={() => leave(g)}>Leave</button>
+          <button class="btn" onclick={() => invite(g.id)}>Invite</button>
+          <button class="btn" onclick={() => leave(g)}>Leave</button>
         </div>
         {#if inviteCodes[g.id]}
           <p class="invite">

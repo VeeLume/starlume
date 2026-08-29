@@ -66,7 +66,7 @@
     <p>
       Signed in{authStore.profile ? ` as ${authStore.profile.username}` : ""}.
     </p>
-    <button onclick={logout}>Sign out</button>
+    <button class="btn" onclick={logout}>Sign out</button>
   {:else}
     <label class="server">
       Server URL
@@ -78,7 +78,7 @@
       />
     </label>
     {#if auth?.server_configured}
-      <button class="primary" onclick={login}>Sign in with Discord</button>
+      <button class="btn primary" onclick={login}>Sign in with Discord</button>
       {#if auth.dev_profile}
         <p class="dim">
           Dev profile <code>{auth.dev_profile}</code> — the sign-in link is shown

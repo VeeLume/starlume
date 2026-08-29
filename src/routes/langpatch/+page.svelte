@@ -107,6 +107,7 @@
           <span class="row-buttons">
             {#if install.state === "foreign"}
               <button
+                class="btn"
                 disabled={langpatchStore.busy}
                 onclick={() => applyLangpatch(install.channel_key)}
               >
@@ -114,6 +115,7 @@
               </button>
             {:else}
               <button
+                class="btn"
                 disabled={langpatchStore.busy}
                 onclick={() => applyLangpatch(install.channel_key)}
               >
@@ -122,6 +124,7 @@
             {/if}
             {#if install.state !== "unpatched"}
               <button
+                class="btn"
                 disabled={langpatchStore.busy}
                 onclick={() => removeLangpatch(install.channel_key)}
               >
@@ -202,6 +205,7 @@
         bind:value={packInput}
       />
       <button
+        class="btn"
         disabled={langpatchStore.busy}
         onclick={() => mutate((u) => (u.language_pack = packInput.trim() || null))}
       >

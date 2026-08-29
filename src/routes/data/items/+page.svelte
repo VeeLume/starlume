@@ -115,6 +115,7 @@
         {#if totalPages > 1}
           <div class="pager">
             <button
+              class="btn"
               disabled={b.page === 0}
               onclick={() => {
                 b.page -= 1;
@@ -123,6 +124,7 @@
             >
             <span class="dim">{b.page + 1} / {totalPages}</span>
             <button
+              class="btn"
               disabled={b.page + 1 >= totalPages}
               onclick={() => {
                 b.page += 1;
@@ -142,7 +144,7 @@
       <aside class="detail-panel">
         <div class="detail-head">
           <h3>{b.detail.name}</h3>
-          <button class="subtle" onclick={() => (b.detail = null)} aria-label="Close">✕</button>
+          <button class="btn subtle" onclick={() => (b.detail = null)} aria-label="Close">✕</button>
         </div>
         <dl>
           {#if b.detail.short_name}<dt>Short name</dt><dd>{b.detail.short_name}</dd>{/if}

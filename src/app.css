@@ -268,7 +268,13 @@ h3 {
 
 /* ── Controls ─────────────────────────────────────────────────────────── */
 
-button {
+/* Button styling is OPT-IN (`.btn`), not element-level: an element-level
+ * `button {}` rule is unlayered and would out-cascade every utility on
+ * @veelume/ui's buttons — it turned the kit Popup's invisible full-viewport
+ * click-catcher into an opaque wall. App buttons carry `class="btn"`
+ * (plus `primary` / `subtle`); fully self-styled buttons (kit components,
+ * scoped one-offs) stay bare. */
+.btn {
   font: inherit;
   font-family: var(--font-display);
   font-size: var(--text-button);
@@ -282,25 +288,25 @@ button {
     border-color var(--transition-fast),
     color var(--transition-fast);
 }
-button:hover:not(:disabled) {
+.btn:hover:not(:disabled) {
   border-color: var(--accent);
 }
-button:disabled {
+.btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
-button.primary {
+.btn.primary {
   background: var(--accent-fill);
   border-color: var(--accent);
   color: var(--accent);
   font-weight: var(--weight-bold);
 }
-button.subtle {
+.btn.subtle {
   border-color: transparent;
   background: transparent;
   color: var(--text-dim);
 }
-button.subtle:hover:not(:disabled) {
+.btn.subtle:hover:not(:disabled) {
   color: var(--text);
   border-color: transparent;
 }

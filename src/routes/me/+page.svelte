@@ -82,7 +82,7 @@
       {:else}
         <div class="dim">Recognized from the RSI launcher · not yet verified</div>
         {#if settings?.online_enabled}
-          <button onclick={verify} disabled={verifying}>
+          <button class="btn" onclick={verify} disabled={verifying}>
             {verifying ? "Verifying…" : "Verify with RSI profile"}
           </button>
         {:else}
@@ -120,11 +120,11 @@
       access, not your friends list here.)
     </p>
     {#if auth?.logged_in}
-      <button onclick={disconnectDiscord}>Disconnect</button>
+      <button class="btn" onclick={disconnectDiscord}>Disconnect</button>
     {:else if !settings?.online_enabled}
       <span class="dim">Enable online features (Settings) to connect.</span>
     {:else if auth?.server_configured}
-      <button onclick={connectDiscord}>Connect Discord</button>
+      <button class="btn" onclick={connectDiscord}>Connect Discord</button>
       {#if auth.dev_profile && manualLoginUrl}
         <p class="manual-url">Copied to clipboard:<br /><code>{manualLoginUrl}</code></p>
       {/if}

@@ -126,7 +126,7 @@
       {#if step.kind === "module-step"}
         <span class="module-tag">{step.moduleName}</span>
       {/if}
-      <button class="skip" onclick={skip}>Skip setup</button>
+      <button class="btn skip" onclick={skip}>Skip setup</button>
     </header>
 
     <div class="body">
@@ -150,7 +150,7 @@
           <div class="module-grid">
             {#each moduleRegistry as m (m.id)}
               <button
-                class="module-card"
+                class="btn module-card"
                 class:selected={selected.has(m.id)}
                 onclick={() => toggleModule(m.id)}
               >
@@ -190,12 +190,12 @@
       </div>
       <div class="buttons">
         {#if index > 0}
-          <button onclick={back}>Back</button>
+          <button class="btn" onclick={back}>Back</button>
         {/if}
         {#if atEnd}
-          <button class="primary" onclick={finish}>Finish</button>
+          <button class="btn primary" onclick={finish}>Finish</button>
         {:else}
-          <button class="primary" disabled={!canContinue} onclick={next}>
+          <button class="btn primary" disabled={!canContinue} onclick={next}>
             Next
           </button>
         {/if}

@@ -69,7 +69,7 @@
           Recognized from the RSI launcher. Verify to capture your permanent
           account anchors (used later so a handle rename doesn't lose your data).
         </p>
-        <button onclick={verify} disabled={verifying}>
+        <button class="btn" onclick={verify} disabled={verifying}>
           {verifying ? "Verifying…" : "Verify with RSI profile"}
         </button>
       {:else}

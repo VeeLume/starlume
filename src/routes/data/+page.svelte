@@ -61,11 +61,12 @@
           {#if dataStore.loading[status.channel]}
             <span class="progress">{dataStore.loading[status.channel]}</span>
           {:else}
-            <button class="primary" onclick={() => void load(status.channel)}>
+            <button class="btn primary" onclick={() => void load(status.channel)}>
               {status.loaded ? "Reload" : "Load"}
             </button>
             {#if status.loaded || status.predicted_tier === "processed"}
               <button
+                class="btn"
                 onclick={() => setChannel(status.channel)}
                 disabled={dataStore.channel === status.channel}
               >
@@ -73,7 +74,7 @@
               </button>
             {/if}
             {#if status.predicted_tier !== "live"}
-              <button class="subtle" onclick={() => void wipe(status.channel)}>Wipe cache</button>
+              <button class="btn subtle" onclick={() => void wipe(status.channel)}>Wipe cache</button>
             {/if}
           {/if}
         </div>

@@ -122,8 +122,8 @@
       Load game data at startup (local only; heavy work only after a game patch)
     </Switch>
     <div class="row-buttons">
-      <button onclick={() => checkForUpdates(true)}>Check for updates</button>
-      <button onclick={openOnboarding}>Re-run setup</button>
+      <button class="btn" onclick={() => checkForUpdates(true)}>Check for updates</button>
+      <button class="btn" onclick={openOnboarding}>Re-run setup</button>
     </div>
   </section>
 
@@ -200,9 +200,9 @@
           Signed in{authStore.profile ? ` as ${authStore.profile.username}` : ""} on this
           device.
         </p>
-        <button onclick={logout}>Sign out</button>
+        <button class="btn" onclick={logout}>Sign out</button>
       {:else if auth.server_configured}
-        <button onclick={login}>Sign in with Discord</button>
+        <button class="btn" onclick={login}>Sign in with Discord</button>
         {#if auth.dev_profile}
           <p class="dim">
             Dev profile <code>{auth.dev_profile}</code> — the sign-in link is shown here
