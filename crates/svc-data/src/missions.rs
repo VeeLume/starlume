@@ -437,12 +437,17 @@ pub(crate) fn build_missions(
             once_only: rep.availability.once_only,
             shareable: rep.shareable,
             illegal: rep.illegal_flag,
+            // Upstream unit misnomer: `DurationRange.mean_seconds` carries
+            // the DCB's `personal_cooldown_time` raw, which is authored in
+            // MINUTES (verified against live cooldowns in sc-langpatch;
+            // e.g. certification missions read 15 → 15min in-game).
+            // Convert here so this field's name stays truthful.
             cooldown_seconds: rep
                 .availability
                 .cooldowns
                 .completion
                 .as_ref()
-                .map(|d| d.mean_seconds),
+                .map(|d| d.mean_seconds * 60.0),
             scrip,
             reputation,
             item_rewards,

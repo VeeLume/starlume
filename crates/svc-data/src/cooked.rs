@@ -21,7 +21,10 @@ use serde::{Deserialize, Serialize};
 /// rev 2: mission catalog ([`CookedData::missions`]).
 /// rev 3: mission loc keys + pool facts + crimestat; legality index
 /// ([`CookedData::legality`]); weapons index ([`CookedData::weapons`]).
-pub const STARLUME_COOK_REV: u32 = 3;
+/// rev 4: `cooldown_seconds` actually in seconds (upstream feeds the
+/// minutes-authored `personal_cooldown_time` into a seconds-named field;
+/// the cook now converts).
+pub const STARLUME_COOK_REV: u32 = 4;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.
