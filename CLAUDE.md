@@ -84,7 +84,7 @@ Read it before adding caches or long-lived state.
 - The auth flow is wired desktop-side but the server doesn't exist yet; `login_start`
   errors politely without a configured server URL. Don't invent server endpoints — the
   contract lands together with `hearth-server`'s successor (see the design doc).
-- Frontend dev server runs on port **1430** (Hearth uses 1420 — both apps run side by side
+- Frontend dev server runs on port **1445** (Hearth uses 1420 — both apps run side by side
   in dev).
 
 <!-- code-review-graph MCP tools -->
