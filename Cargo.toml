@@ -35,7 +35,7 @@ scraper = "0.20"
 # The SC data backbone — ONE pin for the whole app (the whole point of the
 # consolidation). Base features here; svc-data adds `foundations` on the same
 # pin (Cargo unions features across the workspace).
-sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.16.0", features = ["installs"] }
+sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "datacore/4.9.0-live.12344265", features = ["installs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
