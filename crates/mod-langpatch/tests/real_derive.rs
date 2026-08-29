@@ -117,6 +117,26 @@ fn derive_and_apply_from_real_data() {
         reparsed.values().any(|v| v.contains("Weapon Stats")),
         "no weapon stats block in output"
     );
+    // Mission enhancer: info + region blocks on descriptions, at least one
+    // pooled key that diverged into a variants section, and title tags.
+    assert!(
+        reparsed.values().any(|v| v.contains("Mission Info")),
+        "no mission info block in output"
+    );
+    assert!(
+        reparsed.values().any(|v| v.contains("Available at")),
+        "no region block in output"
+    );
+    assert!(
+        reparsed.values().any(|v| v.contains("Variants (")),
+        "no variants section in output"
+    );
+    assert!(
+        reparsed
+            .values()
+            .any(|v| v.ends_with("[Solo]") || v.contains("[Solo] [")),
+        "no [Solo] title tag in output"
+    );
     assert!(
         std::fs::read_to_string(fake_install.path().join("user.cfg"))
             .unwrap()
@@ -127,4 +147,81 @@ fn derive_and_apply_from_real_data() {
     // Removal restores vanilla.
     assert!(merge::remove_patch(fake_install.path()).unwrap());
     assert!(!merge::override_path(fake_install.path()).exists());
+}
+
+/// Eyeball helper, not an assertion suite: prints a handful of the mission
+/// enhancer's rendered patches (title tags, a variants section, an
+/// encounter block) so a human can sanity-check the player-facing text.
+/// Same setup as [`derive_and_apply_from_real_data`].
+#[test]
+#[ignore = "needs real game data — set STARLUME_REAL_P4K and run svc-data's real_sc_data first"]
+fn dump_mission_enhancer_samples() {
+    let p4k =
+        std::env::var("STARLUME_REAL_P4K").expect("set STARLUME_REAL_P4K to a real Data.p4k path");
+    let install = InstallRef {
+        channel_key: "real-test".into(),
+        p4k_path: p4k.into(),
+        build_id: "real-test-build".into(),
+        version: "real-test".into(),
+    };
+    let service = DataService::new(std::env::temp_dir().join("starlume-svcdata-real-test"));
+    let cooked = service
+        .get_or_reload_fast(&install)
+        .expect("processed snapshot from real_sc_data run present");
+
+    let mfrs = cooked.manufacturers();
+    eprintln!("manufacturers: {} rows", mfrs.len());
+    for m in mfrs.iter().take(8) {
+        eprintln!("  {} → {:?}", m.code, m.name);
+    }
+    let with_enc = cooked.missions.iter().find(|m| !m.encounters.is_empty());
+    if let Some(m) = with_enc {
+        let slot = &m.encounters[0].waves[0].ships[0];
+        eprintln!("sample raw slot ships: {:?}", slot.ships);
+    }
+
+    let work_dir = tempfile::tempdir().unwrap();
+    let config = LangpatchConfig::default();
+    let patchers: Vec<_> = builtin_patchers()
+        .into_iter()
+        .filter(|p| p.id() == "mission_enhancer")
+        .collect();
+    let ops = derive_ops(
+        work_dir.path(),
+        "real-test",
+        &install.build_id,
+        Some(&cooked),
+        &config,
+        &patchers,
+    )
+    .expect("derive");
+    let patches = &ops[0].ops.patches;
+
+    let dump = |label: &str, pred: &dyn Fn(&str, &str) -> bool, n: usize| {
+        eprintln!("\n════ {label} ════");
+        for (key, op) in patches
+            .iter()
+            .filter(|(k, op)| {
+                let PatchOp::Suffix(v) = op else { return false };
+                pred(k, v)
+            })
+            .take(n)
+        {
+            let PatchOp::Suffix(v) = op else { continue };
+            eprintln!("--- {key}\n{}", v.replace("\\n", "\n"));
+        }
+    };
+
+    dump(
+        "title tags",
+        &|k, _| k.contains("title") || !k.contains("desc"),
+        12,
+    );
+    dump("variants sections", &|_, v| v.contains("Variants ("), 3);
+    dump("encounter blocks", &|_, v| v.contains("Encounters"), 3);
+    dump(
+        "blueprint blocks",
+        &|_, v| v.contains("Potential Blueprints"),
+        2,
+    );
 }
