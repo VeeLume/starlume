@@ -85,6 +85,20 @@ pub struct ItemDetail {
     pub grade: i32,
     /// DCB record path (`libs/foundry/records/...`), when known.
     pub record_path: Option<String>,
+    /// Combat stats when this item is a ship weapon (the weapons-index
+    /// join — README rule 4: enrichments are framework reference data).
+    pub ship_weapon: Option<crate::weapons::ShipWeaponEntry>,
+    /// Combat stats when this item is a missile / torpedo.
+    pub missile: Option<crate::weapons::MissileEntry>,
+}
+
+/// A resource's legality verdict — the legality-index join, resolved for
+/// display (kind + jurisdiction names).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceLegality {
+    pub kind: crate::legality::LegalityKind,
+    /// Resolved jurisdiction names (record-name fallback).
+    pub jurisdictions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +110,8 @@ pub struct ResourceRow {
     pub refined_into: Option<String>,
     /// Density normalized to kg/m³, when the record carries one.
     pub density_kg_per_m3: Option<f32>,
+    /// Drug/contraband verdict when any jurisdiction outlaws this resource.
+    pub legality: Option<ResourceLegality>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,6 +242,18 @@ impl CookedData {
                 .as_ref()
                 .and_then(|p| p.get(&guid))
                 .map(|r| r.path.clone()),
+            ship_weapon: {
+                let g = guid.to_string();
+                self.weapons
+                    .ship_weapons
+                    .iter()
+                    .find(|w| w.guid == g)
+                    .cloned()
+            },
+            missile: {
+                let g = guid.to_string();
+                self.weapons.missiles.iter().find(|m| m.guid == g).cloned()
+            },
         })
     }
 
@@ -234,6 +262,12 @@ impl CookedData {
         let Some(resources) = self.holotable.resources.as_ref() else {
             return Vec::new();
         };
+        // Legality index keyed by resource GUID for the per-row join.
+        let legality_by_guid: std::collections::HashMap<&str, &crate::legality::LegalityEntry> =
+            self.legality
+                .iter()
+                .map(|e| (e.resource_guid.as_str(), e))
+                .collect();
         let mut rows: Vec<ResourceRow> = resources
             .values()
             .map(|r| ResourceRow {
@@ -252,6 +286,22 @@ impl CookedData {
                     .as_ref()
                     .and_then(|d| d.unit.as_ref())
                     .and_then(|u| u.to_kg_per_m3()),
+                legality: legality_by_guid.get(r.guid.to_string().as_str()).map(|e| {
+                    ResourceLegality {
+                        kind: e.kind.clone(),
+                        jurisdictions: e
+                            .jurisdictions
+                            .iter()
+                            .map(|j| {
+                                j.name_key
+                                    .as_deref()
+                                    .map(|k| self.resolve_or_key(k).to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or_else(|| j.record_name.clone())
+                            })
+                            .collect(),
+                    }
+                }),
             })
             .collect();
         rows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));

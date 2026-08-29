@@ -10,8 +10,7 @@
 
 import {
   commands,
-  type ItemPageView,
-  type ItemDetailView,
+  type ItemRowView,
   type ItemTypeFacetView,
   type ResourceRowView,
   type ManufacturerRowView,
@@ -20,6 +19,7 @@ import {
 
 /** Per-channel cached reference datasets. */
 type Datasets = {
+  items?: ItemRowView[];
   types?: ItemTypeFacetView[];
   resources?: ResourceRowView[];
   manufacturers?: ManufacturerRowView[];
@@ -55,6 +55,9 @@ function cached<K extends keyof Datasets>(
 const unwrap = <T>(r: { status: "ok"; data: T } | { status: "error"; error: { message: string } }) =>
   r.status === "ok" ? r.data : r.error.message;
 
+export function getItemsAll(channel: string) {
+  return cached(channel, "items", async () => unwrap(await commands.dataItemsAll(channel)));
+}
 export function getItemTypes(channel: string) {
   return cached(channel, "types", async () => unwrap(await commands.dataItemTypes(channel)));
 }
@@ -73,41 +76,13 @@ export function getMissions(channel: string) {
 /** Kick off every catalog fetch for a channel in the background (startup
  *  hydration, rule 3). Errors are ignored — pages surface them on demand. */
 export function prefetchCatalogs(channel: string): void {
-  void getItemTypes(channel);
+  void getItemsAll(channel);
   void getResources(channel);
   void getManufacturers(channel);
   void getMissions(channel);
 }
 
-// ── Browse state (persists across navigation) ─────────────────────────────
-
-export const itemsBrowse = $state({
-  /** The channel the current results belong to. */
-  channel: null as string | null,
-  query: "",
-  itemType: null as string | null,
-  page: 0,
-  results: null as ItemPageView | null,
-  detail: null as ItemDetailView | null,
-});
-
-/** Reset a browse state when its channel changed under it. */
-export function syncItemsChannel(channel: string): boolean {
-  if (itemsBrowse.channel === channel) return false;
-  itemsBrowse.channel = channel;
-  itemsBrowse.query = "";
-  itemsBrowse.itemType = null;
-  itemsBrowse.page = 0;
-  itemsBrowse.results = null;
-  itemsBrowse.detail = null;
-  return true;
-}
-
-/** Drop every cached dataset + stale results (new build cooked / cache
- *  wiped). Browse inputs (query, filters) survive; results refetch. */
+/** Drop every cached dataset (new build cooked / cache wiped). */
 export function invalidateCatalogs(): void {
   _datasets = {};
-  itemsBrowse.results = null;
-  itemsBrowse.detail = null;
-  itemsBrowse.channel = null;
 }

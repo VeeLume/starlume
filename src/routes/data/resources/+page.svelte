@@ -82,13 +82,31 @@
             title={r.title}
             subtitle={r.refined_into ? `refines into ${r.refined_into}` : undefined}
             open={expanded.has(r.key)}
-            ontoggle={r.description ? () => expanded.toggle(r.key) : undefined}
+            ontoggle={r.description || r.legality
+              ? () => expanded.toggle(r.key)
+              : undefined}
           >
+            {#snippet meta()}
+              {#if r.legality}
+                <span
+                  class="badge danger"
+                  title="Illegal in {r.legality.jurisdictions.join(', ')}"
+                >
+                  {r.legality.kind}
+                </span>
+              {/if}
+            {/snippet}
             {#snippet right()}
               {#if r.density_kg_per_m3 != null}
                 <span class="metric">{r.density_kg_per_m3.toFixed(0)} kg/m³</span>
               {/if}
             {/snippet}
+            {#if r.legality}
+              <p class="legality">
+                <span class="danger-text">Illegal</span>
+                ({r.legality.kind}) in {r.legality.jurisdictions.join(", ")}
+              </p>
+            {/if}
             {#if r.description}
               <p class="desc">{r.description}</p>
             {/if}
@@ -104,5 +122,13 @@
     margin: 0;
     max-width: 70ch;
     color: var(--text-dim);
+  }
+  .legality {
+    margin: 0 0 4px;
+    font-size: 0.82rem;
+  }
+  .danger-text {
+    color: var(--bad);
+    font-weight: var(--weight-medium);
   }
 </style>

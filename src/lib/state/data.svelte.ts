@@ -7,7 +7,6 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   commands,
   type DataStatusView,
-  type ItemPageView,
   type ItemDetailView,
   type ResourceRowView,
   type ManufacturerRowView,
@@ -140,17 +139,6 @@ export async function wipe(channel: string): Promise<void> {
 }
 
 // ── Browse queries (thin wrappers; the page owns the result state) ────────
-
-export async function searchItems(
-  channel: string,
-  query: string,
-  itemType: string | null,
-  offset: number,
-  limit: number,
-): Promise<ItemPageView | string> {
-  const result = await commands.dataSearchItems(channel, query, itemType, offset, limit);
-  return result.status === "ok" ? result.data : result.error.message;
-}
 
 export async function itemDetail(
   channel: string,

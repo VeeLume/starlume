@@ -113,6 +113,67 @@ pub struct ItemDetailView {
     pub size: i32,
     pub grade: i32,
     pub record_path: Option<String>,
+    /// Combat stats when the item is a ship weapon (weapons-index join).
+    pub ship_weapon: Option<ShipWeaponStatsView>,
+    /// Combat stats when the item is a missile / torpedo.
+    pub missile: Option<MissileStatsView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct DamageBreakdownView {
+    pub physical: f32,
+    pub energy: f32,
+    pub distortion: f32,
+    pub thermal: f32,
+    pub biochemical: f32,
+    pub stun: f32,
+    /// Scalar total across all damage types (the "alpha" figure).
+    pub total: f32,
+}
+
+impl From<svc_data::DamageBreakdown> for DamageBreakdownView {
+    fn from(d: svc_data::DamageBreakdown) -> Self {
+        Self {
+            total: d.total(),
+            physical: d.physical,
+            energy: d.energy,
+            distortion: d.distortion,
+            thermal: d.thermal,
+            biochemical: d.biochemical,
+            stun: d.stun,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ShipWeaponStatsView {
+    pub size: i32,
+    pub item_sub_type: String,
+    pub damage: Option<DamageBreakdownView>,
+    pub penetration_m: Option<f32>,
+    pub ammo_speed: Option<f32>,
+    pub ammo_lifetime: Option<f32>,
+    pub total_ammo: Option<i32>,
+    pub capacitor: Option<f32>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct MissileStatsView {
+    pub size: i32,
+    pub is_torpedo: bool,
+    pub damage: Option<DamageBreakdownView>,
+    pub speed: Option<f32>,
+    pub arm_time: f32,
+    pub tracking: Option<TrackingView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct TrackingView {
+    pub signal: String,
+    pub lock_time: f32,
+    pub lock_angle_deg: f32,
+    pub lock_range_min_m: f32,
+    pub lock_range_max_m: f32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -122,6 +183,15 @@ pub struct ResourceRowView {
     pub description: Option<String>,
     pub refined_into: Option<String>,
     pub density_kg_per_m3: Option<f32>,
+    /// Drug/contraband verdict when any jurisdiction outlaws this resource.
+    pub legality: Option<ResourceLegalityView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ResourceLegalityView {
+    /// `"drug"` or `"contraband"`.
+    pub kind: String,
+    pub jurisdictions: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -168,6 +238,26 @@ pub struct MissionEntryView {
     pub cargo: Vec<CargoLegView>,
     pub placeholders: Vec<String>,
     pub instance_count: u32,
+    pub facts: MissionPoolFactsView,
+}
+
+/// Within-pool divergence flags + crimestat (`svc_data::MissionPoolFacts`).
+/// When a `*_mixed` flag is set, the representative's value on that axis is
+/// one of several — the UI surfaces the ambiguity instead of stating it as
+/// fact.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct MissionPoolFactsView {
+    pub shareable_mixed: bool,
+    pub once_only_mixed: bool,
+    pub illegal_mixed: bool,
+    pub cooldowns_mixed: bool,
+    pub scrip_mixed: bool,
+    pub rep_mixed: bool,
+    pub encounters_mixed: bool,
+    /// `"none"` / `"moderate"` / `"high"` — killing friendly NPCs risks a
+    /// crimestat (high = no HUD markers to tell friend from foe).
+    pub crimestat: String,
+    pub crimestat_mixed: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -445,6 +535,21 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
                 .collect(),
             placeholders: m.placeholders,
             instance_count: m.instance_count,
+            facts: MissionPoolFactsView {
+                shareable_mixed: m.facts.shareable_mixed,
+                once_only_mixed: m.facts.once_only_mixed,
+                illegal_mixed: m.facts.illegal_mixed,
+                cooldowns_mixed: m.facts.cooldowns_mixed,
+                scrip_mixed: m.facts.scrip_mixed,
+                rep_mixed: m.facts.rep_mixed,
+                encounters_mixed: m.facts.encounters_mixed,
+                crimestat: match m.facts.crimestat {
+                    svc_data::CrimestatRisk::None => "none".into(),
+                    svc_data::CrimestatRisk::Moderate => "moderate".into(),
+                    svc_data::CrimestatRisk::High => "high".into(),
+                },
+                crimestat_mixed: m.facts.crimestat_mixed,
+            },
         }
     }
 }
@@ -768,7 +873,60 @@ pub(crate) async fn data_item_detail(
         size: d.size,
         grade: d.grade,
         record_path: d.record_path,
+        ship_weapon: d.ship_weapon.map(|w| ShipWeaponStatsView {
+            size: w.size,
+            item_sub_type: w.item_sub_type,
+            damage: w.damage.map(Into::into),
+            penetration_m: w.penetration_m,
+            ammo_speed: w.ammo_speed,
+            ammo_lifetime: w.ammo_lifetime,
+            total_ammo: w.total_ammo,
+            capacitor: w.capacitor,
+        }),
+        missile: d.missile.map(|m| MissileStatsView {
+            size: m.size,
+            is_torpedo: m.is_torpedo,
+            damage: m.damage.map(Into::into),
+            speed: m.speed,
+            arm_time: m.arm_time,
+            tracking: m.tracking.map(|t| TrackingView {
+                signal: t.signal,
+                lock_time: t.lock_time,
+                lock_angle_deg: t.lock_angle_deg,
+                lock_range_min_m: t.lock_range_min_m,
+                lock_range_max_m: t.lock_range_max_m,
+            }),
+        }),
     })
+}
+
+/// The whole item catalog in one shot — the client-side pipeline's corpus
+/// (the same rows `data_search_items` pages through, unpaged).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn data_items_all(
+    app: AppHandle,
+    channel: String,
+) -> Result<Vec<ItemRowView>, AppError> {
+    let cooked = cooked_for(&app, &channel).await?;
+    let page = cooked.search_items(&ItemQuery {
+        text: String::new(),
+        item_type: None,
+        offset: 0,
+        limit: usize::MAX,
+    });
+    Ok(page
+        .rows
+        .into_iter()
+        .map(|r| ItemRowView {
+            guid: r.guid,
+            name: r.name,
+            item_type: r.item_type,
+            item_sub_type: r.item_sub_type,
+            size: r.size,
+            grade: r.grade,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -787,6 +945,13 @@ pub(crate) async fn data_resources(
             description: r.description,
             refined_into: r.refined_into,
             density_kg_per_m3: r.density_kg_per_m3,
+            legality: r.legality.map(|l| ResourceLegalityView {
+                kind: match l.kind {
+                    svc_data::LegalityKind::Drug => "drug".into(),
+                    svc_data::LegalityKind::Contraband => "contraband".into(),
+                },
+                jurisdictions: l.jurisdictions,
+            }),
         })
         .collect())
 }

@@ -116,6 +116,18 @@ async dataSearchItems(channel: string, query: string, itemType: string | null, o
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The whole item catalog in one shot — the client-side pipeline's corpus
+ * (the same rows `data_search_items` pages through, unpaged).
+ */
+async dataItemsAll(channel: string) : Promise<Result<ItemRowView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_items_all", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async dataItemDetail(channel: string, guid: string) : Promise<Result<ItemDetailView, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("data_item_detail", { channel, guid }) };
@@ -455,6 +467,11 @@ export type BpPoolEntryView = { blueprint_record_guid: string; name: string | nu
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
+export type DamageBreakdownView = { physical: number; energy: number; distortion: number; thermal: number; biochemical: number; stun: number; 
+/**
+ * Scalar total across all damage types (the "alpha" figure).
+ */
+total: number }
 /**
  * Cache/load state of one install, for the status cards.
  */
@@ -498,7 +515,15 @@ export type GrpcFeatureInfo = { id: string; name: string; description: string }
  * Shell mirror of `svc_discovery::InstallInfo` (specta shape).
  */
 export type InstallView = { channel: string; platform: string; directory: string; version: string; build_id: string }
-export type ItemDetailView = { guid: string; name: string; short_name: string | null; description: string | null; item_type: string; item_sub_type: string; size: number; grade: number; record_path: string | null }
+export type ItemDetailView = { guid: string; name: string; short_name: string | null; description: string | null; item_type: string; item_sub_type: string; size: number; grade: number; record_path: string | null; 
+/**
+ * Combat stats when the item is a ship weapon (weapons-index join).
+ */
+ship_weapon: ShipWeaponStatsView | null; 
+/**
+ * Combat stats when the item is a missile / torpedo.
+ */
+missile: MissileStatsView | null }
 export type ItemPageView = { total: number; rows: ItemRowView[] }
 export type ItemRewardView = { entity_guid: string; name: string | null; amount: number }
 export type ItemRowView = { guid: string; name: string; item_type: string; item_sub_type: string; size: number; grade: number }
@@ -527,13 +552,26 @@ selected: boolean;
 state: string; patched_at: string | null }
 export type LangpatchOverview = { auto_patch: boolean; channels: string[]; language_pack: string | null; patchers: PatcherInfoView[]; installs: LangpatchInstallView[] }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
+export type MissileStatsView = { size: number; is_torpedo: boolean; damage: DamageBreakdownView | null; speed: number | null; arm_time: number; tracking: TrackingView | null }
 export type MissionCategoryView = { name: string | null; icon: string }
 export type MissionDifficultyView = { mechanical_skill: number; mental_load: number; risk_of_loss: number; game_knowledge: number }
 export type MissionEncounterView = { label: string; difficulty: string | null; waves: MissionWaveView[] }
-export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number }
+export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView }
 export type MissionFactionView = { guid: string; name: string | null }
 export type MissionPayoutView = { calculated: boolean; fixed: number | null; estimate: number | null; buy_in: number; time_to_complete: number }
 export type MissionPlaceView = { name: string | null; record_name: string; kind: string | null }
+/**
+ * Within-pool divergence flags + crimestat (`svc_data::MissionPoolFacts`).
+ * When a `*_mixed` flag is set, the representative's value on that axis is
+ * one of several — the UI surfaces the ambiguity instead of stating it as
+ * fact.
+ */
+export type MissionPoolFactsView = { shareable_mixed: boolean; once_only_mixed: boolean; illegal_mixed: boolean; cooldowns_mixed: boolean; scrip_mixed: boolean; rep_mixed: boolean; encounters_mixed: boolean; 
+/**
+ * `"none"` / `"moderate"` / `"high"` — killing friendly NPCs risks a
+ * crimestat (high = no HUD markers to tell friend from foe).
+ */
+crimestat: string; crimestat_mixed: boolean }
 export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean }
 export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
 export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[] }
@@ -574,7 +612,16 @@ export type PatcherOptionView = { id: string; label: string; description: string
 export type Profile = { username: string; avatar_url: string | null }
 export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }
-export type ResourceRowView = { guid: string; name: string; description: string | null; refined_into: string | null; density_kg_per_m3: number | null }
+export type ResourceLegalityView = { 
+/**
+ * `"drug"` or `"contraband"`.
+ */
+kind: string; jurisdictions: string[] }
+export type ResourceRowView = { guid: string; name: string; description: string | null; refined_into: string | null; density_kg_per_m3: number | null; 
+/**
+ * Drug/contraband verdict when any jurisdiction outlaws this resource.
+ */
+legality: ResourceLegalityView | null }
 /**
  * A recognized RSI account. `citizen_record`/`enlisted` are the immutable
  * anchors from the public profile — `None` until verified.
@@ -609,6 +656,8 @@ launcher_handle: string | null;
 account: RsiAccount | null }
 export type ScripRewardView = { name: string | null; amount: number }
 export type ShipSlotView = { count_min: number; count_max: number; ships: string[]; factions: string[] }
+export type ShipWeaponStatsView = { size: number; item_sub_type: string; damage: DamageBreakdownView | null; penetration_m: number | null; ammo_speed: number | null; ammo_lifetime: number | null; total_ammo: number | null; capacitor: number | null }
+export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
 
 /** tauri-specta globals **/
 

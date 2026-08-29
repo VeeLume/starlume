@@ -283,6 +283,12 @@
                   class="badge accent"
                   title="Blueprint rewards">BP</span
                 >{/if}
+              {#if r.facts.crimestat !== "none"}<span
+                  class="badge danger"
+                  title="Killing friendly NPCs risks a crimestat{r.facts.crimestat === 'high'
+                    ? ' — no HUD markers to tell friend from foe'
+                    : ''}">CS risk</span
+                >{/if}
             {/snippet}
             {#snippet right()}
               <span class="metric">{payoutLabel(r)}</span>

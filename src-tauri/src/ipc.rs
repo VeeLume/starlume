@@ -22,6 +22,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         data::data_load,
         data::data_wipe,
         data::data_search_items,
+        data::data_items_all,
         data::data_item_detail,
         data::data_resources,
         data::data_manufacturers,
