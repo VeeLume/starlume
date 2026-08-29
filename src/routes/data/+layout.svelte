@@ -20,13 +20,6 @@
     href === "/data" ? page.url.pathname === "/data" : page.url.pathname.startsWith(href);
 </script>
 
-<h1>Catalogs</h1>
-<p class="intro dim">
-  Reference data read from your own Star Citizen install (local only — nothing leaves this
-  machine). One parse per game build; afterwards it loads from the snapshot cache in about a
-  second.
-</p>
-
 <div class="tabs">
   {#each tabs as tab (tab.href)}
     <a class="tab" class:active={isActive(tab.href)} href={tab.href}>{tab.label}</a>
