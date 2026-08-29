@@ -142,7 +142,9 @@
 />
 
 <Shell.Root groups={navGroups}>
-  <Shell.Rail>
+  <!-- The rail speaks the display face (Lekton — nav/tabs/buttons per the
+       type roles); the account footer drops back to sans (body role). -->
+  <Shell.Rail class="font-display">
     {#snippet header({ showLabels })}
       <div
         class="relative flex items-center"
@@ -162,7 +164,8 @@
       </div>
     {/snippet}
     {#snippet footer({ showLabels })}
-      <Shell.AccountFooter
+      <div class="w-full font-sans">
+        <Shell.AccountFooter
         name={account.name}
         detail={account.detail}
         href="/me"
@@ -189,6 +192,7 @@
           {/if}
         {/snippet}
       </Shell.AccountFooter>
+      </div>
     {/snippet}
   </Shell.Rail>
   <Shell.Content>
