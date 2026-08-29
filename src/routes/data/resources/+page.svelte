@@ -39,7 +39,7 @@
   {/if}
 
   <div class="toolbar">
-    <input type="search" placeholder="Filter resources…" bind:value={b.query} />
+    <input class="input" type="search" placeholder="Filter resources…" bind:value={b.query} />
     <span class="dim count">{filtered.length} / {resources.length} resources</span>
   </div>
 

@@ -220,23 +220,24 @@
 
   <div class="toolbar">
     <input
+      class="input"
       type="search"
       placeholder="Search missions by title…"
       bind:value={b.query}
     />
-    <select bind:value={b.category}>
+    <select class="select" bind:value={b.category}>
       <option value={null}>All categories</option>
       {#each categories as [name, count] (name)}
         <option value={name}>{name} ({count})</option>
       {/each}
     </select>
-    <select bind:value={b.faction}>
+    <select class="select" bind:value={b.faction}>
       <option value={null}>All factions</option>
       {#each factions as [name, count] (name)}
         <option value={name}>{name} ({count})</option>
       {/each}
     </select>
-    <select bind:value={b.legality}>
+    <select class="select" bind:value={b.legality}>
       <option value="all">Legal + illegal</option>
       <option value="legal">Legal only</option>
       <option value="illegal">Illegal only</option>
@@ -245,7 +246,7 @@
       <input type="checkbox" bind:checked={b.bpOnly} />
       Blueprint rewards
     </label>
-    <select bind:value={b.sort}>
+    <select class="select" bind:value={b.sort}>
       <option value="name">Sort: name</option>
       <option value="payout">Sort: payout</option>
     </select>

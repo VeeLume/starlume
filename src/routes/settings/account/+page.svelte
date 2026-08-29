@@ -55,7 +55,7 @@
     <Settings.Section title="Server">
       <Settings.Row label="Server URL" hint="No server yet — leave empty.">
         <input
-          class="server-url"
+          class="input server-url"
           type="url"
           placeholder="https://…"
           bind:value={serverUrlInput}

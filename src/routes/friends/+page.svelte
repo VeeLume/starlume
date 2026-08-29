@@ -106,7 +106,7 @@
   <section class="actions">
     <Button variant="outline" onclick={mint}>My friend code</Button>
     <form onsubmit={(e) => { e.preventDefault(); void add(); }}>
-      <input type="text" placeholder="Friend code" bind:value={friendCode} />
+      <input class="input" type="text" placeholder="Friend code" bind:value={friendCode} />
       <Button type="submit">Add friend</Button>
     </form>
   </section>
@@ -134,11 +134,11 @@
 
   <section class="actions">
     <form onsubmit={(e) => { e.preventDefault(); void create(); }}>
-      <input type="text" placeholder="New group name" bind:value={newGroupName} maxlength="64" />
+      <input class="input" type="text" placeholder="New group name" bind:value={newGroupName} maxlength="64" />
       <Button type="submit">Create</Button>
     </form>
     <form onsubmit={(e) => { e.preventDefault(); void join(); }}>
-      <input type="text" placeholder="Invite code" bind:value={joinCode} />
+      <input class="input" type="text" placeholder="Invite code" bind:value={joinCode} />
       <Button type="submit">Join</Button>
     </form>
   </section>

@@ -71,6 +71,7 @@
     <label class="server">
       Server URL
       <input
+        class="input"
         type="url"
         placeholder="https://…"
         bind:value={serverUrlInput}

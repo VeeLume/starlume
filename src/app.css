@@ -334,9 +334,10 @@ h3 {
   border-color: transparent;
 }
 
-input[type="text"],
-input[type="url"],
-input[type="search"] {
+/* Text-field styling is OPT-IN (`.input`) — same reasoning as `.btn`:
+ * element-level rules out-cascade every utility on kit-rendered inputs
+ * (Surface search fields, Picker). */
+.input {
   font: inherit;
   font-family: var(--font-sans);
   font-size: var(--text-control);
@@ -347,14 +348,12 @@ input[type="search"] {
   padding: 6px 10px;
   transition: border-color var(--transition-fast);
 }
-input[type="text"]:focus,
-input[type="url"]:focus,
-input[type="search"]:focus {
+.input:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-select {
+.select {
   font: inherit;
   font-family: var(--font-sans);
   font-size: var(--text-control);

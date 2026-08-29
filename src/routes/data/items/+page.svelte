@@ -68,12 +68,14 @@
 
   <div class="toolbar">
     <input
+      class="input"
       type="search"
       placeholder="Search items by name or GUID…"
       bind:value={b.query}
       oninput={debouncedSearch}
     />
     <select
+      class="select"
       bind:value={b.itemType}
       onchange={() => {
         b.page = 0;

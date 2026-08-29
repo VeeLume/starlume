@@ -184,7 +184,7 @@
     </p>
     <div class="flex w-full flex-wrap items-center gap-2">
       <input
-        class="pack-input"
+        class="input pack-input"
         type="text"
         placeholder="C:\path\to\global.ini or https://github.com/…/global.ini"
         bind:value={packInput}
