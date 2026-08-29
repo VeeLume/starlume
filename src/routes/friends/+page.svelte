@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import type { FriendGroup, FriendUser } from "$lib/bindings";
   import { authStore, loadAuth } from "$lib/state/auth.svelte";
+  import { Button } from "@veelume/ui";
   import { notify } from "$lib/state/notifications.svelte";
   import {
     friendsStore,
@@ -103,10 +104,10 @@
   <p class="dim">Loading…</p>
 {:else}
   <section class="actions">
-    <button class="btn" onclick={mint}>My friend code</button>
+    <Button variant="outline" onclick={mint}>My friend code</Button>
     <form onsubmit={(e) => { e.preventDefault(); void add(); }}>
       <input type="text" placeholder="Friend code" bind:value={friendCode} />
-      <button class="btn" type="submit">Add friend</button>
+      <Button type="submit">Add friend</Button>
     </form>
   </section>
   {#if myFriendCode}
@@ -122,7 +123,7 @@
       {#each friendsStore.friends as f (f.user_id)}
         <li>
           {f.username}
-          <button class="btn small" onclick={() => remove(f)}>Remove</button>
+          <Button variant="ghost" onclick={() => remove(f)}>Remove</Button>
         </li>
       {/each}
     </ul>
@@ -134,11 +135,11 @@
   <section class="actions">
     <form onsubmit={(e) => { e.preventDefault(); void create(); }}>
       <input type="text" placeholder="New group name" bind:value={newGroupName} maxlength="64" />
-      <button class="btn" type="submit">Create</button>
+      <Button type="submit">Create</Button>
     </form>
     <form onsubmit={(e) => { e.preventDefault(); void join(); }}>
       <input type="text" placeholder="Invite code" bind:value={joinCode} />
-      <button class="btn" type="submit">Join</button>
+      <Button type="submit">Join</Button>
     </form>
   </section>
 
@@ -151,8 +152,8 @@
           <span class="group-name">{g.name}</span>
           <span class="dim">{g.members.length} member{g.members.length === 1 ? "" : "s"}</span>
           <span class="spacer"></span>
-          <button class="btn" onclick={() => invite(g.id)}>Invite</button>
-          <button class="btn" onclick={() => leave(g)}>Leave</button>
+          <Button variant="outline" onclick={() => invite(g.id)}>Invite</Button>
+          <Button variant="ghost" onclick={() => leave(g)}>Leave</Button>
         </div>
         {#if inviteCodes[g.id]}
           <p class="invite">
@@ -237,10 +238,6 @@
     border-bottom: 1px solid var(--border);
   }
 
-  .small {
-    font-size: 12px;
-    padding: 3px 10px;
-  }
 
   h2 {
     font-size: 16px;

@@ -1,16 +1,22 @@
 <script lang="ts">
-  // The onboarding framework. Fixed frame around module-contributed steps:
+  // The onboarding framework on the kit `Wizard`. Fixed frame around
+  // module-contributed steps:
   //
   //   Welcome → [core framework steps] → Modules (picker)
   //           → [steps of each SELECTED module] → Finish
   //
   // Core steps (online/privacy, Discord sign-in, SC account) are app-level —
   // every install goes through them. Modules never touch this file; they
-  // contribute steps via `ModuleDescriptor.onboardingSteps`. The list is
-  // derived from the current selection, so toggling a module adds/removes its
-  // steps live.
+  // contribute steps via `ModuleDescriptor.onboardingSteps`. The step list is
+  // `$derived` from the current selection, so toggling a module adds/removes
+  // its steps live — the wizard has no registry concept, the list just
+  // changes under it (its index self-clamps).
+  //
+  // The overlay host is this file's (the kit rule: the wizard owns the step
+  // frame, never where it lives).
 
   import type { Component } from "svelte";
+  import { Wizard, type WizardStep } from "@veelume/ui";
   import { moduleRegistry } from "$lib/modules/registry";
   import type { OnboardingStepProps } from "$lib/modules/types";
   import { settingsStore, applySettings } from "$lib/state/settings.svelte";
@@ -27,54 +33,64 @@
     { id: "rsi", title: "Your Star Citizen account", component: OnboardingRsi },
   ];
 
-  type Step =
-    | { kind: "welcome"; id: string; title: string }
-    | {
-        kind: "core-step";
-        id: string;
-        title: string;
-        component: Component<OnboardingStepProps>;
-      }
-    | { kind: "modules"; id: string; title: string }
-    | {
-        kind: "module-step";
-        id: string;
-        title: string;
-        moduleName: string;
-        component: Component<OnboardingStepProps>;
-      }
-    | { kind: "finish"; id: string; title: string };
-
-  let selected = $state<Set<string>>(
-    new Set(settingsStore.current?.enabled_modules ?? []),
-  );
+  let selected = $state<Set<string>>(new Set(settingsStore.current?.enabled_modules ?? []));
   let index = $state(0);
-  let canContinue = $state(true);
+  let busy = $state(false);
   let error = $state("");
 
-  const steps: Step[] = $derived([
-    { kind: "welcome", id: "welcome", title: "Welcome" },
-    ...CORE_STEPS.map(
-      (s): Step => ({ kind: "core-step", id: s.id, title: s.title, component: s.component }),
+  // Per-step forward gates, written by step components through the module
+  // contract's imperative `setCanContinue` (from handlers/effects, never
+  // during render) and read declaratively by the wizard. Absent = passable.
+  let gates = $state<Record<string, boolean>>({});
+
+  // Step descriptors — the component steps share one snippet (`compStep`)
+  // that renders the ACTIVE descriptor's component; only the current step is
+  // ever mounted, so the indirection is safe.
+  type CompDesc = { id: string; component: Component<OnboardingStepProps> };
+  const compDescs = $derived<Record<string, CompDesc>>(
+    Object.fromEntries(
+      [
+        ...CORE_STEPS.map((s) => ({ id: s.id, component: s.component })),
+        ...moduleRegistry
+          .filter((d) => selected.has(d.id))
+          .flatMap((d) =>
+            (d.onboardingSteps ?? []).map((s) => ({
+              id: `${d.id}:${s.id}`,
+              component: s.component,
+            })),
+          ),
+      ].map((d) => [d.id, d]),
     ),
-    { kind: "modules", id: "modules", title: "Choose your modules" },
+  );
+
+  const steps = $derived<WizardStep[]>([
+    { id: "welcome", title: "Welcome", step: welcome },
+    ...CORE_STEPS.map((s) => ({
+      id: s.id,
+      title: s.title,
+      canContinue: () => gates[s.id] ?? true,
+      step: compStep,
+    })),
+    { id: "modules", title: "Choose your modules", step: modulesStep },
     ...moduleRegistry
       .filter((d) => selected.has(d.id))
       .flatMap((d) =>
-        (d.onboardingSteps ?? []).map(
-          (s): Step => ({
-            kind: "module-step",
-            id: `${d.id}:${s.id}`,
+        (d.onboardingSteps ?? []).map((s) => {
+          const id = `${d.id}:${s.id}`;
+          return {
+            id,
             title: s.title,
-            moduleName: d.name,
-            component: s.component,
-          }),
-        ),
+            tag: d.name,
+            canContinue: () => gates[id] ?? true,
+            step: compStep,
+          };
+        }),
       ),
-    { kind: "finish", id: "finish", title: "All set" },
+    { id: "finish", title: "All set", step: done },
   ]);
-  const step = $derived(steps[Math.min(index, steps.length - 1)]);
-  const atEnd = $derived(index >= steps.length - 1);
+
+  const active = $derived(steps[Math.min(index, Math.max(0, steps.length - 1))]);
+  const activeComp = $derived(active ? compDescs[active.id] : undefined);
 
   function toggleModule(id: string) {
     const next = new Set(selected);
@@ -83,28 +99,22 @@
     selected = next;
   }
 
-  function next() {
-    if (!canContinue) return;
-    canContinue = true; // each step starts permissive
-    index = Math.min(index + 1, steps.length - 1);
-  }
-
-  function back() {
-    canContinue = true;
-    index = Math.max(0, index - 1);
-  }
-
   async function finish() {
     error = "";
-    const err = await applySettings({
-      enabled_modules: [...selected],
-      onboarding_completed: true,
-    });
-    if (err) {
-      error = err.message;
-      return;
+    busy = true;
+    try {
+      const err = await applySettings({
+        enabled_modules: [...selected],
+        onboarding_completed: true,
+      });
+      if (err) {
+        error = err.message;
+        return;
+      }
+      closeOnboarding();
+    } finally {
+      busy = false;
     }
-    closeOnboarding();
   }
 
   // Skip = complete without changing the module selection.
@@ -119,88 +129,66 @@
   }
 </script>
 
+{#snippet welcome()}
+  <p>
+    Starlume is a companion for Star Citizen — it keeps things like your localization
+    patches and trackers current in the background while you play.
+  </p>
+  <p class="text-muted-foreground">
+    Pick the features you want on the next page. Everything is optional and can be changed
+    later in Settings.
+  </p>
+{/snippet}
+
+{#snippet modulesStep()}
+  {#if moduleRegistry.length === 0}
+    <p class="text-muted-foreground">
+      No feature modules are available in this build yet — the shell is all there is.
+      Future updates add them here.
+    </p>
+  {:else}
+    <div class="module-grid">
+      {#each moduleRegistry as m (m.id)}
+        <button
+          class="btn module-card"
+          class:selected={selected.has(m.id)}
+          onclick={() => toggleModule(m.id)}
+        >
+          <span class="module-icon">{m.icon}</span>
+          <span class="module-name">{m.name}</span>
+          <span class="module-desc">{m.description}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet compStep()}
+  {#if activeComp}
+    {@const Step = activeComp.component}
+    <Step setCanContinue={(ok: boolean) => (gates[activeComp.id] = ok)} />
+  {/if}
+{/snippet}
+
+{#snippet done()}
+  <p>
+    {#if selected.size > 0}
+      {selected.size} module{selected.size === 1 ? "" : "s"} enabled.
+    {:else}
+      No modules enabled — you can add some in Settings anytime.
+    {/if}
+  </p>
+  <p class="text-muted-foreground">
+    Tip: Starlume can start with Windows and live in the tray — see Settings → General.
+  </p>
+{/snippet}
+
 <div class="overlay">
   <div class="card">
-    <header>
-      <h1>{step.title}</h1>
-      {#if step.kind === "module-step"}
-        <span class="module-tag">{step.moduleName}</span>
-      {/if}
-      <button class="btn skip" onclick={skip}>Skip setup</button>
-    </header>
-
-    <div class="body">
-      {#if step.kind === "welcome"}
-        <p>
-          Starlume is a companion for Star Citizen — it keeps things like your
-          localization patches and trackers current in the background while you
-          play.
-        </p>
-        <p class="dim">
-          Pick the features you want on the next page. Everything is optional
-          and can be changed later in Settings.
-        </p>
-      {:else if step.kind === "modules"}
-        {#if moduleRegistry.length === 0}
-          <p class="dim">
-            No feature modules are available in this build yet — the shell is
-            all there is. Future updates add them here.
-          </p>
-        {:else}
-          <div class="module-grid">
-            {#each moduleRegistry as m (m.id)}
-              <button
-                class="btn module-card"
-                class:selected={selected.has(m.id)}
-                onclick={() => toggleModule(m.id)}
-              >
-                <span class="module-icon">{m.icon}</span>
-                <span class="module-name">{m.name}</span>
-                <span class="module-desc">{m.description}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      {:else if step.kind === "core-step" || step.kind === "module-step"}
-        <step.component setCanContinue={(ok: boolean) => (canContinue = ok)} />
-      {:else}
-        <p>
-          {#if selected.size > 0}
-            {selected.size} module{selected.size === 1 ? "" : "s"} enabled.
-          {:else}
-            No modules enabled — you can add some in Settings anytime.
-          {/if}
-        </p>
-        <p class="dim">
-          Tip: Starlume can start with Windows and live in the tray — see
-          Settings → App.
-        </p>
-      {/if}
-    </div>
-
+    <Wizard {steps} bind:index onfinish={finish} onskip={skip} {busy} />
     {#if error}
-      <p class="error">{error}</p>
+      <p class="px-4 pb-3 text-sm text-destructive">{error}</p>
     {/if}
-
-    <footer>
-      <div class="dots">
-        {#each steps as s, i (s.id)}
-          <span class="dot" class:on={i === index}></span>
-        {/each}
-      </div>
-      <div class="buttons">
-        {#if index > 0}
-          <button class="btn" onclick={back}>Back</button>
-        {/if}
-        {#if atEnd}
-          <button class="btn primary" onclick={finish}>Finish</button>
-        {:else}
-          <button class="btn primary" disabled={!canContinue} onclick={next}>
-            Next
-          </button>
-        {/if}
-      </div>
-    </footer>
   </div>
 </div>
 
@@ -216,47 +204,13 @@
 
   .card {
     width: min(560px, calc(100vw - 48px));
-    min-height: 380px;
+    min-height: 420px;
     display: flex;
     flex-direction: column;
     background: var(--bg-raised);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 24px;
-  }
-
-  header {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-
-  h1 {
-    font-size: 20px;
-    margin: 0;
-  }
-
-  .module-tag {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--accent);
-  }
-
-  .skip {
-    margin-left: auto;
-    background: none;
-    border: none;
-    color: var(--text-dim);
-    padding: 0;
-  }
-  .skip:hover {
-    color: var(--text);
-  }
-
-  .body {
-    flex: 1;
-    padding: 16px 0;
+    overflow: hidden;
   }
 
   .module-grid {
@@ -287,47 +241,5 @@
   .module-desc {
     font-size: 12px;
     color: var(--text-dim);
-  }
-
-  footer {
-    display: flex;
-    align-items: center;
-  }
-
-  .dots {
-    display: flex;
-    gap: 6px;
-    flex: 1;
-  }
-  .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--border);
-  }
-  .dot.on {
-    background: var(--accent);
-  }
-
-  .buttons {
-    display: flex;
-    gap: 8px;
-  }
-
-  .primary {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .primary:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .dim {
-    color: var(--text-dim);
-  }
-  .error {
-    color: var(--bad);
-    margin: 0 0 8px;
   }
 </style>

@@ -13,6 +13,7 @@
   import { authStore, loadAuth } from "$lib/state/auth.svelte";
   import { scStore, loadSc, verifyAccount } from "$lib/state/sc.svelte";
   import Avatar from "$lib/components/Avatar.svelte";
+  import { Button, StatusBadge, type StatusMap } from "@veelume/ui";
 
   const settings = $derived(settingsStore.current);
   const auth = $derived(authStore.current);
@@ -61,6 +62,11 @@
     await commands.logout();
     await loadAuth();
   }
+
+  const connMap: StatusMap = {
+    connected: { label: () => "connected", tone: "primary" },
+    disconnected: { label: () => "not connected", tone: "neutral" },
+  };
 </script>
 
 <h1>Me</h1>
@@ -82,9 +88,9 @@
       {:else}
         <div class="dim">Recognized from the RSI launcher · not yet verified</div>
         {#if settings?.online_enabled}
-          <button class="btn" onclick={verify} disabled={verifying}>
+          <Button variant="outline" onclick={verify} disabled={verifying}>
             {verifying ? "Verifying…" : "Verify with RSI profile"}
-          </button>
+          </Button>
         {:else}
           <div class="dim">Enable online features (Settings) to verify.</div>
         {/if}
@@ -108,10 +114,9 @@
   <div class="conn">
     <div class="conn-head">
       <span class="conn-name">Discord</span>
-      {#if auth?.logged_in}
-        <span class="conn-status ok">connected{authStore.profile ? ` · ${authStore.profile.username}` : ""}</span>
-      {:else}
-        <span class="conn-status">not connected</span>
+      <StatusBadge status={auth?.logged_in ? "connected" : "disconnected"} map={connMap} />
+      {#if auth?.logged_in && authStore.profile}
+        <span class="conn-status">{authStore.profile.username}</span>
       {/if}
     </div>
     <p class="dim">
@@ -120,11 +125,11 @@
       access, not your friends list here.)
     </p>
     {#if auth?.logged_in}
-      <button class="btn" onclick={disconnectDiscord}>Disconnect</button>
+      <Button variant="outline" onclick={disconnectDiscord}>Disconnect</Button>
     {:else if !settings?.online_enabled}
       <span class="dim">Enable online features (Settings) to connect.</span>
     {:else if auth?.server_configured}
-      <button class="btn" onclick={connectDiscord}>Connect Discord</button>
+      <Button onclick={connectDiscord}>Connect Discord</Button>
       {#if auth.dev_profile && manualLoginUrl}
         <p class="manual-url">Copied to clipboard:<br /><code>{manualLoginUrl}</code></p>
       {/if}
@@ -198,9 +203,6 @@
   .conn-status {
     font-size: 12px;
     color: var(--text-dim);
-  }
-  .conn-status.ok {
-    color: var(--good);
   }
 
   .module-tag {
