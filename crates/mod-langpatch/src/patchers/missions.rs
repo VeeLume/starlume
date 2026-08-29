@@ -913,7 +913,7 @@ fn render_encounters(
             // Label line — encounter variable name, plus the wave name
             // when the encounter has several. Underlined as a scan
             // anchor when the player skims a long block.
-            let mut label = pretty_identifier(&enc.label);
+            let mut label = encounter_label(&enc.label);
             if multi_wave {
                 let wave_name = pretty_identifier(&wave.name);
                 let wave_part = if wave_name.is_empty() {
@@ -939,7 +939,9 @@ fn render_encounters(
                     &names,
                 ));
                 if !slot.factions.is_empty() {
-                    line.push_str(&format!(" ({})", slot.factions.join(", ")));
+                    let factions: Vec<String> =
+                        slot.factions.iter().map(|f| pretty_identifier(f)).collect();
+                    line.push_str(&format!(" ({})", factions.join(", ")));
                 }
                 lines.push(line);
             }
@@ -1489,6 +1491,19 @@ fn pretty_identifier(s: &str) -> String {
     out.trim().to_string()
 }
 
+/// Encounter label: prettified variable name minus the engine's
+/// `SpawnDescription(s)` boilerplate (`Scouts_SpawnDescriptions` →
+/// `Scouts`, `SalvageSpawnDescription` → `Salvage`).
+fn encounter_label(raw: &str) -> String {
+    let pretty = pretty_identifier(raw);
+    for noise in [" Spawn Descriptions", " Spawn Description"] {
+        if let Some(rest) = pretty.strip_suffix(noise) {
+            return rest.to_string();
+        }
+    }
+    pretty
+}
+
 fn strip_noise_affixes(s: &str) -> &str {
     let mut t = s.trim();
     if let Some(rest) = t.strip_suffix("_BP") {
@@ -1739,6 +1754,13 @@ mod tests {
         assert_eq!(pretty_identifier("Salvage_Wave_2"), "Salvage Wave 2");
         assert_eq!(pretty_identifier(""), "");
         assert_eq!(pretty_identifier("_BP"), "");
+    }
+
+    #[test]
+    fn encounter_labels_drop_spawn_boilerplate() {
+        assert_eq!(encounter_label("Scouts_SpawnDescriptions"), "Scouts");
+        assert_eq!(encounter_label("SalvageSpawnDescription"), "Salvage");
+        assert_eq!(encounter_label("MissionTargets"), "Mission Targets");
     }
 
     #[test]
