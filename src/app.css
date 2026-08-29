@@ -9,15 +9,33 @@
  * online-policy invariant forbids ungated network calls). */
 
 /* ── Tailwind + @veelume/ui (migration, 2026-08) ──────────────────────────
- * Tailwind is imported WITHOUT preflight: the hand-rolled pages below must
- * render pixel-identical while kit components arrive page by page. Unlayered
- * rules (everything else in this file) also outrank layered utilities, so
- * existing styling keeps winning wherever both could apply. Revisit adopting
- * preflight once the migration is done. Token bridge lives in theme.css. */
-@layer theme, base, components, utilities;
-@import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
+ * Full Tailwind, PREFLIGHT INCLUDED — the ground truth @veelume/ui is built
+ * on (decided 2026-08-29 after two preflight-assumption bugs in one evening;
+ * drift on unmigrated pages is acceptable, they are all being replaced by
+ * kit surfaces anyway). Unlayered rules below still outrank layered
+ * preflight/utilities, so this file's element rules keep winning where they
+ * exist. Token bridge lives in theme.css. */
+@import "tailwindcss";
 @import "./theme.css";
+
+/* Preflight zeroes content-element defaults the hand-rolled pages ride on
+ * (paragraph margins, list bullets). Own the ones the app actually uses —
+ * scoped to `main` so kit chrome (shell, popups, toasts) keeps preflight's
+ * clean slate. Shrinks away with the page migration. */
+main p {
+  margin-block: 0.8em;
+}
+main ul,
+main ol {
+  margin-block: 0.8em;
+  padding-inline-start: 1.6em;
+}
+main ul {
+  list-style: disc;
+}
+main ol {
+  list-style: decimal;
+}
 
 /* ── Fonts (self-hosted, static/fonts/) ───────────────────────────────── */
 
