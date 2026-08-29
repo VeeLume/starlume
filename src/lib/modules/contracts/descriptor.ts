@@ -3,6 +3,7 @@
 // contract level, cargo packing as the hauling-specific view. Rust half:
 // crates/mod-contracts (doc-only stub until the first feature lands).
 
+import { ScrollText } from "lucide-svelte";
 import type { ModuleDescriptor } from "../types";
 
 export const contractsModule: ModuleDescriptor = {
@@ -11,5 +12,5 @@ export const contractsModule: ModuleDescriptor = {
   description:
     "Track active contracts with per-objective progress, plan multi-contract routes — hauling gets cargo packing.",
   icon: "≣",
-  nav: [{ href: "/contracts", label: "Contracts", icon: "≣" }],
+  nav: [{ href: "/contracts", label: "Contracts", icon: ScrollText }],
 };

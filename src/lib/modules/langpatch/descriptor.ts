@@ -1,6 +1,7 @@
 // Text Patching (langpatch) — the sc-langpatch consolidation. Rust half:
 // crates/mod-langpatch (engine) + src-tauri/src/langpatch.rs (orchestration).
 
+import { Pilcrow } from "lucide-svelte";
 import type { ModuleDescriptor } from "../types";
 
 export const langpatchModule: ModuleDescriptor = {
@@ -9,5 +10,5 @@ export const langpatchModule: ModuleDescriptor = {
   description:
     "Enrich Star Citizen's in-game text: component grades, illegal-goods markers, weapon stats — kept current automatically after game patches.",
   icon: "¶",
-  nav: [{ href: "/langpatch", label: "Text Patching", icon: "¶" }],
+  nav: [{ href: "/langpatch", label: "Text Patching", icon: Pilcrow }],
 };

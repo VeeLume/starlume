@@ -9,6 +9,7 @@
 // The `id` must match between the two halves.
 
 import type { Component } from "svelte";
+import type { NavIcon } from "@veelume/ui";
 
 /** Props every module-contributed onboarding step receives. */
 export interface OnboardingStepProps {
@@ -32,8 +33,8 @@ export interface OnboardingStep {
 export interface NavEntry {
   href: string;
   label: string;
-  /** Small glyph/emoji rendered before the label. */
-  icon: string;
+  /** Icon component (lucide-svelte) — the kit NavRail contract. */
+  icon: NavIcon;
 }
 
 /** A section a module contributes to the Me page — the unified place for

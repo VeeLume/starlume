@@ -22,6 +22,11 @@
  * (paragraph margins, list bullets). Own the ones the app actually uses —
  * scoped to `main` so kit chrome (shell, popups, toasts) keeps preflight's
  * clean slate. Shrinks away with the page migration. */
+main {
+  /* The kit Shell.Content's <main> is bare; unmigrated pages assume the old
+   * layout's content padding. Moves into kit surfaces per page. */
+  padding: var(--content-pad);
+}
 main p {
   margin-block: 0.8em;
 }

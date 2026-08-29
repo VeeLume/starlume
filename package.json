@@ -17,7 +17,8 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
-    "@veelume/ui": "github:VeeLume/veelume-ui#v0.1.0&path:packages/ui"
+    "@veelume/ui": "github:VeeLume/veelume-ui#v0.1.0&path:packages/ui",
+    "lucide-svelte": "^1.0.1"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",
