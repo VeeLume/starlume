@@ -23,6 +23,7 @@
 mod auth;
 mod bus;
 mod data;
+mod dossier;
 mod error;
 mod friends;
 mod groups;

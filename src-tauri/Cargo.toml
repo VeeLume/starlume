@@ -69,6 +69,7 @@ app-kit.workspace = true
 mod-langpatch.workspace = true
 svc-discovery.workspace = true
 svc-data.workspace = true
+svc-dossier.workspace = true
 
 # Game-running detection (write gate for text patching): a patched
 # global.ini must never be written while StarCitizen.exe is up.

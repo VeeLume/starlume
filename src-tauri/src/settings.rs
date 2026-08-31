@@ -96,9 +96,11 @@ pub struct GrpcFeatureInfo {
 }
 
 /// Compiled-in gRPC sub-features. Empty until the first dossier integration.
-pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
-    // ("blueprints", "Owned blueprints", "Read your owned-blueprint set from CIG's backend."),
-];
+pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[(
+    "blueprints",
+    "Owned blueprints",
+    "Read your owned-blueprint set from CIG's backend, to mark owned rewards in the catalog.",
+)];
 
 /// List the gRPC sub-features this build knows — drives the Settings toggles.
 #[tauri::command]

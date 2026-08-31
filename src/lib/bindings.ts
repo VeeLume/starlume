@@ -28,6 +28,29 @@ async listGrpcFeatures() : Promise<GrpcFeatureInfo[]> {
     return await TAURI_INVOKE("list_grpc_features");
 },
 /**
+ * The cached owned-blueprint set, or an empty/null one when nothing has been
+ * fetched. **No network, no gate** — safe on startup so a decoration renders
+ * from the last fetch.
+ */
+async blueprintsOwned() : Promise<OwnedBlueprintsView> {
+    return await TAURI_INVOKE("blueprints_owned");
+},
+/**
+ * Fetch the owned-blueprint set live from CIG's backend and cache it.
+ * 
+ * **Gated** by `require_grpc("blueprints")` — the master online switch, the
+ * gRPC master, and the per-feature allow-list must all be on. A stale/absent
+ * launcher session surfaces as an error the UI renders as a sign-in hint.
+ */
+async blueprintsRefresh() : Promise<Result<OwnedBlueprintsView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("blueprints_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List compiled-in modules with their enabled state — drives the onboarding
  * picker and the settings module list.
  */
@@ -598,6 +621,20 @@ export type NotificationRecord = ({ level: NotifLevel; title: string; body: stri
  */
 source: string | null }) & { id: number; ts: number }
 export type OptionKindView = { type: "Bool" } | { type: "Choice"; choices: ChoiceView[] }
+/**
+ * The owned-blueprint set as it crosses IPC (specta mirror of
+ * `svc_dossier::OwnedBlueprints`).
+ */
+export type OwnedBlueprintsView = { 
+/**
+ * Owned blueprint record GUIDs (= holotable `blueprint_record_guid`).
+ */
+blueprint_ids: string[]; 
+/**
+ * When fetched, epoch **seconds** (`f64` for the TS export). `null` when
+ * nothing has been fetched yet.
+ */
+fetched_at: number | null }
 export type PatcherConfigUpdate = { enabled: boolean | null; options: Partial<{ [key in string]: string }> }
 export type PatcherInfoView = { id: string; name: string; description: string; enabled: boolean; 
 /**

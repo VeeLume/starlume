@@ -31,6 +31,9 @@ pub struct AppState {
     /// Keeps the svc-discovery watcher thread alive for the app's lifetime
     /// (set once in setup; dropping it stops the thread).
     pub install_watch: Mutex<Option<svc_discovery::watch::WatchHandle>>,
+    /// Account-data (gRPC) service + disk cache. Reads are ToS-grey — every
+    /// network method is gated by `require_grpc` at the call site.
+    pub dossier: Arc<svc_dossier::DossierService>,
 }
 
 impl AppState {
@@ -47,6 +50,9 @@ impl AppState {
             installs: Mutex::new(Vec::new()),
             bus: crate::bus::new_bus(),
             install_watch: Mutex::new(None),
+            dossier: Arc::new(svc_dossier::DossierService::new(
+                app_kit::app_data_root().join("dossier"),
+            )),
         }
     }
 
@@ -114,6 +120,7 @@ mod tests {
             installs: Mutex::new(Vec::new()),
             bus: crate::bus::new_bus(),
             install_watch: Mutex::new(None),
+            dossier: Arc::new(svc_dossier::DossierService::new(std::env::temp_dir())),
         }
     }
 
