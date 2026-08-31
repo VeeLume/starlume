@@ -325,10 +325,11 @@ async fn reconcile_one(
 
     let data_dir = langpatch_dir();
     let mut state_file = PatchStateFile::load(&data_dir);
+    let known = state_file.known_outputs();
     let entry = state_file.installs.get(&install.channel_key);
     let disk_sha = sha256_file(&merge::override_path(&install_dir));
 
-    match plan_for(entry, &fingerprint, disk_sha.as_deref()) {
+    match plan_for(entry, &fingerprint, disk_sha.as_deref(), &known) {
         PatchPlan::UpToDate if !take_over => return Ok(Outcome::UpToDate),
         PatchPlan::Foreign if !take_over => {
             notify(
@@ -582,6 +583,7 @@ pub(crate) async fn langpatch_overview(app: AppHandle) -> Result<LangpatchOvervi
     let config = load_config();
     let installs = data::refresh_installs(&app).await?;
     let state_file = PatchStateFile::load(&langpatch_dir());
+    let known = state_file.known_outputs();
 
     // Status view avoids network: pack hash from the cached copy only.
     let pack_hash = config.language_pack.as_deref().and_then(|source| {
@@ -608,7 +610,7 @@ pub(crate) async fn langpatch_overview(app: AppHandle) -> Result<LangpatchOvervi
                 .map(Path::to_path_buf)
                 .unwrap_or_default();
             let disk_sha = sha256_file(&merge::override_path(&install_dir));
-            let state = match plan_for(entry, &fingerprint, disk_sha.as_deref()) {
+            let state = match plan_for(entry, &fingerprint, disk_sha.as_deref(), &known) {
                 PatchPlan::UpToDate => "up-to-date",
                 PatchPlan::Foreign => "foreign",
                 PatchPlan::Apply if entry.is_some() || disk_sha.is_some() => "stale",
