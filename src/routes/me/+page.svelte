@@ -14,10 +14,28 @@
   import { scStore, loadSc, verifyAccount } from "$lib/state/sc.svelte";
   import Avatar from "$lib/components/Avatar.svelte";
   import { Button, StatusBadge, type StatusMap } from "@veelume/ui";
+  import {
+    blueprintsStore,
+    loadOwnedBlueprints,
+    refreshOwnedBlueprints,
+  } from "$lib/state/blueprints.svelte";
 
   const settings = $derived(settingsStore.current);
   const auth = $derived(authStore.current);
   const account = $derived(scStore.account);
+
+  // Owned-blueprints (gRPC) — live only when online + gRPC + the per-feature
+  // allow-list all hold (the same triple require_grpc enforces backend-side).
+  const blueprintsEnabled = $derived(
+    !!settings?.online_enabled &&
+      !!settings?.grpc_enabled &&
+      (settings?.grpc_features.includes("blueprints") ?? false),
+  );
+  const fetchedLabel = $derived(
+    blueprintsStore.fetchedAt
+      ? new Date(blueprintsStore.fetchedAt * 1000).toLocaleString()
+      : null,
+  );
 
   let verifying = $state(false);
   let manualLoginUrl = $state("");
@@ -33,7 +51,7 @@
   );
 
   onMount(async () => {
-    await Promise.all([loadSc(), loadAuth()]);
+    await Promise.all([loadSc(), loadAuth(), loadOwnedBlueprints()]);
     unlisten = await listen("auth-changed", () => void loadAuth());
   });
   onDestroy(() => unlisten?.());
@@ -139,6 +157,44 @@
   </div>
 </section>
 
+<!-- Game-account data pulled from CIG's backend (gRPC) -->
+<h2>Game account data</h2>
+<section class="connections">
+  <div class="conn">
+    <div class="conn-head">
+      <span class="conn-name">Owned blueprints</span>
+      {#if blueprintsStore.count > 0}
+        <span class="conn-status ok">{blueprintsStore.count} owned</span>
+      {/if}
+    </div>
+    <p class="dim">
+      Your owned-blueprint set, read from CIG's game-services backend. Used to mark
+      blueprints you already own in the mission catalog. Read-only, on demand — never
+      polled.
+    </p>
+    {#if !blueprintsEnabled}
+      <p class="dim">
+        Enable online features and game-services (gRPC) with the “Owned blueprints” feature
+        in <a href="/settings/online">Settings → Online</a> to fetch this.
+      </p>
+    {:else}
+      <div class="bp-actions">
+        <Button
+          variant="outline"
+          onclick={refreshOwnedBlueprints}
+          disabled={blueprintsStore.refreshing}
+        >
+          {blueprintsStore.refreshing ? "Fetching…" : "Refresh from game"}
+        </Button>
+        {#if fetchedLabel}<span class="dim">updated {fetchedLabel}</span>{/if}
+      </div>
+    {/if}
+    {#if blueprintsStore.error}
+      <p class="error">{blueprintsStore.error}</p>
+    {/if}
+  </div>
+</section>
+
 <h2>Sharing &amp; visibility</h2>
 {#if meSections.length === 0}
   <p class="dim">
@@ -217,6 +273,12 @@
     margin-bottom: 20px;
   }
 
+  .bp-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
   .manual-url {
     word-break: break-all;
     font-size: 12px;

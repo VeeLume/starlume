@@ -19,6 +19,7 @@
   import type { MissionEntryView, MissionPlaceView } from "$lib/bindings";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { getMissions } from "$lib/state/catalog.svelte";
+  import { blueprintsStore, loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
   import CatalogDescriptions from "$lib/components/catalog/CatalogDescriptions.svelte";
 
   type MissionRow = MissionEntryView & { key: string; title: string };
@@ -241,6 +242,9 @@
     m.encounters.length > 0;
 
   onMount(() => {
+    // Owned-blueprint set for the pool decoration (cached read; empty until
+    // fetched on the Me page — undecorated is the correct default).
+    void loadOwnedBlueprints();
     void (async () => {
       const channel = await ensureChannel();
       ready = true;
@@ -352,14 +356,24 @@
       <div>
         <h5>Blueprint pools</h5>
         {#each m.blueprint_rewards as pool (pool.pool_name)}
+          {@const ownedInPool = pool.blueprints.filter((bp) =>
+            blueprintsStore.owns(bp.blueprint_record_guid),
+          ).length}
           <div class="pool">
             <span class="pool-head">
               {pool.pool_name || "Pool"}
               <span class="dim">({Math.round(pool.chance * 100)}% draw)</span>
+              {#if ownedInPool > 0}
+                <span class="owned-summary" title="Blueprints you already own">
+                  {ownedInPool}/{pool.blueprints.length} owned
+                </span>
+              {/if}
             </span>
             <ul>
               {#each pool.blueprints as bp (bp.blueprint_record_guid)}
-                <li>
+                {@const owned = blueprintsStore.owns(bp.blueprint_record_guid)}
+                <li class:owned>
+                  {#if owned}<span class="owned-mark" title="Owned">✓</span>{/if}
                   {bp.name ?? bp.blueprint_record_guid} <span class="dim">w{bp.weight}</span>
                 </li>
               {/each}
@@ -491,6 +505,19 @@
   }
   .pool-head {
     font-weight: var(--weight-medium);
+  }
+  .owned-summary {
+    margin-left: 6px;
+    font-size: 0.75rem;
+    color: var(--accent);
+  }
+  li.owned {
+    color: var(--accent);
+  }
+  .owned-mark {
+    color: var(--accent);
+    font-weight: 700;
+    margin-right: 2px;
   }
   .gid {
     margin: 4px 0 2px;
