@@ -1,0 +1,22 @@
+[package]
+name = "svc-dossier"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume account-data service — read-only CIG game-services (gRPC) reads via the RSI launcher session, cached on disk"
+
+[dependencies]
+# The gRPC lab's shipped client (owned blueprints, entitlements, items,
+# missions). ToS-grey; every caller gates via AppState::require_grpc first.
+sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.2.0" }
+app-kit.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

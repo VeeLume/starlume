@@ -8,6 +8,7 @@ members = [
     "crates/server",
     "crates/svc-discovery",
     "crates/svc-data",
+    "crates/svc-dossier",
     "crates/svc-log",
     "crates/svc-sync",
 ]
@@ -66,6 +67,7 @@ mod-contracts = { path = "crates/mod-contracts" }
 mod-langpatch = { path = "crates/mod-langpatch" }
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
+svc-dossier = { path = "crates/svc-dossier" }
 svc-log = { path = "crates/svc-log" }
 svc-sync = { path = "crates/svc-sync" }
 
