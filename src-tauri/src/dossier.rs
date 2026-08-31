@@ -59,11 +59,13 @@ pub(crate) fn blueprints_owned(state: tauri::State<'_, AppState>) -> OwnedBluepr
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn blueprints_refresh(app: AppHandle) -> Result<OwnedBlueprintsView, AppError> {
-    let state = app.state::<AppState>();
-    state.require_grpc("blueprints")?;
-    // Clone the Arc so nothing borrowed from `state` is held across the await.
-    let dossier = state.dossier.clone();
-    drop(state);
+    // Gate + clone the Arc inside a block so the `State` borrow is released
+    // before the await (no borrow of `app` held across the network call).
+    let dossier = {
+        let state = app.state::<AppState>();
+        state.require_grpc("blueprints")?;
+        state.dossier.clone()
+    };
     let owned = dossier.refresh_blueprints(GRPC_USER_AGENT).await?;
     Ok(owned.into())
 }
