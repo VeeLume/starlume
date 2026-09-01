@@ -7,10 +7,14 @@
 //! app-level framework for now; the ownership set migrates into the tracker
 //! module when it lands.
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::AppState;
 use crate::error::AppError;
+
+/// Fired after a blueprint refresh (startup or manual). The frontend store
+/// reloads the owned set on this, so catalog/text decoration re-renders.
+pub const BLUEPRINTS_CHANGED_EVENT: &str = "blueprints:changed";
 
 /// gRPC user-agent for backend calls (distinct from the RSI-profile scrape UA
 /// in `sc.rs`; both identify Starlume, honestly).
@@ -59,13 +63,60 @@ pub(crate) fn blueprints_owned(state: tauri::State<'_, AppState>) -> OwnedBluepr
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn blueprints_refresh(app: AppHandle) -> Result<OwnedBlueprintsView, AppError> {
-    // Gate + clone the Arc inside a block so the `State` borrow is released
-    // before the await (no borrow of `app` held across the network call).
-    let dossier = {
+    refresh_and_react(&app).await
+}
+
+/// Fetch the owned set, and if it changed, react: emit the changed event and
+/// (when `blueprints_auto_langpatch` is on) re-apply text patching so the
+/// in-game mission text re-renders ownership. Shared by the manual command
+/// and the startup automation.
+///
+/// **Gated:** `require_grpc("blueprints")` — the network read never happens
+/// without the consent the user gave in Settings.
+async fn refresh_and_react(app: &AppHandle) -> Result<OwnedBlueprintsView, AppError> {
+    let (dossier, auto_langpatch) = {
         let state = app.state::<AppState>();
         state.require_grpc("blueprints")?;
-        state.dossier.clone()
+        let auto = state.settings.lock().unwrap().blueprints_auto_langpatch;
+        (state.dossier.clone(), auto)
     };
+
+    let old = dossier
+        .cached_blueprints()
+        .map(|o| o.blueprint_ids)
+        .unwrap_or_default();
     let owned = dossier.refresh_blueprints(GRPC_USER_AGENT).await?;
+    let changed = owned.blueprint_ids != old;
+
+    let _ = app.emit(BLUEPRINTS_CHANGED_EVENT, ());
+
+    // A changed owned set moves mission_enhancer's fingerprint salt, so this
+    // re-applies for owned installs (reconcile_all self-gates on the module +
+    // auto_patch + all the write-gates).
+    if changed && auto_langpatch {
+        tracing::info!("owned blueprints changed — re-applying text patching");
+        crate::langpatch::reconcile_all(app).await;
+    }
+
     Ok(owned.into())
+}
+
+/// Startup automation: when `blueprints_auto_fetch` is on and the gRPC gate
+/// permits, fetch the owned set in the background (and react to a change).
+/// Silent on the gate/off cases — this is best-effort background work.
+pub fn spawn_startup_fetch(app: &AppHandle) {
+    let (auto_fetch, gate_ok) = {
+        let state = app.state::<AppState>();
+        let auto = state.settings.lock().unwrap().blueprints_auto_fetch;
+        (auto, state.require_grpc("blueprints").is_ok())
+    };
+    if !auto_fetch || !gate_ok {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = refresh_and_react(&app).await {
+            tracing::info!("startup blueprint fetch skipped: {e}");
+        }
+    });
 }

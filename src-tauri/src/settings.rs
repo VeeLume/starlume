@@ -62,6 +62,21 @@ pub struct AppSettings {
     /// Local file reads only, no online implications; the heavy parse runs at
     /// most once per game patch.
     pub auto_load_game_data: bool,
+    /// Fetch the owned-blueprint set from CIG's backend at app start (gated
+    /// by the `blueprints` gRPC feature — inert unless online + gRPC + that
+    /// feature are all on). Default ON: the Hearth-style automation the owned
+    /// catalog/text marking rides on.
+    #[serde(default = "default_true")]
+    pub blueprints_auto_fetch: bool,
+    /// When the owned-blueprint set changes, re-apply text patching for
+    /// owned installs so the in-game mission text re-renders ownership.
+    /// Default ON; honors all the langpatch write-gates.
+    #[serde(default = "default_true")]
+    pub blueprints_auto_langpatch: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -80,6 +95,8 @@ impl Default for AppSettings {
             grpc_features: Vec::new(),
             native_notifications: true,
             auto_load_game_data: true,
+            blueprints_auto_fetch: true,
+            blueprints_auto_langpatch: true,
         }
     }
 }

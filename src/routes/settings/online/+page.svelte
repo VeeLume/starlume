@@ -9,6 +9,13 @@
   let error = $state("");
   let grpcFeatures = $state<GrpcFeatureInfo[]>([]);
 
+  // The blueprint automations only apply when the blueprints feature is live.
+  const blueprintsEnabled = $derived(
+    !!settings?.online_enabled &&
+      !!settings?.grpc_enabled &&
+      (settings?.grpc_features.includes("blueprints") ?? false),
+  );
+
   onMount(async () => {
     await loadSettings();
     grpcFeatures = await commands.listGrpcFeatures();
@@ -88,6 +95,31 @@
         {/each}
       {/if}
     </Settings.Section>
+
+    {#if blueprintsEnabled}
+      <Settings.Section title="Owned blueprints">
+        <Settings.Row
+          label="Fetch at startup"
+          hint="Read your owned-blueprint set from CIG's backend each time Starlume starts."
+        >
+          <Switch
+            label="Fetch at startup"
+            checked={settings.blueprints_auto_fetch ?? true}
+            onchange={(v) => apply({ blueprints_auto_fetch: v })}
+          />
+        </Settings.Row>
+        <Settings.Row
+          label="Update text patching on change"
+          hint="When your owned blueprints change, re-apply text patching so the in-game mission text marks what you own."
+        >
+          <Switch
+            label="Update text patching on change"
+            checked={settings.blueprints_auto_langpatch ?? true}
+            onchange={(v) => apply({ blueprints_auto_langpatch: v })}
+          />
+        </Settings.Row>
+      </Settings.Section>
+    {/if}
 
     {#if error}
       <p class="text-sm text-destructive">{error}</p>

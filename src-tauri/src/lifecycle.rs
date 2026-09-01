@@ -134,6 +134,10 @@ pub fn run() {
             // parse serves both the catalogs and the langpatch derive.
             langpatch::spawn_warm_then_reconcile(app.handle());
 
+            // Fetch owned blueprints in the background (setting + gRPC gated);
+            // a change re-applies text patching so the mission text updates.
+            crate::dossier::spawn_startup_fetch(app.handle());
+
             // Watch installs for settled build changes (30s stat-only poll)
             // → InstallChanged on the bus → cache invalidation + re-warm.
             watch::spawn(app.handle());

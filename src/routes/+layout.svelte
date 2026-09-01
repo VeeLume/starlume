@@ -17,6 +17,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { onboarding, maybeStartOnboarding } from "$lib/state/onboarding.svelte";
   import { listenForNotifications, syncNotifications } from "$lib/state/notifications.svelte";
+  import { loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
   import { Notify, Progress, Shell, setKitContext, type NavGroup } from "@veelume/ui";
   import { House, Library, Settings, Users } from "lucide-svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
@@ -36,6 +37,7 @@
   let unlistenNotify: UnlistenFn | undefined;
   let unlistenDataProgress: UnlistenFn | undefined;
   let unlistenDataChanged: UnlistenFn | undefined;
+  let unlistenBlueprints: UnlistenFn | undefined;
 
   // Startup hydration (docs/frontend.md rule 3): refresh install statuses
   // and prefetch the default channel's catalogs so pages render from cache.
@@ -125,6 +127,12 @@
       });
       await hydrateData();
     })();
+    // Owned blueprints: render the cached set immediately, and re-load when
+    // the backend's startup/manual fetch changes it (catalog + text marks).
+    void (async () => {
+      await loadOwnedBlueprints();
+      unlistenBlueprints = await listen("blueprints:changed", () => void loadOwnedBlueprints());
+    })();
   });
 
   onDestroy(() => {
@@ -132,6 +140,7 @@
     unlistenNotify?.();
     unlistenDataProgress?.();
     unlistenDataChanged?.();
+    unlistenBlueprints?.();
   });
 </script>
 
