@@ -62,7 +62,12 @@ impl crate::Patcher for WeaponEnhancer {
         ]
     }
 
-    fn derive(&self, cooked: &CookedData, config: &PatcherConfig) -> anyhow::Result<OpSet> {
+    fn derive(
+        &self,
+        cooked: &CookedData,
+        config: &PatcherConfig,
+        _owned: Option<&crate::OwnedSet>,
+    ) -> anyhow::Result<OpSet> {
         let opt_size_prefix = config.get_bool("size_prefix", true);
         let opt_missile_type = config.get_bool("missile_type_prefix", true);
         let opt_weapon_stats = config.get_bool("weapon_stats", true);

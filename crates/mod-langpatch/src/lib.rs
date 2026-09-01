@@ -33,7 +33,7 @@ mod derive;
 mod patchers;
 mod toml_patcher;
 
-pub use derive::{DeriveError, PatcherOps, cache_complete, derive_ops};
+pub use derive::{DeriveError, PatcherOps, cache_complete, derive_ops, owned_salt};
 pub use ops::{
     ChoiceOption, KeyRename, LangpatchConfig, OpSet, OptionKind, PatchOp, PatcherConfig,
     PatcherOption,
@@ -43,10 +43,16 @@ pub use state::{
     Fingerprint, InstallPatchState, PatchPlan, PatchStateFile, plan_for, sha256_bytes, sha256_file,
 };
 
+/// Owned-blueprint set (holotable `blueprint_record_guid`s) — the personal
+/// gRPC-sourced data mission_enhancer decorates with. The shell supplies it;
+/// this crate never fetches it (the svc-data-only boundary holds — owned data
+/// arrives as a plain argument, not a dependency).
+pub type OwnedSet = std::collections::BTreeSet<String>;
+
 /// One enrichment patcher: derives INI patch operations from the cooked
 /// game data. Pure — no I/O, no game files; everything a patcher reads is
 /// in [`svc_data::CookedData`] (extend the svc-data cook when a patcher
-/// needs more, never reach around it).
+/// needs more, never reach around it) plus the optional owned-blueprint set.
 pub trait Patcher: Send + Sync {
     /// Stable id (config key, cache key, UI key).
     fn id(&self) -> &'static str;
@@ -68,12 +74,27 @@ pub trait Patcher: Send + Sync {
     fn options(&self) -> Vec<ops::PatcherOption> {
         Vec::new()
     }
+    /// Extra cache-key input beyond the user options — for a patcher whose
+    /// output depends on data outside `config` (mission_enhancer's owned set).
+    /// `config` is this patcher's own config so it can salt only when a
+    /// relevant option is on. Default `None`: the op-set cache depends on
+    /// options alone. When this changes, [`derive_ops`] re-derives *only this
+    /// patcher*, and the shell's fingerprint changes so the install re-applies.
+    fn cache_salt(
+        &self,
+        _config: &ops::PatcherConfig,
+        _owned: Option<&OwnedSet>,
+    ) -> Option<String> {
+        None
+    }
     /// Derive this patcher's op-set. Key-existence checks go against
     /// `cooked.locale` (parsed from the same base `global.ini` the ops are
-    /// later applied to).
+    /// later applied to). `owned` is the player's blueprint set when
+    /// available — used only by mission_enhancer, ignored by the rest.
     fn derive(
         &self,
         cooked: &svc_data::CookedData,
         config: &ops::PatcherConfig,
+        owned: Option<&OwnedSet>,
     ) -> anyhow::Result<ops::OpSet>;
 }

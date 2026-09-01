@@ -81,7 +81,12 @@ impl crate::Patcher for ComponentGrades {
         }]
     }
 
-    fn derive(&self, cooked: &CookedData, config: &PatcherConfig) -> anyhow::Result<OpSet> {
+    fn derive(
+        &self,
+        cooked: &CookedData,
+        config: &PatcherConfig,
+        _owned: Option<&crate::OwnedSet>,
+    ) -> anyhow::Result<OpSet> {
         let Some(items) = cooked.holotable.items.as_ref() else {
             return Ok(OpSet::default());
         };

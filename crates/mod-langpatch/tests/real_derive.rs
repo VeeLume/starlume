@@ -42,6 +42,7 @@ fn derive_and_apply_from_real_data() {
         Some(&cooked),
         &config,
         &patchers,
+        None,
     )
     .expect("derive");
 
@@ -193,6 +194,7 @@ fn dump_mission_enhancer_samples() {
         Some(&cooked),
         &config,
         &patchers,
+        None,
     )
     .expect("derive");
     let patches = &ops[0].ops.patches;

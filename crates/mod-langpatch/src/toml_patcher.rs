@@ -499,6 +499,7 @@ impl crate::Patcher for TomlPatcher {
         &self,
         cooked: &svc_data::CookedData,
         config: &PatcherConfig,
+        _owned: Option<&crate::OwnedSet>,
     ) -> anyhow::Result<OpSet> {
         Ok(self.def.derive(&cooked.locale, config))
     }
@@ -840,7 +841,7 @@ mod tests {
         cooked.locale.set("unrelated", "Untouched");
 
         let ops = patcher
-            .derive(&cooked, &PatcherConfig::default())
+            .derive(&cooked, &PatcherConfig::default(), None)
             .expect("derive succeeds");
         assert_eq!(ops.patches.len(), 2, "only present keys are patched");
         assert!(ops.patches.contains(&(

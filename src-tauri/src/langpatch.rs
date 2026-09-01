@@ -29,7 +29,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use mod_langpatch::{
     Fingerprint, LangpatchConfig, PatchPlan, PatchStateFile, PatcherConfig, builtin_patchers,
-    cache_complete, derive_ops, merge, plan_for, sha256_bytes, sha256_file,
+    cache_complete, derive_ops, merge, owned_salt, plan_for, sha256_bytes, sha256_file,
 };
 use svc_data::InstallRef;
 use tauri::{AppHandle, Emitter, Manager};
@@ -317,10 +317,21 @@ async fn reconcile_one(
         .to_path_buf();
 
     let pack = resolve_pack(app, config).await;
+
+    // Owned-blueprint set (cached, no network here — the refresh is gated
+    // elsewhere) + the patchers, both needed for the fingerprint's owned
+    // salt so a blueprint change re-applies (mission_enhancer's owned marks).
+    let patchers = builtin_patchers();
+    let owned = app
+        .state::<AppState>()
+        .dossier
+        .cached_blueprints()
+        .map(|o| o.blueprint_ids);
     let fingerprint = Fingerprint::new(
         &install.build_id,
         config,
         pack.as_ref().map(|(_, hash)| hash.clone()),
+        owned_salt(config, &patchers, owned.as_ref()),
     );
 
     let data_dir = langpatch_dir();
@@ -378,6 +389,7 @@ async fn reconcile_one(
                     staleness_key: fingerprint.staleness_key.clone(),
                     config_hash: fingerprint.config_hash.clone(),
                     pack_hash: fingerprint.pack_hash.clone(),
+                    owned_salt: fingerprint.owned_salt.clone(),
                     output_sha256: output_sha,
                     patched_at: chrono::Utc::now().to_rfc3339(),
                 },
@@ -434,17 +446,24 @@ async fn apply_install(
 ) -> anyhow::Result<String> {
     let data_dir = langpatch_dir();
     let patchers = builtin_patchers();
-
-    // Derive (cached per build+patcher+options). Loading CookedData is the
-    // only potentially slow part — and only when the cache misses (fresh
-    // build), where svc-data's own snapshot cache usually makes it cheap
-    // because the warm ran first.
+    // Owned-blueprint set (cached; the network refresh is gated elsewhere) —
+    // mission_enhancer marks/hides owned rewards and salts its op-set cache.
+    let owned = app
+        .state::<AppState>()
+        .dossier
+        .cached_blueprints()
+        .map(|o| o.blueprint_ids);
+    // Derive (cached per build+patcher+options+owned-salt). Loading CookedData
+    // is the only potentially slow part — and only when the cache misses
+    // (fresh build / changed owned set), where svc-data's own snapshot cache
+    // usually makes it cheap because the warm ran first.
     let cooked = if cache_complete(
         &data_dir,
         &install.channel_key,
         &install.build_id,
         config,
         &patchers,
+        owned.as_ref(),
     ) {
         None
     } else {
@@ -459,6 +478,7 @@ async fn apply_install(
         cooked.as_deref(),
         config,
         &patchers,
+        owned.as_ref(),
     )?;
 
     let p4k_path = install.p4k_path.clone();
@@ -585,6 +605,16 @@ pub(crate) async fn langpatch_overview(app: AppHandle) -> Result<LangpatchOvervi
     let state_file = PatchStateFile::load(&langpatch_dir());
     let known = state_file.known_outputs();
 
+    // Owned-salt for the status fingerprint (cached set, no network) — so the
+    // overview shows "stale" when a blueprint change is pending re-apply.
+    let patchers = builtin_patchers();
+    let owned = app
+        .state::<AppState>()
+        .dossier
+        .cached_blueprints()
+        .map(|o| o.blueprint_ids);
+    let owned_salt = owned_salt(&config, &patchers, owned.as_ref());
+
     // Status view avoids network: pack hash from the cached copy only.
     let pack_hash = config.language_pack.as_deref().and_then(|source| {
         let source = source.trim();
@@ -603,7 +633,8 @@ pub(crate) async fn langpatch_overview(app: AppHandle) -> Result<LangpatchOvervi
         .iter()
         .map(|i| {
             let entry = state_file.installs.get(&i.channel_key);
-            let fingerprint = Fingerprint::new(&i.build_id, &config, pack_hash.clone());
+            let fingerprint =
+                Fingerprint::new(&i.build_id, &config, pack_hash.clone(), owned_salt.clone());
             let install_dir = i
                 .p4k_path
                 .parent()

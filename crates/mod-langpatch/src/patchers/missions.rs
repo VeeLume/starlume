@@ -130,16 +130,67 @@ impl crate::Patcher for MissionEnhancer {
                 "Region Info",
                 "Append the region / body where the mission is offered",
             ),
+            PatcherOption {
+                id: "owned_blueprints".into(),
+                label: "Owned Blueprints".into(),
+                description: "Mark or hide blueprints you already own in the reward list \
+                              (needs a blueprint fetch — Settings → Online)"
+                    .into(),
+                kind: OptionKind::Choice {
+                    choices: vec![
+                        ChoiceOption {
+                            value: "off".into(),
+                            label: "Off".into(),
+                        },
+                        ChoiceOption {
+                            value: "mark".into(),
+                            label: "Mark owned (✓)".into(),
+                        },
+                        ChoiceOption {
+                            value: "hide".into(),
+                            label: "Hide owned".into(),
+                        },
+                    ],
+                },
+                default: "mark".into(),
+            },
+            toggle(
+                "owned_title_tag",
+                "Owned-Complete Title Tag",
+                "Add a mark to titles of missions whose blueprint rewards you already own",
+            ),
         ]
     }
 
-    fn derive(&self, cooked: &CookedData, config: &PatcherConfig) -> anyhow::Result<OpSet> {
+    /// Owned rendering makes the output depend on the player's blueprint set —
+    /// salt the op-set cache with it so a change re-derives (and the shell's
+    /// fingerprint re-applies). `None` when owned rendering is off.
+    fn cache_salt(
+        &self,
+        config: &PatcherConfig,
+        owned: Option<&crate::OwnedSet>,
+    ) -> Option<String> {
+        let mode = OwnedMode::from_str(config.get_str("owned_blueprints", "mark"));
+        let title = config.get_bool("owned_title_tag", true);
+        if mode == OwnedMode::Off && !title {
+            return None;
+        }
+        Some(crate::ops::stable_hash(owned?))
+    }
+
+    fn derive(
+        &self,
+        cooked: &CookedData,
+        config: &PatcherConfig,
+        owned: Option<&crate::OwnedSet>,
+    ) -> anyhow::Result<OpSet> {
         let title_opts = TitleOptions {
             blueprint: config.get_bool("blueprint_tag", true),
             solo: config.get_bool("solo_tag", true),
             once: config.get_bool("once_tag", true),
             illegal: config.get_bool("illegal_tag", true),
             crimestat: CrimestatTagMode::from_str(config.get_str("crimestat_tag", "colored")),
+            owned_tag: config.get_bool("owned_title_tag", true),
         };
         let desc_opts = DescOptions {
             blueprint_list: config.get_bool("blueprint_list", true),
@@ -147,6 +198,7 @@ impl crate::Patcher for MissionEnhancer {
             ship_encounters: config.get_bool("ship_encounters", true),
             cargo_info: config.get_bool("cargo_info", true),
             region_info: config.get_bool("region_info", true),
+            owned_mode: OwnedMode::from_str(config.get_str("owned_blueprints", "mark")),
         };
 
         let manufacturer_prefixes = build_manufacturer_prefixes(cooked);
@@ -176,7 +228,8 @@ impl crate::Patcher for MissionEnhancer {
                 continue;
             }
             let facts = PoolFacts::build(members);
-            let tags = render_title_tags(&facts, title_opts);
+            let owned_complete = owned.is_some_and(|o| pool_all_owned(members, o));
+            let tags = render_title_tags(&facts, title_opts, owned_complete);
             if !tags.is_empty() {
                 patches.push((key.to_string(), PatchOp::Suffix(format!(" {tags}"))));
             }
@@ -193,7 +246,7 @@ impl crate::Patcher for MissionEnhancer {
                 continue;
             }
             let facts = PoolFacts::build(members);
-            let suffix = render_description(&facts, &manufacturer_prefixes, desc_opts);
+            let suffix = render_description(&facts, &manufacturer_prefixes, desc_opts, owned);
             if !suffix.is_empty() {
                 patches.push((key.to_string(), PatchOp::Suffix(suffix)));
             }
@@ -480,6 +533,50 @@ fn region_label_of(m: &MissionEntry) -> String {
     merge_region_pieces(&region_pieces_of(m)).join(" / ")
 }
 
+// ── Owned blueprints (gRPC-sourced; re-added 2026-08-30) ─────────────────────
+
+/// In-game mark for an owned blueprint (verify it renders in the game font;
+/// matches the in-app catalog's mark for consistency).
+const OWNED_MARK: &str = "✓";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnedMode {
+    Off,
+    Mark,
+    Hide,
+}
+
+impl OwnedMode {
+    fn from_str(s: &str) -> Self {
+        match s {
+            "off" => OwnedMode::Off,
+            "hide" => OwnedMode::Hide,
+            _ => OwnedMode::Mark,
+        }
+    }
+}
+
+fn owns(owned: Option<&crate::OwnedSet>, guid: &str) -> bool {
+    owned.is_some_and(|s| s.contains(guid))
+}
+
+/// True when the pool's members reward at least one blueprint and the player
+/// owns **every** one — drives the owned-complete title tag.
+fn pool_all_owned(members: &[&MissionEntry], owned: &crate::OwnedSet) -> bool {
+    let mut any = false;
+    for m in members {
+        for pool in &m.blueprint_rewards {
+            for bp in &pool.blueprints {
+                any = true;
+                if !owned.contains(&bp.blueprint_record_guid) {
+                    return false;
+                }
+            }
+        }
+    }
+    any
+}
+
 // ── Title tags ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -489,6 +586,8 @@ struct TitleOptions {
     once: bool,
     illegal: bool,
     crimestat: CrimestatTagMode,
+    /// Append an owned-complete mark when every reward blueprint is owned.
+    owned_tag: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -511,7 +610,7 @@ impl CrimestatTagMode {
 /// Trailing tag string (no leading space); empty when nothing applies.
 /// Only unanimous facts produce explicit tags; `[~]` flags non-blueprint
 /// mixing ("behavior varies — see description").
-fn render_title_tags(facts: &PoolFacts<'_>, opts: TitleOptions) -> String {
+fn render_title_tags(facts: &PoolFacts<'_>, opts: TitleOptions, owned_complete: bool) -> String {
     let mut tags: Vec<String> = Vec::new();
 
     if opts.blueprint {
@@ -525,6 +624,12 @@ fn render_title_tags(facts: &PoolFacts<'_>, opts: TitleOptions) -> String {
             }
             BlueprintState::None => {}
         }
+    }
+
+    // Owned-complete marker sits next to the BP tag ("grants BP / already have
+    // them all" reads together), underlined to stand out from title text.
+    if opts.owned_tag && owned_complete {
+        tags.push(apply_color(Color::Underline, bracket(OWNED_MARK)));
     }
 
     if opts.solo && facts.shareable == TriState::Unanimous(false) {
@@ -572,6 +677,8 @@ struct DescOptions {
     ship_encounters: bool,
     cargo_info: bool,
     region_info: bool,
+    /// How owned blueprints render in the "Potential Blueprints" list.
+    owned_mode: OwnedMode,
 }
 
 /// Render the suffix appended to the description's INI value (leading
@@ -580,6 +687,7 @@ fn render_description(
     facts: &PoolFacts<'_>,
     manufacturer_prefixes: &[String],
     opts: DescOptions,
+    owned: Option<&crate::OwnedSet>,
 ) -> String {
     let Some(head) = facts.members.first().copied() else {
         return String::new();
@@ -588,7 +696,7 @@ fn render_description(
     let mut blocks: Vec<String> = Vec::new();
 
     if !facts.has_variants() {
-        push_singleton_blocks(&mut blocks, head, facts, manufacturer_prefixes, opts);
+        push_singleton_blocks(&mut blocks, head, facts, manufacturer_prefixes, opts, owned);
     } else {
         // Data-level mixing exists — but if every member's rendered diff
         // lines collapse to one group, it didn't survive rendering (e.g.
@@ -597,9 +705,16 @@ fn render_description(
         let labels = resolve_variant_labels(&facts.members);
         let groups = group_by_diff_lines(facts, &labels, manufacturer_prefixes, opts);
         if groups.len() <= 1 {
-            push_singleton_blocks(&mut blocks, head, facts, manufacturer_prefixes, opts);
+            push_singleton_blocks(&mut blocks, head, facts, manufacturer_prefixes, opts, owned);
         } else {
-            push_variants_blocks(&mut blocks, facts, &groups, manufacturer_prefixes, opts);
+            push_variants_blocks(
+                &mut blocks,
+                facts,
+                &groups,
+                manufacturer_prefixes,
+                opts,
+                owned,
+            );
         }
     }
 
@@ -615,10 +730,11 @@ fn push_singleton_blocks(
     facts: &PoolFacts<'_>,
     manufacturer_prefixes: &[String],
     opts: DescOptions,
+    owned: Option<&crate::OwnedSet>,
 ) {
     if opts.blueprint_list {
         for bp in &head.blueprint_rewards {
-            blocks.push(blueprint_block(bp));
+            blocks.push(blueprint_block(bp, owned, opts.owned_mode));
         }
     }
     if opts.mission_info
@@ -644,6 +760,7 @@ fn push_variants_blocks(
     groups: &[DiffGroup<'_>],
     manufacturer_prefixes: &[String],
     opts: DescOptions,
+    owned: Option<&crate::OwnedSet>,
 ) {
     // Top section — only unanimous axes.
     if opts.blueprint_list
@@ -651,7 +768,7 @@ fn push_variants_blocks(
         && let Some(head) = facts.members.first()
     {
         for bp in &head.blueprint_rewards {
-            blocks.push(blueprint_block(bp));
+            blocks.push(blueprint_block(bp, owned, opts.owned_mode));
         }
     }
     if opts.mission_info
@@ -688,23 +805,49 @@ fn push_variants_blocks(
     }
 }
 
-fn blueprint_block(bp: &BpPoolReward) -> String {
+fn blueprint_block(bp: &BpPoolReward, owned: Option<&crate::OwnedSet>, mode: OwnedMode) -> String {
     let mut s = header("Potential Blueprints");
     if bp.chance < 1.0 {
         s.push_str(&format!(" ({}% chance)", (bp.chance * 100.0) as i32));
     }
-    // Resolved display names, alphabetical (the pool's own order is
-    // descending pick-weight — noisy in a help dialog). Unresolved names
-    // are dropped.
-    let mut names: Vec<&str> = bp
+    // (name, owned) for resolvable entries, alphabetical (the pool's own order
+    // is descending pick-weight — noisy in a help dialog). Unresolved dropped.
+    let mut entries: Vec<(&str, bool)> = bp
         .blueprints
         .iter()
-        .filter_map(|b| b.name.as_deref())
+        .filter_map(|b| {
+            b.name
+                .as_deref()
+                .map(|n| (n, owns(owned, &b.blueprint_record_guid)))
+        })
         .collect();
-    names.sort_by_key(|n| n.to_lowercase());
-    for name in names {
+    entries.sort_by_key(|(n, _)| n.to_lowercase());
+
+    // Owned-count summary in the header (glyph-independent, so it reads even
+    // if the per-item mark drops in the game font). Only when a set is loaded.
+    if owned.is_some() {
+        let total = entries.len();
+        let owned_n = entries.iter().filter(|(_, o)| *o).count();
+        if total > 0 && owned_n > 0 {
+            s.push_str(&if owned_n == total {
+                format!(" · all {total} owned")
+            } else {
+                format!(" · {owned_n}/{total} owned")
+            });
+        }
+    }
+
+    for (name, is_owned) in entries {
+        // Hide mode: owned entries drop out (the header count still records them).
+        if is_owned && mode == OwnedMode::Hide {
+            continue;
+        }
         s.push_str(NEWLINE);
-        s.push_str(&bullet(name));
+        if is_owned && mode == OwnedMode::Mark {
+            s.push_str(&format!("{OWNED_MARK} {name}"));
+        } else {
+            s.push_str(&bullet(name));
+        }
     }
     s
 }
@@ -1573,6 +1716,7 @@ mod tests {
         once: true,
         illegal: true,
         crimestat: CrimestatTagMode::Colored,
+        owned_tag: true,
     };
 
     #[test]
@@ -1582,7 +1726,10 @@ mod tests {
         a.once_only = true;
         a.illegal = true;
         let facts = PoolFacts::build(&[&a]);
-        assert_eq!(render_title_tags(&facts, OPTS), "[Solo] [Uniq] [Illegal]");
+        assert_eq!(
+            render_title_tags(&facts, OPTS, false),
+            "[Solo] [Uniq] [Illegal]"
+        );
     }
 
     #[test]
@@ -1591,7 +1738,7 @@ mod tests {
         a.illegal = true;
         let b = base_entry();
         let facts = PoolFacts::build(&[&a, &b]);
-        assert_eq!(render_title_tags(&facts, OPTS), "[~]");
+        assert_eq!(render_title_tags(&facts, OPTS, false), "[~]");
     }
 
     #[test]
@@ -1600,7 +1747,7 @@ mod tests {
         a.once_only = true;
         a.facts.once_only_mixed = true;
         let facts = PoolFacts::build(&[&a]);
-        assert_eq!(render_title_tags(&facts, OPTS), "[~]");
+        assert_eq!(render_title_tags(&facts, OPTS, false), "[~]");
     }
 
     #[test]
@@ -1608,17 +1755,20 @@ mod tests {
         let mut a = base_entry();
         a.facts.crimestat = CrimestatRisk::High;
         let facts = PoolFacts::build(&[&a]);
-        assert_eq!(render_title_tags(&facts, OPTS), "<EM4>[CS Risk]</EM4>");
+        assert_eq!(
+            render_title_tags(&facts, OPTS, false),
+            "<EM4>[CS Risk]</EM4>"
+        );
         let simple = TitleOptions {
             crimestat: CrimestatTagMode::Simple,
             ..OPTS
         };
-        assert_eq!(render_title_tags(&facts, simple), "[CS Risk]");
+        assert_eq!(render_title_tags(&facts, simple, false), "[CS Risk]");
         let off = TitleOptions {
             crimestat: CrimestatTagMode::Off,
             ..OPTS
         };
-        assert_eq!(render_title_tags(&facts, off), "");
+        assert_eq!(render_title_tags(&facts, off, false), "");
     }
 
     #[test]
@@ -1661,8 +1811,9 @@ mod tests {
             ship_encounters: true,
             cargo_info: true,
             region_info: true,
+            owned_mode: OwnedMode::Off,
         };
-        let out = render_description(&facts, &[], opts);
+        let out = render_description(&facts, &[], opts, None);
         assert!(out.starts_with(PARAGRAPH_BREAK), "leading separator: {out}");
         assert!(out.contains("<EM4>Mission Info</EM4>"), "{out}");
         assert!(out.contains("Cooldown: 30min"), "{out}");
@@ -1688,8 +1839,9 @@ mod tests {
             ship_encounters: true,
             cargo_info: true,
             region_info: true,
+            owned_mode: OwnedMode::Off,
         };
-        let out = render_description(&facts, &[], opts);
+        let out = render_description(&facts, &[], opts, None);
         assert!(out.contains("Variants (2)"), "{out}");
         assert!(out.contains("Stanton: Hurston"), "{out}");
         assert!(out.contains("Pyro: Bloom"), "{out}");
@@ -1713,8 +1865,9 @@ mod tests {
             ship_encounters: true,
             cargo_info: true,
             region_info: true,
+            owned_mode: OwnedMode::Off,
         };
-        let out = render_description(&facts, &[], opts);
+        let out = render_description(&facts, &[], opts, None);
         assert!(!out.contains("Variants"), "{out}");
         assert!(out.contains("Cooldown: 30min"), "{out}");
     }
@@ -1801,5 +1954,76 @@ mod tests {
         );
         assert_eq!(compose_count_and_pool(2, 2, &[]), "2 ships");
         assert_eq!(compose_count_and_pool(1, 1, &[]), "1 ship");
+    }
+
+    fn bp_entry(guid: &str, name: &str) -> svc_data::BpPoolEntry {
+        svc_data::BpPoolEntry {
+            blueprint_record_guid: guid.into(),
+            name: Some(name.into()),
+            weight: 1.0,
+        }
+    }
+
+    fn owned_set(guids: &[&str]) -> crate::OwnedSet {
+        guids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn blueprint_block_marks_owned_and_summarizes() {
+        let pool = BpPoolReward {
+            pool_name: "P".into(),
+            chance: 1.0,
+            blueprints: vec![
+                bp_entry("g1", "Alpha"),
+                bp_entry("g2", "Beta"),
+                bp_entry("g3", "Gamma"),
+            ],
+        };
+        let owned = owned_set(&["g1", "g3"]);
+
+        let mark = blueprint_block(&pool, Some(&owned), OwnedMode::Mark);
+        assert!(mark.contains("2/3 owned"), "{mark}");
+        assert!(mark.contains(&format!("{OWNED_MARK} Alpha")), "{mark}");
+        assert!(mark.contains(&format!("{OWNED_MARK} Gamma")), "{mark}");
+        assert!(mark.contains("- Beta"), "{mark}");
+
+        let hide = blueprint_block(&pool, Some(&owned), OwnedMode::Hide);
+        assert!(hide.contains("2/3 owned"), "{hide}");
+        assert!(!hide.contains("Alpha"), "owned hidden: {hide}");
+        assert!(hide.contains("- Beta"), "{hide}");
+
+        // No owned set → no marks, no summary (undecorated default).
+        let none = blueprint_block(&pool, None, OwnedMode::Mark);
+        assert!(!none.contains("owned"), "{none}");
+        assert!(none.contains("- Alpha"), "{none}");
+    }
+
+    #[test]
+    fn owned_complete_gates_the_title_tag() {
+        let mut a = base_entry();
+        a.blueprint_rewards = vec![BpPoolReward {
+            pool_name: "P".into(),
+            chance: 1.0,
+            blueprints: vec![bp_entry("g1", "Alpha"), bp_entry("g2", "Beta")],
+        }];
+        let members = [&a];
+
+        // Owns both → owned-complete.
+        assert!(pool_all_owned(&members, &owned_set(&["g1", "g2"])));
+        // Owns one → not complete.
+        assert!(!pool_all_owned(&members, &owned_set(&["g1"])));
+
+        let facts = PoolFacts::build(&members);
+        let tags = render_title_tags(&facts, OPTS, true);
+        assert!(
+            tags.contains(OWNED_MARK),
+            "owned-complete tag present: {tags}"
+        );
+        // Gate off → no owned tag even when complete.
+        let off = TitleOptions {
+            owned_tag: false,
+            ..OPTS
+        };
+        assert!(!render_title_tags(&facts, off, true).contains(OWNED_MARK));
     }
 }

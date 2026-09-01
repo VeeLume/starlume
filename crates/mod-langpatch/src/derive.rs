@@ -50,6 +50,7 @@ pub fn cache_complete(
     staleness_key: &str,
     config: &LangpatchConfig,
     patchers: &[Box<dyn Patcher>],
+    owned: Option<&crate::OwnedSet>,
 ) -> bool {
     let enabled: Vec<_> = patchers
         .iter()
@@ -66,8 +67,38 @@ pub fn cache_complete(
         cache
             .entries
             .get(p.id())
-            .is_some_and(|e| e.options_hash == stable_hash(&config.patcher_config(p.id())))
+            .is_some_and(|e| e.options_hash == options_hash(p.as_ref(), config, owned))
     })
+}
+
+/// The op-set cache key for one patcher: its user options plus any external
+/// input it declares via [`Patcher::cache_salt`] (the owned-blueprint set for
+/// mission_enhancer). Only that patcher's key moves when the set changes.
+fn options_hash(
+    patcher: &dyn Patcher,
+    config: &LangpatchConfig,
+    owned: Option<&crate::OwnedSet>,
+) -> String {
+    let pc = config.patcher_config(patcher.id());
+    let salt = patcher.cache_salt(&pc, owned);
+    stable_hash(&(pc, salt))
+}
+
+/// The combined owned-set salt across enabled patchers — the fingerprint's
+/// owned component (see `state::Fingerprint`). `None` when no enabled patcher
+/// depends on the owned set (owned rendering off), so a blueprint change then
+/// triggers no re-apply. Changes with the set otherwise.
+pub fn owned_salt(
+    config: &LangpatchConfig,
+    patchers: &[Box<dyn Patcher>],
+    owned: Option<&crate::OwnedSet>,
+) -> Option<String> {
+    let salts: Vec<String> = patchers
+        .iter()
+        .filter(|p| config.patcher_enabled(p.as_ref()))
+        .filter_map(|p| p.cache_salt(&config.patcher_config(p.id()), owned))
+        .collect();
+    (!salts.is_empty()).then(|| stable_hash(&salts))
 }
 
 /// Cache-miss error: derive needed game data the caller didn't provide.
@@ -89,6 +120,7 @@ pub fn derive_ops(
     cooked: Option<&svc_data::CookedData>,
     config: &LangpatchConfig,
     patchers: &[Box<dyn Patcher>],
+    owned: Option<&crate::OwnedSet>,
 ) -> anyhow::Result<Vec<PatcherOps>> {
     let path = cache_path(data_dir, channel_key);
     let mut cache: CacheFile = app_kit::load_json(&path);
@@ -109,7 +141,7 @@ pub fn derive_ops(
             continue;
         }
         let id = patcher.id();
-        let options_hash = stable_hash(&config.patcher_config(id));
+        let options_hash = options_hash(patcher.as_ref(), config, owned);
 
         let ops = match cache
             .entries
@@ -123,7 +155,7 @@ pub fn derive_ops(
                     continue;
                 };
                 let ops = patcher
-                    .derive(cooked, &config.patcher_config(id))
+                    .derive(cooked, &config.patcher_config(id), owned)
                     .map_err(|e| e.context(format!("derive failed for patcher '{id}'")))?;
                 tracing::info!(
                     patcher = id,
@@ -193,6 +225,7 @@ mod tests {
             &self,
             _cooked: &svc_data::CookedData,
             config: &PatcherConfig,
+            _owned: Option<&crate::OwnedSet>,
         ) -> anyhow::Result<OpSet> {
             self.derives
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -221,7 +254,8 @@ mod tests {
             "live",
             "b1",
             &config,
-            &patchers
+            &patchers,
+            None
         ));
         let first = derive_ops(
             dir.path(),
@@ -230,13 +264,21 @@ mod tests {
             Some(&cooked()),
             &config,
             &patchers,
+            None,
         )
         .unwrap();
         assert_eq!(first.len(), 1);
-        assert!(cache_complete(dir.path(), "live", "b1", &config, &patchers));
+        assert!(cache_complete(
+            dir.path(),
+            "live",
+            "b1",
+            &config,
+            &patchers,
+            None
+        ));
 
         // Second run: cache hit, cooked not needed at all.
-        let second = derive_ops(dir.path(), "live", "b1", None, &config, &patchers).unwrap();
+        let second = derive_ops(dir.path(), "live", "b1", None, &config, &patchers, None).unwrap();
         assert_eq!(second[0].ops, first[0].ops);
 
         // Option change → cache miss for that patcher.
@@ -252,7 +294,8 @@ mod tests {
             "live",
             "b1",
             &changed,
-            &patchers
+            &patchers,
+            None
         ));
         let third = derive_ops(
             dir.path(),
@@ -261,6 +304,7 @@ mod tests {
             Some(&cooked()),
             &changed,
             &patchers,
+            None,
         )
         .unwrap();
         assert_eq!(third[0].ops.patches[0].1, PatchOp::Prefix("[y]".into()));
@@ -271,7 +315,8 @@ mod tests {
             "live",
             "b2",
             &config,
-            &patchers
+            &patchers,
+            None
         ));
     }
 
@@ -280,7 +325,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = LangpatchConfig::default();
         let patchers: Vec<Box<dyn Patcher>> = vec![Box::new(FakePatcher::new("fake"))];
-        let err = derive_ops(dir.path(), "live", "b1", None, &config, &patchers).unwrap_err();
+        let err = derive_ops(dir.path(), "live", "b1", None, &config, &patchers, None).unwrap_err();
         let derive_err = err.downcast_ref::<DeriveError>().expect("DeriveError");
         assert_eq!(derive_err.missing, vec!["fake".to_string()]);
     }
@@ -291,8 +336,15 @@ mod tests {
         let mut config = LangpatchConfig::default();
         config.patchers.entry("fake".into()).or_default().enabled = Some(false);
         let patchers: Vec<Box<dyn Patcher>> = vec![Box::new(FakePatcher::new("fake"))];
-        let ops = derive_ops(dir.path(), "live", "b1", None, &config, &patchers).unwrap();
+        let ops = derive_ops(dir.path(), "live", "b1", None, &config, &patchers, None).unwrap();
         assert!(ops.is_empty());
-        assert!(cache_complete(dir.path(), "live", "b1", &config, &patchers));
+        assert!(cache_complete(
+            dir.path(),
+            "live",
+            "b1",
+            &config,
+            &patchers,
+            None
+        ));
     }
 }

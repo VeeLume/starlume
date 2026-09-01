@@ -53,7 +53,12 @@ impl crate::Patcher for IllegalGoods {
         }]
     }
 
-    fn derive(&self, cooked: &CookedData, config: &PatcherConfig) -> anyhow::Result<OpSet> {
+    fn derive(
+        &self,
+        cooked: &CookedData,
+        config: &PatcherConfig,
+        _owned: Option<&crate::OwnedSet>,
+    ) -> anyhow::Result<OpSet> {
         let display = config.get_str("display", "color_coded");
         let mut patches = Vec::new();
 

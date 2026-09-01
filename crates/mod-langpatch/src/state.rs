@@ -31,14 +31,25 @@ pub struct Fingerprint {
     pub config_hash: String,
     /// Content hash of the language pack in use, `None` when none.
     pub pack_hash: Option<String>,
+    /// The owned-blueprint salt (`crate::owned_salt`) — `None` when no
+    /// enabled patcher renders ownership. When the owned set changes and a
+    /// patcher depends on it, this moves, so `plan_for` returns `Apply` and
+    /// the mission text re-renders through the normal write-gates.
+    pub owned_salt: Option<String>,
 }
 
 impl Fingerprint {
-    pub fn new(staleness_key: &str, config: &LangpatchConfig, pack_hash: Option<String>) -> Self {
+    pub fn new(
+        staleness_key: &str,
+        config: &LangpatchConfig,
+        pack_hash: Option<String>,
+        owned_salt: Option<String>,
+    ) -> Self {
         Self {
             staleness_key: staleness_key.to_string(),
             config_hash: stable_hash(&config.patchers),
             pack_hash,
+            owned_salt,
         }
     }
 }
@@ -49,6 +60,10 @@ pub struct InstallPatchState {
     pub staleness_key: String,
     pub config_hash: String,
     pub pack_hash: Option<String>,
+    /// Owned-blueprint salt at write time (`#[serde(default)]` so pre-owned
+    /// state files load as `None` and re-apply once ownership renders).
+    #[serde(default)]
+    pub owned_salt: Option<String>,
     /// sha256 of the `global.ini` override we wrote — the foreign-writer
     /// detector.
     pub output_sha256: String,
@@ -61,6 +76,7 @@ impl InstallPatchState {
         self.staleness_key == desired.staleness_key
             && self.config_hash == desired.config_hash
             && self.pack_hash == desired.pack_hash
+            && self.owned_salt == desired.owned_salt
     }
 }
 
@@ -168,6 +184,7 @@ mod tests {
             staleness_key: build.into(),
             config_hash: "cfg1".into(),
             pack_hash: None,
+            owned_salt: None,
         }
     }
 
@@ -176,6 +193,7 @@ mod tests {
             staleness_key: build.into(),
             config_hash: "cfg1".into(),
             pack_hash: None,
+            owned_salt: None,
             output_sha256: sha.into(),
             patched_at: "2026-07-04T00:00:00Z".into(),
         }
@@ -237,6 +255,19 @@ mod tests {
         let s = applied("b1", "sha");
         let mut desired = fp("b1");
         desired.pack_hash = Some("pack1".into());
+        assert_eq!(
+            plan_for(Some(&s), &desired, Some("sha"), &known(&["sha"])),
+            PatchPlan::Apply
+        );
+    }
+
+    #[test]
+    fn owned_salt_change_applies() {
+        // The owned-blueprint set changed under a still-current build/config →
+        // re-apply so the mission text re-renders ownership.
+        let s = applied("b1", "sha");
+        let mut desired = fp("b1");
+        desired.owned_salt = Some("owned-v2".into());
         assert_eq!(
             plan_for(Some(&s), &desired, Some("sha"), &known(&["sha"])),
             PatchPlan::Apply
