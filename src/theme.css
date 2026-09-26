@@ -36,6 +36,10 @@
   --ring: var(--accent);
   --warning: var(--warn);
   --warning-foreground: var(--on-accent);
+  /* Kit 0.1.5's `success` tone — Starlume's green, dark glyphs like warning
+   * (both are light fills). */
+  --success: var(--good);
+  --success-foreground: var(--on-accent);
 
   /* Density — Starlume is a desktop mouse-first app: compact by default
    * (the demo's "compact" values; comfortable can arrive with a setting). */
