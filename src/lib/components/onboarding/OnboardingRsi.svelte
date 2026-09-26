@@ -17,7 +17,7 @@
   const account = $derived(scStore.account);
 
   // Render from the shared store immediately when the layout's startup
-  // hydration already scanned (docs/frontend.md rule 4) — the spinner is
+  // hydration already scanned (frontend rule "onboarding reads stores") — the spinner is
   // for the genuine first scan only; re-runs refresh silently.
   let loading = $state(!scStore.loaded);
   let verifying = $state(false);

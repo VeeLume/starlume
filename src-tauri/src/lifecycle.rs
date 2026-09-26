@@ -17,7 +17,7 @@ use crate::{AppState, auth, ipc, langpatch, suspend, watch};
 fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         // Restore browser-view visibility first — auto-resumes a suspended
-        // webview (docs/memory.md lever 2).
+        // webview (see suspend.rs).
         suspend::resume_webview(&w);
         let _ = w.show();
         let _ = w.unminimize();
@@ -27,7 +27,7 @@ fn show_main_window(app: &AppHandle) {
 
 /// Hide the main window to the tray and suspend its webview so the hidden
 /// WebView2 releases its working set instead of idling at ~100+ MB. Also
-/// evicts the cooked SC data (docs/memory.md rule 2) — reload from the
+/// evicts the cooked SC data ("cooked data is evictable", CLAUDE.md) — reload from the
 /// processed snapshot is sub-second, so hidden means holding nothing.
 fn hide_to_tray(window: &tauri::Window) {
     let _ = window.hide();

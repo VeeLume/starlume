@@ -1,5 +1,5 @@
 /* Starlume theme — one dark theme, warm-charcoal ground, orange-amber accent.
- * Rules + token docs live in docs/frontend.md. Components use tokens only (no
+ * Styling rules live in CLAUDE.md ("Frontend"). Components use tokens only (no
  * hex); a pattern used on 2+ pages belongs here, not in scoped <style>.
  *
  * Direction (2026): adapted from the Hearth companion app — warm-neutral
@@ -366,7 +366,7 @@ h3 {
 }
 
 /* Inline checkbox + label row (toolbar filter toggles). For on/off
- * preferences use the Switch component instead (docs/frontend.md). */
+ * preferences use the Switch component instead. */
 .check {
   display: flex;
   align-items: center;

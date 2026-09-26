@@ -1,4 +1,4 @@
-// Catalog caches (docs/frontend.md rule 1): the reference datasets are
+// Catalog caches (frontend rule "stores own data"): the reference datasets are
 // fetched once per channel and kept here — a tab switch renders instantly
 // from cache instead of refetching. Browse state moved to the kit's
 // URL-backed `createBrowseState` per page (missions/resources/

@@ -4,8 +4,8 @@
 //! Design (from the mod-langpatch scoping, 2026-07-04):
 //! - **Poll, don't fs-watch.** One [`scan`] is ~50ms of launcher-store
 //!   reads; a 30s poll is negligible and immune to the games launcher's
-//!   write patterns. **Stat-only — never parses** (docs/memory.md: parse
-//!   spikes only on build change; `InstallChanged` is the trigger, not a
+//!   write patterns. **Stat-only — never parses** ("parse only on build
+//!   change", CLAUDE.md; `InstallChanged` is the trigger, not a
 //!   timer).
 //! - **Settle lives here, not in consumers.** During a patch download the
 //!   manifest and `Data.p4k` churn for minutes; every consumer (svc-data

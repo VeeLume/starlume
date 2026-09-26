@@ -7,7 +7,7 @@
 //! - **Synchronous** — no tokio, no Tauri, no specta. The shell wraps calls
 //!   in `spawn_blocking` and mirrors the plain types into specta views
 //!   (the svc-discovery pattern).
-//! - **Memory discipline** (docs/memory.md): the raw `Datacore` never
+//! - **Memory discipline** (CLAUDE.md "Memory"): the raw `Datacore` never
 //!   outlives the loader thread — parse → cook → drop, only the cooked
 //!   [`CookedData`] crosses back. Cooked indices are evictable
 //!   ([`DataService::evict`]) and reload from the processed snapshot in
@@ -16,7 +16,7 @@
 //!   never on a timer.
 //!
 //! Planned extension (deferred until modules exist to hold leases): the
-//! docs/memory.md lease model — modules `acquire()` the data they need and
+//! lease model (CLAUDE.md "Memory") — modules `acquire()` the data they need and
 //! eviction waits for the lease count to reach zero. Today's consumers are
 //! per-request IPC queries, so drop-on-hide + fast reload covers them; a
 //! resident module (e.g. mod-cargo's overlay) brings the lease API with it.
@@ -186,7 +186,7 @@ impl DataService {
     /// [`Self::get`], else a tier-1-only reload (processed snapshot →
     /// memory, sub-second). **Never parses** — returns `None` when only
     /// slower tiers are available, so callers on the query path can't
-    /// accidentally trigger a 30s parse (memory.md rule 3).
+    /// accidentally trigger a 30s parse ("parse only on build change", CLAUDE.md).
     pub fn get_or_reload_fast(&self, install: &InstallRef) -> Option<Arc<CookedData>> {
         if let Some(cooked) = self.get(&install.channel_key) {
             return Some(cooked);
@@ -388,7 +388,8 @@ fn load_blocking(
 }
 
 /// Build the cooked bundle and **consume the Datacore** — the raw parse
-/// must not outlive the cook (docs/memory.md rule 1; the by-value
+/// must not outlive the cook ("no raw DataCore after the cook",
+/// CLAUDE.md; the by-value
 /// signature enforces it).
 fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) -> CookedData {
     progress(Stage::Cooking);

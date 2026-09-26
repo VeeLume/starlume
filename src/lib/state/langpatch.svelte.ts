@@ -1,5 +1,5 @@
 // Text Patching (langpatch) module state — the /langpatch page renders this
-// cache synchronously (docs/frontend.md rule 1); `langpatch:changed` from
+// cache synchronously (frontend rule "stores own data"); `langpatch:changed` from
 // the backend (reconcile finished, patch applied/removed) triggers a
 // refresh while the page listens.
 

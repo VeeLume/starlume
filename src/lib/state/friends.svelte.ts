@@ -1,4 +1,5 @@
-// Friends + groups store (docs/frontend.md rules 1–2): server-backed
+// Friends + groups store (frontend rules "stores own data" +
+// "cache-first render"): server-backed
 // community state cached across navigation. The page renders the cache
 // instantly and refreshes silently (mount, focus, slow poll) — no push
 // channel yet, the v2 plan is "polling, not realtime".

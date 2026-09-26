@@ -39,7 +39,7 @@
   let unlistenDataChanged: UnlistenFn | undefined;
   let unlistenBlueprints: UnlistenFn | undefined;
 
-  // Startup hydration (docs/frontend.md rule 3): refresh install statuses
+  // Startup hydration (frontend rule, CLAUDE.md): refresh install statuses
   // and prefetch the default channel's catalogs so pages render from cache.
   // Cheap when nothing changed; also the focus/`data:changed` catch-up.
   async function hydrateData() {

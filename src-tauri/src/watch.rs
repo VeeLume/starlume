@@ -9,8 +9,8 @@
 //! 4. Emit `data:changed` so open catalog pages re-fetch statuses.
 //! 5. Re-run the startup-warm path — it re-checks the `auto_load_game_data`
 //!    setting and re-cooks the default channel iff its snapshot is stale,
-//!    which is exactly the post-patch situation. Honors docs/memory.md:
-//!    the parse spike is triggered by a build change, never a timer.
+//!    which is exactly the post-patch situation. Honors "parse only on
+//!    build change" (CLAUDE.md): the parse spike is triggered by a build change, never a timer.
 //!
 //! Future consumers (mod-langpatch's re-patch) subscribe to the bus
 //! themselves; they don't hook in here.

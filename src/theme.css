@@ -1,7 +1,7 @@
 /*
  * The @veelume/ui theme bridge — shadcn-convention tokens expressed FROM
  * Starlume's own palette (app.css stays the palette's source of truth
- * during the migration; docs/frontend.md documents that palette).
+ * during the migration).
  *
  * The token NAMES here are the kit's contract; the VALUES are Starlume's
  * warm-charcoal / orange-amber identity. One dark theme, no `.dark` class
@@ -77,7 +77,7 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* Starlume radii verbatim (controls 7px, cards 9px — docs/frontend.md). */
+  /* Starlume radii verbatim (controls 7px, cards 9px). */
   --radius-sm: 5px;
   --radius-md: 7px;
   --radius-lg: 9px;

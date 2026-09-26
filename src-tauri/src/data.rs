@@ -719,7 +719,7 @@ pub(crate) async fn data_load(app: AppHandle, channel: String) -> Result<DataSta
 /// Failures notify and return — callers sequence follow-up work (the
 /// langpatch reconcile) after this regardless.
 ///
-/// Memory discipline (docs/memory.md): the durable product of the warm is the
+/// Memory discipline (CLAUDE.md "Memory"): the durable product of the warm is the
 /// **snapshot on disk** — if the window is hidden when the cook finishes
 /// (companion start), the in-memory bundle is evicted immediately; the first
 /// catalog query after show reloads it in under a second.

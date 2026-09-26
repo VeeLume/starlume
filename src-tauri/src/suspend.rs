@@ -1,4 +1,4 @@
-//! WebView2 suspension — lever 2 of `docs/memory.md`.
+//! WebView2 suspension — the biggest idle-memory lever for the tray app.
 //!
 //! A hidden WebView2 keeps its full ~100–200 MB until suspended; suspension
 //! pauses the renderer (timers, JS) and lets Windows reclaim most of its
