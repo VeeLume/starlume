@@ -144,7 +144,7 @@ impl crate::Patcher for MissionEnhancer {
                         },
                         ChoiceOption {
                             value: "mark".into(),
-                            label: "Mark owned (✓)".into(),
+                            label: format!("Mark owned ({OWNED_MARK})"),
                         },
                         ChoiceOption {
                             value: "hide".into(),
@@ -535,9 +535,11 @@ fn region_label_of(m: &MissionEntry) -> String {
 
 // ── Owned blueprints (gRPC-sourced; re-added 2026-08-30) ─────────────────────
 
-/// In-game mark for an owned blueprint (verify it renders in the game font;
-/// matches the in-app catalog's mark for consistency).
-const OWNED_MARK: &str = "✓";
+/// In-game mark for an owned blueprint. **ASCII only**: the SC font drops `✓`
+/// and other non-ASCII glyphs (verified in-game 2026-09-26; standalone
+/// sc-langpatch learned the same in 5db39d3), so `x` stands in as the
+/// "ticked" mark (`[x]` in the title). The in-app catalog keeps `✓`.
+const OWNED_MARK: &str = "x";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OwnedMode {
@@ -2014,9 +2016,12 @@ mod tests {
         assert!(!pool_all_owned(&members, &owned_set(&["g1"])));
 
         let facts = PoolFacts::build(&members);
+        // Match the bracketed tag, not the bare mark: `x` is a letter and
+        // could appear in other tag text.
+        let owned_tag = bracket(OWNED_MARK);
         let tags = render_title_tags(&facts, OPTS, true);
         assert!(
-            tags.contains(OWNED_MARK),
+            tags.contains(&owned_tag),
             "owned-complete tag present: {tags}"
         );
         // Gate off → no owned tag even when complete.
@@ -2024,6 +2029,6 @@ mod tests {
             owned_tag: false,
             ..OPTS
         };
-        assert!(!render_title_tags(&facts, off, true).contains(OWNED_MARK));
+        assert!(!render_title_tags(&facts, off, true).contains(&owned_tag));
     }
 }
