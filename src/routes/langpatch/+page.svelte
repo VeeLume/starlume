@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
-  import { Button, Segmented, StatusBadge, Switch, type StatusMap } from "@veelume/ui";
+  import {
+    Button,
+    RadioGroup,
+    Settings,
+    StatusBadge,
+    Switch,
+    type StatusMap,
+  } from "@veelume/ui";
   import {
     langpatchStore,
     loadLangpatch,
@@ -83,119 +90,129 @@
 {/if}
 
 {#if overview}
-  <section>
+  <!-- Cards group what belongs together; inside them Settings.Row puts the
+       label + hint left and the control right, so every switch on the page
+       hangs from one edge (the Settings pages' idiom). -->
+  <section class="group">
     <h2>Installs</h2>
-    {#each overview.installs as install (install.channel_key)}
-      <div class="flex flex-wrap items-center gap-3">
-        <Switch
-          label={install.channel}
-          checked={install.selected}
-          onchange={(v) => toggleChannel(install.channel_key, v)}
-        />
-        <span><strong>{install.channel}</strong> <span class="muted">{install.version}</span></span>
-        {#if install.selected}
-          <StatusBadge status={install.state} map={stateMap} />
-          <span class="flex gap-2">
-            <Button
-              variant="outline"
-              disabled={langpatchStore.busy}
-              onclick={() => applyLangpatch(install.channel_key)}
-            >
-              {install.state === "foreign" ? "Take over" : "Re-apply now"}
-            </Button>
-            {#if install.state !== "unpatched"}
+    <div class="card rows">
+      {#each overview.installs as install (install.channel_key)}
+        <Settings.Row label={install.channel} hint={install.version}>
+          <span class="flex flex-wrap items-center justify-end gap-2">
+            {#if install.selected}
+              <StatusBadge status={install.state} map={stateMap} />
               <Button
-                variant="ghost"
+                variant="outline"
                 disabled={langpatchStore.busy}
-                onclick={() => removeLangpatch(install.channel_key)}
+                onclick={() => applyLangpatch(install.channel_key)}
               >
-                Remove
+                {install.state === "foreign" ? "Take over" : "Re-apply now"}
               </Button>
+              {#if install.state !== "unpatched"}
+                <Button
+                  variant="ghost"
+                  disabled={langpatchStore.busy}
+                  onclick={() => removeLangpatch(install.channel_key)}
+                >
+                  Remove
+                </Button>
+              {/if}
             {/if}
+            <Switch
+              label={install.channel}
+              checked={install.selected}
+              onchange={(v) => toggleChannel(install.channel_key, v)}
+            />
           </span>
-        {/if}
-      </div>
-    {:else}
-      <p class="muted">No Star Citizen installation found.</p>
-    {/each}
-    <div class="flex items-center gap-3">
-      <Switch
-        label="Keep patches up to date automatically"
-        checked={overview.auto_patch}
-        onchange={(v) => mutate((u) => (u.auto_patch = v))}
-      />
-      <span>Keep patches up to date automatically (re-patch after game updates)</span>
+        </Settings.Row>
+      {:else}
+        <p class="muted">No Star Citizen installation found.</p>
+      {/each}
+      <Settings.Row
+        label="Keep patches up to date"
+        hint="Re-patch automatically after game updates."
+      >
+        <Switch
+          label="Keep patches up to date"
+          checked={overview.auto_patch}
+          onchange={(v) => mutate((u) => (u.auto_patch = v))}
+        />
+      </Settings.Row>
     </div>
   </section>
 
-  <section>
+  <section class="group">
     <h2>Patchers</h2>
     {#each overview.patchers as patcher (patcher.id)}
-      <div class="patcher">
-        <div class="flex items-center gap-3">
-          <Switch
-            label={patcher.name}
-            checked={patcher.enabled}
-            onchange={(v) => togglePatcher(patcher.id, v)}
-          />
-          <strong>{patcher.name}</strong>
-          {#if patcher.uses_replace_ops && overview.language_pack}
-            <span title="Replaces whole values — overwrites language-pack text for its keys">
-              <StatusBadge status="replaces" map={packBadgeMap} />
-            </span>
-          {/if}
-        </div>
-        <p class="muted patcher-desc">{patcher.description}</p>
-        {#if patcher.enabled}
-          {#each patcher.options as option (option.id)}
-            <div class="option-row">
+      <div class="card">
+        <Settings.Row label={patcher.name} hint={patcher.description}>
+          <span class="flex items-center gap-2">
+            {#if patcher.uses_replace_ops && overview.language_pack}
+              <span title="Replaces whole values — overwrites language-pack text for its keys">
+                <StatusBadge status="replaces" map={packBadgeMap} />
+              </span>
+            {/if}
+            <Switch
+              label={patcher.name}
+              checked={patcher.enabled}
+              onchange={(v) => togglePatcher(patcher.id, v)}
+            />
+          </span>
+        </Settings.Row>
+        {#if patcher.enabled && patcher.options.length > 0}
+          <div class="options rows">
+            {#each patcher.options as option (option.id)}
               {#if option.kind.type === "Bool"}
-                <div class="flex items-center gap-3">
+                <Settings.Row label={option.label}>
                   <Switch
                     label={option.label}
                     checked={(patcher.values[option.id] ?? option.default) === "true"}
                     onchange={(v) => setOption(patcher.id, option.id, v ? "true" : "false")}
                   />
-                  <span>{option.label}</span>
-                </div>
+                </Settings.Row>
               {:else if option.kind.type === "Choice"}
-                <div class="flex flex-wrap items-center gap-3">
-                  <span>{option.label}</span>
-                  <Segmented
+                <!-- Radios, not Segmented: these choices carry long
+                     descriptive labels, which a segmented bar squeezes into
+                     one hard-to-scan line. -->
+                <div class="choice">
+                  <span class="text-sm font-medium">{option.label}</span>
+                  <RadioGroup
                     options={option.kind.choices}
                     value={patcher.values[option.id] ?? option.default}
                     onchange={(v) => setOption(patcher.id, option.id, v)}
                   />
                 </div>
               {/if}
-            </div>
-          {/each}
+            {/each}
+          </div>
         {/if}
       </div>
     {/each}
   </section>
 
-  <section>
+  <section class="group">
     <h2>Language pack</h2>
-    <p class="muted">
-      Optional community translation (file path or URL, e.g. a German global.ini). It
-      overlays the base text before enrichment; enrichment rides on top. URLs are cached,
-      so offline re-patches keep working.
-    </p>
-    <div class="flex w-full flex-wrap items-center gap-2">
-      <input
-        class="input pack-input"
-        type="text"
-        placeholder="C:\path\to\global.ini or https://github.com/…/global.ini"
-        bind:value={packInput}
-      />
-      <Button
-        variant="outline"
-        disabled={langpatchStore.busy}
-        onclick={() => mutate((u) => (u.language_pack = packInput.trim() || null))}
-      >
-        Save
-      </Button>
+    <div class="card rows">
+      <p class="muted">
+        Optional community translation (file path or URL, e.g. a German global.ini). It
+        overlays the base text before enrichment; enrichment rides on top. URLs are cached,
+        so offline re-patches keep working.
+      </p>
+      <div class="flex w-full flex-wrap items-center gap-2">
+        <input
+          class="input pack-input"
+          type="text"
+          placeholder="C:\path\to\global.ini or https://github.com/…/global.ini"
+          bind:value={packInput}
+        />
+        <Button
+          variant="outline"
+          disabled={langpatchStore.busy}
+          onclick={() => mutate((u) => (u.language_pack = packInput.trim() || null))}
+        >
+          Save
+        </Button>
+      </div>
     </div>
   </section>
 {:else if !langpatchStore.error}
@@ -203,22 +220,32 @@
 {/if}
 
 <style>
-  section {
-    margin-bottom: 24px;
+  /* Cap the width: Settings.Row pushes controls to the right edge, which on a
+   * wide window strands them far from their labels. */
+  .group {
+    max-width: 52rem;
+    margin-bottom: var(--space-8);
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    align-items: flex-start;
+    gap: var(--space-3);
   }
-  .patcher {
-    margin-bottom: var(--space-4, 16px);
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
   }
-  .patcher-desc {
-    margin: 2px 0 6px;
+  /* A patcher's options sit under a hairline inside its card. */
+  .options {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-soft);
   }
-  .option-row {
-    margin-left: var(--space-5, 24px);
-    margin-bottom: 6px;
+  /* A choice: its label on the row's left edge, the radios stacked under it. */
+  .choice {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) 0;
   }
   .pack-input {
     flex: 1;

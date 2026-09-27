@@ -110,6 +110,9 @@ main ol {
 
 :root {
   color-scheme: dark;
+  /* Native radios/checkboxes (kit RadioGroup, .check) in the accent instead
+   * of the webview's default blue. Inherited theming, not an element rule. */
+  accent-color: var(--accent);
 
   /* ── Base palette ─────────────────────────────────────────────────── */
   --bg: #1a1719; /* app ground — warm charcoal */
