@@ -9,8 +9,9 @@
 //!
 //! - **Triggers:** app startup, `InstallChanged` from the bus (both routed
 //!   through [`spawn_warm_then_reconcile`] so the reconcile runs *after*
-//!   svc-data's warm — one parse serves the catalogs and the derive), and
-//!   config changes from the UI.
+//!   svc-data's warm — one parse serves the catalogs and the derive),
+//!   config changes from the UI, owned-blueprint changes, game exit. All of
+//!   them go through [`request_reconcile`]: debounced, one run at a time.
 //! - **Write gates:** never while StarCitizen.exe runs (defers to a
 //!   process-exit waiter); foreign files (SC Deutsch Launcher, manual
 //!   edits) pause auto-patching with a "take over" action instead of a
@@ -117,7 +118,7 @@ fn spawn_exit_waiter(app: &AppHandle) {
         }
         EXIT_WAITER.store(false, Ordering::SeqCst);
         tracing::info!("SC exited — running deferred langpatch reconcile");
-        reconcile_all(&app).await;
+        request_reconcile(&app);
     });
 }
 
@@ -236,6 +237,61 @@ fn warn_once(app: &AppHandle, body: String) {
     );
 }
 
+// ── Reconcile scheduling ────────────────────────────────────────────────────
+//
+// Triggers arrive in bursts: every radio click in the UI is a config save,
+// a blueprint refresh can land beside a startup warm. Running a reconcile
+// per trigger stacked overlapping derive+apply runs that raced each other on
+// the same override and state file. So automatic triggers only *request* a
+// reconcile; one worker debounces them and runs reconciles strictly one at
+// a time, folding requests that arrive mid-run into a single follow-up.
+
+/// Serializes every write to an install's override and to the patch-state
+/// file — the automatic reconcile and the manual apply/remove commands alike.
+static PATCH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// A reconcile was requested and has not started yet.
+static RECONCILE_DIRTY: AtomicBool = AtomicBool::new(false);
+/// The worker task is alive (debouncing or running).
+static RECONCILE_WORKER: AtomicBool = AtomicBool::new(false);
+/// Quiet window before a requested reconcile starts: long enough to fold a
+/// burst of UI edits into one run, short enough to feel immediate.
+const RECONCILE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(750);
+
+/// Ask for a reconcile of every selected install. Cheap and non-blocking;
+/// bursts collapse into one run after [`RECONCILE_DEBOUNCE`] of quiet.
+pub fn request_reconcile(app: &AppHandle) {
+    RECONCILE_DIRTY.store(true, Ordering::SeqCst);
+    if RECONCILE_WORKER.swap(true, Ordering::SeqCst) {
+        return; // the live worker will see the dirty flag
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            // Debounce: restart the window while requests keep arriving.
+            loop {
+                RECONCILE_DIRTY.store(false, Ordering::SeqCst);
+                tokio::time::sleep(RECONCILE_DEBOUNCE).await;
+                if !RECONCILE_DIRTY.load(Ordering::SeqCst) {
+                    break;
+                }
+            }
+            reconcile_all(&app).await;
+            if RECONCILE_DIRTY.load(Ordering::SeqCst) {
+                continue; // requested mid-run → one follow-up run
+            }
+            RECONCILE_WORKER.store(false, Ordering::SeqCst);
+            // A request between the load and the store saw a live worker and
+            // left the work to us: take it back unless a new worker already has.
+            if RECONCILE_DIRTY.load(Ordering::SeqCst)
+                && !RECONCILE_WORKER.swap(true, Ordering::SeqCst)
+            {
+                continue;
+            }
+            break;
+        }
+    });
+}
+
 // ── Reconciliation ──────────────────────────────────────────────────────────
 
 /// Startup / post-`InstallChanged` sequencing: svc-data warm first (one
@@ -244,16 +300,19 @@ pub fn spawn_warm_then_reconcile(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         data::run_startup_warm(&app).await;
-        reconcile_all(&app).await;
+        request_reconcile(&app);
     });
 }
 
 /// Reconcile every selected install (auto path — respects the module
-/// enabled-set and the `auto_patch` switch; manual commands don't).
-pub async fn reconcile_all(app: &AppHandle) {
+/// enabled-set and the `auto_patch` switch; manual commands don't). Only the
+/// [`request_reconcile`] worker calls this.
+async fn reconcile_all(app: &AppHandle) {
     if !module_enabled(app) {
         return;
     }
+    // Lock before reading the config, so the run sees the latest save.
+    let _patch_guard = PATCH_LOCK.lock().await;
     let config = load_config();
     if !config.auto_patch {
         return;
@@ -756,10 +815,7 @@ pub(crate) async fn langpatch_update_config(
         }
     }
 
-    let app_for_reconcile = app.clone();
-    tauri::async_runtime::spawn(async move {
-        reconcile_all(&app_for_reconcile).await;
-    });
+    request_reconcile(&app);
     emit_changed(&app);
     Ok(())
 }
@@ -775,9 +831,12 @@ pub(crate) async fn langpatch_apply(app: AppHandle, channel: String) -> Result<(
         .into_iter()
         .find(|i| i.channel_key == key)
         .ok_or_else(|| AppError::Config(format!("no SC install found for channel '{channel}'")))?;
-    reconcile_one(&app, &config, &install, true)
-        .await
-        .map_err(|e| AppError::Internal(format!("{e:#}")))?;
+    {
+        let _patch_guard = PATCH_LOCK.lock().await;
+        reconcile_one(&app, &config, &install, true)
+            .await
+            .map_err(|e| AppError::Internal(format!("{e:#}")))?;
+    }
     emit_changed(&app);
     Ok(())
 }
@@ -801,6 +860,7 @@ async fn remove_channel(app: &AppHandle, channel_key: &str) -> Result<(), AppErr
         .parent()
         .map(Path::to_path_buf)
         .ok_or_else(|| AppError::Internal("p4k path has no parent dir".into()))?;
+    let _patch_guard = PATCH_LOCK.lock().await;
     tokio::task::spawn_blocking(move || merge::remove_patch(&install_dir))
         .await
         .map_err(|e| AppError::Internal(format!("remove task failed: {e}")))?

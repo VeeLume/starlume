@@ -91,11 +91,12 @@ async fn refresh_and_react(app: &AppHandle) -> Result<OwnedBlueprintsView, AppEr
     let _ = app.emit(BLUEPRINTS_CHANGED_EVENT, ());
 
     // A changed owned set moves mission_enhancer's fingerprint salt, so this
-    // re-applies for owned installs (reconcile_all self-gates on the module +
-    // auto_patch + all the write-gates).
+    // re-applies for owned installs (the reconcile self-gates on the module +
+    // auto_patch + all the write-gates). Requested, not awaited: it joins the
+    // same debounced, one-at-a-time queue as every other trigger.
     if changed && auto_langpatch {
         tracing::info!("owned blueprints changed — re-applying text patching");
-        crate::langpatch::reconcile_all(app).await;
+        crate::langpatch::request_reconcile(app);
     }
 
     Ok(owned.into())

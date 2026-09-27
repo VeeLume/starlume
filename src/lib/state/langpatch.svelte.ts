@@ -37,9 +37,13 @@ export async function loadLangpatch(): Promise<void> {
   }
 }
 
-/** Backend push: reconcile ran, a patch was applied/removed. */
+/** Backend push: reconcile ran, a patch was applied/removed. Ignored while
+ *  config edits are still being flushed — a reload then would snap the
+ *  controls back to an older saved config; the flush reloads at its end. */
 export function listenForLangpatchChanges(): Promise<UnlistenFn> {
-  return listen("langpatch:changed", () => void loadLangpatch());
+  return listen("langpatch:changed", () => {
+    if (!_flushing) void loadLangpatch();
+  });
 }
 
 /** Build a full config update from the current overview (the IPC takes the
@@ -58,17 +62,55 @@ export function updateFromOverview(o: LangpatchOverview): LangpatchConfigUpdate 
   };
 }
 
+/** Mirror a config edit into the cached overview, so the page shows it on
+ *  the click instead of after the save round-trip. Install patch states
+ *  stay as they are until the backend reports back. */
+function withUpdate(o: LangpatchOverview, u: LangpatchConfigUpdate): LangpatchOverview {
+  return {
+    ...o,
+    auto_patch: u.auto_patch,
+    channels: [...u.channels],
+    language_pack: u.language_pack,
+    installs: o.installs.map((i) => ({
+      ...i,
+      selected: u.channels.includes(i.channel_key),
+    })),
+    patchers: o.patchers.map((p) => {
+      const next = u.patchers[p.id];
+      if (!next) return p;
+      return {
+        ...p,
+        enabled: next.enabled ?? p.enabled,
+        values: { ...next.options },
+      };
+    }),
+  };
+}
+
+// Config saves are queued: one IPC in flight, and edits made meanwhile
+// collapse to the latest (each update carries the whole config, so only the
+// newest matters). The backend debounces the actual re-patch on its side.
+let _pending: LangpatchConfigUpdate | null = null;
+let _flushing = false;
+
 export async function saveLangpatchConfig(
   update: LangpatchConfigUpdate,
 ): Promise<void> {
-  _busy = true;
+  if (_overview) _overview = withUpdate(_overview, update);
+  _pending = update;
+  if (_flushing) return;
+  _flushing = true;
   try {
-    const result = await commands.langpatchUpdateConfig(update);
-    if (result.status === "error") _error = result.error.message;
-    await loadLangpatch();
+    while (_pending) {
+      const next = _pending;
+      _pending = null;
+      const result = await commands.langpatchUpdateConfig(next);
+      if (result.status === "error") _error = result.error.message;
+    }
   } finally {
-    _busy = false;
+    _flushing = false;
   }
+  await loadLangpatch();
 }
 
 /** Manual apply — also the foreign-file "take over" action. */
