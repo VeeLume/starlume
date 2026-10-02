@@ -146,8 +146,18 @@
       facts.push({ label: "Buy-in", value: `${fmtUec(m.payout.buy_in)} aUEC` });
     if (m.payout.time_to_complete > 0)
       facts.push({ label: "Time", value: `${m.payout.time_to_complete} min` });
-    if (m.cooldown_seconds)
-      facts.push({ label: "Cooldown", value: `${Math.round(m.cooldown_seconds / 60)} min` });
+    if (m.cooldown_seconds) {
+      // Abandon part only when it differs (same rule as the text patch).
+      const abandon = m.abandon_cooldown_seconds;
+      const abandonPart =
+        abandon && Math.abs(abandon - m.cooldown_seconds) > 30
+          ? ` (abandon ${Math.round(abandon / 60)} min)`
+          : "";
+      facts.push({
+        label: "Cooldown",
+        value: `${Math.round(m.cooldown_seconds / 60)} min${abandonPart}`,
+      });
+    }
     if (m.difficulty)
       facts.push({
         label: "Difficulty",

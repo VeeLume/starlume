@@ -324,6 +324,9 @@ struct PoolFacts<'a> {
     rep_consistent: bool,
     cooldowns_consistent: bool,
     encounters_consistent: bool,
+    /// Encounters every member carries (by value), in the head's order —
+    /// rendered once above the variants, which then list only their own.
+    shared_encounters: Vec<&'a MissionEncounter>,
     /// Distinct non-empty per-member region labels (single-line form).
     region_labels: Vec<String>,
 }
@@ -355,9 +358,23 @@ impl<'a> PoolFacts<'a> {
         let rep_consistent = !members.iter().any(|m| m.facts.rep_mixed)
             && all_equal(members.iter().map(|m| &m.reputation));
         let cooldowns_consistent = !members.iter().any(|m| m.facts.cooldowns_mixed)
-            && all_equal(members.iter().map(|m| m.cooldown_seconds.map(f32::to_bits)));
+            && all_equal(members.iter().map(|m| {
+                (
+                    m.cooldown_seconds.map(f32::to_bits),
+                    m.abandon_cooldown_seconds.map(f32::to_bits),
+                )
+            }));
         let encounters_consistent = !members.iter().any(|m| m.facts.encounters_mixed)
             && all_equal(members.iter().map(|m| &m.encounters));
+        let shared_encounters = members
+            .first()
+            .map(|head| {
+                head.encounters
+                    .iter()
+                    .filter(|e| members[1..].iter().all(|m| m.encounters.contains(e)))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let mut region_labels: Vec<String> = Vec::new();
         for m in members {
@@ -379,6 +396,7 @@ impl<'a> PoolFacts<'a> {
             rep_consistent,
             cooldowns_consistent,
             encounters_consistent,
+            shared_encounters,
             region_labels,
         }
     }
@@ -745,7 +763,12 @@ fn push_singleton_blocks(
         blocks.push(info);
     }
     if opts.ship_encounters
-        && let Some(enc) = encounter_block(head, manufacturer_prefixes, opts.cargo_info)
+        && let Some(enc) = encounter_block(
+            &head.encounters.iter().collect::<Vec<_>>(),
+            "Encounters",
+            manufacturer_prefixes,
+            opts.cargo_info,
+        )
     {
         blocks.push(enc);
     }
@@ -785,10 +808,20 @@ fn push_variants_blocks(
     {
         blocks.push(info);
     }
+    // Encounters: all of them when unanimous; otherwise the shared ones
+    // here and each variant's own in its section.
+    let title = if facts.encounters_consistent {
+        "Encounters"
+    } else {
+        "Encounters (all variants)"
+    };
     if opts.ship_encounters
-        && facts.encounters_consistent
-        && let Some(head) = facts.members.first()
-        && let Some(enc) = encounter_block(head, manufacturer_prefixes, opts.cargo_info)
+        && let Some(enc) = encounter_block(
+            &facts.shared_encounters,
+            title,
+            manufacturer_prefixes,
+            opts.cargo_info,
+        )
     {
         blocks.push(enc);
     }
@@ -886,12 +919,26 @@ fn mission_info_block(
     ))
 }
 
+/// `Cooldown: 30min (abandon: 10min)` — the abandon part only when it
+/// differs from the completion cooldown by more than half a minute. A
+/// contract with no completion cooldown gets no line, whatever its abandon
+/// cooldown (mostly a 1min default — noise).
 fn cooldown_line(m: &MissionEntry) -> Option<String> {
     let seconds = m.cooldown_seconds?;
     if seconds <= 0.0 {
         return None;
     }
-    Some(format!("Cooldown: {}", format_minutes(seconds / 60.0)))
+    let personal = format_minutes(seconds / 60.0);
+    match m
+        .abandon_cooldown_seconds
+        .filter(|a| *a > 0.0 && (a - seconds).abs() > 30.0)
+    {
+        Some(abandon) => Some(format!(
+            "Cooldown: {personal} (abandon: {})",
+            format_minutes(abandon / 60.0)
+        )),
+        None => Some(format!("Cooldown: {personal}")),
+    }
 }
 
 /// Format a duration in minutes as the smallest sensible unit: `"48h"`
@@ -1000,25 +1047,27 @@ struct EncounterRendering {
 }
 
 fn encounter_block(
-    m: &MissionEntry,
+    encounters: &[&MissionEncounter],
+    title: &str,
     manufacturer_prefixes: &[String],
     include_cargo: bool,
 ) -> Option<String> {
-    if m.encounters.is_empty() {
+    if encounters.is_empty() {
         return None;
     }
-    let rendering = render_encounters(&m.encounters, manufacturer_prefixes, include_cargo);
+    let rendering = render_encounters(encounters, manufacturer_prefixes, include_cargo);
     if rendering.body.is_empty() {
         return None;
     }
-    let heading = format_encounter_heading(&rendering);
+    let heading = format_encounter_heading(title, &rendering);
     Some(format!("{}{NEWLINE}{}", header(heading), rendering.body))
 }
 
 /// `Encounters · 2-4 ships · Hard` — count and tier omitted when absent.
-fn format_encounter_heading(r: &EncounterRendering) -> String {
+/// The count covers exactly the encounters listed under the heading.
+fn format_encounter_heading(title: &str, r: &EncounterRendering) -> String {
     let (lo, hi) = r.ship_range;
-    let mut parts: Vec<String> = vec!["Encounters".to_string()];
+    let mut parts: Vec<String> = vec![title.to_string()];
     if hi > 0 {
         parts.push(if lo == hi {
             format!("{lo} ship{}", if lo == 1 { "" } else { "s" })
@@ -1033,7 +1082,7 @@ fn format_encounter_heading(r: &EncounterRendering) -> String {
 }
 
 fn render_encounters(
-    encounters: &[MissionEncounter],
+    encounters: &[&MissionEncounter],
     manufacturer_prefixes: &[String],
     include_cargo: bool,
 ) -> EncounterRendering {
@@ -1579,14 +1628,27 @@ fn variant_diff_lines(
         lines.push("Illegal".to_string());
     }
 
-    // Encounters (per-variant) when the shape differs.
-    if opts.ship_encounters && !facts.encounters_consistent && !m.encounters.is_empty() {
-        let rendering = render_encounters(&m.encounters, manufacturer_prefixes, opts.cargo_info);
+    // Encounters when they differ — only this member's own; the shared
+    // ones render once above the variants.
+    if opts.ship_encounters && !facts.encounters_consistent {
+        let own: Vec<&MissionEncounter> = m
+            .encounters
+            .iter()
+            .filter(|e| !facts.shared_encounters.contains(e))
+            .collect();
+        let rendering = render_encounters(&own, manufacturer_prefixes, opts.cargo_info);
         if !rendering.body.is_empty() {
-            let heading = format_encounter_heading(&rendering);
+            let heading = format_encounter_heading("Encounters", &rendering);
             let indent = format!("{NEWLINE}  ");
             let body = rendering.body.replace(NEWLINE, &indent);
             lines.push(format!("{heading}:{NEWLINE}  {body}"));
+        } else if facts
+            .members
+            .iter()
+            .any(|x| x.encounters.len() > facts.shared_encounters.len())
+        {
+            // Siblings have extra encounters, this one doesn't.
+            lines.push("No further encounters".to_string());
         }
     }
 
@@ -1689,6 +1751,7 @@ mod tests {
             shareable: true,
             illegal: false,
             cooldown_seconds: None,
+            abandon_cooldown_seconds: None,
             scrip: Vec::new(),
             reputation: Vec::new(),
             item_rewards: Vec::new(),
@@ -1872,6 +1935,89 @@ mod tests {
         let out = render_description(&facts, &[], opts, None);
         assert!(!out.contains("Variants"), "{out}");
         assert!(out.contains("Cooldown: 30min"), "{out}");
+    }
+
+    #[test]
+    fn cooldown_line_shows_abandon_only_when_it_differs() {
+        let mut m = base_entry();
+        m.cooldown_seconds = Some(1800.0);
+        m.abandon_cooldown_seconds = Some(600.0);
+        assert_eq!(
+            cooldown_line(&m).as_deref(),
+            Some("Cooldown: 30min (abandon: 10min)")
+        );
+        // Within half a minute → the same cooldown, no abandon part.
+        m.abandon_cooldown_seconds = Some(1810.0);
+        assert_eq!(cooldown_line(&m).as_deref(), Some("Cooldown: 30min"));
+        // No completion cooldown → no line, even with an abandon one.
+        m.cooldown_seconds = None;
+        m.abandon_cooldown_seconds = Some(3600.0);
+        assert_eq!(cooldown_line(&m), None);
+    }
+
+    #[test]
+    fn description_variants_split_on_abandon_cooldown() {
+        let mut a = base_entry();
+        a.cooldown_seconds = Some(1800.0);
+        a.abandon_cooldown_seconds = Some(600.0);
+        a.locations = vec![region("Stanton", "Hurston")];
+        let mut b = base_entry();
+        b.cooldown_seconds = Some(1800.0);
+        b.abandon_cooldown_seconds = Some(1800.0);
+        b.locations = vec![region("Pyro", "Bloom")];
+        let facts = PoolFacts::build(&[&a, &b]);
+        let opts = DescOptions {
+            blueprint_list: true,
+            mission_info: true,
+            ship_encounters: true,
+            cargo_info: true,
+            region_info: true,
+            owned_mode: OwnedMode::Off,
+        };
+        let out = render_description(&facts, &[], opts, None);
+        assert!(out.contains("Variants (2)"), "{out}");
+        assert!(out.contains("Cooldown: 30min (abandon: 10min)"), "{out}");
+    }
+
+    fn encounter(label: &str, ship: &str, faction: &str) -> MissionEncounter {
+        MissionEncounter {
+            label: label.into(),
+            difficulty: None,
+            waves: vec![svc_data::MissionWave {
+                name: String::new(),
+                ships: vec![svc_data::ShipSlot {
+                    count_min: 1,
+                    count_max: 1,
+                    ships: vec![ship.into()],
+                    factions: vec![faction.into()],
+                }],
+                cargo: Vec::new(),
+            }],
+        }
+    }
+
+    #[test]
+    fn variants_list_only_their_own_encounters() {
+        let escort = encounter("Escort_BP", "Cutlass", "Civilians");
+        let mut a = base_entry();
+        a.encounters = vec![escort.clone(), encounter("Targets_BP", "Scythe", "Vanduul")];
+        let mut b = base_entry();
+        b.encounters = vec![escort, encounter("Targets_BP", "Gladiator", "Criminal")];
+        let facts = PoolFacts::build(&[&a, &b]);
+        let opts = DescOptions {
+            blueprint_list: true,
+            mission_info: true,
+            ship_encounters: true,
+            cargo_info: true,
+            region_info: true,
+            owned_mode: OwnedMode::Off,
+        };
+        let out = render_description(&facts, &[], opts, None);
+        assert!(out.contains("Encounters (all variants) · 1 ship"), "{out}");
+        assert_eq!(out.matches("Cutlass").count(), 1, "shared once: {out}");
+        assert!(out.contains("Variants (2)"), "{out}");
+        assert!(out.contains("Scythe (Vanduul)"), "{out}");
+        assert!(out.contains("Gladiator (Criminal)"), "{out}");
     }
 
     #[test]

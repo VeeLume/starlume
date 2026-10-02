@@ -24,7 +24,9 @@ use serde::{Deserialize, Serialize};
 /// rev 4: `cooldown_seconds` actually in seconds (upstream feeds the
 /// minutes-authored `personal_cooldown_time` into a seconds-named field;
 /// the cook now converts).
-pub const STARLUME_COOK_REV: u32 = 4;
+/// rev 5: missions pool on their cooked encounters too (no more hidden
+/// encounter variants); `abandon_cooldown_seconds`.
+pub const STARLUME_COOK_REV: u32 = 5;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

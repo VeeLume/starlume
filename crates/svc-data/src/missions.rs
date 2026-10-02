@@ -26,7 +26,8 @@ pub use crate::crimestat::CrimestatRisk;
 /// expansion. CIG spawns one contract per offered locality, so the raw list
 /// has thousands of near-duplicates; the cook collapses contracts sharing the
 /// player-meaningful identity (title + description + reward identity + payout
-/// variant) into one entry, aggregating localities into [`Self::locations`].
+/// variant + cooked encounters) into one entry, aggregating localities into
+/// [`Self::locations`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MissionEntry {
     /// Representative contract GUID, hex-string form. Stable id for UI keys.
@@ -60,6 +61,9 @@ pub struct MissionEntry {
     pub illegal: bool,
     /// Post-completion personal cooldown in seconds, if any.
     pub cooldown_seconds: Option<f32>,
+    /// Cooldown after voluntarily abandoning, in seconds, if any.
+    #[serde(default)]
+    pub abandon_cooldown_seconds: Option<f32>,
     pub scrip: Vec<ScripReward>,
     pub reputation: Vec<RepReward>,
     pub item_rewards: Vec<ItemReward>,
@@ -251,7 +255,7 @@ pub struct MissionPlace {
 }
 
 /// One ship encounter the mission spawns.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MissionEncounter {
     /// The encounter's mission-variable name (`"AmbushTarget"` / …).
     pub label: String,
@@ -261,7 +265,7 @@ pub struct MissionEncounter {
 }
 
 /// One wave/phase of an encounter.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MissionWave {
     pub name: String,
     pub ships: Vec<ShipSlot>,
@@ -270,7 +274,7 @@ pub struct MissionWave {
 }
 
 /// One ship slot — how many of which candidate ships, and their factions.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ShipSlot {
     pub count_min: i32,
     pub count_max: i32,
@@ -312,10 +316,18 @@ pub(crate) fn build_missions(
     // Collapse raw expansions into displayed missions. The key is the
     // player-meaningful identity: title + description + reward identity
     // (which BPs / faction / scrip / item kinds) + payout variant (difficulty
-    // + buy-in + time — the visible aUEC the player differentiates by).
-    // Location and encounter are NOT in the key: they aggregate into the
-    // entry as facets the UI groups by.
-    type PoolKey = (Option<LocaleKey>, Option<LocaleKey>, String, String);
+    // + buy-in + time — the visible aUEC the player differentiates by) +
+    // the cooked encounters (what the player fights; a pool keeping one
+    // member's encounters would hide the others — e.g. the Nyx patrol
+    // variant with a Vanduul pool). Location is NOT in the key: it
+    // aggregates into the entry as a facet the UI groups by.
+    type PoolKey = (
+        Option<LocaleKey>,
+        Option<LocaleKey>,
+        String,
+        String,
+        Vec<MissionEncounter>,
+    );
     let mut groups: HashMap<PoolKey, Vec<&Mission>> = HashMap::new();
     for (_, m) in missions.iter() {
         let key = (
@@ -323,15 +335,18 @@ pub(crate) fn build_missions(
             m.description_key.clone(),
             reward_signature(m),
             payout_signature(m),
+            build_encounters(m, &missions, items, locale),
         );
         groups.entry(key).or_default().push(m);
     }
 
     let db = datacore.db();
     let mut out = Vec::with_capacity(groups.len());
-    for members in groups.values() {
-        // Members share title/description/rewards/payout; the first is the
-        // representative. Localities are what vary → aggregated.
+    for ((.., encounters), members) in groups {
+        // Members share title/description/rewards/payout/encounters; the
+        // first is the representative. Localities are what vary →
+        // aggregated.
+        let members = members.as_slice();
         let rep = members[0];
         let r = &rep.rewards;
         let facts = build_facts(members, &missions, db);
@@ -448,6 +463,13 @@ pub(crate) fn build_missions(
                 .completion
                 .as_ref()
                 .map(|d| d.mean_seconds * 60.0),
+            // Same minutes-in-a-seconds-field misnomer as above.
+            abandon_cooldown_seconds: rep
+                .availability
+                .cooldowns
+                .abandon
+                .as_ref()
+                .map(|d| d.mean_seconds * 60.0),
             scrip,
             reputation,
             item_rewards,
@@ -455,7 +477,7 @@ pub(crate) fn build_missions(
             rep_required: build_rep_required(rep, &missions, locale),
             chain_required: build_chain(rep, &missions, locale),
             locations: build_locations(members, &missions, locale),
-            encounters: build_encounters(rep, &missions, items, locale),
+            encounters,
             cargo,
             placeholders: missions.unresolved_markers(rep, locale),
             instance_count: members.len() as u32,

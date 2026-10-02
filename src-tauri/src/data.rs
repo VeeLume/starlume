@@ -227,6 +227,7 @@ pub struct MissionEntryView {
     pub shareable: bool,
     pub illegal: bool,
     pub cooldown_seconds: Option<f32>,
+    pub abandon_cooldown_seconds: Option<f32>,
     pub scrip: Vec<ScripRewardView>,
     pub reputation: Vec<RepRewardView>,
     pub item_rewards: Vec<ItemRewardView>,
@@ -416,6 +417,7 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
             shareable: m.shareable,
             illegal: m.illegal,
             cooldown_seconds: m.cooldown_seconds,
+            abandon_cooldown_seconds: m.abandon_cooldown_seconds,
             scrip: m
                 .scrip
                 .into_iter()

@@ -532,6 +532,7 @@ mod tests {
             shareable: true,
             illegal: false,
             cooldown_seconds: None,
+            abandon_cooldown_seconds: None,
             scrip: Vec::new(),
             reputation: Vec::new(),
             item_rewards: Vec::new(),
