@@ -36,6 +36,9 @@ pub struct Fingerprint {
     /// patcher depends on it, this moves, so `plan_for` returns `Apply` and
     /// the mission text re-renders through the normal write-gates.
     pub owned_salt: Option<String>,
+    /// [`crate::derive_rev`] — moves when an app update changes the cook or
+    /// a renderer, so the new output applies without a game patch.
+    pub derive_rev: String,
 }
 
 impl Fingerprint {
@@ -50,6 +53,7 @@ impl Fingerprint {
             config_hash: stable_hash(&config.patchers),
             pack_hash,
             owned_salt,
+            derive_rev: crate::derive_rev(),
         }
     }
 }
@@ -64,6 +68,10 @@ pub struct InstallPatchState {
     /// state files load as `None` and re-apply once ownership renders).
     #[serde(default)]
     pub owned_salt: Option<String>,
+    /// Derive revision at write time (`#[serde(default)]`: pre-rev state
+    /// files load as empty and re-apply once).
+    #[serde(default)]
+    pub derive_rev: String,
     /// sha256 of the `global.ini` override we wrote — the foreign-writer
     /// detector.
     pub output_sha256: String,
@@ -77,6 +85,7 @@ impl InstallPatchState {
             && self.config_hash == desired.config_hash
             && self.pack_hash == desired.pack_hash
             && self.owned_salt == desired.owned_salt
+            && self.derive_rev == desired.derive_rev
     }
 }
 
@@ -185,6 +194,7 @@ mod tests {
             config_hash: "cfg1".into(),
             pack_hash: None,
             owned_salt: None,
+            derive_rev: "r1".into(),
         }
     }
 
@@ -194,6 +204,7 @@ mod tests {
             config_hash: "cfg1".into(),
             pack_hash: None,
             owned_salt: None,
+            derive_rev: "r1".into(),
             output_sha256: sha.into(),
             patched_at: "2026-07-04T00:00:00Z".into(),
         }
@@ -268,6 +279,19 @@ mod tests {
         let s = applied("b1", "sha");
         let mut desired = fp("b1");
         desired.owned_salt = Some("owned-v2".into());
+        assert_eq!(
+            plan_for(Some(&s), &desired, Some("sha"), &known(&["sha"])),
+            PatchPlan::Apply
+        );
+    }
+
+    #[test]
+    fn derive_rev_change_applies() {
+        // An app update changed the cook or a renderer under a still-current
+        // build/config → re-apply with the new output.
+        let s = applied("b1", "sha");
+        let mut desired = fp("b1");
+        desired.derive_rev = "r2".into();
         assert_eq!(
             plan_for(Some(&s), &desired, Some("sha"), &known(&["sha"])),
             PatchPlan::Apply

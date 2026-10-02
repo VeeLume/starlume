@@ -25,7 +25,17 @@ struct CacheEntry {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct CacheFile {
     staleness_key: String,
+    /// [`crate::derive_rev`] at write time; empty in pre-rev cache files,
+    /// which then read as stale.
+    #[serde(default)]
+    derive_rev: String,
     entries: BTreeMap<String, CacheEntry>,
+}
+
+impl CacheFile {
+    fn is_current(&self, staleness_key: &str) -> bool {
+        self.staleness_key == staleness_key && self.derive_rev == crate::derive_rev()
+    }
 }
 
 fn cache_path(data_dir: &Path, channel_key: &str) -> PathBuf {
@@ -60,7 +70,7 @@ pub fn cache_complete(
         return true;
     }
     let cache: CacheFile = app_kit::load_json(&cache_path(data_dir, channel_key));
-    if cache.staleness_key != staleness_key {
+    if !cache.is_current(staleness_key) {
         return false;
     }
     enabled.iter().all(|p| {
@@ -124,10 +134,11 @@ pub fn derive_ops(
 ) -> anyhow::Result<Vec<PatcherOps>> {
     let path = cache_path(data_dir, channel_key);
     let mut cache: CacheFile = app_kit::load_json(&path);
-    if cache.staleness_key != staleness_key {
-        // New build → every cached op-set is garbage.
+    if !cache.is_current(staleness_key) {
+        // New build or new derive code → every cached op-set is garbage.
         cache = CacheFile {
             staleness_key: staleness_key.to_string(),
+            derive_rev: crate::derive_rev(),
             entries: BTreeMap::new(),
         };
     }
@@ -314,6 +325,45 @@ mod tests {
             dir.path(),
             "live",
             "b2",
+            &config,
+            &patchers,
+            None
+        ));
+    }
+
+    #[test]
+    fn cache_from_older_derive_code_is_stale() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = LangpatchConfig::default();
+        let patchers: Vec<Box<dyn Patcher>> = vec![Box::new(FakePatcher::new("fake"))];
+        derive_ops(
+            dir.path(),
+            "live",
+            "b1",
+            Some(&cooked()),
+            &config,
+            &patchers,
+            None,
+        )
+        .unwrap();
+        assert!(cache_complete(
+            dir.path(),
+            "live",
+            "b1",
+            &config,
+            &patchers,
+            None
+        ));
+
+        // Same build, but written by an older derive revision.
+        let path = cache_path(dir.path(), "live");
+        let mut file: CacheFile = app_kit::load_json(&path);
+        file.derive_rev = "0.0".into();
+        app_kit::save_json(&path, &file).unwrap();
+        assert!(!cache_complete(
+            dir.path(),
+            "live",
+            "b1",
             &config,
             &patchers,
             None

@@ -17,7 +17,8 @@
 //! # Maintained state, not an action
 //!
 //! [`state`] holds the per-install fingerprint (build staleness key +
-//! config hash + pack hash + written-file hash) and plans reconciliation:
+//! derive revision + config hash + pack hash + written-file hash) and plans
+//! reconciliation:
 //! the override on disk matches the fingerprint, or it comes off (vanilla
 //! beats an entire stale localization — the override shadows the p4k copy
 //! wholesale). Orchestration (bus subscription, game-running gate, pack
@@ -48,6 +49,21 @@ pub use state::{
 /// this crate never fetches it (the svc-data-only boundary holds — owned data
 /// arrives as a plain argument, not a dependency).
 pub type OwnedSet = std::collections::BTreeSet<String>;
+
+/// This crate's rendering revision. Bump when any patcher's output changes
+/// for the same cooked data and options.
+///
+/// rev 1: mission cooldowns carry the abandon cooldown.
+pub const RENDER_REV: u32 = 1;
+
+/// The code side of "is the derived output current?" — [`RENDER_REV`] plus
+/// svc-data's cook version. Keys the op-set cache and the applied-patch
+/// fingerprint beside the build staleness key, so an app update that
+/// changes the cook or a renderer re-derives and re-applies without
+/// waiting for a game patch.
+pub fn derive_rev() -> String {
+    format!("{RENDER_REV}.{}", svc_data::DATA_COOK_VERSION)
+}
 
 /// One enrichment patcher: derives INI patch operations from the cooked
 /// game data. Pure — no I/O, no game files; everything a patcher reads is

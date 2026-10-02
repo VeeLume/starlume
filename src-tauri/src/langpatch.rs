@@ -449,6 +449,7 @@ async fn reconcile_one(
                     config_hash: fingerprint.config_hash.clone(),
                     pack_hash: fingerprint.pack_hash.clone(),
                     owned_salt: fingerprint.owned_salt.clone(),
+                    derive_rev: fingerprint.derive_rev.clone(),
                     output_sha256: output_sha,
                     patched_at: chrono::Utc::now().to_rfc3339(),
                 },
