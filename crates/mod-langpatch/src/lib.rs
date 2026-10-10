@@ -28,6 +28,7 @@
 pub mod format;
 pub mod merge;
 pub mod ops;
+pub mod preview;
 pub mod state;
 
 mod derive;
@@ -54,7 +55,10 @@ pub type OwnedSet = std::collections::BTreeSet<String>;
 /// for the same cooked data and options.
 ///
 /// rev 1: mission cooldowns carry the abandon cooldown.
-pub const RENDER_REV: u32 = 1;
+/// rev 2: variants show only deviations from the majority; UEC only inside
+/// variants, without `~`.
+/// rev 3: Mission Info carries event points.
+pub const RENDER_REV: u32 = 3;
 
 /// The code side of "is the derived output current?" — [`RENDER_REV`] plus
 /// svc-data's cook version. Keys the op-set cache and the applied-patch

@@ -83,6 +83,7 @@
 <p class="muted">
   Enriches Star Citizen's own text — component grades, illegal-goods markers, weapon stats.
   Patches re-apply automatically after game updates while Starlume is running.
+  <a href="/langpatch/preview">Preview mission text</a>
 </p>
 
 {#if langpatchStore.error}

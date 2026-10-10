@@ -14,7 +14,7 @@
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use svc_data::{InstallRef, ItemQuery, LoadTier, Stage};
+use svc_data::{EncounterKind, InstallRef, ItemQuery, LoadTier, Stage};
 
 use crate::AppState;
 use crate::error::AppError;
@@ -232,6 +232,7 @@ pub struct MissionEntryView {
     pub reputation: Vec<RepRewardView>,
     pub item_rewards: Vec<ItemRewardView>,
     pub blueprint_rewards: Vec<BpPoolRewardView>,
+    pub event_rewards: Vec<EventRewardView>,
     pub rep_required: Vec<RepRequirementView>,
     pub chain_required: Vec<MissionRefView>,
     pub locations: Vec<MissionRegionView>,
@@ -294,6 +295,25 @@ pub struct MissionPayoutView {
 pub struct ScripRewardView {
     pub name: Option<String>,
     pub amount: i32,
+}
+
+/// Points toward a limited-time event (`svc_data::EventReward`).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct EventRewardView {
+    pub event: String,
+    /// The overall ladder first, then the category ladders.
+    pub ladders: Vec<EventLadderView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct EventLadderView {
+    /// Category label; `null` for the overall ladder.
+    pub name: Option<String>,
+    pub points: i32,
+    /// Points divided among the party (overall ladder only).
+    pub split_for_party: bool,
+    /// Tier thresholds, ascending.
+    pub tiers: Vec<i32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -359,6 +379,9 @@ pub struct MissionEncounterView {
     pub label: String,
     pub difficulty: Option<String>,
     pub waves: Vec<MissionWaveView>,
+    /// `"ships"` / `"npcs"` / `"entities"` — ship encounters fill
+    /// `waves[].ships`, the others `waves[].spawns`.
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -366,6 +389,20 @@ pub struct MissionWaveView {
     pub name: String,
     pub ships: Vec<ShipSlotView>,
     pub cargo: Vec<String>,
+    pub spawns: Vec<SpawnSlotView>,
+}
+
+/// NPC / entity slot (`svc_data::SpawnSlot`).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct SpawnSlotView {
+    pub count_min: i32,
+    pub count_max: i32,
+    pub concurrent: i32,
+    /// Raw archetype / class tag names (`PU_Soldier`, `Heavy`).
+    pub kinds: Vec<String>,
+    pub factions: Vec<String>,
+    pub allied: bool,
+    pub target: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -460,6 +497,23 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
                         .collect(),
                 })
                 .collect(),
+            event_rewards: m
+                .event_rewards
+                .into_iter()
+                .map(|e| EventRewardView {
+                    event: e.event,
+                    ladders: e
+                        .ladders
+                        .into_iter()
+                        .map(|l| EventLadderView {
+                            name: l.name,
+                            points: l.points,
+                            split_for_party: l.split_for_party,
+                            tiers: l.tiers,
+                        })
+                        .collect(),
+                })
+                .collect(),
             rep_required: m
                 .rep_required
                 .into_iter()
@@ -504,6 +558,12 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
                 .map(|e| MissionEncounterView {
                     label: e.label,
                     difficulty: e.difficulty,
+                    kind: match e.kind {
+                        EncounterKind::Ships => "ships",
+                        EncounterKind::Npcs => "npcs",
+                        EncounterKind::Entities => "entities",
+                    }
+                    .to_string(),
                     waves: e
                         .waves
                         .into_iter()
@@ -520,6 +580,19 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
                                 })
                                 .collect(),
                             cargo: w.cargo,
+                            spawns: w
+                                .spawns
+                                .into_iter()
+                                .map(|s| SpawnSlotView {
+                                    count_min: s.count_min,
+                                    count_max: s.count_max,
+                                    concurrent: s.concurrent,
+                                    kinds: s.kinds,
+                                    factions: s.factions,
+                                    allied: s.allied,
+                                    target: s.target,
+                                })
+                                .collect(),
                         })
                         .collect(),
                 })

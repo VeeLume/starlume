@@ -26,7 +26,11 @@ use serde::{Deserialize, Serialize};
 /// the cook now converts).
 /// rev 5: missions pool on their cooked encounters too (no more hidden
 /// encounter variants); `abandon_cooldown_seconds`.
-pub const STARLUME_COOK_REV: u32 = 5;
+/// rev 6: NPC and entity encounters (`EncounterKind`, `MissionWave::spawns`);
+/// crimestat reads the layer-resolved `DontHarm*` flags.
+/// rev 7: event points (`MissionEntry::event_rewards`: overall + category
+/// ladders, party split, tiers); event points split pools.
+pub const STARLUME_COOK_REV: u32 = 7;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

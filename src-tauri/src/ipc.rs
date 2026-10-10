@@ -34,6 +34,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         langpatch::langpatch_update_config,
         langpatch::langpatch_apply,
         langpatch::langpatch_remove,
+        langpatch::langpatch_preview,
         auth::auth_status,
         auth::login_start,
         auth::fetch_profile,

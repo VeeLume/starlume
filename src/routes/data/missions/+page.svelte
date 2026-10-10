@@ -16,7 +16,12 @@
     type Fact,
     type Status,
   } from "@veelume/ui";
-  import type { MissionEntryView, MissionPlaceView } from "$lib/bindings";
+  import type {
+    EventLadderView,
+    MissionEntryView,
+    MissionPlaceView,
+    SpawnSlotView,
+  } from "$lib/bindings";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { getMissions } from "$lib/state/catalog.svelte";
   import { blueprintsStore, loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
@@ -103,6 +108,11 @@
           label: "Blueprint rewards",
           test: (r) => r.blueprint_rewards.length > 0,
         },
+        {
+          value: "event",
+          label: "Event points",
+          test: (r) => r.event_rewards.length > 0,
+        },
       ],
     },
   ]);
@@ -137,6 +147,22 @@
     if (m.payout.fixed != null) return `${fmtUec(m.payout.fixed)} aUEC`;
     if (m.payout.estimate != null) return `~${fmtUec(m.payout.estimate)} aUEC`;
     return m.payout.calculated ? "calculated" : "—";
+  }
+
+  /** `4× Soldier (Pyro_Outlaw, 2 at once) · target` for an NPC/entity slot. */
+  function spawnLabel(s: SpawnSlotView): string {
+    const count = s.count_min === s.count_max ? `${s.count_max}` : `${s.count_min}–${s.count_max}`;
+    const what = s.kinds.map((k) => k.replace(/^PU_/, "").replaceAll("_", " ")).join(" / ");
+    const notes = [
+      ...s.factions,
+      s.concurrent > 0 && s.concurrent < s.count_max ? `${s.concurrent} at once` : null,
+    ].filter(Boolean);
+    return (
+      `${count}×${what ? ` ${what}` : ""}` +
+      (notes.length ? ` (${notes.join(", ")})` : "") +
+      (s.target ? " · target" : "") +
+      (s.allied ? " · friendly" : "")
+    );
   }
 
   /** Short scalar facts for the top of a row expansion. */
@@ -239,12 +265,27 @@
     return groups;
   }
 
+  // Party size for the event-points calculator — ephemeral UI state, only
+  // applied to ladders whose points split across the party.
+  let partySize = $state(1);
+
+  /** Points one member earns per completion on a ladder. */
+  const ladderShare = (l: EventLadderView) =>
+    l.split_for_party ? l.points / Math.max(1, partySize) : l.points;
+
+  /** Completions to reach `minPoints` on a ladder. */
+  const missionsToTier = (l: EventLadderView, minPoints: number) => {
+    const share = ladderShare(l);
+    return share > 0 ? Math.ceil(minPoints / share) : null;
+  };
+
   /** Does this mission have any post-description detail (the right column)? */
   const hasDetail = (m: MissionEntryView) =>
     m.scrip.length > 0 ||
     m.item_rewards.length > 0 ||
     m.reputation.length > 0 ||
     m.blueprint_rewards.length > 0 ||
+    m.event_rewards.length > 0 ||
     m.rep_required.length > 0 ||
     m.chain_required.length > 0 ||
     m.cargo.length > 0 ||
@@ -297,6 +338,11 @@
                   class="badge accent"
                   title="Blueprint rewards">BP</span
                 >{/if}
+              {#each r.event_rewards as ev (ev.event)}<span
+                  class="badge accent"
+                  title="Event points ({ev.event}): {ev.ladders[0]?.points ?? 0}"
+                  >Event</span
+                >{/each}
               {#if r.facts.crimestat !== "none"}<span
                   class="badge danger"
                   title="Killing friendly NPCs risks a crimestat{r.facts.crimestat === 'high'
@@ -393,6 +439,42 @@
       </div>
     {/if}
 
+    {#each m.event_rewards as ev (ev.event)}
+      <div>
+        <h5>Event points — {ev.event}</h5>
+        {#if ev.ladders.some((l) => l.split_for_party)}
+          <label class="party">
+            Party size
+            <input class="input party-input" type="number" min="1" max="50" bind:value={partySize} />
+          </label>
+        {/if}
+        {#each ev.ladders as l, li (li)}
+          <div class="pool">
+            <span class="pool-head">
+              {l.name ?? "Overall"}: {l.points.toLocaleString()} pts
+              <span class="dim">
+                {l.split_for_party
+                  ? partySize > 1
+                    ? `· divided in a party (${Math.floor(ladderShare(l)).toLocaleString()} each)`
+                    : "· divided in a party"
+                  : "· every party member earns it in full"}
+              </span>
+            </span>
+            {#if l.tiers.length > 0}
+              <ul>
+                {#each l.tiers as min, ti (ti)}
+                  <li>
+                    Tier {ti + 1}: {min.toLocaleString()} pts
+                    <span class="dim">· {missionsToTier(l, min) ?? "–"} missions</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/each}
+
     {#if m.rep_required.length > 0}
       <div>
         <h5>Reputation required</h5>
@@ -488,14 +570,16 @@
               {#each enc.waves as wave, j (j)}
                 <li>
                   {wave.name || `Wave ${j + 1}`}:
-                  {wave.ships
-                    .map(
-                      (s) =>
-                        `${s.count_min === s.count_max ? s.count_max : `${s.count_min}–${s.count_max}`}× ${
-                          s.ships.slice(0, 3).join(" / ") || "ship"
-                        }${s.ships.length > 3 ? " / …" : ""}`,
-                    )
-                    .join("; ")}
+                  {enc.kind === "ships"
+                    ? wave.ships
+                        .map(
+                          (s) =>
+                            `${s.count_min === s.count_max ? s.count_max : `${s.count_min}–${s.count_max}`}× ${
+                              s.ships.slice(0, 3).join(" / ") || "ship"
+                            }${s.ships.length > 3 ? " / …" : ""}`,
+                        )
+                        .join("; ")
+                    : wave.spawns.map(spawnLabel).join("; ")}
                   {#if wave.cargo.length > 0}
                     <span class="dim">cargo: {wave.cargo.join(", ")}</span>
                   {/if}
@@ -532,6 +616,16 @@
   .gid {
     margin: 4px 0 2px;
     font-size: 0.72rem;
+  }
+  .party {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 0.8rem;
+  }
+  .party-input {
+    width: 4.5rem;
   }
 
   /* Available-in: a per-region expander (pill header → grouped place grid). */

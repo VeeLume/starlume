@@ -243,6 +243,20 @@ async langpatchRemove(channel: string) : Promise<Result<null, AppError>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * What the current config does to every mission's text, without writing
+ * anything — English base text (a language pack isn't overlaid), current
+ * patcher options, user overrides. The whole list ships at once; search
+ * and sort are client-side (the catalog model).
+ */
+async langpatchPreview(channel: string) : Promise<Result<MissionPreviewView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("langpatch_preview", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async authStatus() : Promise<AuthStatus> {
     return await TAURI_INVOKE("auth_status");
 },
@@ -537,6 +551,27 @@ export type DataTierView =
  * Nothing cached — full `Data.p4k` parse, ~30s+.
  */
 "live"
+export type EventLadderView = { 
+/**
+ * Category label; `null` for the overall ladder.
+ */
+name: string | null; points: number; 
+/**
+ * Points divided among the party (overall ladder only).
+ */
+split_for_party: boolean; 
+/**
+ * Tier thresholds, ascending.
+ */
+tiers: number[] }
+/**
+ * Points toward a limited-time event (`svc_data::EventReward`).
+ */
+export type EventRewardView = { event: string; 
+/**
+ * The overall ladder first, then the category ladders.
+ */
+ladders: EventLadderView[] }
 export type FriendGroup = { id: string; name: string; is_owner: boolean; members: GroupMember[] }
 export type FriendUser = { user_id: string; username: string }
 export type GroupMember = { username: string; is_owner: boolean }
@@ -591,8 +626,13 @@ export type ManufacturerRowView = { guid: string; code: string; name: string | n
 export type MissileStatsView = { size: number; is_torpedo: boolean; damage: DamageBreakdownView | null; speed: number | null; arm_time: number; tracking: TrackingView | null }
 export type MissionCategoryView = { name: string | null; icon: string }
 export type MissionDifficultyView = { mechanical_skill: number; mental_load: number; risk_of_loss: number; game_knowledge: number }
-export type MissionEncounterView = { label: string; difficulty: string | null; waves: MissionWaveView[] }
-export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; abandon_cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView }
+export type MissionEncounterView = { label: string; difficulty: string | null; waves: MissionWaveView[]; 
+/**
+ * `"ships"` / `"npcs"` / `"entities"` — ship encounters fill
+ * `waves[].ships`, the others `waves[].spawns`.
+ */
+kind: string }
+export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; abandon_cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; event_rewards: EventRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView }
 export type MissionFactionView = { guid: string; name: string | null }
 export type MissionPayoutView = { calculated: boolean; fixed: number | null; estimate: number | null; buy_in: number; time_to_complete: number }
 export type MissionPlaceView = { name: string | null; record_name: string; kind: string | null }
@@ -608,9 +648,13 @@ export type MissionPoolFactsView = { shareable_mixed: boolean; once_only_mixed: 
  * crimestat (high = no HUD markers to tell friend from foe).
  */
 crimestat: string; crimestat_mixed: boolean }
+/**
+ * A mission's title + description as the contracts panel shows them.
+ */
+export type MissionPreviewView = { title: PreviewTextView; description: PreviewTextView }
 export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean }
 export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
-export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[] }
+export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[]; spawns: SpawnSlotView[] }
 export type ModuleInfo = { id: string; name: string; description: string; enabled: boolean }
 /**
  * An optional action on a notification — a labelled link the frontend turns
@@ -659,6 +703,10 @@ uses_replace_ops: boolean; options: PatcherOptionView[];
  */
 values: Partial<{ [key in string]: string }> }
 export type PatcherOptionView = { id: string; label: string; description: string; default: string; kind: OptionKindView }
+/**
+ * One INI value before and after patching (`mod_langpatch::preview`).
+ */
+export type PreviewTextView = { key: string | null; original: string; patched: string }
 export type Profile = { username: string; avatar_url: string | null }
 export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }
@@ -707,6 +755,14 @@ account: RsiAccount | null }
 export type ScripRewardView = { name: string | null; amount: number }
 export type ShipSlotView = { count_min: number; count_max: number; ships: string[]; factions: string[] }
 export type ShipWeaponStatsView = { size: number; item_sub_type: string; damage: DamageBreakdownView | null; penetration_m: number | null; ammo_speed: number | null; ammo_lifetime: number | null; total_ammo: number | null; capacitor: number | null }
+/**
+ * NPC / entity slot (`svc_data::SpawnSlot`).
+ */
+export type SpawnSlotView = { count_min: number; count_max: number; concurrent: number; 
+/**
+ * Raw archetype / class tag names (`PU_Soldier`, `Heavy`).
+ */
+kinds: string[]; factions: string[]; allied: boolean; target: boolean }
 export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
 
 /** tauri-specta globals **/

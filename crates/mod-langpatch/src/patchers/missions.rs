@@ -28,13 +28,18 @@
 //!   the tracker module's catalog-decoration point, not a file handshake.
 //! - **Encounter rendering is simpler and honest to the cook**: the cook
 //!   flattens slot alternatives (no "One of:" trees, no per-option skill
-//!   tiers) and skips NPC-only encounters (no NPC totals). Ship pools,
-//!   spawn counts, factions, cargo descriptors and the CombatClass tier
-//!   all survive.
+//!   tiers). Ship pools, spawn counts, factions, cargo descriptors and the
+//!   CombatClass tier all survive.
+//! - **NPC encounters render from the data, not phase names**: per
+//!   archetype and faction with real spawn counts (`4x Soldier (Pyro
+//!   Outlaw)`, targets and friendlies marked), where the old module showed
+//!   one `NPCs: N` total parsed out of designer phase names.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use svc_data::{BpPoolReward, CookedData, CrimestatRisk, MissionEncounter, MissionEntry};
+use svc_data::{
+    BpPoolReward, CookedData, CrimestatRisk, EncounterKind, MissionEncounter, MissionEntry,
+};
 
 use crate::format::{Color, NEWLINE, PARAGRAPH_BREAK, apply_color, bracket, bullet, header};
 use crate::ops::{ChoiceOption, OpSet, OptionKind, PatchOp, PatcherConfig, PatcherOption};
@@ -321,14 +326,115 @@ struct PoolFacts<'a> {
     crimestat: CrimestatState,
     uec_consistent: bool,
     scrip_consistent: bool,
+    event_consistent: bool,
     rep_consistent: bool,
     cooldowns_consistent: bool,
     encounters_consistent: bool,
-    /// Encounters every member carries (by value), in the head's order —
-    /// rendered once above the variants, which then list only their own.
-    shared_encounters: Vec<&'a MissionEncounter>,
+    /// What most members share, per axis — rendered once above the
+    /// variants, which then list only where they deviate.
+    baseline: Baseline<'a>,
     /// Distinct non-empty per-member region labels (single-line form).
     region_labels: Vec<String>,
+}
+
+/// One encounter slot of a member: its raw label plus the occurrence index
+/// (a mission can carry the same label twice).
+type EncounterSlot = (String, usize);
+
+/// The value more than half of the pool members share, per axis. The outer
+/// `None` means no majority (every variant shows its own value);
+/// `Some(None)` means the majority has nothing on that axis.
+#[derive(Default)]
+struct Baseline<'a> {
+    cooldown: Option<Option<String>>,
+    rep: Option<Option<String>>,
+    scrip: Option<Option<String>>,
+    event: Option<Option<String>>,
+    /// The majority blueprint-pool identity ([`blueprint_identity`]).
+    blueprints: Option<BTreeSet<String>>,
+    /// A member carrying the majority pools — renders them (owned marks
+    /// need the pool data, not just the identity).
+    blueprint_source: Option<&'a MissionEntry>,
+    /// Per encounter slot, in first-seen order across members.
+    encounters: Vec<(EncounterSlot, Option<Option<&'a MissionEncounter>>)>,
+}
+
+impl<'a> Baseline<'a> {
+    fn build(members: &[&'a MissionEntry]) -> Self {
+        let lines = |f: fn(&MissionEntry) -> Option<String>| {
+            majority(&members.iter().map(|m| f(m)).collect::<Vec<_>>())
+        };
+        let identities: Vec<BTreeSet<String>> =
+            members.iter().map(|m| blueprint_identity(m)).collect();
+        let blueprints = majority(&identities);
+        let blueprint_source = blueprints.as_ref().and_then(|b| {
+            members
+                .iter()
+                .zip(&identities)
+                .find(|(_, id)| *id == b)
+                .map(|(m, _)| *m)
+        });
+
+        let per_member: Vec<Vec<(EncounterSlot, &'a MissionEncounter)>> =
+            members.iter().map(|m| encounter_slots(m)).collect();
+        let mut slots: Vec<EncounterSlot> = Vec::new();
+        for (slot, _) in per_member.iter().flatten() {
+            if !slots.contains(slot) {
+                slots.push(slot.clone());
+            }
+        }
+        let encounters = slots
+            .into_iter()
+            .map(|slot| {
+                let values: Vec<Option<&MissionEncounter>> = per_member
+                    .iter()
+                    .map(|own| own.iter().find(|(s, _)| *s == slot).map(|(_, e)| *e))
+                    .collect();
+                let base = majority(&values);
+                (slot, base)
+            })
+            .collect();
+
+        Baseline {
+            cooldown: lines(cooldown_line),
+            rep: lines(rep_line),
+            scrip: lines(scrip_line),
+            event: lines(event_line),
+            blueprints,
+            blueprint_source,
+            encounters,
+        }
+    }
+
+    /// The majority encounters, in slot order — the top block.
+    fn encounters(&self) -> Vec<&'a MissionEncounter> {
+        self.encounters
+            .iter()
+            .filter_map(|(_, base)| base.flatten())
+            .collect()
+    }
+}
+
+/// The value more than half of `values` share, if any.
+fn majority<T: PartialEq + Clone>(values: &[T]) -> Option<T> {
+    values
+        .iter()
+        .find(|v| values.iter().filter(|w| w == v).count() * 2 > values.len())
+        .cloned()
+}
+
+/// A member's encounters keyed by slot (label + occurrence).
+fn encounter_slots(m: &MissionEntry) -> Vec<(EncounterSlot, &MissionEncounter)> {
+    let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+    m.encounters
+        .iter()
+        .map(|e| {
+            let n = seen.entry(e.label.as_str()).or_default();
+            let slot = (e.label.clone(), *n);
+            *n += 1;
+            (slot, e)
+        })
+        .collect()
 }
 
 impl<'a> PoolFacts<'a> {
@@ -355,6 +461,8 @@ impl<'a> PoolFacts<'a> {
         let uec_consistent = all_equal(members.iter().map(|m| m.payout));
         let scrip_consistent = !members.iter().any(|m| m.facts.scrip_mixed)
             && all_equal(members.iter().map(|m| &m.scrip));
+        // Event points are in the cook's pooling key: no within-entry mix.
+        let event_consistent = all_equal(members.iter().map(|m| &m.event_rewards));
         let rep_consistent = !members.iter().any(|m| m.facts.rep_mixed)
             && all_equal(members.iter().map(|m| &m.reputation));
         let cooldowns_consistent = !members.iter().any(|m| m.facts.cooldowns_mixed)
@@ -366,15 +474,6 @@ impl<'a> PoolFacts<'a> {
             }));
         let encounters_consistent = !members.iter().any(|m| m.facts.encounters_mixed)
             && all_equal(members.iter().map(|m| &m.encounters));
-        let shared_encounters = members
-            .first()
-            .map(|head| {
-                head.encounters
-                    .iter()
-                    .filter(|e| members[1..].iter().all(|m| m.encounters.contains(e)))
-                    .collect()
-            })
-            .unwrap_or_default();
 
         let mut region_labels: Vec<String> = Vec::new();
         for m in members {
@@ -393,10 +492,11 @@ impl<'a> PoolFacts<'a> {
             crimestat,
             uec_consistent,
             scrip_consistent,
+            event_consistent,
             rep_consistent,
             cooldowns_consistent,
             encounters_consistent,
-            shared_encounters,
+            baseline: Baseline::build(members),
             region_labels,
         }
     }
@@ -409,6 +509,7 @@ impl<'a> PoolFacts<'a> {
                 BlueprintState::AllDifferentPools | BlueprintState::MixedPresence
             ) || !self.uec_consistent
                 || !self.scrip_consistent
+                || !self.event_consistent
                 || !self.rep_consistent
                 || !self.cooldowns_consistent
                 || !self.encounters_consistent
@@ -758,7 +859,17 @@ fn push_singleton_blocks(
         }
     }
     if opts.mission_info
-        && let Some(info) = mission_info_block(head, true, true, true, true)
+        && let Some(info) = mission_info_block(
+            [
+                cooldown_line(head),
+                rep_line(head),
+                scrip_line(head),
+                event_line(head),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+        )
     {
         blocks.push(info);
     }
@@ -787,38 +898,30 @@ fn push_variants_blocks(
     opts: DescOptions,
     owned: Option<&crate::OwnedSet>,
 ) {
-    // Top section — only unanimous axes.
+    // Top section — what most variants share (the baseline); the variants
+    // below list only where they deviate from it.
+    let base = &facts.baseline;
     if opts.blueprint_list
-        && matches!(facts.blueprint_state, BlueprintState::AllSamePool)
-        && let Some(head) = facts.members.first()
+        && let Some(source) = base.blueprint_source
     {
-        for bp in &head.blueprint_rewards {
+        for bp in &source.blueprint_rewards {
             blocks.push(blueprint_block(bp, owned, opts.owned_mode));
         }
     }
     if opts.mission_info
-        && let Some(head) = facts.members.first()
         && let Some(info) = mission_info_block(
-            head,
-            facts.cooldowns_consistent,
-            facts.rep_consistent,
-            facts.scrip_consistent,
-            facts.uec_consistent,
+            [&base.cooldown, &base.rep, &base.scrip, &base.event]
+                .into_iter()
+                .filter_map(|line| line.clone().flatten())
+                .collect(),
         )
     {
         blocks.push(info);
     }
-    // Encounters: all of them when unanimous; otherwise the shared ones
-    // here and each variant's own in its section.
-    let title = if facts.encounters_consistent {
-        "Encounters"
-    } else {
-        "Encounters (all variants)"
-    };
     if opts.ship_encounters
         && let Some(enc) = encounter_block(
-            &facts.shared_encounters,
-            title,
+            &base.encounters(),
+            "Encounters",
             manufacturer_prefixes,
             opts.cargo_info,
         )
@@ -887,28 +990,10 @@ fn blueprint_block(bp: &BpPoolReward, owned: Option<&crate::OwnedSet>, mode: Own
     s
 }
 
-/// The Mission Info block; each line gated by its axis' consistency flag
-/// (all `true` on the singleton path).
-fn mission_info_block(
-    m: &MissionEntry,
-    with_cooldown: bool,
-    with_rep: bool,
-    with_scrip: bool,
-    with_uec: bool,
-) -> Option<String> {
-    let mut lines: Vec<String> = Vec::new();
-    if with_cooldown && let Some(line) = cooldown_line(m) {
-        lines.push(line);
-    }
-    if with_rep && let Some(line) = rep_line(m) {
-        lines.push(line);
-    }
-    if with_scrip && let Some(line) = scrip_line(m) {
-        lines.push(line);
-    }
-    if with_uec && let Some(line) = uec_line(m) {
-        lines.push(line);
-    }
+/// The Mission Info block from its lines (cooldown, rep, scrip). No UEC
+/// line: the contracts panel shows the reward itself — UEC renders only
+/// inside variants, where it tells them apart ([`variant_diff_lines`]).
+fn mission_info_block(lines: Vec<String>) -> Option<String> {
     if lines.is_empty() {
         return None;
     }
@@ -973,6 +1058,40 @@ fn rep_line(m: &MissionEntry) -> Option<String> {
     (total > 0).then(|| format!("Rep: {total} XP"))
 }
 
+/// `Event: 1142 pts (Collection) · split in party` — the overall points,
+/// the category ladder they also count toward (its points only when they
+/// differ), and whether the overall points divide across the party
+/// (category points never do).
+fn event_line(m: &MissionEntry) -> Option<String> {
+    let parts: Vec<String> = m
+        .event_rewards
+        .iter()
+        .filter_map(|ev| {
+            let (overall, categories) = ev.ladders.split_first()?;
+            let mut s = format!("{} pts", overall.points);
+            let cats: Vec<String> = categories
+                .iter()
+                .filter_map(|c| {
+                    let name = c.name.as_deref()?;
+                    Some(if c.points == overall.points {
+                        name.to_string()
+                    } else {
+                        format!("{name} {}", c.points)
+                    })
+                })
+                .collect();
+            if !cats.is_empty() {
+                s.push_str(&format!(" ({})", cats.join(", ")));
+            }
+            if overall.split_for_party {
+                s.push_str(" · split in party");
+            }
+            Some(s)
+        })
+        .collect();
+    (!parts.is_empty()).then(|| format!("Event: {}", parts.join("; ")))
+}
+
 fn scrip_line(m: &MissionEntry) -> Option<String> {
     // One entry per distinct currency, amounts summed within it.
     let mut by_name: BTreeMap<String, i32> = BTreeMap::new();
@@ -1000,19 +1119,31 @@ fn scrip_line(m: &MissionEntry) -> Option<String> {
     Some(format!("Scrip: {}", parts.join(", ")))
 }
 
-/// Fixed payouts render exact; engine-calculated ones render the cook's
-/// own `uecCurve` estimate with a `~` (rep bonus / party split are
-/// runtime and not modeled).
+/// The payout: the fixed amount, or for engine-calculated rewards the
+/// cook's own `uecCurve` estimate (exact against live payouts; rep bonus
+/// and party split are runtime and not modeled).
 fn uec_line(m: &MissionEntry) -> Option<String> {
-    if let Some(n) = m.payout.fixed.filter(|n| *n > 0) {
-        return Some(format!("UEC: {n}"));
+    let amount = m
+        .payout
+        .fixed
+        .filter(|n| *n > 0)
+        .or_else(|| m.payout.estimate.filter(|n| m.payout.calculated && *n > 0))?;
+    Some(format!("UEC: {}", thousands(amount)))
+}
+
+/// `145250` → `145,250`, the way the contracts panel prints rewards — so a
+/// player matches a variant against the Reward box at a glance. (No `~`
+/// for estimates: the game font renders it as a minus sign.)
+fn thousands(n: i32) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
     }
-    if m.payout.calculated
-        && let Some(n) = m.payout.estimate.filter(|n| *n > 0)
-    {
-        return Some(format!("UEC: ~{n}"));
-    }
-    None
+    if n < 0 { format!("-{out}") } else { out }
 }
 
 fn region_block(facts: &PoolFacts<'_>) -> Option<String> {
@@ -1042,6 +1173,8 @@ struct EncounterRendering {
     /// within each). The cook can't split allied from hostile ships, so
     /// this counts every spawn.
     ship_range: (i32, i32),
+    /// NPCs spawned over the mission, friendlies (HUD-marked) excluded.
+    hostile_npcs: i32,
     /// The CombatClass tier, when uniform across encounters.
     combat_class: Option<String>,
 }
@@ -1063,8 +1196,8 @@ fn encounter_block(
     Some(format!("{}{NEWLINE}{}", header(heading), rendering.body))
 }
 
-/// `Encounters · 2-4 ships · Hard` — count and tier omitted when absent.
-/// The count covers exactly the encounters listed under the heading.
+/// `Encounters · 2-4 ships · 12 NPCs · Hard` — counts and tier omitted when
+/// absent. The counts cover exactly the encounters listed under the heading.
 fn format_encounter_heading(title: &str, r: &EncounterRendering) -> String {
     let (lo, hi) = r.ship_range;
     let mut parts: Vec<String> = vec![title.to_string()];
@@ -1074,6 +1207,10 @@ fn format_encounter_heading(title: &str, r: &EncounterRendering) -> String {
         } else {
             format!("{lo}-{hi} ships")
         });
+    }
+    if r.hostile_npcs > 0 {
+        let n = r.hostile_npcs;
+        parts.push(format!("{n} NPC{}", if n == 1 { "" } else { "s" }));
     }
     if let Some(cc) = &r.combat_class {
         parts.push(cc.clone());
@@ -1088,8 +1225,13 @@ fn render_encounters(
 ) -> EncounterRendering {
     let mut lines: Vec<String> = Vec::new();
     let mut total = (0i32, 0i32);
+    let mut hostile_npcs = 0i32;
 
     for enc in encounters {
+        if enc.kind != EncounterKind::Ships {
+            hostile_npcs += render_spawn_encounter(enc, &mut lines);
+            continue;
+        }
         // Spawn range: per-wave sum of slot ranges, max across waves
         // (waves are sequential — the player faces one at a time).
         let mut enc_range = (0i32, 0i32);
@@ -1161,7 +1303,101 @@ fn render_encounters(
     EncounterRendering {
         body: lines.join(NEWLINE),
         ship_range: total,
+        hostile_npcs,
         combat_class,
+    }
+}
+
+/// An NPC or entity encounter: the label, then one line per distinct
+/// (what, factions, friendly, target), counts summed across phases — the
+/// total spawned over the mission. Returns the hostile NPC count.
+fn render_spawn_encounter(enc: &MissionEncounter, lines: &mut Vec<String>) -> i32 {
+    let npcs = enc.kind == EncounterKind::Npcs;
+    // (what, factions, allied, target) → (min, max), in first-seen order.
+    type Key = (String, String, bool, bool);
+    let mut rows: Vec<(Key, (i32, i32))> = Vec::new();
+    for wave in &enc.waves {
+        for slot in &wave.spawns {
+            // NPCs: archetype / class. Entities: the wave name says what
+            // they are (`Relay`, `Kopion`).
+            let what = if npcs {
+                let kinds: Vec<String> = slot.kinds.iter().map(|k| npc_kind(k)).collect();
+                kinds.join(" / ")
+            } else {
+                pretty_identifier(&wave.name)
+            };
+            let factions: Vec<String> =
+                slot.factions.iter().map(|f| pretty_identifier(f)).collect();
+            let key = (what, factions.join(", "), slot.allied, slot.target);
+            let (lo, hi) = (slot.count_min.max(0), slot.count_max.max(0));
+            match rows.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, sum)) => {
+                    sum.0 += lo;
+                    sum.1 += hi;
+                }
+                None => rows.push((key, (lo, hi))),
+            }
+        }
+    }
+    if rows.is_empty() {
+        return 0;
+    }
+
+    let fallback = if npcs { "NPCs" } else { "Entities" };
+    let label = encounter_label(&enc.label);
+    lines.push(apply_color(
+        Color::Underline,
+        if label.is_empty() {
+            fallback.to_string()
+        } else {
+            label
+        },
+    ));
+
+    // The target mark only informs when it singles some slots out —
+    // defend missions tag every enemy as a target.
+    let mark_targets = !rows
+        .iter()
+        .filter(|((.., allied, _), _)| !allied)
+        .all(|((.., target), _)| *target);
+
+    let mut hostile = 0;
+    for ((what, factions, allied, target), (lo, hi)) in rows {
+        if npcs && !allied {
+            hostile += hi;
+        }
+        let count = if hi > lo {
+            format!("{lo}-{hi}")
+        } else {
+            format!("{hi}")
+        };
+        let mut line = match (what.is_empty(), npcs) {
+            (false, _) => format!("{count}x {what}"),
+            (true, true) => format!("{count} NPC{}", if hi == 1 { "" } else { "s" }),
+            (true, false) => format!("{count} entit{}", if hi == 1 { "y" } else { "ies" }),
+        };
+        if !factions.is_empty() {
+            line.push_str(&format!(" ({factions})"));
+        }
+        if target && mark_targets {
+            line.push_str(" · target");
+        }
+        if allied {
+            line.push_str(" · friendly");
+        }
+        lines.push(bullet(line));
+    }
+    hostile
+}
+
+/// `PU_Soldier_Elite` → `Soldier Elite`, `PU_sniper` → `Sniper`; class
+/// tags (`Heavy`) pass through.
+fn npc_kind(tag: &str) -> String {
+    let pretty = pretty_identifier(tag.strip_prefix("PU_").unwrap_or(tag));
+    let mut chars = pretty.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => pretty,
     }
 }
 
@@ -1457,7 +1693,8 @@ fn render_variants_section(groups: &[DiffGroup<'_>]) -> Option<String> {
         return None;
     }
     let count = groups.len();
-    let mut s = header(format!("Variants ({count})"));
+    // Variants list only how they differ from the blocks above.
+    let mut s = header(format!("Variants ({count}) · differences only"));
 
     // Two groups can collide on the combined label when they share a
     // region but differ on another axis — a numeric suffix keeps them
@@ -1489,6 +1726,10 @@ fn render_variants_section(groups: &[DiffGroup<'_>]) -> Option<String> {
     for (g, label) in groups.iter().zip(group_labels.iter()) {
         s.push_str(PARAGRAPH_BREAK);
         s.push_str(&header(format!("· {label}")));
+        if g.diff_lines.is_empty() {
+            // The baseline variant: everything as listed above.
+            s.push_str(&format!("{NEWLINE}  as above"));
+        }
         for line in &g.diff_lines {
             s.push_str(NEWLINE);
             s.push_str("  ");
@@ -1562,27 +1803,44 @@ fn variant_diff_lines(
     opts: DescOptions,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
+    let base = &facts.baseline;
 
-    if opts.mission_info && !facts.cooldowns_consistent {
-        lines.push(cooldown_line(m).unwrap_or_else(|| "No cooldown".to_string()));
-    }
-    if opts.mission_info && !facts.rep_consistent {
-        lines.push(rep_line(m).unwrap_or_else(|| "No rep reward".to_string()));
-    }
-    if opts.mission_info && !facts.scrip_consistent {
-        lines.push(scrip_line(m).unwrap_or_else(|| "No scrip".to_string()));
-    }
-    if opts.mission_info && !facts.uec_consistent {
-        lines.push(uec_line(m).unwrap_or_else(|| "UEC: calculated".to_string()));
+    // UEC first: it is the line a player matches against the panel's
+    // Reward box to tell which variant they are looking at. Only when the
+    // payouts differ — otherwise it identifies nothing.
+    if opts.mission_info
+        && !facts.uec_consistent
+        && let Some(line) = uec_line(m)
+    {
+        lines.push(line);
     }
 
-    // Blueprints when mixed — header line + bullets, matching the
-    // singleton layout (comma-joined long lists were unreadable).
-    let blueprint_mixed = matches!(
-        facts.blueprint_state,
-        BlueprintState::AllDifferentPools | BlueprintState::MixedPresence
-    );
-    if opts.blueprint_list && blueprint_mixed {
+    // Info lines where this member deviates from the baseline (or its own
+    // value is one of several within the entry).
+    if opts.mission_info {
+        // (baseline, own line, own value uncertain, text when absent)
+        let info = [
+            (
+                &base.cooldown,
+                cooldown_line(m),
+                m.facts.cooldowns_mixed,
+                "No cooldown",
+            ),
+            (&base.rep, rep_line(m), m.facts.rep_mixed, "No rep reward"),
+            (&base.scrip, scrip_line(m), m.facts.scrip_mixed, "No scrip"),
+            (&base.event, event_line(m), false, "No event points"),
+        ];
+        for (baseline, own, mixed, none) in info {
+            if mixed || *baseline != Some(own.clone()) {
+                lines.push(own.unwrap_or_else(|| none.to_string()));
+            }
+        }
+    }
+
+    // Blueprints where this member's pools differ from the baseline —
+    // header line + bullets, matching the singleton layout (comma-joined
+    // long lists were unreadable).
+    if opts.blueprint_list && base.blueprints.as_ref() != Some(&blueprint_identity(m)) {
         if m.blueprint_rewards.is_empty() {
             lines.push("No blueprint".to_string());
         } else {
@@ -1628,28 +1886,34 @@ fn variant_diff_lines(
         lines.push("Illegal".to_string());
     }
 
-    // Encounters when they differ — only this member's own; the shared
-    // ones render once above the variants.
-    if opts.ship_encounters && !facts.encounters_consistent {
-        let own: Vec<&MissionEncounter> = m
-            .encounters
-            .iter()
-            .filter(|e| !facts.shared_encounters.contains(e))
-            .collect();
+    // Encounters, slot by slot: only those that differ from the baseline
+    // render here; a baseline encounter this member lacks is named.
+    if opts.ship_encounters {
+        let mine = encounter_slots(m);
+        let mut own: Vec<&MissionEncounter> = Vec::new();
+        let mut missing: Vec<String> = Vec::new();
+        for (slot, baseline) in &base.encounters {
+            let mine_here = mine.iter().find(|(s, _)| s == slot).map(|(_, e)| *e);
+            if *baseline == Some(mine_here) {
+                continue;
+            }
+            match (mine_here, baseline) {
+                (Some(e), _) => own.push(e),
+                (None, Some(Some(b))) => missing.push(match encounter_label(&b.label) {
+                    l if l.is_empty() => "No NPCs".to_string(),
+                    l => format!("No {l}"),
+                }),
+                (None, _) => {}
+            }
+        }
         let rendering = render_encounters(&own, manufacturer_prefixes, opts.cargo_info);
         if !rendering.body.is_empty() {
             let heading = format_encounter_heading("Encounters", &rendering);
             let indent = format!("{NEWLINE}  ");
             let body = rendering.body.replace(NEWLINE, &indent);
             lines.push(format!("{heading}:{NEWLINE}  {body}"));
-        } else if facts
-            .members
-            .iter()
-            .any(|x| x.encounters.len() > facts.shared_encounters.len())
-        {
-            // Siblings have extra encounters, this one doesn't.
-            lines.push("No further encounters".to_string());
         }
+        lines.extend(missing);
     }
 
     lines
@@ -1701,10 +1965,24 @@ fn pretty_identifier(s: &str) -> String {
 /// Encounter label: prettified variable name minus the engine's
 /// `SpawnDescription(s)` boilerplate (`Scouts_SpawnDescriptions` →
 /// `Scouts`, `SalvageSpawnDescription` → `Salvage`).
+/// Readable encounter label from its mission-variable name. Generator
+/// boilerplate (a leading `Property`; `Spawn Description(s)` as prefix,
+/// suffix or the whole name) drops; an empty result means "no meaningful
+/// label".
 fn encounter_label(raw: &str) -> String {
     let pretty = pretty_identifier(raw);
-    for noise in [" Spawn Descriptions", " Spawn Description"] {
-        if let Some(rest) = pretty.strip_suffix(noise) {
+    let pretty = pretty
+        .strip_prefix("Property ")
+        .map(str::to_owned)
+        .unwrap_or(pretty);
+    for noise in ["Spawn Descriptions", "Spawn Description"] {
+        if pretty == noise {
+            return String::new();
+        }
+        if let Some(rest) = pretty.strip_suffix(&format!(" {noise}")) {
+            return rest.to_string();
+        }
+        if let Some(rest) = pretty.strip_prefix(&format!("{noise} ")) {
             return rest.to_string();
         }
     }
@@ -1727,7 +2005,7 @@ fn strip_noise_affixes(s: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use svc_data::{MissionPayout, MissionPoolFacts, MissionRegion, ScripReward};
+    use svc_data::{MissionPayout, MissionPoolFacts, MissionRegion, ScripReward, SpawnSlot};
 
     fn base_entry() -> MissionEntry {
         MissionEntry {
@@ -1756,6 +2034,7 @@ mod tests {
             reputation: Vec::new(),
             item_rewards: Vec::new(),
             blueprint_rewards: Vec::new(),
+            event_rewards: Vec::new(),
             rep_required: Vec::new(),
             chain_required: Vec::new(),
             locations: Vec::new(),
@@ -1883,7 +2162,8 @@ mod tests {
         assert!(out.contains("<EM4>Mission Info</EM4>"), "{out}");
         assert!(out.contains("Cooldown: 30min"), "{out}");
         assert!(out.contains("Scrip: 5 MG"), "{out}");
-        assert!(out.contains("UEC: 5000"), "{out}");
+        // The panel shows the reward itself; UEC only identifies variants.
+        assert!(!out.contains("UEC"), "{out}");
         assert!(out.contains("<EM4>Available at</EM4>"), "{out}");
         assert!(out.contains("Stanton: Hurston"), "{out}");
     }
@@ -1910,8 +2190,59 @@ mod tests {
         assert!(out.contains("Variants (2)"), "{out}");
         assert!(out.contains("Stanton: Hurston"), "{out}");
         assert!(out.contains("Pyro: Bloom"), "{out}");
-        assert!(out.contains("UEC: 1000"), "{out}");
-        assert!(out.contains("UEC: 2000"), "{out}");
+        assert!(out.contains("UEC: 1,000"), "{out}");
+        assert!(out.contains("UEC: 2,000"), "{out}");
+    }
+
+    #[test]
+    fn variants_show_only_deviations_from_the_majority() {
+        let pool = BpPoolReward {
+            pool_name: "Scrapers".into(),
+            chance: 1.0,
+            blueprints: vec![svc_data::BpPoolEntry {
+                blueprint_record_guid: "g1".into(),
+                name: Some("Hart Scraper Module".into()),
+                weight: 1.0,
+            }],
+        };
+        let target = encounter("Target_BP", "Aurora", "Criminal");
+        let mut a = base_entry();
+        a.blueprint_rewards = vec![pool.clone()];
+        a.cooldown_seconds = Some(1800.0);
+        a.encounters = vec![target.clone()];
+        a.locations = vec![region("Stanton", "Hurston")];
+        let mut b = a.clone();
+        b.locations = vec![region("Pyro", "Bloom")];
+        let mut c = a.clone();
+        c.blueprint_rewards = Vec::new();
+        c.cooldown_seconds = Some(172_800.0);
+        c.encounters = vec![encounter("Target_BP", "Scorpius", "Criminal")];
+        c.locations = vec![region("Nyx", "")];
+
+        let facts = PoolFacts::build(&[&a, &b, &c]);
+        let opts = DescOptions {
+            blueprint_list: true,
+            mission_info: true,
+            ship_encounters: true,
+            cargo_info: true,
+            region_info: true,
+            owned_mode: OwnedMode::Off,
+        };
+        let out = render_description(&facts, &[], opts, None);
+        // The majority (a, b) renders once on top…
+        assert_eq!(out.matches("Hart Scraper Module").count(), 1, "{out}");
+        assert_eq!(out.matches("Aurora").count(), 1, "{out}");
+        assert!(
+            out.contains("<EM4>Mission Info</EM4>\\nCooldown: 30min"),
+            "{out}"
+        );
+        // …the two majority variants merge and read "as above"…
+        assert!(out.contains("Variants (2) · differences only"), "{out}");
+        assert!(out.contains("as above"), "{out}");
+        // …and the deviating one lists only its differences.
+        assert!(out.contains("Cooldown: 48h"), "{out}");
+        assert!(out.contains("No blueprint"), "{out}");
+        assert!(out.contains("1x Scorpius (Criminal)"), "{out}");
     }
 
     #[test]
@@ -1956,6 +2287,37 @@ mod tests {
     }
 
     #[test]
+    fn event_line_shows_points_category_and_split() {
+        use svc_data::{EventLadder, EventReward};
+        let ladder = |name: Option<&str>, points, split| EventLadder {
+            name: name.map(str::to_string),
+            points,
+            split_for_party: split,
+            tiers: vec![2000, 4000],
+        };
+        let mut m = base_entry();
+        assert_eq!(event_line(&m), None);
+        m.event_rewards = vec![EventReward {
+            event: "Iasi".into(),
+            ladders: vec![
+                ladder(None, 1142, true),
+                ladder(Some("Collection"), 1142, false),
+            ],
+        }];
+        assert_eq!(
+            event_line(&m).as_deref(),
+            Some("Event: 1142 pts (Collection) · split in party")
+        );
+        // A category count that differs from the overall points is shown.
+        m.event_rewards[0].ladders[0].split_for_party = false;
+        m.event_rewards[0].ladders[1].points = 900;
+        assert_eq!(
+            event_line(&m).as_deref(),
+            Some("Event: 1142 pts (Collection 900)")
+        );
+    }
+
+    #[test]
     fn description_variants_split_on_abandon_cooldown() {
         let mut a = base_entry();
         a.cooldown_seconds = Some(1800.0);
@@ -1992,8 +2354,88 @@ mod tests {
                     factions: vec![faction.into()],
                 }],
                 cargo: Vec::new(),
+                spawns: Vec::new(),
             }],
+            kind: EncounterKind::Ships,
         }
+    }
+
+    fn npc(count: i32, kind: &str, faction: &str, allied: bool, target: bool) -> SpawnSlot {
+        SpawnSlot {
+            count_min: count,
+            count_max: count,
+            concurrent: count,
+            kinds: vec![kind.into()],
+            factions: vec![faction.into()],
+            allied,
+            target,
+        }
+    }
+
+    fn npc_encounter(label: &str, phases: Vec<Vec<SpawnSlot>>) -> MissionEncounter {
+        MissionEncounter {
+            label: label.into(),
+            difficulty: None,
+            waves: phases
+                .into_iter()
+                .map(|spawns| svc_data::MissionWave {
+                    name: String::new(),
+                    ships: Vec::new(),
+                    cargo: Vec::new(),
+                    spawns,
+                })
+                .collect(),
+            kind: EncounterKind::Npcs,
+        }
+    }
+
+    #[test]
+    fn npc_encounters_aggregate_across_phases() {
+        let enc = npc_encounter(
+            "BP_SpawnDescriptions",
+            vec![
+                vec![npc(3, "PU_Soldier", "Pyro_Outlaw", false, false)],
+                vec![npc(2, "PU_sniper", "Pyro_Outlaw", false, false)],
+                vec![npc(1, "PU_Soldier", "Pyro_Outlaw", false, false)],
+                vec![npc(1, "PU_Juggernaut", "Pyro_Outlaw", false, true)],
+                vec![npc(2, "Light", "Civilians", true, false)],
+            ],
+        );
+        let out = encounter_block(&[&enc], "Encounters", &[], true).unwrap();
+        // Friendlies don't count toward the heading.
+        assert!(out.contains("Encounters · 7 NPCs"), "{out}");
+        // Pure boilerplate label → the kind fallback.
+        assert!(out.contains(">NPCs<"), "{out}");
+        assert!(out.contains("- 4x Soldier (Pyro Outlaw)"), "{out}");
+        assert!(out.contains("- 2x Sniper (Pyro Outlaw)"), "{out}");
+        assert!(
+            out.contains("- 1x Juggernaut (Pyro Outlaw) · target"),
+            "{out}"
+        );
+        assert!(out.contains("- 2x Light (Civilians) · friendly"), "{out}");
+    }
+
+    #[test]
+    fn target_mark_drops_when_every_enemy_is_a_target() {
+        let enc = npc_encounter(
+            "Property_Wave1Enemys",
+            vec![vec![
+                npc(4, "PU_Soldier", "Ninetails", false, true),
+                npc(2, "PU_CQC", "Ninetails", false, true),
+                npc(2, "Medium", "PrivateSecurity", true, false),
+            ]],
+        );
+        let out = encounter_block(&[&enc], "Encounters", &[], true).unwrap();
+        assert!(out.contains(">Wave 1 Enemys<"), "{out}");
+        assert!(out.contains("- 4x Soldier (Ninetails)"), "{out}");
+        assert!(!out.contains("target"), "{out}");
+    }
+
+    #[test]
+    fn npc_kind_prettifies_archetypes() {
+        assert_eq!(npc_kind("PU_Soldier_Elite"), "Soldier Elite");
+        assert_eq!(npc_kind("PU_sniper"), "Sniper");
+        assert_eq!(npc_kind("Heavy"), "Heavy");
     }
 
     #[test]
@@ -2013,7 +2455,7 @@ mod tests {
             owned_mode: OwnedMode::Off,
         };
         let out = render_description(&facts, &[], opts, None);
-        assert!(out.contains("Encounters (all variants) · 1 ship"), "{out}");
+        assert!(out.contains("<EM4>Encounters · 1 ship</EM4>"), "{out}");
         assert_eq!(out.matches("Cutlass").count(), 1, "shared once: {out}");
         assert!(out.contains("Variants (2)"), "{out}");
         assert!(out.contains("Scythe (Vanduul)"), "{out}");
@@ -2024,11 +2466,11 @@ mod tests {
     fn uec_line_prefers_fixed_then_estimate() {
         let mut m = base_entry();
         m.payout.fixed = Some(1234);
-        assert_eq!(uec_line(&m).as_deref(), Some("UEC: 1234"));
+        assert_eq!(uec_line(&m).as_deref(), Some("UEC: 1,234"));
         m.payout.fixed = None;
         m.payout.calculated = true;
-        m.payout.estimate = Some(9800);
-        assert_eq!(uec_line(&m).as_deref(), Some("UEC: ~9800"));
+        m.payout.estimate = Some(521_250);
+        assert_eq!(uec_line(&m).as_deref(), Some("UEC: 521,250"));
         m.payout.estimate = None;
         assert_eq!(uec_line(&m), None);
     }
@@ -2062,6 +2504,12 @@ mod tests {
         assert_eq!(encounter_label("Scouts_SpawnDescriptions"), "Scouts");
         assert_eq!(encounter_label("SalvageSpawnDescription"), "Salvage");
         assert_eq!(encounter_label("MissionTargets"), "Mission Targets");
+        assert_eq!(encounter_label("BP_SpawnDescriptions"), "");
+        assert_eq!(encounter_label("Property_Defenders"), "Defenders");
+        assert_eq!(
+            encounter_label("BP_SpawnDescription_EliminateSpecific"),
+            "Eliminate Specific"
+        );
     }
 
     #[test]

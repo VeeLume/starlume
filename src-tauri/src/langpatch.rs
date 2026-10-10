@@ -561,16 +561,7 @@ async fn apply_install(
             .collect();
         merge::apply_renames(&mut lines, &renames);
 
-        // Ops stack per key in patcher-priority order (Replace resets the
-        // running value; Prefix/Suffix compose — the sc-langpatch runner
-        // semantics).
-        let mut patch_map: HashMap<String, Vec<mod_langpatch::PatchOp>> = HashMap::new();
-        for patcher_ops in &ops {
-            for (key, op) in &patcher_ops.ops.patches {
-                patch_map.entry(key.clone()).or_default().push(op.clone());
-            }
-        }
-        let stats = merge::apply_patches(&mut lines, &patch_map);
+        let stats = merge::apply_patches(&mut lines, &merge::stack_ops(&ops));
         tracing::info!(
             channel = %channel_key,
             patched = stats.patched_lines,
@@ -654,6 +645,91 @@ pub struct LangpatchInstallView {
     /// `"up-to-date" | "stale" | "foreign" | "unpatched"`.
     pub state: String,
     pub patched_at: Option<String>,
+}
+
+/// One INI value before and after patching (`mod_langpatch::preview`).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct PreviewTextView {
+    pub key: Option<String>,
+    pub original: String,
+    pub patched: String,
+}
+
+/// A mission's title + description as the contracts panel shows them.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct MissionPreviewView {
+    pub title: PreviewTextView,
+    pub description: PreviewTextView,
+}
+
+/// What the current config does to every mission's text, without writing
+/// anything — English base text (a language pack isn't overlaid), current
+/// patcher options, user overrides. The whole list ships at once; search
+/// and sort are client-side (the catalog model).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn langpatch_preview(
+    app: AppHandle,
+    channel: String,
+) -> Result<Vec<MissionPreviewView>, AppError> {
+    let key = channel.to_ascii_lowercase();
+    let installs = data::refresh_installs(&app).await?;
+    let install = installs
+        .into_iter()
+        .find(|i| i.channel_key == key)
+        .ok_or_else(|| AppError::Config(format!("no SC install found for channel '{channel}'")))?;
+    let previews = build_previews(&app, &load_config(), &install)
+        .await
+        .map_err(|e| AppError::Internal(format!("{e:#}")))?;
+    Ok(previews
+        .into_iter()
+        .map(|p| MissionPreviewView {
+            title: text_view(p.title),
+            description: text_view(p.description),
+        })
+        .collect())
+}
+
+fn text_view(t: mod_langpatch::preview::PreviewText) -> PreviewTextView {
+    PreviewTextView {
+        key: t.key,
+        original: t.original,
+        patched: t.patched,
+    }
+}
+
+/// The derive + per-key apply half of [`apply_install`], minus the p4k
+/// read: the base text comes from the cooked data, which the derive needs
+/// loaded anyway (snapshot-cached, so sub-second after the startup warm).
+async fn build_previews(
+    app: &AppHandle,
+    config: &LangpatchConfig,
+    install: &InstallRef,
+) -> anyhow::Result<Vec<mod_langpatch::preview::MissionPreview>> {
+    let patchers = builtin_patchers();
+    let owned = app
+        .state::<AppState>()
+        .dossier
+        .cached_blueprints()
+        .map(|o| o.blueprint_ids);
+    let service = app.state::<AppState>().data.clone();
+    let install_for_load = install.clone();
+    let cooked =
+        tokio::task::spawn_blocking(move || service.load(&install_for_load, |_| {})).await??;
+    let ops = derive_ops(
+        &langpatch_dir(),
+        &install.channel_key,
+        &install.build_id,
+        Some(&cooked),
+        config,
+        &patchers,
+        owned.as_ref(),
+    )?;
+    let overrides = load_overrides(&install.channel_key);
+    Ok(tokio::task::spawn_blocking(move || {
+        mod_langpatch::preview::mission_previews(&cooked, &merge::stack_ops(&ops), &overrides)
+    })
+    .await?)
 }
 
 /// The whole Text Patching page state in one call.

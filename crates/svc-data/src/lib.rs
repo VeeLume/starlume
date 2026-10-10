@@ -64,10 +64,10 @@ pub use cooked::{
 };
 pub use legality::{JurisdictionRef, LegalityEntry, LegalityKind};
 pub use missions::{
-    BpPoolEntry, BpPoolReward, CargoLeg, CrimestatRisk, ItemReward, MissionCategory,
-    MissionDifficulty, MissionEncounter, MissionEntry, MissionFaction, MissionPayout, MissionPlace,
-    MissionPoolFacts, MissionRef, MissionRegion, MissionWave, RepRequirement, RepReward,
-    ScripReward, ShipSlot,
+    BpPoolEntry, BpPoolReward, CargoLeg, CrimestatRisk, EncounterKind, EventLadder, EventReward,
+    ItemReward, MissionCategory, MissionDifficulty, MissionEncounter, MissionEntry, MissionFaction,
+    MissionPayout, MissionPlace, MissionPoolFacts, MissionRef, MissionRegion, MissionWave,
+    RepRequirement, RepReward, ScripReward, ShipSlot, SpawnSlot,
 };
 pub use weapons::{DamageBreakdown, MissileEntry, ShipWeaponEntry, TrackingEntry, WeaponsIndex};
 
@@ -537,6 +537,7 @@ mod tests {
             reputation: Vec::new(),
             item_rewards: Vec::new(),
             blueprint_rewards: Vec::new(),
+            event_rewards: Vec::new(),
             rep_required: Vec::new(),
             chain_required: Vec::new(),
             locations: Vec::new(),

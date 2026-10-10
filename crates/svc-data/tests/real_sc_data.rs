@@ -119,4 +119,42 @@ fn cook_from_real_install() {
         risky > 0,
         "no mission classified as crimestat-risky (DontHarm walk broken?)"
     );
+
+    // ── Event points ───────────────────────────────────────────────────
+    // Present only while an event's contracts are in the data; when there
+    // are any, each must carry an overall ladder with tiers.
+    let events: Vec<_> = cooked
+        .missions
+        .iter()
+        .flat_map(|m| m.event_rewards.iter().map(move |e| (m, e)))
+        .collect();
+    eprintln!("event points: {} mission entries", events.len());
+    for (m, e) in events.iter().take(5) {
+        eprintln!(
+            "  {} [{}] {:?}",
+            m.title.as_deref().unwrap_or(&m.debug_name),
+            e.event,
+            e.ladders
+                .iter()
+                .map(|l| (
+                    l.name.as_deref().unwrap_or("Overall"),
+                    l.points,
+                    l.split_for_party
+                ))
+                .collect::<Vec<_>>()
+        );
+    }
+    for (m, e) in &events {
+        let overall = e.ladders.first().expect("event reward without ladders");
+        assert!(
+            overall.name.is_none() && !overall.tiers.is_empty(),
+            "{}: overall ladder missing or without tiers",
+            m.debug_name
+        );
+        assert!(
+            e.ladders[1..].iter().all(|l| !l.split_for_party),
+            "{}: a category ladder claims to split",
+            m.debug_name
+        );
+    }
 }

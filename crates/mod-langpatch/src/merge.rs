@@ -217,8 +217,22 @@ pub fn apply_patches(lines: &mut [String], patches: &HashMap<String, Vec<PatchOp
     stats
 }
 
+/// Stack every patcher's ops per key, in the order given — pass
+/// [`crate::derive_ops`]' output, which is already in apply order (patcher
+/// priority, then id). `Replace` resets the running value, `Prefix` /
+/// `Suffix` compose: the sc-langpatch runner semantics.
+pub fn stack_ops(ops: &[crate::PatcherOps]) -> HashMap<String, Vec<PatchOp>> {
+    let mut stacked: HashMap<String, Vec<PatchOp>> = HashMap::new();
+    for patcher_ops in ops {
+        for (key, op) in &patcher_ops.ops.patches {
+            stacked.entry(key.clone()).or_default().push(op.clone());
+        }
+    }
+    stacked
+}
+
 /// Apply a stacked op list to an original value in order.
-fn apply_ops(original: &str, ops: &[PatchOp]) -> String {
+pub fn apply_ops(original: &str, ops: &[PatchOp]) -> String {
     let mut value = original.to_string();
     for op in ops {
         match op {
@@ -232,7 +246,7 @@ fn apply_ops(original: &str, ops: &[PatchOp]) -> String {
 
 /// Detect CIG's unresolved-localization sentinel values (case-insensitive
 /// `<= PLACEHOLDER =>` / `<= UNINITIALIZED =>` markers).
-fn is_placeholder_value(value: &str) -> bool {
+pub(crate) fn is_placeholder_value(value: &str) -> bool {
     let upper = value.to_ascii_uppercase();
     upper.contains("<= PLACEHOLDER =>") || upper.contains("<= UNINITIALIZED =>")
 }
