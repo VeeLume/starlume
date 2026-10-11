@@ -16,6 +16,7 @@ description = "Starlume data service — one shared DCB parse + snapshot cache p
 # missiles) for the weapons-index cook.
 sc-holotable = { workspace = true, features = ["foundations", "missions-payout", "weapons"] }
 serde.workspace = true
+serde_json.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 chrono.workspace = true

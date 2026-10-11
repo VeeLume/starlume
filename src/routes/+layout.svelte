@@ -6,7 +6,7 @@
   import { settingsStore, loadSettings } from "$lib/state/settings.svelte";
   import { authStore, loadAuth, listenForAuthChanges } from "$lib/state/auth.svelte";
   import { scStore, loadSc } from "$lib/state/sc.svelte";
-  import { loadStatus, ensureChannel } from "$lib/state/data.svelte";
+  import { loadStatus, ensureChannel, refreshBuildsIfShown } from "$lib/state/data.svelte";
   import { listenForActivities, syncActivities } from "$lib/state/activities.svelte";
   import { prefetchCatalogs, invalidateCatalogs } from "$lib/state/catalog.svelte";
   import { listen } from "@tauri-apps/api/event";
@@ -39,6 +39,7 @@
   // Cheap when nothing changed; also the focus/`data:changed` catch-up.
   async function hydrateData() {
     await loadStatus();
+    refreshBuildsIfShown();
     const channel = await ensureChannel();
     if (channel) prefetchCatalogs(channel);
   }

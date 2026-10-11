@@ -26,6 +26,8 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         data::data_status,
         data::data_load,
         data::data_wipe,
+        data::data_builds,
+        data::data_delete_build,
         data::data_search_items,
         data::data_items_all,
         data::data_item_detail,

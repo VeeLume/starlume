@@ -123,12 +123,36 @@ async dataLoad(channel: string) : Promise<Result<DataStatusView, AppError>> {
 }
 },
 /**
- * Delete cached snapshots for one channel (or all). The next load is a
- * full live parse.
+ * Delete cached snapshots for one channel's current build, or the whole
+ * cache including the archive. The next load is a full live parse.
  */
 async dataWipe(channel: string | null) : Promise<Result<null, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("data_wipe", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Every build in the cache — current ones and the archive — newest first.
+ * Local reads only.
+ */
+async dataBuilds() : Promise<Result<DataBuildView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_builds") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Delete one archived build (Settings → Game data). Builds an install is
+ * on are refused — those are wiped from the install's row.
+ */
+async dataDeleteBuild(key: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("data_delete_build", { key }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -539,7 +563,22 @@ blueprints_auto_fetch?: boolean;
  * owned installs so the in-game mission text re-renders ownership.
  * Default ON; honors all the langpatch write-gates.
  */
-blueprints_auto_langpatch?: boolean }
+blueprints_auto_langpatch?: boolean; 
+/**
+ * Build archive: how many releases (newest first) keep an archived
+ * game-data build after a patch replaces it. Default 3 — the raw
+ * extract (~35 MB) per kept build, the input for patch diffs.
+ */
+archive_releases: number; 
+/**
+ * Keep every build within a kept release (PTU waves, hotfixes), not
+ * only its newest one. Default off — a power-user option.
+ */
+archive_all_builds: boolean; 
+/**
+ * Archive PTU / Tech Preview builds too. Default off: Live/Hotfix only.
+ */
+archive_test_channels: boolean }
 export type AuthStatus = { 
 /**
  * A device token is present in the credential store.
@@ -563,6 +602,42 @@ export type DamageBreakdownView = { physical: number; energy: number; distortion
  * Scalar total across all damage types (the "alpha" figure).
  */
 total: number }
+/**
+ * One build on disk, for Settings → Game data.
+ */
+export type DataBuildView = { 
+/**
+ * Cache key — the changelist (`"12881860"`).
+ */
+key: string; 
+/**
+ * Version label as last seen (`"4.10.2-live.12881860"`).
+ */
+version: string; 
+/**
+ * `"4.10.2"`.
+ */
+release: string; 
+/**
+ * Display channels it has been installed on (`["Live"]`).
+ */
+channels: string[]; 
+/**
+ * Installed on some channel right now (never pruned).
+ */
+current: boolean; 
+/**
+ * Bytes on disk (f64 for the TS export).
+ */
+bytes: number; 
+/**
+ * The raw extract is present — what an archived build keeps.
+ */
+has_extract: boolean; 
+/**
+ * RFC 3339.
+ */
+last_used: string }
 /**
  * Cache/load state of one install, for the status cards.
  */

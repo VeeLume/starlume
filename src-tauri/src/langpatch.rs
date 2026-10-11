@@ -308,6 +308,9 @@ pub fn spawn_warm_then_reconcile(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         data::run_startup_warm(&app).await;
+        // The warm may have cooked a new build; the previous one becomes
+        // an archive (or goes, per the retention settings).
+        data::prune_archive(&app).await;
         request_reconcile(&app);
     });
 }

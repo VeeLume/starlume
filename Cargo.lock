@@ -5556,6 +5556,7 @@ dependencies = [
  "chrono",
  "sc-holotable",
  "serde",
+ "serde_json",
  "tempfile",
  "tracing",
 ]

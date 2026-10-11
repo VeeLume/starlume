@@ -61,16 +61,6 @@
           onchange={(v) => apply({ native_notifications: v })}
         />
       </Settings.Row>
-      <Settings.Row
-        label="Load game data at startup"
-        hint="Local only; the heavy parse runs only after a game patch."
-      >
-        <Switch
-          label="Load game data at startup"
-          checked={settings.auto_load_game_data}
-          onchange={(v) => apply({ auto_load_game_data: v })}
-        />
-      </Settings.Row>
     </Settings.Section>
 
     <Settings.Section title="Maintenance">

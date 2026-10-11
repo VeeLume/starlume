@@ -1,6 +1,7 @@
 <script lang="ts">
   // Manufacturer catalog on the kit surface — code + resolved name. Flat
   // rows (nothing to expand); search covers both.
+  import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import { onMount } from "svelte";
   import { Surface, Expand, createBrowseState, type Status } from "@veelume/ui";
   import type { ManufacturerRowView } from "$lib/bindings";
@@ -57,9 +58,7 @@
 </script>
 
 {#if ready && !dataStore.channel}
-  <p class="dim">
-    No game data loaded — go to <a href="/data">Overview</a> and press Load first.
-  </p>
+  <NoGameData />
 {:else}
   {#if browseError}
     <p class="error">{browseError}</p>

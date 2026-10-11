@@ -232,10 +232,6 @@
 {/if}
 
 <style>
-  .activity-note {
-    font-size: 0.8rem;
-    color: var(--accent);
-  }
   /* Cap the width: Settings.Row pushes controls to the right edge, which on a
    * wide window strands them far from their labels. */
   .group {

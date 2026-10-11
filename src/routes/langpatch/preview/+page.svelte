@@ -7,6 +7,7 @@
   // The list is page-local and recomputed per visit (frontend rule 1 — this
   // is derived output, not a long-lived dataset): it depends on the patcher
   // options, so a cached copy would go stale on every option change.
+  import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import { onMount } from "svelte";
   import {
     Surface,
@@ -144,9 +145,7 @@
   </div>
 
   {#if !loading && !channel}
-    <p class="dim">
-      No game data loaded — go to <a href="/data">Overview</a> and press Load first.
-    </p>
+    <NoGameData />
   {:else}
     {#if error}
       <p class="error">{error}</p>

@@ -647,13 +647,9 @@ pub(crate) async fn refresh_installs(app: &AppHandle) -> Result<Vec<InstallRef>,
 
 /// The changelist embedded in a version label (`"4.8.3-live.12122953"` →
 /// `12122953`) — monotonic across channels, so it orders builds by recency.
-/// `0` when the label doesn't end in digits (sorts last, which is right).
+/// `0` when the label has none (sorts last, which is right).
 fn changelist(version: &str) -> u64 {
-    version
-        .rsplit('.')
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0)
+    svc_data::changelist(version).unwrap_or(0)
 }
 
 /// The install the app treats as the user's default: the newest **PU** build
@@ -663,7 +659,7 @@ fn changelist(version: &str) -> u64 {
 fn default_install(installs: &[InstallRef]) -> Option<&InstallRef> {
     installs
         .iter()
-        .filter(|i| matches!(i.channel_key.as_str(), "live" | "hotfix"))
+        .filter(|i| svc_data::is_prod_channel(&i.channel_key))
         .max_by_key(|i| changelist(&i.version))
         .or_else(|| installs.iter().max_by_key(|i| changelist(&i.version)))
 }
@@ -788,6 +784,8 @@ pub(crate) async fn data_load(app: AppHandle, channel: String) -> Result<DataSta
     let install = install_for(&app, &channel).await?;
     load_with_progress(&app, &install).await?;
     emit_changed(&app);
+    // A Load can be the first sight of a new build — archive the old one.
+    prune_archive(&app).await;
 
     let is_default =
         default_install(&installs).map(|i| i.channel_key.as_str()) == Some(&install.channel_key);
@@ -871,17 +869,111 @@ async fn startup_warm(app: &AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Delete cached snapshots for one channel (or all). The next load is a
-/// full live parse.
+/// Delete cached snapshots for one channel's current build, or the whole
+/// cache including the archive. The next load is a full live parse.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn data_wipe(app: AppHandle, channel: Option<String>) -> Result<(), AppError> {
-    let state = app.state::<AppState>();
-    state
-        .data
-        .wipe(channel.map(|c| c.to_ascii_lowercase()).as_deref())?;
+    let install = match channel {
+        Some(channel) => Some(install_for(&app, &channel).await?),
+        None => None,
+    };
+    app.state::<AppState>().data.wipe(install.as_ref())?;
     emit_changed(&app);
     Ok(())
+}
+
+/// One build on disk, for Settings → Game data.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct DataBuildView {
+    /// Cache key — the changelist (`"12881860"`).
+    pub key: String,
+    /// Version label as last seen (`"4.10.2-live.12881860"`).
+    pub version: String,
+    /// `"4.10.2"`.
+    pub release: String,
+    /// Display channels it has been installed on (`["Live"]`).
+    pub channels: Vec<String>,
+    /// Installed on some channel right now (never pruned).
+    pub current: bool,
+    /// Bytes on disk (f64 for the TS export).
+    pub bytes: f64,
+    /// The raw extract is present — what an archived build keeps.
+    pub has_extract: bool,
+    /// RFC 3339.
+    pub last_used: String,
+}
+
+/// Every build in the cache — current ones and the archive — newest first.
+/// Local reads only.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn data_builds(app: AppHandle) -> Result<Vec<DataBuildView>, AppError> {
+    let installs = refresh_installs(&app).await?;
+    let service = app.state::<AppState>().data.clone();
+    let builds = tokio::task::spawn_blocking(move || service.builds(&installs))
+        .await
+        .map_err(|e| AppError::Internal(format!("build listing failed: {e}")))?;
+    Ok(builds
+        .into_iter()
+        .map(|b| DataBuildView {
+            key: b.meta.key,
+            version: b.meta.version,
+            release: b.meta.release,
+            channels: b.meta.channels.iter().map(|c| display_channel(c)).collect(),
+            current: b.current,
+            bytes: b.bytes as f64,
+            has_extract: b.has_extract,
+            last_used: b.meta.last_used,
+        })
+        .collect())
+}
+
+/// Delete one archived build (Settings → Game data). Builds an install is
+/// on are refused — those are wiped from the install's row.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn data_delete_build(app: AppHandle, key: String) -> Result<(), AppError> {
+    let installs = refresh_installs(&app).await?;
+    let service = app.state::<AppState>().data.clone();
+    tokio::task::spawn_blocking(move || service.delete_build(&key, &installs))
+        .await
+        .map_err(|e| AppError::Internal(format!("build delete failed: {e}")))?
+        .map_err(|e| AppError::Config(format!("{e:#}")))?;
+    emit_changed(&app);
+    Ok(())
+}
+
+/// The archive retention the user configured (Settings → Game data).
+fn retention_policy(app: &AppHandle) -> svc_data::RetentionPolicy {
+    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    svc_data::RetentionPolicy {
+        releases: settings.archive_releases.max(1) as usize,
+        all_builds: settings.archive_all_builds,
+        test_channels: settings.archive_test_channels,
+    }
+}
+
+/// Apply the archive retention against a fresh install scan: older builds
+/// slim down to their extract, builds the policy no longer covers go. Runs
+/// after every load that may have moved a channel to a new build (startup /
+/// post-patch warm, the Load button) and when the retention settings
+/// change. File IO only; emits `data:changed` when something was removed.
+pub(crate) async fn prune_archive(app: &AppHandle) {
+    let installs = match refresh_installs(app).await {
+        Ok(installs) => installs,
+        Err(e) => {
+            tracing::warn!("archive prune skipped: {e}");
+            return;
+        }
+    };
+    let policy = retention_policy(app);
+    let service = app.state::<AppState>().data.clone();
+    match tokio::task::spawn_blocking(move || service.prune(&installs, policy)).await {
+        Ok(report) if !report.deleted.is_empty() || report.slimmed > 0 => emit_changed(app),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("archive prune failed: {e}"),
+    }
 }
 
 /// The cooked bundle for query commands. Tier-1 reload at most (sub-second);
@@ -895,7 +987,7 @@ async fn cooked_for(
         .data
         .get_or_reload_fast(&install)
         .ok_or_else(|| {
-            AppError::Config("game data not loaded — open Game Data and press Load".into())
+            AppError::Config("game data not loaded — load it in Settings → Game data".into())
         })
 }
 
