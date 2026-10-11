@@ -66,6 +66,13 @@ async recentNotifications() : Promise<NotificationRecord[]> {
     return await TAURI_INVOKE("recent_notifications");
 },
 /**
+ * The current activities, oldest first — the frontend store hydrates from
+ * this on mount and on window focus.
+ */
+async currentActivities() : Promise<ActivityRecord[]> {
+    return await TAURI_INVOKE("current_activities");
+},
+/**
  * Scan installs + recognize the launcher account. Local reads only — no
  * network, no online gate. First sight of a handle creates an unverified
  * account row (the Hearth bootstrap pattern).
@@ -104,8 +111,8 @@ async dataStatus() : Promise<Result<DataStatusView[], AppError>> {
 },
 /**
  * Run the load waterfall for one channel (processed snapshot → extract
- * snapshot → live parse). The slow tiers take ~15–45s; progress streams
- * via the `data:progress` event.
+ * snapshot → live parse). The slow tiers take ~15–45s; progress shows as
+ * the `data-load` activity.
  */
 async dataLoad(channel: string) : Promise<Result<DataStatusView, AppError>> {
     try {
@@ -394,6 +401,40 @@ async leaveGroup(groupId: string) : Promise<Result<null, AppError>> {
 
 /** user-defined types **/
 
+/**
+ * What kind of work an activity is — inline surfaces filter on it.
+ */
+export type ActivityKind = 
+/**
+ * svc-data load waterfall (snapshot load, parse, cook).
+ */
+"data-load" | 
+/**
+ * mod-langpatch: pack download, re-patch, waiting for SC to exit.
+ */
+"langpatch" | 
+/**
+ * svc-dossier owned-blueprints fetch.
+ */
+"blueprints"
+/**
+ * Where an activity is. `stage` is a user-facing label ("Parsing
+ * DataCore…"); work without stages leaves it empty.
+ */
+export type ActivityPhase = { type: "running"; stage: string | null } | 
+/**
+ * Blocked on a condition outside the app, not on progress.
+ */
+{ type: "waiting"; reason: string }
+export type ActivityRecord = { id: number; kind: ActivityKind; 
+/**
+ * Lowercase channel key the work is about ("live"), if any.
+ */
+channel: string | null; title: string; phase: ActivityPhase; 
+/**
+ * Epoch milliseconds as f64 (the `NotificationRecord` convention).
+ */
+started: number }
 export type AppError = 
 /**
  * Something the user can fix in Settings (missing server URL, …).
@@ -676,7 +717,14 @@ export type NotificationRecord = ({ level: NotifLevel; title: string; body: stri
 /**
  * Module/service id that raised this ("auth", "langpatch", …).
  */
-source: string | null }) & { id: number; ts: number }
+source: string | null; 
+/**
+ * Log-only: lands in the notification center but never toasts (in-app
+ * or native). For the outcome of background work the user can see
+ * running in the center anyway — "Text patch applied" — where a toast
+ * would be noise (see `activity.rs`).
+ */
+quiet: boolean }) & { id: number; ts: number }
 export type OptionKindView = { type: "Bool" } | { type: "Choice"; choices: ChoiceView[] }
 /**
  * The owned-blueprint set as it crosses IPC (specta mirror of

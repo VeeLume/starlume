@@ -6,13 +6,13 @@
   import { settingsStore, loadSettings } from "$lib/state/settings.svelte";
   import { authStore, loadAuth, listenForAuthChanges } from "$lib/state/auth.svelte";
   import { scStore, loadSc } from "$lib/state/sc.svelte";
+  import { loadStatus, ensureChannel } from "$lib/state/data.svelte";
   import {
-    dataStore,
-    loadStatus,
-    ensureChannel,
-    listenForDataProgress,
-    clearAllLoading,
-  } from "$lib/state/data.svelte";
+    activityStore,
+    activityLabel,
+    listenForActivities,
+    syncActivities,
+  } from "$lib/state/activities.svelte";
   import { prefetchCatalogs, invalidateCatalogs } from "$lib/state/catalog.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { onboarding, maybeStartOnboarding } from "$lib/state/onboarding.svelte";
@@ -35,7 +35,7 @@
 
   let unlistenAuth: UnlistenFn | undefined;
   let unlistenNotify: UnlistenFn | undefined;
-  let unlistenDataProgress: UnlistenFn | undefined;
+  let unlistenActivities: UnlistenFn | undefined;
   let unlistenDataChanged: UnlistenFn | undefined;
   let unlistenBlueprints: UnlistenFn | undefined;
 
@@ -106,6 +106,11 @@
       // suspended; the focus handler below covers later suspensions).
       unlistenNotify = await listenForNotifications();
       await syncNotifications();
+      // Background activity — same funnel shape: live snapshots plus a
+      // catch-up read (the kit center's "Now" section and the inline
+      // surfaces both read this store).
+      unlistenActivities = await listenForActivities();
+      await syncActivities();
       // Settings first — the online master switch gates loadAuth's profile
       // fetch (backend-side). The update check is exempt by design.
       await loadSettings();
@@ -119,9 +124,7 @@
     })();
     // Game-data hydration runs independently of the auth chain — local only.
     void (async () => {
-      unlistenDataProgress = await listenForDataProgress();
       unlistenDataChanged = await listen("data:changed", () => {
-        clearAllLoading();
         invalidateCatalogs();
         void hydrateData();
       });
@@ -138,7 +141,7 @@
   onDestroy(() => {
     unlistenAuth?.();
     unlistenNotify?.();
-    unlistenDataProgress?.();
+    unlistenActivities?.();
     unlistenDataChanged?.();
     unlistenBlueprints?.();
   });
@@ -147,6 +150,7 @@
 <svelte:window
   onfocus={() => {
     void syncNotifications();
+    void syncActivities();
     void hydrateData();
   }}
 />
@@ -209,11 +213,11 @@
     {#snippet banner()}
       <!-- Game-data work made visible: the cold parse takes minutes and runs
            once per game patch — invisible background work reads as a hang.
-           One strip per channel currently loading (dataStore.loading is fed
-           by the data:progress events the root layout subscribes to). -->
-      {#each Object.entries(dataStore.loading) as [channel, stage] (channel)}
+           One strip per running data-load activity (whoever started it:
+           the Load button, the startup warm, a text-patch derive). -->
+      {#each activityStore.items.filter((a) => a.kind === "data-load") as load (load.id)}
         <div class="data-banner">
-          <Progress label="Preparing Star Citizen data ({channel})" detail={stage} />
+          <Progress label={load.title} detail={activityLabel(load)} />
           <p class="data-banner-hint">
             The heavy parse happens once per game patch — catalogs and text patching pick
             it up automatically when it finishes.

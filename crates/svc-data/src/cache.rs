@@ -45,17 +45,64 @@ pub(crate) fn meta_for(install: &InstallRef) -> SnapshotMeta {
     }
 }
 
-/// Which cache tier the next load will *likely* use, from snapshot-file
-/// existence (cheap, no parse). Not a guarantee — a stale snapshot after an
-/// SC patch still falls through to a slower tier, which is why the UI pairs
-/// it with a "may take longer" note.
-pub(crate) fn predict_tier(dir: &Path) -> LoadTier {
-    if dir.join(PROCESSED_SNAPSHOT_NAME).exists() {
+/// Which cache tier the next load will *likely* use. Cheap — reads only the
+/// tiny key sidecars written beside each snapshot, never the snapshot. A
+/// snapshot whose key doesn't match this install's build (an SC patch) or
+/// the current [`DATA_COOK_VERSION`] (a cook-rev bump) predicts the slower
+/// tier the load will actually fall through to, so the UI never promises
+/// "~1s" for a rebuild. Not a guarantee: a corrupt snapshot still falls
+/// through at load time.
+pub(crate) fn predict_tier(dir: &Path, install: &InstallRef) -> LoadTier {
+    if dir.join(PROCESSED_SNAPSHOT_NAME).exists()
+        && read_key(dir, PROCESSED_SNAPSHOT_NAME).as_deref() == Some(&processed_key(install))
+    {
         LoadTier::Processed
-    } else if dir.join(EXTRACT_SNAPSHOT_NAME).exists() {
+    } else if dir.join(EXTRACT_SNAPSHOT_NAME).exists()
+        && read_key(dir, EXTRACT_SNAPSHOT_NAME).as_deref() == Some(&extract_key(install))
+    {
         LoadTier::Extract
     } else {
         LoadTier::Live
+    }
+}
+
+/// What a processed snapshot must have been written for to be current.
+fn processed_key(install: &InstallRef) -> String {
+    format!(
+        "{DATA_COOK_VERSION}
+{}",
+        install.build_id
+    )
+}
+
+/// What an extract snapshot must have been written for to be current.
+fn extract_key(install: &InstallRef) -> String {
+    format!(
+        "{}
+{}",
+        ExtractSnapshot::SCHEMA_VERSION,
+        install.build_id
+    )
+}
+
+fn key_path(dir: &Path, snapshot: &str) -> PathBuf {
+    dir.join(format!("{snapshot}.key"))
+}
+
+fn read_key(dir: &Path, snapshot: &str) -> Option<String> {
+    std::fs::read_to_string(key_path(dir, snapshot)).ok()
+}
+
+/// Record which build/version a snapshot is current for. Written after each
+/// save and after each successful load (snapshots predating the sidecar get
+/// one on their first use). Best-effort: a missing key only makes the
+/// prediction pessimistic.
+fn write_key(dir: &Path, snapshot: &str, key: &str) {
+    if read_key(dir, snapshot).as_deref() == Some(key) {
+        return;
+    }
+    if let Err(e) = std::fs::write(key_path(dir, snapshot), key) {
+        tracing::debug!("failed to write {snapshot} key: {e}");
     }
 }
 
@@ -82,6 +129,7 @@ pub(crate) fn try_load_processed(dir: &Path, install: &InstallRef) -> Option<Coo
         );
         return None;
     }
+    write_key(dir, PROCESSED_SNAPSHOT_NAME, &processed_key(install));
     Some(snap.into_index())
 }
 
@@ -95,6 +143,7 @@ pub(crate) fn save_processed(dir: &Path, install: &InstallRef, cooked: &CookedDa
             path.display()
         );
     } else {
+        write_key(dir, PROCESSED_SNAPSHOT_NAME, &processed_key(install));
         tracing::debug!("wrote processed snapshot to {}", path.display());
     }
 }
@@ -123,7 +172,10 @@ pub(crate) fn try_load_extract(dir: &Path, install: &InstallRef) -> Option<(Asse
         return None;
     }
     match snap.hydrate(&AssetConfig::standard()) {
-        Ok(pair) => Some(pair),
+        Ok(pair) => {
+            write_key(dir, EXTRACT_SNAPSHOT_NAME, &extract_key(install));
+            Some(pair)
+        }
         Err(e) => {
             tracing::info!("extract snapshot hydrate failed ({e}); falling back to live parse");
             None
@@ -149,6 +201,7 @@ pub(crate) fn save_extract(dir: &Path, install: &InstallRef, assets: &AssetSourc
     if let Err(e) = snap.save(&path) {
         tracing::warn!("failed to save extract snapshot to {}: {e}", path.display());
     } else {
+        write_key(dir, EXTRACT_SNAPSHOT_NAME, &extract_key(install));
         let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         tracing::info!(bytes = size, "wrote extract snapshot to {}", path.display());
     }

@@ -7,19 +7,17 @@
 //! gate (the p4k, the snapshots, and the cooked indices all live on this
 //! machine).
 //!
-//! During a load, coarse progress is emitted as a plain `data:progress`
-//! event (the notify.rs pattern): `{ channel, stage }` with stage one of
-//! `loading-snapshot | opening-p4k | extracting | parsing | cooking |
-//! saving`. The frontend store hand-types that payload.
+//! Every load that runs the waterfall shows up as a `data-load` activity
+//! (`activity.rs`) whose stage follows svc-data's progress — whoever asked
+//! for it (the Load button, the startup warm, a langpatch derive).
 
 use tauri::{AppHandle, Emitter, Manager};
 
 use svc_data::{EncounterKind, InstallRef, ItemQuery, LoadTier, Stage};
 
 use crate::AppState;
+use crate::activity::{Activity, ActivityKind};
 use crate::error::AppError;
-
-pub const DATA_PROGRESS_EVENT: &str = "data:progress";
 
 /// Fired after anything that changes cache/load state (explicit load, wipe,
 /// startup warm) — the frontend refreshes statuses and invalidates its
@@ -30,20 +28,14 @@ pub(crate) fn emit_changed(app: &AppHandle) {
     let _ = app.emit(DATA_CHANGED_EVENT, ());
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-struct DataProgress {
-    channel: String,
-    stage: &'static str,
-}
-
-fn stage_str(stage: Stage) -> &'static str {
+fn stage_label(stage: Stage) -> &'static str {
     match stage {
-        Stage::LoadingSnapshot => "loading-snapshot",
-        Stage::OpeningP4k => "opening-p4k",
-        Stage::Extracting => "extracting",
-        Stage::Parsing => "parsing",
-        Stage::Cooking => "cooking",
-        Stage::Saving => "saving",
+        Stage::LoadingSnapshot => "Checking snapshots…",
+        Stage::OpeningP4k => "Opening Data.p4k…",
+        Stage::Extracting => "Extracting assets…",
+        Stage::Parsing => "Parsing DataCore… (the long part)",
+        Stage::Cooking => "Building indices…",
+        Stage::Saving => "Saving snapshots…",
     }
 }
 
@@ -741,37 +733,52 @@ pub(crate) async fn data_status(app: AppHandle) -> Result<Vec<DataStatusView>, A
         .collect())
 }
 
-/// Run the load waterfall for one install on a blocking thread, streaming
-/// stage progress as `data:progress` events. Shared by the explicit
-/// `data_load` command and the startup warm.
-async fn load_with_progress(
+/// Run the load waterfall for one install on a blocking thread, as a
+/// `data-load` activity. Every svc-data load in the shell goes through here
+/// (the Load button, the startup warm, the langpatch derive and preview) so
+/// none of them can parse invisibly.
+///
+/// The activity is created by the first stage callback: only the
+/// single-flight winner runs the waterfall and reports stages, and an
+/// in-memory hit reports none — so concurrent callers share one activity
+/// and a cache hit shows nothing.
+pub(crate) async fn load_tracked(
     app: &AppHandle,
     install: &InstallRef,
-    channel_label: String,
-) -> Result<(), AppError> {
+) -> anyhow::Result<std::sync::Arc<svc_data::CookedData>> {
     let service = app.state::<AppState>().data.clone();
-    let progress_app = app.clone();
-    let install_for_load = install.clone();
+    let install = install.clone();
+    let app = app.clone();
     tokio::task::spawn_blocking(move || {
-        service.load(&install_for_load, move |stage| {
-            let _ = progress_app.emit(
-                DATA_PROGRESS_EVENT,
-                DataProgress {
-                    channel: channel_label.clone(),
-                    stage: stage_str(stage),
-                },
-            );
-        })
+        let activity = std::sync::Arc::new(std::sync::Mutex::new(None::<Activity>));
+        let slot = activity.clone();
+        let channel = install.channel_key.clone();
+        let title = format!("Game data — {}", display_channel(&channel));
+        let result = service.load(&install, move |stage| {
+            slot.lock()
+                .unwrap()
+                .get_or_insert_with(|| {
+                    Activity::start(&app, ActivityKind::DataLoad, Some(&channel), title.clone())
+                })
+                .set_stage(stage_label(stage));
+        });
+        // Ends the activity (if one started) now that the load returned.
+        activity.lock().unwrap().take();
+        result
     })
-    .await
-    .map_err(|e| AppError::Internal(format!("data load task failed: {e}")))?
-    .map_err(|e| AppError::Internal(format!("data load failed: {e:#}")))?;
+    .await?
+}
+
+async fn load_with_progress(app: &AppHandle, install: &InstallRef) -> Result<(), AppError> {
+    load_tracked(app, install)
+        .await
+        .map_err(|e| AppError::Internal(format!("data load failed: {e:#}")))?;
     Ok(())
 }
 
 /// Run the load waterfall for one channel (processed snapshot → extract
-/// snapshot → live parse). The slow tiers take ~15–45s; progress streams
-/// via the `data:progress` event.
+/// snapshot → live parse). The slow tiers take ~15–45s; progress shows as
+/// the `data-load` activity.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn data_load(app: AppHandle, channel: String) -> Result<DataStatusView, AppError> {
@@ -779,7 +786,7 @@ pub(crate) async fn data_load(app: AppHandle, channel: String) -> Result<DataSta
     // patch since the last scan would cook under a stale key.
     let installs = refresh_installs(&app).await?;
     let install = install_for(&app, &channel).await?;
-    load_with_progress(&app, &install, channel.clone()).await?;
+    load_with_progress(&app, &install).await?;
     emit_changed(&app);
 
     let is_default =
@@ -839,7 +846,7 @@ async fn startup_warm(app: &AppHandle) -> Result<(), AppError> {
         tier = ?status.predicted_tier,
         "startup game-data warm"
     );
-    load_with_progress(app, &install, label.clone()).await?;
+    load_with_progress(app, &install).await?;
 
     let hidden = app
         .get_webview_window("main")
@@ -857,7 +864,8 @@ async fn startup_warm(app: &AppHandle) -> Result<(), AppError> {
                     "{} cooked and cached; catalogs are up to date.",
                     install.version
                 ))
-                .with_source("data"),
+                .with_source("data")
+                .quiet(),
         );
     }
     Ok(())

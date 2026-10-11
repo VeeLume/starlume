@@ -5,6 +5,7 @@
   // the catalogs themselves never trigger a parse.
   import { onMount } from "svelte";
   import { dataStore, loadStatus, startLoad, wipe, setChannel } from "$lib/state/data.svelte";
+  import { activityFor, activityLabel } from "$lib/state/activities.svelte";
 
   const tierNote = (tier: string) =>
     tier === "processed"
@@ -33,6 +34,9 @@
 {:else}
   <div class="cards">
     {#each dataStore.statuses as status (status.channel)}
+      <!-- A rebuild shows on the card whoever started it (startup warm, a
+           text-patch derive) — the activity, not this page, knows. -->
+      {@const rebuild = activityFor("data-load", status.channel)}
       <div class="card install">
         <div class="card-head">
           <span class="channel">
@@ -58,8 +62,10 @@
           {/if}
         </div>
         <div class="card-actions">
-          {#if dataStore.loading[status.channel]}
-            <span class="progress">{dataStore.loading[status.channel]}</span>
+          {#if rebuild}
+            <span class="progress">⟳ {activityLabel(rebuild)}</span>
+          {:else if dataStore.starting[status.channel]}
+            <span class="progress">Starting…</span>
           {:else}
             <button class="btn primary" onclick={() => void load(status.channel)}>
               {status.loaded ? "Reload" : "Load"}

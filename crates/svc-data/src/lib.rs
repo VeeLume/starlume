@@ -171,7 +171,7 @@ impl DataService {
         let cooked = self.get(&install.channel_key);
         DataStatus {
             loaded: cooked.is_some(),
-            predicted_tier: cache::predict_tier(&self.channel_dir(&install.channel_key)),
+            predicted_tier: cache::predict_tier(&self.channel_dir(&install.channel_key), install),
             item_count: cooked.as_ref().map(|c| c.item_count()),
             resource_count: cooked.as_ref().map(|c| c.resource_count()),
             mission_count: cooked.as_ref().map(|c| c.mission_count()),
@@ -690,15 +690,21 @@ mod tests {
     }
 
     #[test]
-    fn predict_tier_follows_file_existence() {
+    fn predict_tier_follows_current_snapshots() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(cache::predict_tier(dir.path()), LoadTier::Live);
+        let inst = install("live", "build-1");
+        assert_eq!(cache::predict_tier(dir.path(), &inst), LoadTier::Live);
 
+        // A snapshot file without a matching key is not trusted.
         std::fs::write(dir.path().join(cache::EXTRACT_SNAPSHOT_NAME), b"x").unwrap();
-        assert_eq!(cache::predict_tier(dir.path()), LoadTier::Extract);
+        assert_eq!(cache::predict_tier(dir.path(), &inst), LoadTier::Live);
 
-        std::fs::write(dir.path().join(cache::PROCESSED_SNAPSHOT_NAME), b"x").unwrap();
-        assert_eq!(cache::predict_tier(dir.path()), LoadTier::Processed);
+        cache::save_processed(dir.path(), &inst, &fake_cooked());
+        assert_eq!(cache::predict_tier(dir.path(), &inst), LoadTier::Processed);
+
+        // An SC patch makes the processed snapshot stale → predict the parse.
+        let patched = install("live", "build-2");
+        assert_eq!(cache::predict_tier(dir.path(), &patched), LoadTier::Live);
     }
 
     #[test]

@@ -35,6 +35,7 @@ use mod_langpatch::{
 use svc_data::InstallRef;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::activity::{Activity, ActivityKind};
 use crate::error::AppError;
 use crate::notify::{Notification, notify};
 use crate::{AppState, data};
@@ -109,6 +110,10 @@ fn spawn_exit_waiter(app: &AppHandle) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        // Visible for as long as the patch is held back (the center's "Now",
+        // the tray tooltip) — this replaces the old "Text patch queued" toast.
+        let waiting = Activity::start(&app, ActivityKind::Langpatch, None, "Text patching")
+            .wait("Waiting for Star Citizen to exit");
         // 30s poll, capped at 12h — the next trigger covers the rest.
         for _ in 0..1440 {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
@@ -116,6 +121,7 @@ fn spawn_exit_waiter(app: &AppHandle) {
                 break;
             }
         }
+        drop(waiting);
         EXIT_WAITER.store(false, Ordering::SeqCst);
         tracing::info!("SC exited — running deferred langpatch reconcile");
         request_reconcile(&app);
@@ -180,6 +186,8 @@ async fn fetch_or_cached_pack(app: &AppHandle, url: &str) -> Option<Vec<u8>> {
         return cached();
     }
 
+    let _activity = Activity::start(app, ActivityKind::Langpatch, None, "Text patching")
+        .stage("Downloading language pack…");
     let fetch_url = rewrite_github_url(url);
     let response = async {
         let resp = reqwest::Client::new()
@@ -424,13 +432,8 @@ async fn reconcile_one(
     // Write gate: never touch the file while SC runs (it read the INI at
     // boot; writing now only risks fighting the launcher/verifier).
     if sc_running().await {
+        // The waiter's activity tells the user; no toast.
         spawn_exit_waiter(app);
-        notify(
-            app,
-            Notification::info("Text patch queued")
-                .with_body("Star Citizen is running; the patch applies when it exits.")
-                .with_source("langpatch"),
-        );
         return Ok(Outcome::Deferred);
     }
 
@@ -440,7 +443,20 @@ async fn reconcile_one(
     let stale_override_present =
         disk_sha.is_some() && entry.is_some_and(|e| e.staleness_key != fingerprint.staleness_key);
 
-    match apply_install(app, config, install, &install_dir, pack).await {
+    // Started only once there is work to do: an up-to-date check is
+    // milliseconds and would just flicker through the center.
+    let activity = Activity::start(
+        app,
+        ActivityKind::Langpatch,
+        Some(&install.channel_key),
+        format!(
+            "Text patch — {}",
+            data::display_channel(&install.channel_key)
+        ),
+    );
+    let applied = apply_install(app, config, install, &install_dir, pack, &activity).await;
+    drop(activity);
+    match applied {
         Ok(output_sha) => {
             state_file.installs.insert(
                 install.channel_key.clone(),
@@ -464,7 +480,8 @@ async fn reconcile_one(
                     data::display_channel(&install.channel_key)
                 ))
                 .with_body(format!("{} enriched.", install.version))
-                .with_source("langpatch"),
+                .with_source("langpatch")
+                .quiet(),
             );
             Ok(Outcome::Applied)
         }
@@ -503,6 +520,7 @@ async fn apply_install(
     install: &InstallRef,
     install_dir: &Path,
     pack: Option<(Vec<String>, String)>,
+    activity: &Activity,
 ) -> anyhow::Result<String> {
     let data_dir = langpatch_dir();
     let patchers = builtin_patchers();
@@ -517,6 +535,7 @@ async fn apply_install(
     // is the only potentially slow part — and only when the cache misses
     // (fresh build / changed owned set), where svc-data's own snapshot cache
     // usually makes it cheap because the warm ran first.
+    activity.set_stage("Deriving mission text…");
     let cooked = if cache_complete(
         &data_dir,
         &install.channel_key,
@@ -527,9 +546,8 @@ async fn apply_install(
     ) {
         None
     } else {
-        let service = app.state::<AppState>().data.clone();
-        let install_for_load = install.clone();
-        Some(tokio::task::spawn_blocking(move || service.load(&install_for_load, |_| {})).await??)
+        // A cook here shows as its own data-load activity.
+        Some(data::load_tracked(app, install).await?)
     };
     let ops = derive_ops(
         &data_dir,
@@ -546,6 +564,7 @@ async fn apply_install(
     let install_dir = install_dir.to_path_buf();
     let channel_key = install.channel_key.clone();
 
+    activity.set_stage("Writing global.ini…");
     tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
         let base = svc_data::read_base_global_ini(&p4k_path)?;
         let mut lines = merge::decode_ini(&base)?;
@@ -712,10 +731,7 @@ async fn build_previews(
         .dossier
         .cached_blueprints()
         .map(|o| o.blueprint_ids);
-    let service = app.state::<AppState>().data.clone();
-    let install_for_load = install.clone();
-    let cooked =
-        tokio::task::spawn_blocking(move || service.load(&install_for_load, |_| {})).await??;
+    let cooked = data::load_tracked(app, install).await?;
     let ops = derive_ops(
         &langpatch_dir(),
         &install.channel_key,

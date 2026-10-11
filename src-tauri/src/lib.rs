@@ -20,6 +20,7 @@
 //!   native-toast fallback when the window is hidden).
 //! - [`error`] — the shared IPC error type.
 
+mod activity;
 mod auth;
 mod bus;
 mod data;

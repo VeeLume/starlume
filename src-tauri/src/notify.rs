@@ -63,6 +63,11 @@ pub struct Notification {
     pub action: Option<NotifAction>,
     /// Module/service id that raised this ("auth", "langpatch", …).
     pub source: Option<String>,
+    /// Log-only: lands in the notification center but never toasts (in-app
+    /// or native). For the outcome of background work the user can see
+    /// running in the center anyway — "Text patch applied" — where a toast
+    /// would be noise (see `activity.rs`).
+    pub quiet: bool,
 }
 
 impl Notification {
@@ -73,6 +78,7 @@ impl Notification {
             body: None,
             action: None,
             source: None,
+            quiet: false,
         }
     }
 
@@ -101,6 +107,12 @@ impl Notification {
             label: label.into(),
             href: href.into(),
         });
+        self
+    }
+
+    /// Record in the center without toasting.
+    pub fn quiet(mut self) -> Self {
+        self.quiet = true;
         self
     }
 
@@ -190,6 +202,9 @@ pub fn notify(app: &AppHandle, n: Notification) {
         tracing::warn!("failed to emit notification: {e}");
     }
     let n = record.payload;
+    if n.quiet {
+        return;
+    }
 
     // Native OS toast when nobody can see the in-app one (window hidden or
     // minimized — companion mode). User-toggleable, default on.

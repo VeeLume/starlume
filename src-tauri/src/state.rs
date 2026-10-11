@@ -3,6 +3,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::activity::ActivityLog;
 use crate::error::AppError;
 use crate::notify::NotifLog;
 use crate::settings::AppSettings;
@@ -16,6 +17,9 @@ pub struct AppState {
     /// Session notification log (Rust-side so webview suspension can't lose
     /// entries — see `notify.rs`).
     pub notif_log: Mutex<NotifLog>,
+    /// Live background activities (Rust-side for the same suspension
+    /// reason — see `activity.rs`).
+    pub activities: Mutex<ActivityLog>,
     /// Recognized RSI accounts (durable copy: `accounts.json`).
     pub accounts: Mutex<Vec<crate::sc::RsiAccount>>,
     /// The shared SC data service (internally synchronized). `Arc` so the
@@ -43,6 +47,7 @@ impl AppState {
             settings: Mutex::new(AppSettings::load()),
             pending_login: Mutex::new(None),
             notif_log: Mutex::new(NotifLog::default()),
+            activities: Mutex::new(ActivityLog::default()),
             accounts: Mutex::new(app_kit::load_json(&crate::sc::accounts_path())),
             data: Arc::new(svc_data::DataService::new(
                 app_kit::app_data_root().join("cache"),
@@ -115,6 +120,7 @@ mod tests {
             settings: Mutex::new(settings),
             pending_login: Mutex::new(None),
             notif_log: Mutex::new(NotifLog::default()),
+            activities: Mutex::new(ActivityLog::default()),
             accounts: Mutex::new(Vec::new()),
             data: Arc::new(svc_data::DataService::new(std::env::temp_dir())),
             installs: Mutex::new(Vec::new()),

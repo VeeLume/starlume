@@ -18,6 +18,7 @@
     applyLangpatch,
     removeLangpatch,
   } from "$lib/state/langpatch.svelte";
+  import { activityFor, activityLabel } from "$lib/state/activities.svelte";
 
   const overview = $derived(langpatchStore.overview);
 
@@ -98,10 +99,20 @@
     <h2>Installs</h2>
     <div class="card rows">
       {#each overview.installs as install (install.channel_key)}
+        <!-- Live work beats the stored state: a re-patch in flight (or held
+             back — SC running, pack downloading, the cook it waits on) says
+             what is happening instead of a bare "Stale". -->
+        {@const work =
+          activityFor("langpatch", install.channel_key) ??
+          (install.state === "stale" ? activityFor("data-load", install.channel_key) : undefined)}
         <Settings.Row label={install.channel} hint={install.version}>
           <span class="flex flex-wrap items-center justify-end gap-2">
             {#if install.selected}
-              <StatusBadge status={install.state} map={stateMap} />
+              {#if work}
+                <span class="activity-note">⟳ {activityLabel(work)}</span>
+              {:else}
+                <StatusBadge status={install.state} map={stateMap} />
+              {/if}
               <Button
                 variant="outline"
                 disabled={langpatchStore.busy}
@@ -221,6 +232,10 @@
 {/if}
 
 <style>
+  .activity-note {
+    font-size: 0.8rem;
+    color: var(--accent);
+  }
   /* Cap the width: Settings.Row pushes controls to the right edge, which on a
    * wide window strands them far from their labels. */
   .group {

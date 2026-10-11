@@ -9,6 +9,8 @@
 // focus; live `notify` events cover the visible case. The kit's keyed
 // `ingest` dedupes the overlap between the live stream and the catch-up
 // sweep — hydrated backlog entries keep their unread state but never toast.
+// `quiet` records (the outcome of background work the center already showed
+// running — see activities.svelte.ts) never toast either.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ingest } from "@veelume/ui";
@@ -35,7 +37,7 @@ function ingestRecord(r: NotificationRecord, toast: boolean) {
       action: r.action ?? null,
       source: r.source ?? null,
     },
-    { toast },
+    { toast: toast && !r.quiet },
   );
 }
 

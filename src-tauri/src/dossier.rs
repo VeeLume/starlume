@@ -10,6 +10,7 @@
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::AppState;
+use crate::activity::{Activity, ActivityKind};
 use crate::error::AppError;
 
 /// Fired after a blueprint refresh (startup or manual). The frontend store
@@ -85,7 +86,11 @@ async fn refresh_and_react(app: &AppHandle) -> Result<OwnedBlueprintsView, AppEr
         .cached_blueprints()
         .map(|o| o.blueprint_ids)
         .unwrap_or_default();
-    let owned = dossier.refresh_blueprints(GRPC_USER_AGENT).await?;
+    let owned = {
+        let _activity = Activity::start(app, ActivityKind::Blueprints, None, "Owned blueprints")
+            .stage("Fetching from game services…");
+        dossier.refresh_blueprints(GRPC_USER_AGENT).await?
+    };
     let changed = owned.blueprint_ids != old;
 
     let _ = app.emit(BLUEPRINTS_CHANGED_EVENT, ());

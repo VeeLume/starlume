@@ -3,7 +3,6 @@
 // manufacturers). Backed by svc-data through the data* commands; everything
 // is local file reads.
 
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   commands,
   type DataStatusView,
@@ -14,32 +13,13 @@ import {
   type MissionEntryView,
 } from "$lib/bindings";
 
-// Hand-typed: the `data:progress` event payload (plain emit in
-// src-tauri/src/data.rs — kept in sync manually, the notifications pattern).
-type DataProgress = {
-  channel: string;
-  stage:
-    | "loading-snapshot"
-    | "opening-p4k"
-    | "extracting"
-    | "parsing"
-    | "cooking"
-    | "saving";
-};
-
-const STAGE_LABELS: Record<DataProgress["stage"], string> = {
-  "loading-snapshot": "Checking snapshots…",
-  "opening-p4k": "Opening Data.p4k…",
-  extracting: "Extracting assets…",
-  parsing: "Parsing DataCore… (the long part)",
-  cooking: "Building indices…",
-  saving: "Saving snapshots…",
-};
-
 let _statuses = $state<DataStatusView[]>([]);
 let _statusLoaded = $state(false);
-/** channel → live stage label while a load runs. */
-let _loading = $state<Record<string, string>>({});
+/** Channels whose Load was pressed and hasn't returned. Covers the gap
+ *  before the backend's `data-load` activity appears (the install rescan),
+ *  and a load that never needs one (already in memory). Live stage labels
+ *  come from the activity store, not from here. */
+let _starting = $state<Record<string, true>>({});
 let _error = $state("");
 /** The channel the catalog pages browse — a loaded channel, or null. */
 let _channel = $state<string | null>(null);
@@ -51,8 +31,8 @@ export const dataStore = {
   get statusLoaded() {
     return _statusLoaded;
   },
-  get loading() {
-    return _loading;
+  get starting() {
+    return _starting;
   },
   get error() {
     return _error;
@@ -99,30 +79,16 @@ export async function loadStatus(): Promise<void> {
   _statusLoaded = true;
 }
 
-/** Subscribe to load-progress events. The root layout holds this listener
- *  for the app's lifetime, so background warms show progress everywhere. */
-export async function listenForDataProgress(): Promise<UnlistenFn> {
-  return listen<DataProgress>("data:progress", (event) => {
-    const { channel, stage } = event.payload;
-    _loading = { ..._loading, [channel]: STAGE_LABELS[stage] ?? stage };
-  });
-}
-
-/** Clear stale progress labels (a load finished — `data:changed` arrived). */
-export function clearAllLoading(): void {
-  _loading = {};
-}
-
 /**
  * Run the load waterfall for a channel (sub-second when cached, up to ~45s
- * on a cold parse — progress streams via the event listener).
+ * on a cold parse — stages show as the backend's `data-load` activity).
  */
 export async function startLoad(channel: string): Promise<void> {
   _error = "";
-  _loading = { ..._loading, [channel]: "Starting…" };
+  _starting = { ..._starting, [channel]: true };
   const result = await commands.dataLoad(channel);
-  const { [channel]: _done, ...rest } = _loading;
-  _loading = rest;
+  const { [channel]: _done, ...rest } = _starting;
+  _starting = rest;
   if (result.status === "ok") {
     _statuses = _statuses.map((s) => (s.channel === result.data.channel ? result.data : s));
   } else {
