@@ -7,18 +7,13 @@
   import { authStore, loadAuth, listenForAuthChanges } from "$lib/state/auth.svelte";
   import { scStore, loadSc } from "$lib/state/sc.svelte";
   import { loadStatus, ensureChannel } from "$lib/state/data.svelte";
-  import {
-    activityStore,
-    activityLabel,
-    listenForActivities,
-    syncActivities,
-  } from "$lib/state/activities.svelte";
+  import { listenForActivities, syncActivities } from "$lib/state/activities.svelte";
   import { prefetchCatalogs, invalidateCatalogs } from "$lib/state/catalog.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { onboarding, maybeStartOnboarding } from "$lib/state/onboarding.svelte";
   import { listenForNotifications, syncNotifications } from "$lib/state/notifications.svelte";
   import { loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
-  import { Notify, Progress, Shell, setKitContext, type NavGroup } from "@veelume/ui";
+  import { Notify, Shell, setKitContext, type NavGroup } from "@veelume/ui";
   import { House, Library, Settings, Users } from "lucide-svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
   import { checkForUpdates } from "$lib/updater";
@@ -107,8 +102,9 @@
       unlistenNotify = await listenForNotifications();
       await syncNotifications();
       // Background activity — same funnel shape: live snapshots plus a
-      // catch-up read (the kit center's "Now" section and the inline
-      // surfaces both read this store).
+      // catch-up read. The center's "Now" section, the bell's busy mark and
+      // the inline surfaces (catalog card, langpatch row) all read this
+      // store; there is no page-wide banner.
       unlistenActivities = await listenForActivities();
       await syncActivities();
       // Settings first — the online master switch gates loadAuth's profile
@@ -210,21 +206,6 @@
     {/snippet}
   </Shell.Rail>
   <Shell.Content>
-    {#snippet banner()}
-      <!-- Game-data work made visible: the cold parse takes minutes and runs
-           once per game patch — invisible background work reads as a hang.
-           One strip per running data-load activity (whoever started it:
-           the Load button, the startup warm, a text-patch derive). -->
-      {#each activityStore.items.filter((a) => a.kind === "data-load") as load (load.id)}
-        <div class="data-banner">
-          <Progress label={load.title} detail={activityLabel(load)} />
-          <p class="data-banner-hint">
-            The heavy parse happens once per game patch — catalogs and text patching pick
-            it up automatically when it finishes.
-          </p>
-        </div>
-      {/each}
-    {/snippet}
     {@render children()}
   </Shell.Content>
 </Shell.Root>
@@ -256,17 +237,6 @@
   }
   .avatar-fallback.muted {
     background: var(--bg-raised);
-    color: var(--text-dim);
-  }
-
-  .data-banner {
-    padding: 10px var(--content-pad) 8px;
-    border-bottom: 1px solid var(--border);
-    background: var(--accent-fill-faint);
-  }
-  .data-banner-hint {
-    margin: 4px 0 0;
-    font-size: 0.78rem;
     color: var(--text-dim);
   }
 </style>

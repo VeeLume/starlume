@@ -79,11 +79,12 @@ keep the app from refetching and re-spinning). Code comments cite them by name.
    synchronously. Spinners are for the genuine first load only.
 3. **Startup hydration.** The root layout fires every cheap load at mount
    (settings → auth, SC scan, data statuses, default-channel catalog
-   prefetch). Heavy work (the DCB cook) runs Rust-side and is visible as the
-   data-load banner in `Shell.Content`; a multi-minute parse must never read
-   as a hang. All background work is an `Activity` guard (`activity.rs`):
-   the notification center's "Now" section, the tray tooltip and inline
-   surfaces read `activities.svelte.ts` — never page-local progress state.
+   prefetch). Heavy work (the DCB cook) runs Rust-side; a multi-minute parse
+   must never read as a hang. All background work is an `Activity` guard
+   (`activity.rs`): the bell's busy mark, the notification center's "Now"
+   section, the tray tooltip and inline surfaces (catalog card, langpatch
+   row) read `activities.svelte.ts` — never page-local progress state, and
+   no page-wide banner.
 4. **Onboarding reads stores.** Wizard steps render from the store and
    refresh silently; they never gate on a fetch the shell already did.
 5. **Backend pushes invalidation.** Rust emits `data:changed` after

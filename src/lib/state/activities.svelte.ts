@@ -2,7 +2,7 @@
 // registry). One store, three kinds of reader: the kit's notification
 // center ("Now" section + the bell's busy mark, fed via setActivities), the
 // inline surfaces that filter by kind + channel (catalog card, langpatch
-// install row, the data banner), and nothing else — pages never track
+// install row), and nothing else — pages never track
 // background work themselves.
 //
 // The source of truth is Rust-side (frontend rule 6: a suspended webview
