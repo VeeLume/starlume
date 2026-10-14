@@ -4,7 +4,7 @@
  * during the migration).
  *
  * The token NAMES here are the kit's contract; the VALUES are Starlume's
- * warm-charcoal / orange-amber identity. One dark theme, no `.dark` class
+ * slate / violet identity. One dark theme, no `.dark` class
  * (color-scheme is pinned dark in app.css).
  */
 
@@ -27,7 +27,7 @@
   --muted: var(--bg-raised);
   --muted-foreground: var(--text-dim);
   /* shadcn's `accent` is the quiet hover surface — Starlume's signature
-   * tinted-amber fill, not the solid accent (that one is `primary`). */
+   * tinted-accent fill, not the solid accent (that one is `primary`). */
   --accent-surface: var(--accent-fill-weak);
   --accent-surface-foreground: var(--text);
   --destructive: var(--bad);
@@ -54,7 +54,7 @@
  * instead of emitting `--radius-*`/`--color-*` vars that would collide
  * with app.css's own `--radius` / `--radius-lg` / `--border` tokens.
  * shadcn-`accent` utilities read the *-surface vars mapped above —
- * app.css's `--accent` (the solid amber) keeps its name and meaning.
+ * app.css's `--accent` (the solid violet) keeps its name and meaning.
  */
 @theme inline {
   --color-background: var(--background);

@@ -1,10 +1,12 @@
-/* Starlume theme — one dark theme, warm-charcoal ground, orange-amber accent.
+/* Starlume theme — one dark theme, slate ground, violet accent.
  * Styling rules live in CLAUDE.md ("Frontend"). Components use tokens only (no
  * hex); a pattern used on 2+ pages belongs here, not in scoped <style>.
  *
- * Direction (2026): adapted from the Hearth companion app — warm-neutral
- * charcoal ground (no blue), a confident orange-amber accent, flat surfaces,
- * and a three-role type system (Lekton / IBM Plex Sans / JetBrains Mono). The
+ * Direction (2026-10): after the Squadron 42 / new Star Citizen UI — deep
+ * slate ground, steel and ice text, violet as the one interactive accent
+ * (status colours stay functional; the logo's rose moon is logo-only), flat
+ * surfaces, and a three-role type system (Lekton / IBM Plex Sans / JetBrains
+ * Mono). Replaces the amber carried over from Hearth. The
  * fonts are self-hosted under static/fonts/ — no webfont CDN at runtime (the
  * online-policy invariant forbids ungated network calls). */
 
@@ -115,19 +117,19 @@ main ol {
   accent-color: var(--accent);
 
   /* ── Base palette ─────────────────────────────────────────────────── */
-  --bg: #1a1719; /* app ground — warm charcoal */
-  --bg-raised: #241f22; /* raised surface: controls, panels, cards-on-hover */
-  --border: #342e31; /* hairline dividers + control outlines (warm gray) */
-  --text: #e9e5e2; /* primary text (warm off-white) */
-  --text-dim: #9d9490; /* secondary/muted text, labels, metadata */
+  --bg: #10161d; /* app ground — deep slate */
+  --bg-raised: #18212b; /* raised surface: controls, panels, cards-on-hover */
+  --border: #263441; /* hairline dividers + control outlines (cool slate) */
+  --text: #d5e1e9; /* primary text (ice) */
+  --text-dim: #8596a5; /* secondary/muted text, labels, metadata (steel) */
 
-  --accent: #e79447; /* Starlume amber — warm orange-amber */
-  --accent-dim: #c06e2c; /* darker amber for the identity gradient */
-  --on-accent: #241405; /* text/glyphs on a solid amber fill */
+  --accent: #a996ff; /* Starlume violet — the one interactive accent */
+  --accent-dim: #7b66e0; /* deeper violet for the identity gradient */
+  --on-accent: #15112a; /* text/glyphs on a solid violet fill */
 
-  --good: #6fbf7f; /* success / verified / loaded */
-  --warn: #d9a13d; /* warning / caution */
-  --bad: #e07a6a; /* error / danger / destructive (warm red) */
+  --good: #6cc49a; /* success / verified / loaded */
+  --warn: #e0b25a; /* warning / caution */
+  --bad: #ec6f7a; /* error / danger / destructive */
 
   --discord: #5865f2; /* Discord blurple — the one non-palette brand color */
   --em-link: #6cb6e3; /* SC in-text link/highlight blue (mission <EM4> runs) */
@@ -139,9 +141,9 @@ main ol {
   --surface-card-hover: var(--bg-raised);
 
   --text-body: var(--text);
-  --text-strong: #faf7f4; /* headings / handles / emphasis */
+  --text-strong: #eef4f8; /* headings / handles / emphasis */
   --text-muted: var(--text-dim);
-  --text-faint: #6f6862; /* micro-labels, tertiary */
+  --text-faint: #5d6e7c; /* micro-labels, tertiary */
   --text-accent: var(--accent);
   --text-on-accent: var(--on-accent);
 
@@ -158,10 +160,10 @@ main ol {
   --danger-border: color-mix(in srgb, var(--bad) 45%, transparent);
   --accent-border: color-mix(in srgb, var(--accent) 50%, transparent);
 
-  /* App backdrop — flat warm charcoal with a whisper of warm glow from the
-   * top. Applied to <body>; the shell/main are transparent over it. */
+  /* App backdrop — flat slate with a whisper of violet glow from the top.
+   * Applied to <body>; the shell/main are transparent over it. */
   --app-backdrop:
-    radial-gradient(1200px 520px at 50% -20%, rgba(231, 148, 71, 0.05), transparent),
+    radial-gradient(1200px 520px at 50% -20%, color-mix(in srgb, var(--accent) 6%, transparent), transparent),
     var(--bg);
 
   /* ── Corner radii ─────────────────────────────────────────────────── */
@@ -631,7 +633,7 @@ table.data tr.selected {
   }
 }
 
-/* Segmented filter pills — the Hearth pattern. Active = quiet amber tint. */
+/* Segmented filter pills — the Hearth pattern. Active = quiet accent tint. */
 .pills {
   display: flex;
   flex-wrap: wrap;
