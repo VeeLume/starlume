@@ -1,12 +1,12 @@
-/* Starlume theme — one dark theme, slate ground, violet accent.
+/* Starlume theme — one dark theme, neutral graphite ground, violet accent.
  * Styling rules live in CLAUDE.md ("Frontend"). Components use tokens only (no
  * hex); a pattern used on 2+ pages belongs here, not in scoped <style>.
  *
- * Direction (2026-10): after the Squadron 42 / new Star Citizen UI — deep
- * slate ground, steel and ice text, violet as the one interactive accent
- * (status colours stay functional; the logo's rose moon is logo-only), flat
- * surfaces, and a three-role type system (Lekton / IBM Plex Sans / JetBrains
- * Mono). Replaces the amber carried over from Hearth. The
+ * Direction (2026-10): a neutral graphite ground (no blue, no warmth) so
+ * violet, the one interactive accent, and the functional status colours
+ * have room; the logo's rose moon is logo-only. Flat surfaces and a
+ * three-role type system (Lekton / IBM Plex Sans / JetBrains Mono).
+ * Replaces the amber carried over from Hearth. The
  * fonts are self-hosted under static/fonts/ — no webfont CDN at runtime (the
  * online-policy invariant forbids ungated network calls). */
 
@@ -117,11 +117,11 @@ main ol {
   accent-color: var(--accent);
 
   /* ── Base palette ─────────────────────────────────────────────────── */
-  --bg: #10161d; /* app ground — deep slate */
-  --bg-raised: #18212b; /* raised surface: controls, panels, cards-on-hover */
-  --border: #263441; /* hairline dividers + control outlines (cool slate) */
-  --text: #d5e1e9; /* primary text (ice) */
-  --text-dim: #8596a5; /* secondary/muted text, labels, metadata (steel) */
+  --bg: #151515; /* app ground — neutral graphite */
+  --bg-raised: #1e1e1f; /* raised surface: controls, panels, cards-on-hover */
+  --border: #2e2e30; /* hairline dividers + control outlines (neutral) */
+  --text: #e6e6e6; /* primary text (neutral off-white) */
+  --text-dim: #9c9c9f; /* secondary/muted text, labels, metadata */
 
   --accent: #a996ff; /* Starlume violet — the one interactive accent */
   --accent-dim: #7b66e0; /* deeper violet for the identity gradient */
@@ -141,9 +141,9 @@ main ol {
   --surface-card-hover: var(--bg-raised);
 
   --text-body: var(--text);
-  --text-strong: #eef4f8; /* headings / handles / emphasis */
+  --text-strong: #f5f5f5; /* headings / handles / emphasis */
   --text-muted: var(--text-dim);
-  --text-faint: #5d6e7c; /* micro-labels, tertiary */
+  --text-faint: #68686c; /* micro-labels, tertiary */
   --text-accent: var(--accent);
   --text-on-accent: var(--on-accent);
 
@@ -160,7 +160,7 @@ main ol {
   --danger-border: color-mix(in srgb, var(--bad) 45%, transparent);
   --accent-border: color-mix(in srgb, var(--accent) 50%, transparent);
 
-  /* App backdrop — flat slate with a whisper of violet glow from the top.
+  /* App backdrop — flat graphite with a whisper of violet glow from the top.
    * Applied to <body>; the shell/main are transparent over it. */
   --app-backdrop:
     radial-gradient(1200px 520px at 50% -20%, color-mix(in srgb, var(--accent) 6%, transparent), transparent),
