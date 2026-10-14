@@ -1,6 +1,8 @@
 <script lang="ts">
   import "../app.css";
   import { onMount, onDestroy } from "svelte";
+  import { goto } from "$app/navigation";
+  import { commands } from "$lib/bindings";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { moduleRegistry } from "$lib/modules/registry";
   import { settingsStore, loadSettings } from "$lib/state/settings.svelte";
@@ -103,6 +105,12 @@
   });
 
   onMount(() => {
+    // A window closed while hidden (window.rs) comes back on its page.
+    void commands.takeRestoreRoute().then((route) => {
+      if (route && route !== location.pathname + location.search + location.hash) {
+        void goto(route, { replaceState: true });
+      }
+    });
     void (async () => {
       // The single notification funnel — live events plus a hydration pass
       // for anything raised before mount (or while the webview was

@@ -4,12 +4,16 @@
 import { check } from "@tauri-apps/plugin-updater";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { commands } from "$lib/bindings";
 
 // NOTE: deliberately NOT gated by the online master switch — update checks are
 // the one documented exception to the online-policy invariant (see CLAUDE.md):
 // a legitimate app function with no ToS implications, and keeping even
 // offline-mode users on current (security-)fixed builds matters more.
 export async function checkForUpdates(interactive = false): Promise<void> {
+  // The window is rebuilt after each spell in the tray (window.rs) and every
+  // build mounts the layout: the backend says whether a check is due.
+  if (!interactive && !(await commands.updateCheckDue())) return;
   try {
     const update = await check();
     if (update) {

@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "Starlume",
+        "create": false,
         "width": 1100,
         "height": 750,
         "visible": false,
