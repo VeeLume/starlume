@@ -19,7 +19,7 @@ pub const BLUEPRINTS_CHANGED_EVENT: &str = "blueprints:changed";
 
 /// gRPC user-agent for backend calls (distinct from the RSI-profile scrape UA
 /// in `sc.rs`; both identify Starlume, honestly).
-const GRPC_USER_AGENT: &str = concat!("starlume/", env!("CARGO_PKG_VERSION"));
+pub(crate) const GRPC_USER_AGENT: &str = concat!("starlume/", env!("CARGO_PKG_VERSION"));
 
 /// The owned-blueprint set as it crosses IPC (specta mirror of
 /// `svc_dossier::OwnedBlueprints`).

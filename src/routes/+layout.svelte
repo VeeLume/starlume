@@ -6,7 +6,7 @@
   import { settingsStore, loadSettings } from "$lib/state/settings.svelte";
   import { authStore, loadAuth, listenForAuthChanges } from "$lib/state/auth.svelte";
   import { scStore, loadSc } from "$lib/state/sc.svelte";
-  import { loadStatus, ensureChannel } from "$lib/state/data.svelte";
+  import { loadStatus, ensureChannel, refreshBuildsIfShown } from "$lib/state/data.svelte";
   import { listenForActivities, syncActivities } from "$lib/state/activities.svelte";
   import { prefetchCatalogs, invalidateCatalogs } from "$lib/state/catalog.svelte";
   import { listen } from "@tauri-apps/api/event";
@@ -17,6 +17,7 @@
   import { House, Library, Settings, Users } from "lucide-svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
   import { checkForUpdates } from "$lib/updater";
+  import { SHOW_UNRELEASED } from "$lib/unreleased";
 
   let { children } = $props();
 
@@ -37,24 +38,31 @@
   // Startup hydration (frontend rule, CLAUDE.md): refresh install statuses
   // and prefetch the default channel's catalogs so pages render from cache.
   // Cheap when nothing changed; also the focus/`data:changed` catch-up.
+  // No prefetch while the catalog pages are unreleased — nothing would read it.
   async function hydrateData() {
     await loadStatus();
+    refreshBuildsIfShown();
     const channel = await ensureChannel();
-    if (channel) prefetchCatalogs(channel);
+    if (channel && SHOW_UNRELEASED) prefetchCatalogs(channel);
   }
 
   // Notification center (sidebar bell). The kit Center marks everything
   // read on open; the per-session log stays in the panel.
   let centerOpen = $state(false);
 
-  // Home + Friends + Catalogs (shell-level) + one entry per enabled module
-  // (registry order). Kit NavItems — the shell owns active-state matching.
+  // Home + Friends + Catalogs (shell-level; the latter two unreleased) + one
+  // entry per enabled module (registry order). Kit NavItems — the shell owns
+  // active-state matching.
   const navGroups: NavGroup[] = $derived([
     {
       items: [
         { path: "/", label: "Home", icon: House },
-        { path: "/friends", label: "Friends", icon: Users },
-        { path: "/data", label: "Catalogs", icon: Library },
+        ...(SHOW_UNRELEASED
+          ? [
+              { path: "/friends", label: "Friends", icon: Users },
+              { path: "/data", label: "Catalogs", icon: Library },
+            ]
+          : []),
         ...moduleRegistry
           .filter((d) => settingsStore.current?.enabled_modules.includes(d.id))
           .flatMap((d) => d.nav ?? [])

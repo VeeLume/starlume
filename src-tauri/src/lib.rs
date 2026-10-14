@@ -29,6 +29,7 @@ mod error;
 mod friends;
 mod groups;
 mod ipc;
+mod items;
 mod langpatch;
 mod lifecycle;
 mod modules;

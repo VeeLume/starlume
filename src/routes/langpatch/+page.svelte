@@ -6,7 +6,9 @@
     RadioGroup,
     Settings,
     StatusBadge,
+    Surface,
     Switch,
+    storedValue,
     type StatusMap,
   } from "@veelume/ui";
   import {
@@ -19,8 +21,23 @@
     removeLangpatch,
   } from "$lib/state/langpatch.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
+  import MissionSamplePanel from "$lib/components/langpatch/MissionSamplePanel.svelte";
 
   const overview = $derived(langpatchStore.overview);
+
+  // The mission preview pane's docked open state and dragged width —
+  // per-device view preferences, so they survive a restart. (As a sheet on a
+  // narrow window, the kit keeps its own open state.)
+  const previewOpen = storedValue<boolean>(
+    "starlume.langpatch.previewOpen",
+    true,
+    (v): v is boolean => typeof v === "boolean",
+  );
+  const previewWidth = storedValue<number | null>(
+    "starlume.langpatch.previewWidth",
+    null,
+    (v): v is number | null => v === null || typeof v === "number",
+  );
 
   let packInput = $state("");
   let unlisten: UnlistenFn | undefined;
@@ -80,13 +97,23 @@
   };
 </script>
 
-<h1>Text Patching</h1>
-<p class="muted">
-  Enriches Star Citizen's own text — component grades, illegal-goods markers, weapon stats.
-  Patches re-apply automatically after game updates while Starlume is running.
-  <a href="/langpatch/preview">Preview mission text</a>
-</p>
-
+<!-- The kit's supporting-pane layout: settings in the main pane, the
+     mission preview beside it (a sheet over it on a narrow window). -->
+<Surface.Supporting
+  class="langpatch-panes"
+  title="Mission preview"
+  open={previewOpen.value}
+  onopen={(next) => (previewOpen.value = next)}
+  width={previewWidth.value}
+  onresize={(next) => (previewWidth.value = next)}
+>
+{#snippet actions()}
+  {#if langpatchStore.sampleBusy && langpatchStore.sample}
+    <span class="muted text-sm">Updating…</span>
+  {/if}
+{/snippet}
+{#snippet main()}
+<div class="settings">
 {#if langpatchStore.error}
   <p class="text-sm text-destructive">{langpatchStore.error}</p>
 {/if}
@@ -230,11 +257,25 @@
 {:else if !langpatchStore.error}
   <p class="muted">Loading…</p>
 {/if}
+</div>
+{/snippet}
+{#snippet pane()}
+  <MissionSamplePanel />
+{/snippet}
+</Surface.Supporting>
 
 <style>
-  .activity-note {
-    font-size: 0.8rem;
-    color: var(--accent);
+  /* The panes own their padding, so main gives up its own: the layout then
+   * fills main exactly and main never scrolls. */
+  :global(main:has(> .langpatch-panes)) {
+    padding: 0;
+  }
+  /* Centred in the main pane: the preview takes a share of the width, so the
+   * capped column would otherwise hang left of a wide empty band. */
+  .settings {
+    max-width: calc(52rem + 2 * var(--content-pad));
+    margin-inline: auto;
+    padding: var(--content-pad);
   }
   /* Cap the width: Settings.Row pushes controls to the right edge, which on a
    * wide window strands them far from their labels. */

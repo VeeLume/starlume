@@ -1058,35 +1058,40 @@ fn rep_line(m: &MissionEntry) -> Option<String> {
     (total > 0).then(|| format!("Rep: {total} XP"))
 }
 
-/// `Event: 1142 pts (Collection) · split in party` — the overall points,
-/// the category ladder they also count toward (its points only when they
-/// differ), and whether the overall points divide across the party
-/// (category points never do).
+/// `Event: 486 pts (split in party) · Collection 486 pts (each)` — one
+/// figure per ladder, each with its own points and share rule: the overall
+/// ladder first, then the category ladders it also counts toward. Folding a
+/// category into the overall figure when the counts matched made the split
+/// note read as covering both, but category points never divide. The share
+/// rule only shows when some ladder splits — "each" is the default.
 fn event_line(m: &MissionEntry) -> Option<String> {
     let parts: Vec<String> = m
         .event_rewards
         .iter()
         .filter_map(|ev| {
             let (overall, categories) = ev.ladders.split_first()?;
-            let mut s = format!("{} pts", overall.points);
-            let cats: Vec<String> = categories
-                .iter()
-                .filter_map(|c| {
-                    let name = c.name.as_deref()?;
-                    Some(if c.points == overall.points {
-                        name.to_string()
+            let any_split = ev.ladders.iter().any(|l| l.split_for_party);
+            let figure = |name: Option<&str>, l: &svc_data::EventLadder| {
+                let mut s = match name {
+                    Some(name) => format!("{name} {} pts", l.points),
+                    None => format!("{} pts", l.points),
+                };
+                if any_split {
+                    s.push_str(if l.split_for_party {
+                        " (split in party)"
                     } else {
-                        format!("{name} {}", c.points)
-                    })
-                })
-                .collect();
-            if !cats.is_empty() {
-                s.push_str(&format!(" ({})", cats.join(", ")));
-            }
-            if overall.split_for_party {
-                s.push_str(" · split in party");
-            }
-            Some(s)
+                        " (each)"
+                    });
+                }
+                s
+            };
+            let mut figures = vec![figure(None, overall)];
+            figures.extend(
+                categories
+                    .iter()
+                    .filter_map(|c| Some(figure(Some(c.name.as_deref()?), c))),
+            );
+            Some(figures.join(" · "))
         })
         .collect();
     (!parts.is_empty()).then(|| format!("Event: {}", parts.join("; ")))
@@ -2304,16 +2309,18 @@ mod tests {
                 ladder(Some("Collection"), 1142, false),
             ],
         }];
+        // Each ladder keeps its own figure and share rule — equal counts
+        // are not folded together (the split never covers the category).
         assert_eq!(
             event_line(&m).as_deref(),
-            Some("Event: 1142 pts (Collection) · split in party")
+            Some("Event: 1142 pts (split in party) · Collection 1142 pts (each)")
         );
-        // A category count that differs from the overall points is shown.
+        // Nothing splits → no share rule ("each" is the default).
         m.event_rewards[0].ladders[0].split_for_party = false;
         m.event_rewards[0].ladders[1].points = 900;
         assert_eq!(
             event_line(&m).as_deref(),
-            Some("Event: 1142 pts (Collection 900)")
+            Some("Event: 1142 pts · Collection 900 pts")
         );
     }
 

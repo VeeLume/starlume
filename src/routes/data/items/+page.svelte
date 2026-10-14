@@ -4,6 +4,7 @@
   // catalog: search + type facet + sorts, viewport windowing, rows expanding
   // in place. Expanding a row lazily fetches its detail (description, record
   // path, and the weapons-index combat stats when the item is a weapon).
+  import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import { onMount } from "svelte";
   import {
     Surface,
@@ -164,9 +165,7 @@
 </script>
 
 {#if ready && !dataStore.channel}
-  <p class="dim">
-    No game data loaded — go to <a href="/data">Overview</a> and press Load first.
-  </p>
+  <NoGameData />
 {:else}
   {#if browseError}
     <p class="error">{browseError}</p>

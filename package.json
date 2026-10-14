@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test": "vitest run",
     "tauri": "tauri"
   },
   "license": "MIT",
@@ -17,7 +18,7 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
-    "@veelume/ui": "github:VeeLume/veelume-ui#v0.1.7&path:packages/ui",
+    "@veelume/ui": "github:VeeLume/veelume-ui#v0.1.8&path:packages/ui",
     "lucide-svelte": "^1.0.1"
   },
   "devDependencies": {
@@ -31,6 +32,7 @@
     "svelte-check": "^4.0.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vitest": "^3.2.7"
   }
 }

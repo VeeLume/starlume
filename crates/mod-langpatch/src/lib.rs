@@ -58,7 +58,8 @@ pub type OwnedSet = std::collections::BTreeSet<String>;
 /// rev 2: variants show only deviations from the majority; UEC only inside
 /// variants, without `~`.
 /// rev 3: Mission Info carries event points.
-pub const RENDER_REV: u32 = 3;
+/// rev 4: the event line gives every ladder its own points and share rule.
+pub const RENDER_REV: u32 = 4;
 
 /// The code side of "is the derived output current?" — [`RENDER_REV`] plus
 /// svc-data's cook version. Keys the op-set cache and the applied-patch

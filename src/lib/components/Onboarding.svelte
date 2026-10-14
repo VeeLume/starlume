@@ -24,12 +24,14 @@
   import OnboardingOnline from "$lib/components/onboarding/OnboardingOnline.svelte";
   import OnboardingDiscord from "$lib/components/onboarding/OnboardingDiscord.svelte";
   import OnboardingRsi from "$lib/components/onboarding/OnboardingRsi.svelte";
+  import { SHOW_UNRELEASED } from "$lib/unreleased";
 
   // App-level framework steps, in order. Each is optional (nothing gates
   // Next); they exist so the posture + identity are set deliberately.
+  // Discord sign-in serves only the unreleased friends/community layer.
   const CORE_STEPS: { id: string; title: string; component: Component<OnboardingStepProps> }[] = [
     { id: "online", title: "Online & privacy", component: OnboardingOnline },
-    { id: "discord", title: "Sign in", component: OnboardingDiscord },
+    ...(SHOW_UNRELEASED ? [{ id: "discord", title: "Sign in", component: OnboardingDiscord }] : []),
     { id: "rsi", title: "Your Star Citizen account", component: OnboardingRsi },
   ];
 

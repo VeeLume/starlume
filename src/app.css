@@ -273,6 +273,13 @@ h3 {
 .dim a {
   color: var(--accent);
 }
+/* An inline note for background work in progress ("⟳ Parsing DataCore…")
+ * beside the thing it is about — langpatch install row, Settings → Game
+ * data. Fed by the activity store. */
+.activity-note {
+  font-size: 0.8rem;
+  color: var(--accent);
+}
 .error {
   color: var(--bad);
   font-size: var(--text-control);

@@ -2,8 +2,9 @@
 //! by sc-holotable v0.15 APIs — `AssetConfig::standard()` parses the locale
 //! and `ExtractSnapshot::hydrate` replaces the manual re-parse).
 //!
-//! Two tiers per channel, both keyed by SC `build_id` so a patch
-//! invalidates them:
+//! Two tiers per build directory (`cache/builds/<key>/`, see
+//! [`crate::builds`]), both stamped with the build key so a snapshot can
+//! never be served for a different build:
 //!
 //! 1. **Processed snapshot** (`foundations.cook`) — the cooked
 //!    [`CookedData`] serialized whole. Sub-second; no parsing. Also
@@ -30,17 +31,12 @@ use crate::{InstallRef, LoadTier};
 pub(crate) const PROCESSED_SNAPSHOT_NAME: &str = "foundations.cook";
 pub(crate) const EXTRACT_SNAPSHOT_NAME: &str = "extract.snap";
 
-/// Per-channel cache directory under the injected cache root.
-pub(crate) fn channel_dir(cache_root: &Path, channel_key: &str) -> PathBuf {
-    cache_root.join(channel_key)
-}
-
 /// Snapshot provenance from an install's identity fields.
 pub(crate) fn meta_for(install: &InstallRef) -> SnapshotMeta {
     SnapshotMeta {
         schema_version: ExtractSnapshot::SCHEMA_VERSION,
         game_version: install.version.clone(),
-        build_id: install.build_id.clone(),
+        build_id: install.build_key(),
         extracted_at: chrono::Utc::now().to_rfc3339(),
     }
 }
@@ -68,20 +64,15 @@ pub(crate) fn predict_tier(dir: &Path, install: &InstallRef) -> LoadTier {
 
 /// What a processed snapshot must have been written for to be current.
 fn processed_key(install: &InstallRef) -> String {
-    format!(
-        "{DATA_COOK_VERSION}
-{}",
-        install.build_id
-    )
+    format!("{DATA_COOK_VERSION}\n{}", install.build_key())
 }
 
 /// What an extract snapshot must have been written for to be current.
 fn extract_key(install: &InstallRef) -> String {
     format!(
-        "{}
-{}",
+        "{}\n{}",
         ExtractSnapshot::SCHEMA_VERSION,
-        install.build_id
+        install.build_key()
     )
 }
 
@@ -106,6 +97,15 @@ fn write_key(dir: &Path, snapshot: &str, key: &str) {
     }
 }
 
+/// Was a snapshot stamped `stamp` written for this install's build? New
+/// snapshots carry the build key. Ones from the per-channel era carry the
+/// install's staleness key: the version label (whose changelist is the same
+/// key) where `build_manifest.id` was `"None"`, or the real manifest id
+/// where CIG ships one — that one only ever matches its own install.
+fn same_build(stamp: &str, install: &InstallRef) -> bool {
+    crate::builds::key_of(stamp) == install.build_key() || stamp == install.build_id
+}
+
 /// Try to load the cooked data directly. `None` on any failure — the caller
 /// falls through to the next tier. The build_id check catches SC patches
 /// since the snapshot was written.
@@ -121,16 +121,31 @@ pub(crate) fn try_load_processed(dir: &Path, install: &InstallRef) -> Option<Coo
             return None;
         }
     };
-    if snap.meta.build_id != install.build_id {
+    if !same_build(&snap.meta.build_id, install) {
         tracing::info!(
             snapshot_build_id = %snap.meta.build_id,
-            install_build_id = %install.build_id,
+            install_build = %install.build_key(),
             "processed snapshot stale (SC patched); falling back"
         );
         return None;
     }
     write_key(dir, PROCESSED_SNAPSHOT_NAME, &processed_key(install));
     Some(snap.into_index())
+}
+
+/// The provenance stamped into a directory's extract snapshot, if it has a
+/// readable one. A full read — for one-time adoption of legacy dirs only.
+pub(crate) fn extract_meta(dir: &Path) -> Option<SnapshotMeta> {
+    ExtractSnapshot::load(&dir.join(EXTRACT_SNAPSHOT_NAME))
+        .ok()
+        .map(|snap| snap.meta)
+}
+
+/// Delete the cooked snapshot (and its key) — slimming an archived build to
+/// its extract.
+pub(crate) fn drop_processed(dir: &Path) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(key_path(dir, PROCESSED_SNAPSHOT_NAME));
+    std::fs::remove_file(dir.join(PROCESSED_SNAPSHOT_NAME))
 }
 
 /// Persist the cooked data. Failure is non-fatal (logged): the load already
@@ -163,10 +178,10 @@ pub(crate) fn try_load_extract(dir: &Path, install: &InstallRef) -> Option<(Asse
             return None;
         }
     };
-    if snap.meta.build_id != install.build_id {
+    if !same_build(&snap.meta.build_id, install) {
         tracing::info!(
             snapshot_build_id = %snap.meta.build_id,
-            install_build_id = %install.build_id,
+            install_build = %install.build_key(),
             "extract snapshot stale (SC patched); falling back to live parse"
         );
         return None;

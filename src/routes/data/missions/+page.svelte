@@ -6,6 +6,7 @@
   // a mission closes the previous one). The whole list is cached per channel
   // in catalog.svelte.ts; everything below runs client-side (the Hearth
   // model — data_missions ships the whole pooled list).
+  import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import { onMount } from "svelte";
   import {
     Surface,
@@ -311,9 +312,7 @@
 </script>
 
 {#if ready && !dataStore.channel}
-  <p class="dim">
-    No game data loaded — go to <a href="/data">Overview</a> and press Load first.
-  </p>
+  <NoGameData />
 {:else}
   {#if browseError}
     <p class="error">{browseError}</p>

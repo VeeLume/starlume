@@ -2,8 +2,9 @@
 //! the [`bus`](crate::bus), plus the shell's own reactions.
 //!
 //! Shell reactions to `InstallChanged` (a game patch finished downloading):
-//! 1. Evict the channel's in-memory cooked bundle — it's keyed by channel
-//!    and would otherwise keep serving the old build's data.
+//! 1. Evict the in-memory cooked bundles. Bundles are keyed by build, so
+//!    the new build would never be served the old data anyway — this just
+//!    frees the old build's memory (the rest reload in under a second).
 //! 2. Refresh the shared install mirror (build ids changed).
 //! 3. Tell the user (tray-resident app — a toast is the whole UI).
 //! 4. Emit `data:changed` so open catalog pages re-fetch statuses.
@@ -62,14 +63,13 @@ pub fn spawn(app: &AppHandle) {
 }
 
 async fn on_install_changed(app: &AppHandle, info: svc_discovery::InstallInfo) {
-    let channel_key = info.channel.to_ascii_lowercase();
     tracing::info!(
         channel = %info.channel,
         version = %info.version,
         "install changed (settled)"
     );
 
-    app.state::<AppState>().data.evict_channel(&channel_key);
+    app.state::<AppState>().data.evict();
     let _ = data::refresh_installs(app).await;
 
     notify::notify(

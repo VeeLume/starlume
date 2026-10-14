@@ -73,6 +73,15 @@ pub struct AppSettings {
     /// Default ON; honors all the langpatch write-gates.
     #[serde(default = "default_true")]
     pub blueprints_auto_langpatch: bool,
+    /// Build archive: how many releases (newest first) keep an archived
+    /// game-data build after a patch replaces it. Default 3 — the raw
+    /// extract (~35 MB) per kept build, the input for patch diffs.
+    pub archive_releases: u32,
+    /// Keep every build within a kept release (PTU waves, hotfixes), not
+    /// only its newest one. Default off — a power-user option.
+    pub archive_all_builds: bool,
+    /// Archive PTU / Tech Preview builds too. Default off: Live/Hotfix only.
+    pub archive_test_channels: bool,
 }
 
 fn default_true() -> bool {
@@ -97,6 +106,9 @@ impl Default for AppSettings {
             auto_load_game_data: true,
             blueprints_auto_fetch: true,
             blueprints_auto_langpatch: true,
+            archive_releases: 3,
+            archive_all_builds: false,
+            archive_test_channels: false,
         }
     }
 }
@@ -112,12 +124,24 @@ pub struct GrpcFeatureInfo {
     pub description: String,
 }
 
-/// Compiled-in gRPC sub-features. Empty until the first dossier integration.
-pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[(
-    "blueprints",
-    "Owned blueprints",
-    "Read your owned-blueprint set from CIG's backend, to mark owned rewards in the catalog.",
-)];
+/// Compiled-in gRPC sub-features.
+pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
+    (
+        "blueprints",
+        "Owned blueprints",
+        "Read your owned-blueprint set from CIG's backend, to mark owned rewards in mission text.",
+    ),
+    (
+        "items",
+        "Items & ships",
+        "Read where your items and ships are, what is fitted to what, and who owns it, for My Items.",
+    ),
+    (
+        "loadouts",
+        "Saved loadouts",
+        "Read your ships' stock and saved loadouts, to show them beside the fitted state in My Items.",
+    ),
+];
 
 /// List the gRPC sub-features this build knows — drives the Settings toggles.
 #[tauri::command]
@@ -164,9 +188,9 @@ pub(crate) fn update_settings(
     state: tauri::State<'_, AppState>,
     mut settings: AppSettings,
 ) -> Result<AppSettings, AppError> {
-    let (old_autostart, old_grpc) = {
+    let (old_autostart, old_grpc, old_retention) = {
         let old = state.settings.lock().unwrap();
-        (old.autostart, old.grpc_enabled)
+        (old.autostart, old.grpc_enabled, retention(&old))
     };
     // First enable of the gRPC master records the one-time ToS consent (the
     // UI shows the consent dialog before submitting) — the Hearth pattern.
@@ -186,5 +210,19 @@ pub(crate) fn update_settings(
     }
     settings.save()?;
     *state.settings.lock().unwrap() = settings.clone();
+    // A tighter archive retention applies right away; a looser one only
+    // keeps future builds (pruned ones are gone).
+    if retention(&settings) != old_retention {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { crate::data::prune_archive(&app).await });
+    }
     Ok(settings)
+}
+
+fn retention(s: &AppSettings) -> (u32, bool, bool) {
+    (
+        s.archive_releases,
+        s.archive_all_builds,
+        s.archive_test_channels,
+    )
 }

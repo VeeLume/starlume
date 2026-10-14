@@ -66,6 +66,7 @@ tauri-specta.workspace = true
 
 # Internal crates
 app-kit.workspace = true
+mod-items.workspace = true
 mod-langpatch.workspace = true
 svc-discovery.workspace = true
 svc-data.workspace = true

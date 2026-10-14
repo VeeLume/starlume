@@ -2,6 +2,7 @@
   // Resource catalog on the kit surface — every ResourceType with refining
   // edge + density. Small corpus; cached whole in catalog.svelte.ts. Rows
   // expand in place (`many` — a shallow peek) to the full description.
+  import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import { onMount } from "svelte";
   import {
     Surface,
@@ -66,9 +67,7 @@
 </script>
 
 {#if ready && !dataStore.channel}
-  <p class="dim">
-    No game data loaded — go to <a href="/data">Overview</a> and press Load first.
-  </p>
+  <NoGameData />
 {:else}
   {#if browseError}
     <p class="error">{browseError}</p>

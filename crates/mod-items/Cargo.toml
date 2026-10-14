@@ -1,0 +1,19 @@
+[package]
+name = "mod-items"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume My Items module — the finder over the player's items and ships (svc-dossier inventory, named via svc-data)"
+
+[dependencies]
+# Personal state from svc-dossier's inventory tier, names from svc-data's
+# cooked game data (module rule 1). No sc-holotable pin.
+svc-data.workspace = true
+svc-dossier.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+app-kit.workspace = true

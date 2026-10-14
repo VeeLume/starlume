@@ -1,10 +1,11 @@
-// Game Data section state — per-install cache/load status + the browse
-// channel shared by every catalog page (items / resources / missions /
-// manufacturers). Backed by svc-data through the data* commands; everything
-// is local file reads.
+// Game data state — per-install cache/load status, the build cache and its
+// archive (Settings → Game data), and the browse channel shared by every
+// catalog page (items / resources / missions / manufacturers). Backed by
+// svc-data through the data* commands; everything is local file reads.
 
 import {
   commands,
+  type DataBuildView,
   type DataStatusView,
   type ItemDetailView,
   type ResourceRowView,
@@ -23,6 +24,10 @@ let _starting = $state<Record<string, true>>({});
 let _error = $state("");
 /** The channel the catalog pages browse — a loaded channel, or null. */
 let _channel = $state<string | null>(null);
+/** Every build on disk, current and archived, newest first. Fetched by the
+ *  Settings → Game data page; kept fresh on `data:changed` once fetched. */
+let _builds = $state<DataBuildView[]>([]);
+let _buildsLoaded = $state(false);
 
 export const dataStore = {
   get statuses() {
@@ -39,6 +44,16 @@ export const dataStore = {
   },
   get channel() {
     return _channel;
+  },
+  get builds() {
+    return _builds;
+  },
+  get buildsLoaded() {
+    return _buildsLoaded;
+  },
+  /** The channels the catalogs can browse right now. */
+  get browsable() {
+    return _statuses.filter(browsable).map((s) => s.channel);
   },
 };
 
@@ -96,12 +111,35 @@ export async function startLoad(channel: string): Promise<void> {
   }
 }
 
-/** Delete cached snapshots for a channel; next load is a full parse. */
-export async function wipe(channel: string): Promise<void> {
+/** Delete a channel's cached build — or, with `null`, the whole cache
+ *  including the archive. The next load is a full parse. */
+export async function wipe(channel: string | null): Promise<void> {
   _error = "";
   const result = await commands.dataWipe(channel);
-  if (result.status === "ok") await loadStatus();
+  if (result.status === "ok") await Promise.all([loadStatus(), loadBuilds()]);
   else _error = result.error.message;
+}
+
+/** Delete one archived build. */
+export async function deleteBuild(key: string): Promise<void> {
+  _error = "";
+  const result = await commands.dataDeleteBuild(key);
+  if (result.status === "ok") await loadBuilds();
+  else _error = result.error.message;
+}
+
+/** Refresh the build list (current builds + archive). */
+export async function loadBuilds(): Promise<void> {
+  const result = await commands.dataBuilds();
+  if (result.status === "ok") _builds = result.data;
+  else _error = result.error.message;
+  _buildsLoaded = true;
+}
+
+/** `data:changed` catch-up for the build list — only once something has
+ *  shown it, so a session that never opens Game data never pays for it. */
+export function refreshBuildsIfShown(): void {
+  if (_buildsLoaded) void loadBuilds();
 }
 
 // ── Browse queries (thin wrappers; the page owns the result state) ────────
