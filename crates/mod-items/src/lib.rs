@@ -16,17 +16,23 @@
 //! What the real data showed (one account, 4.10.2 live): every place CRC
 //! resolves; the only unresolved item CRCs are `UNDEFINED` structure; a
 //! rented ship's nodes say Imprinted, so "rented" comes from the
-//! entitlement's source; a claim elsewhere leaves the old instance Bricked.
+//! entitlement's source; a claim elsewhere leaves the old instance Bricked;
+//! Lagrange stations are parented straight to the star (see
+//! [`lagrange_planet`]); a storage at a planet itself holds what was left in
+//! space near it ([`PlaceKind::Adrift`]).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::str::FromStr;
 
 use serde::Serialize;
-use svc_data::{CookedData, Guid, LocaleMap, RecordCollection, class_crc};
+use svc_data::{
+    CookedData, Guid, LocaleMap, Location, LocationKind, Locations, RecordCollection, class_crc,
+};
 use svc_dossier::Inventory;
 use svc_dossier::inventory::{
-    ContextRecord, EntitlementRecord, EntitlementSourceRecord, EntitlementStatusRecord, ItemRecord,
-    LoadoutItemRecord, LoadoutRecord, LoadoutSlotRecord, OwnershipRecord,
+    ContextRecord, CraftedRecord, EntitlementRecord, EntitlementSourceRecord,
+    EntitlementStatusRecord, IngredientKindRecord, ItemRecord, LoadoutItemRecord, LoadoutRecord,
+    LoadoutSlotRecord, OwnershipRecord,
 };
 
 /// The finder's two views over one inventory fetch.
@@ -46,6 +52,9 @@ pub struct Place {
     /// Parents, nearest first (`["microTech", "Stanton"]`).
     pub parents: Vec<String>,
     pub kind: PlaceKind,
+    /// The location record's GUID: what storage and hangar at one place
+    /// share, and the explorer groups by. Empty when carried or unknown.
+    pub key: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -57,6 +66,10 @@ pub enum PlaceKind {
     Hangar,
     /// On the character.
     Carried,
+    /// A storage at a planet or moon itself: where the game parks what was
+    /// left in space near it (a ship abandoned in orbit). Real, but no
+    /// terminal reaches it.
+    Adrift,
     Other,
 }
 
@@ -104,7 +117,42 @@ pub struct ItemRow {
     pub stack: u32,
     pub ammo: Option<u32>,
     pub resource: Option<ResourceStack>,
-    pub crafted: bool,
+    pub crafted: Option<Crafted>,
+    /// What it came with (a rifle's scope and magazine), from its own stock
+    /// loadout. `None` when unknown: no entitlement of its own (looted), or
+    /// loadouts not fetched.
+    pub stock: Option<Vec<LoadoutSlot>>,
+}
+
+/// A crafted item's recipe record, named.
+#[derive(Debug, Clone, Serialize)]
+pub struct Crafted {
+    pub ingredients: Vec<Ingredient>,
+    /// Crafted stat factors: `0.924` = -7.6%.
+    pub properties: Vec<CraftedProperty>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Ingredient {
+    pub kind: IngredientKindRecord,
+    /// The resource's or item's name; `None` when the game data lacks it.
+    pub name: Option<String>,
+    /// `0..=1000`.
+    pub quality: u16,
+    /// µSCU for resources, count for items.
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CraftedProperty {
+    /// `CraftingGameplayPropertyDef` CRC.
+    pub crc: u32,
+    /// The stat's display name (`Impact Force`); `None` when the game data
+    /// doesn't know the property.
+    pub name: Option<String>,
+    pub factor: f32,
+    /// Whether this factor above 1 is the better roll; `None` when unclear.
+    pub factor_up_is_better: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -298,15 +346,10 @@ impl<'a> Names<'a> {
                     name: "On you".into(),
                     parents: Vec::new(),
                     kind: PlaceKind::Carried,
+                    key: String::new(),
                 };
             }
-            other => {
-                return Place {
-                    name: format!("{other:?}"),
-                    parents: Vec::new(),
-                    kind: PlaceKind::Other,
-                };
-            }
+            other => return other_place(format!("{other:?}")),
         };
         let locale = &self.cooked.locale;
         let Some(locations) = self.cooked.holotable.locations.as_ref() else {
@@ -315,18 +358,104 @@ impl<'a> Names<'a> {
         let Some(location) = locations.by_crc(crc) else {
             return unknown_place(crc, kind);
         };
+        let name = location.display_name(locale).unwrap_or("Unknown place");
+        let mut parents: Vec<&Location> = locations.ancestors(&location.guid).collect();
+        if let Some(planet) = parents
+            .first()
+            .and_then(|star| lagrange_planet(locations, locale, name, star))
+        {
+            parents.insert(0, planet);
+        }
+        let kind = match location.kind {
+            LocationKind::Planet
+            | LocationKind::Moon
+            | LocationKind::S42Planet
+            | LocationKind::S42Moon
+                if kind == PlaceKind::Storage =>
+            {
+                PlaceKind::Adrift
+            }
+            _ => kind,
+        };
         Place {
-            name: location
-                .display_name(locale)
-                .unwrap_or("Unknown place")
-                .to_string(),
-            parents: locations
-                .ancestors(&location.guid)
+            name: name.to_string(),
+            parents: parents
+                .iter()
                 .filter_map(|a| a.display_name(locale).map(str::to_string))
                 .collect(),
             kind,
+            key: location.guid.to_string(),
         }
     }
+
+    fn crafted(&self, c: &CraftedRecord) -> Crafted {
+        Crafted {
+            ingredients: c
+                .ingredients
+                .iter()
+                .map(|i| Ingredient {
+                    kind: i.kind,
+                    name: match i.kind {
+                        IngredientKindRecord::Resource => self.resources.get(&i.class_crc).cloned(),
+                        IngredientKindRecord::Item => self.by_crc(i.class_crc).map(|k| k.name),
+                        IngredientKindRecord::Other => None,
+                    },
+                    quality: i.quality,
+                    amount: i.amount,
+                })
+                .collect(),
+            properties: c
+                .properties
+                .iter()
+                .map(|&(crc, factor)| {
+                    let def = self.cooked.crafting.by_crc(crc);
+                    CraftedProperty {
+                        crc,
+                        name: def.map(|d| resolve(&self.cooked.locale, &d.name_key)),
+                        factor,
+                        factor_up_is_better: def.and_then(|d| d.factor_up_is_better),
+                    }
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The planet a Lagrange station sits at. The data parents `ARC-L4 Faint
+/// Glen Station` straight to the star; its name prefix names the planet, so
+/// match it against the planets under that star by their first letters
+/// (`ARC` → ArcCorp). Data-driven rather than a fixed table, and nothing
+/// when no planet matches (a system that names its stations differently).
+fn lagrange_planet<'l>(
+    locations: &'l Locations,
+    locale: &LocaleMap,
+    station: &str,
+    star: &Location,
+) -> Option<&'l Location> {
+    if !matches!(star.kind, LocationKind::Star | LocationKind::SolarSystem) {
+        return None;
+    }
+    let prefix = lagrange_prefix(station)?;
+    locations.children_of(&star.guid).find(|planet| {
+        planet.kind == LocationKind::Planet
+            && planet
+                .display_name(locale)
+                .is_some_and(|n| abbreviates(prefix, n))
+    })
+}
+
+/// `"ARC-L4 Faint Glen Station"` → `"ARC"`.
+fn lagrange_prefix(station: &str) -> Option<&str> {
+    let (prefix, rest) = station.split_once("-L")?;
+    let point = rest.chars().next()?;
+    (prefix.len() == 3 && prefix.chars().all(|c| c.is_ascii_uppercase()) && point.is_ascii_digit())
+        .then_some(prefix)
+}
+
+/// `"MIC"` abbreviates `"microTech"`: the name's first letters, any case.
+fn abbreviates(prefix: &str, name: &str) -> bool {
+    name.get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
 fn unknown_place(crc: u32, kind: PlaceKind) -> Place {
@@ -334,6 +463,16 @@ fn unknown_place(crc: u32, kind: PlaceKind) -> Place {
         name: format!("Unknown place ({crc})"),
         parents: Vec::new(),
         kind,
+        key: String::new(),
+    }
+}
+
+fn other_place(name: String) -> Place {
+    Place {
+        name,
+        parents: Vec::new(),
+        kind: PlaceKind::Other,
+        key: String::new(),
     }
 }
 
@@ -387,6 +526,62 @@ fn ownership(record: &OwnershipRecord, entitlement: Option<&EntitlementRecord>) 
     }
 }
 
+/// The account's loadouts by root entitlement and slot, named on read.
+struct Loadouts<'i> {
+    /// `None` when the loadouts weren't fetched (the feature was off).
+    by_root: Option<HashMap<(&'i str, LoadoutSlotRecord), &'i LoadoutRecord>>,
+    entitlements: &'i HashMap<&'i str, &'i EntitlementRecord>,
+}
+
+impl<'i> Loadouts<'i> {
+    fn new(
+        inventory: &'i Inventory,
+        entitlements: &'i HashMap<&'i str, &'i EntitlementRecord>,
+    ) -> Self {
+        Self {
+            by_root: inventory.loadouts.as_ref().map(|ls| {
+                ls.iter()
+                    .map(|l| ((l.root_urn.as_str(), l.slot), l))
+                    .collect()
+            }),
+            entitlements,
+        }
+    }
+
+    /// `None` when not fetched or when the root has no loadout in `slot`.
+    fn get(
+        &self,
+        names: &Names<'_>,
+        urn: Option<&str>,
+        slot: LoadoutSlotRecord,
+    ) -> Option<Vec<LoadoutSlot>> {
+        let record = self.by_root.as_ref()?.get(&(urn?, slot))?;
+        Some(
+            record
+                .entries
+                .iter()
+                .map(|e| LoadoutSlot {
+                    path: e.path.clone(),
+                    item: match &e.item {
+                        LoadoutItemRecord::Entitlement(urn) => self
+                            .entitlements
+                            .get(urn.as_str())
+                            .and_then(|e| names.by_guid_str(&e.class_guid)),
+                        LoadoutItemRecord::Class(guid) => names.by_guid_str(guid),
+                        LoadoutItemRecord::Empty | LoadoutItemRecord::Other(_) => None,
+                    },
+                })
+                .collect(),
+        )
+    }
+}
+
+/// The entitlement is the item's own (its class), not the ship's it is
+/// fitted to: only then is the entitlement's stock loadout the item's.
+fn is_own(entitlement: &EntitlementRecord, kind: &ItemKind) -> bool {
+    Guid::from_str(&entitlement.class_guid).is_ok_and(|g| g.to_string() == kind.guid)
+}
+
 /// Build both views.
 pub fn finder(inventory: &Inventory, cooked: &CookedData) -> Finder {
     let names = Names::new(cooked);
@@ -395,18 +590,24 @@ pub fn finder(inventory: &Inventory, cooked: &CookedData) -> Finder {
         .iter()
         .map(|e| (e.urn.as_str(), e))
         .collect();
+    let loadouts = Loadouts::new(inventory, &entitlements);
 
     let mut out = Finder::default();
     // Vehicle instances found in stashes, with where they are.
     let mut placed_ships: Vec<(&ItemRecord, Place, Vec<Holder>)> = Vec::new();
+    // Every walked instance's place and the holder chain below it, for the
+    // stashes that belong to a container (a ship's lockers).
+    let mut within: HashMap<u64, (Place, Vec<Holder>)> = HashMap::new();
 
     // 'i: the inventory, borrowed for the whole join; 'm: this walk's
     // borrows of the output.
     struct Walk<'i, 'm, 'a> {
         names: &'m Names<'a>,
         entitlements: &'m HashMap<&'i str, &'i EntitlementRecord>,
+        loadouts: &'m Loadouts<'i>,
         out: &'m mut Finder,
         ships: &'m mut Vec<(&'i ItemRecord, Place, Vec<Holder>)>,
+        within: &'m mut HashMap<u64, (Place, Vec<Holder>)>,
     }
 
     impl<'i> Walk<'i, '_, '_> {
@@ -429,6 +630,10 @@ pub fn finder(inventory: &Inventory, cooked: &CookedData) -> Finder {
                             .parent_urn
                             .as_deref()
                             .and_then(|u| self.entitlements.get(u).copied());
+                        let stock = entitlement.filter(|e| is_own(e, kind)).and_then(|e| {
+                            self.loadouts
+                                .get(self.names, Some(&e.urn), LoadoutSlotRecord::Stock)
+                        });
                         self.out.items.push(ItemRow {
                             geid: node.geid,
                             kind: kind.clone(),
@@ -448,7 +653,14 @@ pub fn finder(inventory: &Inventory, cooked: &CookedData) -> Finder {
                                 quality: r.quality,
                                 scu: r.scu,
                             }),
-                            crafted: node.crafted.is_some(),
+                            // Ore pods carry an empty recipe record: nothing
+                            // crafted about them to show.
+                            crafted: node
+                                .crafted
+                                .as_ref()
+                                .filter(|c| !c.ingredients.is_empty() || !c.properties.is_empty())
+                                .map(|c| self.names.crafted(c)),
+                            stock,
                         });
                     }
                     // Structure and the body hold things without being a
@@ -463,6 +675,8 @@ pub fn finder(inventory: &Inventory, cooked: &CookedData) -> Finder {
                 } else if node.item_type != UNDEFINED_WIRE && !self.names.known(node.class_crc) {
                     self.out.unnamed += 1;
                 }
+                self.within
+                    .insert(node.geid, (place.clone(), inner.clone()));
                 self.nodes(&node.attached, place, &inner, true);
                 self.nodes(&node.contents, place, &inner, false);
             }
@@ -473,16 +687,36 @@ pub fn finder(inventory: &Inventory, cooked: &CookedData) -> Finder {
         let mut walk = Walk {
             names: &names,
             entitlements: &entitlements,
+            loadouts: &loadouts,
             out: &mut out,
             ships: &mut placed_ships,
+            within: &mut within,
         };
-        for stash in &inventory.stashes {
+        let (held, placed): (Vec<_>, Vec<_>) = inventory
+            .stashes
+            .iter()
+            .partition(|s| matches!(s.location.context, ContextRecord::Container(_)));
+        for stash in placed {
             let place = names.place(&stash.location.context);
             walk.nodes(&stash.items, &place, &[], false);
         }
+        // A container's own stash (a ship's lockers and cargo) hangs under
+        // that container, at its place. Not seen on real data yet: the shape
+        // (one stash per ship or per locker) is unverified.
+        for stash in held {
+            let ContextRecord::Container(geid) = stash.location.context else {
+                continue;
+            };
+            let (place, holders) = walk
+                .within
+                .get(&geid)
+                .cloned()
+                .unwrap_or_else(|| (other_place("Unknown container".into()), Vec::new()));
+            walk.nodes(&stash.items, &place, &holders, false);
+        }
     }
 
-    out.ships = ships(inventory, &names, &entitlements, &placed_ships);
+    out.ships = ships(inventory, &names, &loadouts, &placed_ships);
     out.items.sort_by(|a, b| {
         a.kind
             .name
@@ -499,38 +733,11 @@ const UNDEFINED_WIRE: i32 = 193;
 fn ships(
     inventory: &Inventory,
     names: &Names<'_>,
-    entitlements: &HashMap<&str, &EntitlementRecord>,
+    loadouts: &Loadouts<'_>,
     placed: &[(&ItemRecord, Place, Vec<Holder>)],
 ) -> Vec<ShipRow> {
-    let loadouts: HashMap<(&str, LoadoutSlotRecord), &LoadoutRecord> = inventory
-        .loadouts
-        .iter()
-        .flatten()
-        .map(|l| ((l.root_urn.as_str(), l.slot), l))
-        .collect();
-    let have_loadouts = inventory.loadouts.is_some();
-    let loadout = |urn: Option<&str>, slot| -> Option<Vec<LoadoutSlot>> {
-        if !have_loadouts {
-            return None;
-        }
-        let record = loadouts.get(&(urn?, slot))?;
-        Some(
-            record
-                .entries
-                .iter()
-                .map(|e| LoadoutSlot {
-                    path: e.path.clone(),
-                    item: match &e.item {
-                        LoadoutItemRecord::Entitlement(urn) => entitlements
-                            .get(urn.as_str())
-                            .and_then(|e| names.by_guid_str(&e.class_guid)),
-                        LoadoutItemRecord::Class(guid) => names.by_guid_str(guid),
-                        LoadoutItemRecord::Empty | LoadoutItemRecord::Other(_) => None,
-                    },
-                })
-                .collect(),
-        )
-    };
+    let entitlements = loadouts.entitlements;
+    let loadout = |urn: Option<&str>, slot| loadouts.get(names, urn, slot);
 
     let mut rows = Vec::new();
     let mut seen_urns = HashSet::new();
@@ -686,6 +893,23 @@ mod tests {
             Source::Unknown
         );
         assert_eq!(source_of(None, None), Source::Unknown);
+    }
+
+    #[test]
+    fn a_lagrange_station_names_its_planet_by_prefix() {
+        assert_eq!(lagrange_prefix("ARC-L4 Faint Glen Station"), Some("ARC"));
+        assert_eq!(
+            lagrange_prefix("MIC-L1 Shallow Frontier Station"),
+            Some("MIC")
+        );
+        // Not L-points: no digit after -L, wrong prefix shape.
+        assert_eq!(lagrange_prefix("GrimHEX"), None);
+        assert_eq!(lagrange_prefix("Port Tressler-Lounge"), None);
+        assert_eq!(lagrange_prefix("Arc-L1 x"), None);
+        assert!(abbreviates("MIC", "microTech"));
+        assert!(abbreviates("ARC", "ArcCorp"));
+        assert!(!abbreviates("CRU", "Hurston"));
+        assert!(!abbreviates("ARC", "Ar"));
     }
 
     #[test]

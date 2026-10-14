@@ -639,6 +639,24 @@ export type BpPoolEntryView = { blueprint_record_guid: string; name: string | nu
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
+export type CraftedPropertyView = { 
+/**
+ * `CraftingGameplayPropertyDef` CRC.
+ */
+crc: number; 
+/**
+ * The stat's display name; `null` when the game data lacks it.
+ */
+name: string | null; 
+/**
+ * Raw factor: `0.924` = -7.6%.
+ */
+factor: number; 
+/**
+ * Whether a factor above 1 is the better roll; `null` when unclear.
+ */
+factor_up_is_better: boolean | null }
+export type CraftedView = { ingredients: IngredientView[]; properties: CraftedPropertyView[] }
 export type DamageBreakdownView = { physical: number; energy: number; distortion: number; thermal: number; biochemical: number; stun: number; 
 /**
  * Scalar total across all damage types (the "alpha" figure).
@@ -755,6 +773,15 @@ export type GroupMember = { username: string; is_owner: boolean }
  */
 export type GrpcFeatureInfo = { id: string; name: string; description: string }
 export type HolderView = { geid: string; name: string; item_type: string }
+export type IngredientView = { 
+/**
+ * `resource` | `item` | `other`.
+ */
+kind: string; name: string | null; quality: number; 
+/**
+ * µSCU for resources, count for items.
+ */
+amount: number }
 /**
  * Shell mirror of `svc_discovery::InstallInfo` (specta shape).
  */
@@ -915,7 +942,12 @@ holders: HolderView[]; fitted: boolean;
 /**
  * `owned` | `rented` | `bricked` | `unowned`.
  */
-ownership: string; stack: number; ammo: number | null; resource: ResourceStackView | null; crafted: boolean }
+ownership: string; stack: number; ammo: number | null; resource: ResourceStackView | null; crafted: CraftedView | null; 
+/**
+ * What it came with, from its own stock loadout; `null` when unknown
+ * (looted, or loadouts not fetched).
+ */
+stock: LoadoutSlotView[] | null }
 export type PatcherConfigUpdate = { enabled: boolean | null; options: Partial<{ [key in string]: string }> }
 export type PatcherInfoView = { id: string; name: string; description: string; enabled: boolean; 
 /**
@@ -933,9 +965,14 @@ export type PlaceView = { name: string;
  */
 parents: string[]; 
 /**
- * `storage` | `hangar` | `carried` | `other`.
+ * `storage` | `hangar` | `carried` | `adrift` | `other`.
  */
-kind: string }
+kind: string; 
+/**
+ * The location record's GUID (storage and hangar at one place share
+ * it); empty when carried or unknown.
+ */
+key: string }
 /**
  * One INI value before and after patching (`mod_langpatch::preview`).
  */

@@ -4460,10 +4460,15 @@ name = "sc-holotable"
 version = "0.0.0"
 source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.19.0#9106a15f416cd5c19835e25ce5cd493f7efdfb6d"
 dependencies = [
+ "sc-crafting",
  "sc-discovery",
  "sc-extract",
  "sc-gathering",
  "sc-items",
+ "sc-items-armor",
+ "sc-items-fps-weapons",
+ "sc-items-ship-components",
+ "sc-items-ship-weapons",
  "sc-locations",
  "sc-manufacturers",
  "sc-missions",

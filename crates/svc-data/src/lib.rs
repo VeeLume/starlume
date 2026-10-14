@@ -43,6 +43,7 @@
 
 pub mod builds;
 pub mod cooked;
+pub mod crafting;
 pub mod legality;
 pub mod missions;
 pub mod weapons;
@@ -64,6 +65,7 @@ pub use cooked::{
     CookedData, DATA_COOK_VERSION, ItemDetail, ItemPage, ItemQuery, ItemRow, ManufacturerRow,
     ResourceRow, STARLUME_COOK_REV,
 };
+pub use crafting::{CraftingIndex, CraftingProperty};
 pub use legality::{JurisdictionRef, LegalityEntry, LegalityKind};
 pub use missions::{
     BpPoolEntry, BpPoolReward, CargoLeg, CrimestatRisk, EncounterKind, EventLadder, EventReward,
@@ -77,6 +79,7 @@ pub use weapons::{DamageBreakdown, MissileEntry, ShipWeaponEntry, TrackingEntry,
 // depend on svc-data ONLY — the one-pin rule — so what they need to walk
 // the snapshot is re-exported here rather than pinned again).
 pub use sc_holotable::asset::{Guid, LocaleKey, LocaleMap, RecordCollection, class_crc};
+pub use sc_holotable::locations::{Location, LocationKind, Locations};
 
 /// Stack size for the loader thread — see the module docs.
 pub const LOADER_STACK_SIZE: usize = 32 * 1024 * 1024;
@@ -631,6 +634,7 @@ fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) ->
     // derive, so the module never needs the raw Datacore).
     let legality = legality::build_legality(&datacore, &foundations.resources);
     let weapons = weapons::build_weapons(&datacore, &foundations.items);
+    let crafting = crafting::build_crafting(&datacore);
     let holotable = sc_holotable::HolotableSnapshot::from_foundations(&foundations);
     drop(datacore);
     CookedData {
@@ -639,6 +643,7 @@ fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) ->
         missions,
         legality,
         weapons,
+        crafting,
     }
 }
 
@@ -729,6 +734,16 @@ mod tests {
                 }],
                 missiles: Vec::new(),
             },
+            crafting: crafting::CraftingIndex {
+                properties: vec![crafting::CraftingProperty {
+                    guid: guid(8).to_string(),
+                    crc: sc_holotable::asset::class_crc(&guid(8)),
+                    record_name: "CraftingGameplayPropertyDef.GPP_Weapon_Damage".into(),
+                    name_key: "@StatName_Damage".into(),
+                    unit_key: "@LOC_EMPTY".into(),
+                    factor_up_is_better: Some(true),
+                }],
+            },
         }
     }
 
@@ -801,6 +816,11 @@ mod tests {
         );
         // The mission catalog rides the same snapshot.
         assert_eq!(loaded.mission_count(), 1);
+        let damage = loaded
+            .crafting
+            .by_crc(sc_holotable::asset::class_crc(&guid(8)))
+            .expect("crafting property round-trips");
+        assert_eq!(damage.factor_up_is_better, Some(true));
         assert_eq!(loaded.missions[0].title.as_deref(), Some("Test Delivery"));
         assert_eq!(loaded.missions[0].payout.fixed, Some(5000));
         // Rev-3 additions ride it too: loc keys + facts + legality + weapons.

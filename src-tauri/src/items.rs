@@ -140,8 +140,11 @@ pub struct PlaceView {
     pub name: String,
     /// Parents, nearest first.
     pub parents: Vec<String>,
-    /// `storage` | `hangar` | `carried` | `other`.
+    /// `storage` | `hangar` | `carried` | `adrift` | `other`.
     pub kind: String,
+    /// The location record's GUID (storage and hangar at one place share
+    /// it); empty when carried or unknown.
+    pub key: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -174,7 +177,38 @@ pub struct OwnedItemView {
     pub stack: u32,
     pub ammo: Option<u32>,
     pub resource: Option<ResourceStackView>,
-    pub crafted: bool,
+    pub crafted: Option<CraftedView>,
+    /// What it came with, from its own stock loadout; `null` when unknown
+    /// (looted, or loadouts not fetched).
+    pub stock: Option<Vec<LoadoutSlotView>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct CraftedView {
+    pub ingredients: Vec<IngredientView>,
+    pub properties: Vec<CraftedPropertyView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct IngredientView {
+    /// `resource` | `item` | `other`.
+    pub kind: String,
+    pub name: Option<String>,
+    pub quality: u16,
+    /// µSCU for resources, count for items.
+    pub amount: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct CraftedPropertyView {
+    /// `CraftingGameplayPropertyDef` CRC.
+    pub crc: u32,
+    /// The stat's display name; `null` when the game data lacks it.
+    pub name: Option<String>,
+    /// Raw factor: `0.924` = -7.6%.
+    pub factor: f32,
+    /// Whether a factor above 1 is the better roll; `null` when unclear.
+    pub factor_up_is_better: Option<bool>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -242,6 +276,7 @@ fn place_view(p: mod_items::Place) -> PlaceView {
         kind: tag(&p.kind),
         name: p.name,
         parents: p.parents,
+        key: p.key,
     }
 }
 
@@ -283,7 +318,29 @@ fn finder_view(f: mod_items::Finder, fetched_at: i64) -> FinderView {
                     quality: r.quality,
                     scu: r.scu,
                 }),
-                crafted: i.crafted,
+                crafted: i.crafted.map(|c| CraftedView {
+                    ingredients: c
+                        .ingredients
+                        .into_iter()
+                        .map(|g| IngredientView {
+                            kind: tag(&g.kind),
+                            name: g.name,
+                            quality: g.quality,
+                            amount: g.amount as f64,
+                        })
+                        .collect(),
+                    properties: c
+                        .properties
+                        .into_iter()
+                        .map(|p| CraftedPropertyView {
+                            crc: p.crc,
+                            name: p.name,
+                            factor: p.factor,
+                            factor_up_is_better: p.factor_up_is_better,
+                        })
+                        .collect(),
+                }),
+                stock: slots_view(i.stock),
             })
             .collect(),
         ships: f

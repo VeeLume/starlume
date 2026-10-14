@@ -25,9 +25,12 @@ fn cooked() -> std::sync::Arc<CookedData> {
         build_id: version.clone(),
         version,
     };
-    DataService::new(root.into())
-        .get_or_reload_fast(&install)
-        .expect("a current cooked snapshot under STARLUME_REAL_CACHE")
+    let data = DataService::new(root.into());
+    // A cook-revision bump makes the cooked snapshot stale: re-cook from the
+    // raw extract beside it (no p4k needed).
+    data.get_or_reload_fast(&install)
+        .or_else(|| data.load(&install, |_| {}).ok())
+        .expect("a cooked snapshot or raw extract under STARLUME_REAL_CACHE")
 }
 
 fn walk<'a>(items: &'a [ItemRecord], depth: usize, out: &mut Vec<(usize, &'a ItemRecord)>) {
@@ -270,6 +273,85 @@ fn finder_on_real_data() {
                 .as_ref()
                 .map(|r| format!(" {} q{} {:.2}scu", r.name, r.quality, r.scu))
                 .unwrap_or_default()
+        );
+    }
+
+    eprintln!("\n== places");
+    let mut places: BTreeMap<String, usize> = BTreeMap::new();
+    for i in &finder.items {
+        let p = &i.place;
+        *places
+            .entry(format!(
+                "{:?} {} < {}",
+                p.kind,
+                p.name,
+                p.parents.join(" < ")
+            ))
+            .or_default() += 1;
+    }
+    for (p, n) in &places {
+        eprintln!("  {n:>5}  {p}");
+    }
+
+    let weapons: Vec<_> = finder
+        .items
+        .iter()
+        .filter(|i| i.kind.item_type == "WeaponPersonal")
+        .collect();
+    let with_stock = weapons.iter().filter(|i| i.stock.is_some()).count();
+    eprintln!(
+        "\n== weapons: {} , {} with a stock loadout",
+        weapons.len(),
+        with_stock
+    );
+    for w in weapons.iter().filter(|i| i.stock.is_some()).take(5) {
+        let stock: Vec<String> = w
+            .stock
+            .iter()
+            .flatten()
+            .map(|s| {
+                format!(
+                    "{}={}",
+                    s.path.join("/"),
+                    s.item.as_ref().map_or("—", |k| k.name.as_str())
+                )
+            })
+            .collect();
+        eprintln!("  {}: {}", w.kind.name, stock.join(", "));
+    }
+
+    eprintln!("\n== crafted");
+    for i in finder.items.iter().filter(|i| i.crafted.is_some()).take(8) {
+        let c = i.crafted.as_ref().unwrap();
+        let ing: Vec<String> = c
+            .ingredients
+            .iter()
+            .map(|g| {
+                format!(
+                    "{} Q{} x{}",
+                    g.name.as_deref().unwrap_or("?"),
+                    g.quality,
+                    g.amount
+                )
+            })
+            .collect();
+        let props: Vec<String> = c
+            .properties
+            .iter()
+            .map(|p| {
+                format!(
+                    "{}={:.3} (up better: {:?})",
+                    p.name.as_deref().unwrap_or("?"),
+                    p.factor,
+                    p.factor_up_is_better
+                )
+            })
+            .collect();
+        eprintln!(
+            "  {}: [{}] {}",
+            i.kind.name,
+            ing.join(", "),
+            props.join(" ")
         );
     }
 

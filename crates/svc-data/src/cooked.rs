@@ -30,7 +30,8 @@ use serde::{Deserialize, Serialize};
 /// crimestat reads the layer-resolved `DontHarm*` flags.
 /// rev 7: event points (`MissionEntry::event_rewards`: overall + category
 /// ladders, party split, tiers); event points split pools.
-pub const STARLUME_COOK_REV: u32 = 7;
+/// rev 8: crafting gameplay properties ([`CookedData::crafting`]).
+pub const STARLUME_COOK_REV: u32 = 8;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.
@@ -58,6 +59,10 @@ pub struct CookedData {
     /// [`crate::weapons`]).
     #[serde(default)]
     pub weapons: crate::weapons::WeaponsIndex,
+    /// Crafting gameplay properties: what crafted stat factors mean (raw
+    /// locale keys — see [`crate::crafting`]).
+    #[serde(default)]
+    pub crafting: crate::crafting::CraftingIndex,
 }
 
 /// One page of item search results.
