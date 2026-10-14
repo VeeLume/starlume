@@ -2,7 +2,7 @@
   // My Items — the explorer over the player's items, ships and resources.
   // The data is the cached inventory (svc-dossier) joined with the game data
   // (mod-items); "Refresh from game" is the one network call, gated.
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import { createItemsBrowse } from "$lib/components/items/explorer/browse";
@@ -15,18 +15,28 @@
 
   const browse = createItemsBrowse();
 
-  let channel = $state<string | null>(null);
   let ready = $state(false);
+  // The game data's channel, live: during a (re-)cook there is none yet, so
+  // the finder loads when it appears (and on every later change), not once
+  // at mount.
+  const channel = $derived(dataStore.channel);
 
   const tree = $derived(itemsStore.tree);
   const finder = $derived(itemsStore.finder);
   const fetched = $derived(itemsStore.summary?.fetched_at ?? null);
-  const updated = $derived(fetched ? new Date(fetched * 1000).toLocaleString() : null);
+  $effect(() => {
+    const c = channel;
+    if (c && fetched) untrack(() => void loadFinder(c));
+  });
+  const updated = $derived(
+    fetched ? new Date(fetched * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : null,
+  );
   const view = $derived<View>(browse.values.view === "ships" || browse.values.view === "res" ? browse.values.view : "items");
   const counts = $derived(
     tree && finder
       ? {
-          items: units(tree.root, (x) => x.item.ownership !== "bricked" && !x.item.resource),
+          // The tree's own count (resource stacks are items in their storage).
+          items: units(tree.root, (x) => x.item.ownership !== "bricked"),
           ships: finder.ships.filter((s) => s.ownership !== "bricked").length,
           res: new Set(finder.items.flatMap((i) => (i.resource ? [i.resource.name] : []))).size,
         }
@@ -40,11 +50,10 @@
   let unlisten: UnlistenFn | undefined;
   onMount(() => {
     void (async () => {
-      unlisten = await listenForItemsChanges(() => channel);
-      channel = await ensureChannel();
+      unlisten = await listenForItemsChanges(() => dataStore.channel);
+      await ensureChannel();
       ready = true;
       await loadItems();
-      if (channel && itemsStore.summary?.fetched_at) await loadFinder(channel);
     })();
   });
   onDestroy(() => unlisten?.());

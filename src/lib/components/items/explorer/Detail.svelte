@@ -126,8 +126,8 @@
           >{/if}
       </dd>
       {#if !node.virtual}
-        <dt>Fitted parts</dt><dd class="mono">{units(node, (x) => x.item.fitted && visible(x, showBricked))}</dd>
-        <dt>Stored on board</dt><dd class="mono">{stowed(node, (x) => visible(x, showBricked)).reduce((n, x) => n + x.item.stack, 0)}</dd>
+        <dt>Fitted parts</dt><dd class="num">{units(node, (x) => x.item.fitted && visible(x, showBricked))}</dd>
+        <dt>Stored on board</dt><dd class="num">{stowed(node, (x) => visible(x, showBricked)).reduce((n, x) => n + x.item.stack, 0)}</dd>
       {/if}
     </dl>
   {/if}
@@ -163,7 +163,7 @@
       <div class="att">
         <span class="slot">{k.slot}</span>
         <span class="att-name" class:added={k.state === "added"}>{k.part.item.kind.name}</span>
-        {#if k.part.item.ammo != null}<span class="mono dim">{k.part.item.ammo} rds</span>{/if}
+        {#if k.part.item.ammo != null}<span class="num dim">{k.part.item.ammo} rds</span>{/if}
         {#if k.state === "stock"}<span class="dim">stock</span>{:else if k.state === "added"}<Tag label="added" tone="primary" />{/if}
       </div>
     {/each}
@@ -176,7 +176,7 @@
     <h4>Also elsewhere</h4>
     {#each elsewhere as e (e.c.id)}
       <button type="button" class="link" onclick={() => ongo(e.c, e.first)}
-        ><span class="mono n">{e.n}×</span><span>{pathLabel(e.c)}</span></button
+        ><span class="num n">{e.n}×</span><span>{pathLabel(e.c)}</span></button
       >
     {/each}
   {/if}
@@ -184,7 +184,7 @@
   {#if inside.length}
     <h4>Inside</h4>
     {#each inside as [c, k] (c)}
-      <div class="fact"><span class="dim">{c}</span><span class="mono">{fmtN(k)}{#if c === "Resources"}<span class="dim"> materials</span>{/if}</span></div>
+      <div class="fact"><span class="dim">{c}</span><span class="num">{fmtN(k)}{#if c === "Resources"}<span class="dim">{" materials"}</span>{/if}</span></div>
     {/each}
   {/if}
 {/if}
@@ -325,7 +325,7 @@
   .good {
     color: var(--good);
   }
-  .mono {
+  .num {
     font-family: var(--font-mono);
   }
 </style>

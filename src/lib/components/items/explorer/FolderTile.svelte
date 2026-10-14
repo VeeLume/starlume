@@ -47,7 +47,7 @@
       {#if carried.length}<span>carries {carried.map((c) => c.name.replace(/^\S+\s/, "")).join(", ")}</span>{/if}
       {#if SOURCE[ship.source]}<span>{SOURCE[ship.source]}</span>{/if}
     {:else}
-      <span class="mono">{fmtN(inside)} inside</span>
+      <span class="num">{fmtN(inside)} inside</span>
       {#if node.type === "item" && node.item.ownership === "rented"}<Tag label="rented" tone="warning" />{/if}
     {/if}
   </span>
@@ -119,5 +119,8 @@
     align-items: center;
     gap: 3px;
     color: var(--warn);
+  }
+  .num {
+    font-family: var(--font-mono);
   }
 </style>

@@ -50,12 +50,12 @@
     {#if q != null}<Quality {q} prefix="avg Q" title="Average ingredient quality (the data records none for the item)" />{/if}
     {#if top}<Delta d={top} />{/if}
     {#if weapon}
-      <span class="faint mono" title={mag?.part.item.kind.name}
+      <span class="faint num" title={mag?.part.item.kind.name}
         >{mag ? `MAG ${mag.part.item.ammo != null ? `${mag.part.item.ammo} rds` : mag.state}` : "no mag"}</span
       >
     {/if}
-    {#if sized && item.kind.size}<span class="faint mono">S{item.kind.size}</span>{/if}
-    {#if item.ammo != null}<span class="faint mono">{item.ammo} rds</span>{/if}
+    {#if sized && item.kind.size}<span class="faint num">S{item.kind.size}</span>{/if}
+    {#if item.ammo != null}<span class="faint num">{item.ammo} rds</span>{/if}
     {#if item.ownership === "rented"}<Tag label="rented" tone="warning" />{/if}
     {#if item.ownership === "bricked"}<Tag label="bricked" tone="destructive" />{/if}
   </span>
@@ -103,5 +103,8 @@
   }
   .faint {
     color: var(--text-faint);
+  }
+  .num {
+    font-family: var(--font-mono);
   }
 </style>

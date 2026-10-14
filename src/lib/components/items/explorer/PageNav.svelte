@@ -112,6 +112,7 @@
     gap: 12px;
   }
   .updated {
+    white-space: nowrap;
     font-size: 0.8rem;
     color: var(--text-dim);
   }

@@ -79,13 +79,13 @@
     {#each sections as { s, hardpoints } (s)}
       {@const Icon = SECTION_ICON[s]}
       <section class="sec">
-        <h4><Icon size={13} />{s}<span class="mono">{hardpoints.reduce((n, h) => n + h.n, 0)}</span></h4>
+        <h4><Icon size={13} />{s}<span class="num">{hardpoints.reduce((n, h) => n + h.n, 0)}</span></h4>
         {#each hardpoints as h (h.key)}
-          <div class="card">
+          <div class="hp">
             {#if h.mount}
               <div class="mount">
                 <span class="size">{h.mount.size ? `S${h.mount.size}` : ""}</span><span class="grow">{h.mount.name}</span>
-                {#if h.n > 1}<span class="mono">×{h.n}</span>{/if}
+                {#if h.n > 1}<span class="num">×{h.n}</span>{/if}
               </div>
             {/if}
             {#each h.lines as l, k (k)}
@@ -105,7 +105,7 @@
                     {#if l.status === "unknown"}<span class="dim">{l.saved?.name ?? "Empty"}</span>
                     {:else if empty}<em class="emptied">Empty</em>
                     {:else}{l.fitted?.name}{/if}
-                    {#if n > 1}<span class="mono dim"> ×{n}</span>{/if}
+                    {#if n > 1}<span class="num dim">{` ×${n}`}</span>{/if}
                   </span>
                   {#if l.status === "off"}
                     <span class="diff warn">
@@ -177,11 +177,11 @@
     text-transform: uppercase;
     color: var(--text-dim);
   }
-  h4 .mono {
+  h4 .num {
     color: var(--accent);
     letter-spacing: 0;
   }
-  .card {
+  .hp {
     break-inside: avoid;
     margin-bottom: 6px;
     overflow: hidden;
@@ -288,7 +288,7 @@
   .unknown .mark {
     color: var(--text-faint);
   }
-  .mono {
+  .num {
     font-family: var(--font-mono);
   }
 </style>

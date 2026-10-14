@@ -46,8 +46,9 @@
     `color-mix(in srgb, ${hi ? "var(--accent)" : "var(--text-dim)"} ${Math.round(22 + 78 * share)}%, transparent)`;
 </script>
 
+<div class="rlist">
 <div class="bar">
-  <span class="label">Quality</span>
+  <span class="qlabel">Quality</span>
   {#each QUALITY_STEPS as v (v)}
     <ChipButton on={min === v} n={materials(list, v).length} onclick={() => onmin(v)}>{v ? `Q${v}+` : "Any"}</ChipButton>
   {/each}
@@ -70,7 +71,7 @@
 {#each groups as g (g.title)}
   <SectionHead title={g.title} note={g.unit} n={g.list.length} />
   <div class="row head">
-    <span>Material</span><span>Quality mix</span><span>Best</span><span class="r">{min ? `Q${min}+` : `Q${STOCK_QUALITY}+`}</span
+    <span>Material</span><span class="mixcell">Quality mix</span><span>Best</span><span class="r">{min ? `Q${min}+` : `Q${STOCK_QUALITY}+`}</span
     ><span class="r">Total</span>
   </div>
   {#each [...g.list].sort(order) as m (m.name)}
@@ -80,7 +81,7 @@
       <span class="name"
         ><b>{m.name}</b>{#if multi}<span class="places">{[...t.places].join(" · ")}</span>{/if}</span
       >
-      <QualityMix list={t.nodes} bulk={m.bulk} {min} />
+      <span class="mixcell"><QualityMix list={t.nodes} bulk={m.bulk} {min} /></span>
       <span>{#if m.best > 0}<Quality q={m.best} />{/if}</span>
       <span class="amt r" class:good={usable > 0} class:none={!usable}
         >{t.best > 0 ? (usable > 0 ? fmtAmount(m.bulk, usable) : "—") : ""}</span
@@ -89,6 +90,7 @@
     </button>
   {/each}
 {/each}
+</div>
 
 <style>
   .bar {
@@ -98,7 +100,7 @@
     gap: 6px;
     padding: 10px 0 2px;
   }
-  .label {
+  .qlabel {
     margin-right: 2px;
     font-size: 0.72rem;
     color: var(--text-faint);
@@ -187,5 +189,23 @@
     padding: 14px 2px;
     font-size: 0.84rem;
     color: var(--text-dim);
+  }
+  /* Narrow pane: the strip drops to its own line under the name, the
+     numbers stay in columns. Decided by the pane, not the window. */
+  .rlist {
+    container-type: inline-size;
+  }
+  @container (max-width: 620px) {
+    .row {
+      grid-template-columns: minmax(0, 1fr) 60px 80px 80px;
+      gap: 4px 10px;
+    }
+    .mixcell {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+    .row.head .mixcell {
+      display: none;
+    }
   }
 </style>

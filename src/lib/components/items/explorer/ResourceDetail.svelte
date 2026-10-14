@@ -67,8 +67,8 @@
 {#each byPlace as e (e.area.id)}
   {@const Icon = e.area.type === "place" && e.area.area === "carried" ? User : Archive}
   <button type="button" class="link" onclick={() => ongo(e.area)}>
-    <Icon size={12} /><span class="grow">{label(e.area)}<span class="dim"> · {e.area.name.toLowerCase()}</span></span>
-    {#if multi}<span class="mono">{fmtAmount(m.bulk, e.v)}</span>{/if}
+    <Icon size={12} /><span class="grow">{label(e.area)}<span class="dim">{` · ${e.area.name.toLowerCase()}`}</span></span>
+    {#if multi}<span class="num">{fmtAmount(m.bulk, e.v)}</span>{/if}
   </button>
 {/each}
 
@@ -175,7 +175,7 @@
   .dim {
     color: var(--text-faint);
   }
-  .mono {
+  .num {
     font-family: var(--font-mono);
     color: var(--text);
   }
