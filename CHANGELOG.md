@@ -2,10 +2,11 @@
 
 ## [Unreleased]
 
-## [0.0.1] - 2026-10-14
+## [0.0.2] - 2026-10-14
 
-First test release: it exercises the install and auto-update path ahead of
-v0.1.0. Expect rough edges.
+First published test release: it exercises the install and auto-update path
+ahead of v0.1.0. Expect rough edges. (0.0.1 was tagged but never published:
+its release workflow lacked the permission to create the release.)
 
 - **Text Patching** — patches Star Citizen's English text with readable
   mission details (the sc-langpatch patchers), and re-patches after a game
