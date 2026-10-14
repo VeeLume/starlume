@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Starlume app icon, small sizes (32 px and below): icon.svg without
+       the brackets and latitude lines, with heavier strokes. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17212c"/><stop offset="1" stop-color="#0d131a"/>
+    </linearGradient>
+    <radialGradient id="holo" cx="0.4" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#a996ff" stop-opacity="0.5"/><stop offset="1" stop-color="#a996ff" stop-opacity="0.15"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="48" fill="url(#bg)"/>
+  <rect x="5" y="5" width="246" height="246" rx="47" fill="none" stroke="#2b3b4a" stroke-width="3"/>
+  <path d="M 33 174.3 A 104 30 -24 0 1 223 89.7" fill="none" stroke="#a996ff" stroke-opacity="0.5" stroke-width="14"/>
+  <circle cx="128" cy="132" r="54" fill="url(#holo)" stroke="#a996ff" stroke-width="12"/>
+  <path d="M 33 174.3 A 104 30 -24 0 0 223 89.7" fill="none" stroke="#ddd5ff" stroke-width="15" stroke-linecap="round"/>
+  <circle cx="208.7" cy="117.2" r="24" fill="#f59cb3" stroke="#0d131a" stroke-width="7"/>
+</svg>

@@ -20,7 +20,11 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().expect("bundled icon").clone())
+        // Its own glyph (icons/source/tray.svg): the app icon's tile would
+        // shrink to a dark square at tray size.
+        .icon(tauri::image::Image::from_bytes(include_bytes!(
+            "../icons/tray.png"
+        ))?)
         .tooltip("Starlume")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -177,4 +181,15 @@ pub fn run() {
                 api.prevent_exit();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    /// The tray glyph is decoded at startup with `?`: a broken PNG would stop
+    /// the app before its window ever shows.
+    #[test]
+    fn tray_icon_decodes() {
+        let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")).unwrap();
+        assert_eq!((icon.width(), icon.height()), (32, 32));
+    }
 }

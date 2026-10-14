@@ -130,8 +130,12 @@ long-lived state (code comments cite them by name):
 
 ## Gotchas
 
-- `src-tauri/icons/` are **placeholders copied from Hearth** — replace before any public
-  release.
+- **Icons come from three SVGs** in `src-tauri/icons/source/`: `icon.svg` (48 px and up),
+  `icon-small.svg` (40 px and below) and `tray.svg` (the tray glyph). Regenerating:
+  `pnpm tauri icon src-tauri/icons/source/icon.svg`, then drop the `android/` and `ios/`
+  output, copy the small source's 32 px render over `32x32.png`, and rebuild `icon.ico`
+  with the small renders as its 16–40 px frames. `tray.png` is the 32 px render of
+  `tray.svg`.
 - The auth flow is wired desktop-side but the server doesn't exist yet; `login_start`
   errors politely without a configured server URL. Don't invent server endpoints — the
   contract lands together with `hearth-server`'s successor.

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 256 256">
+  <!-- Starlume app icon, large sizes (48 px and up). A holo ringed planet
+       whose moon rides the ring, on a slate tile with corner brackets.
+       Small sizes use icon-small.svg, the tray uses tray.svg. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17212c"/><stop offset="1" stop-color="#0d131a"/>
+    </linearGradient>
+    <radialGradient id="holo" cx="0.4" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#a996ff" stop-opacity="0.42"/><stop offset="1" stop-color="#a996ff" stop-opacity="0.08"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#a996ff" stop-opacity="0.22"/><stop offset="1" stop-color="#a996ff" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="planet"><circle cx="128" cy="132" r="51"/></clipPath>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+  <rect x="9" y="9" width="238" height="238" rx="51" fill="none" stroke="#2b3b4a" stroke-width="2"/>
+  <path d="M 30 62 V 30 H 62 M 194 30 H 226 V 62 M 226 194 V 226 H 194 M 62 226 H 30 V 194" fill="none" stroke="#2b3b4a" stroke-width="3"/>
+  <circle cx="128" cy="132" r="92" fill="url(#glow)"/>
+  <path d="M 33 174.3 A 104 30 -24 0 1 223 89.7" fill="none" stroke="#a996ff" stroke-opacity="0.45" stroke-width="8"/>
+  <circle cx="128" cy="132" r="54" fill="url(#holo)" stroke="#a996ff" stroke-width="6"/>
+  <g clip-path="url(#planet)" stroke="#ddd5ff" stroke-opacity="0.35" stroke-width="2.5" fill="none">
+    <ellipse cx="128" cy="132" rx="54" ry="16"/>
+    <ellipse cx="128" cy="132" rx="54" ry="36"/>
+    <ellipse cx="128" cy="132" rx="20" ry="54"/>
+  </g>
+  <path d="M 33 174.3 A 104 30 -24 0 0 223 89.7" fill="none" stroke="#ddd5ff" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="208.7" cy="117.2" r="17" fill="#f59cb3" stroke="#0d131a" stroke-width="6"/>
+</svg>
