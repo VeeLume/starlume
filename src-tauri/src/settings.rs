@@ -125,11 +125,23 @@ pub struct GrpcFeatureInfo {
 }
 
 /// Compiled-in gRPC sub-features.
-pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[(
-    "blueprints",
-    "Owned blueprints",
-    "Read your owned-blueprint set from CIG's backend, to mark owned rewards in mission text.",
-)];
+pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
+    (
+        "blueprints",
+        "Owned blueprints",
+        "Read your owned-blueprint set from CIG's backend, to mark owned rewards in mission text.",
+    ),
+    (
+        "items",
+        "Items & ships",
+        "Read where your items and ships are, what is fitted to what, and who owns it, for My Items.",
+    ),
+    (
+        "loadouts",
+        "Saved loadouts",
+        "Read your ships' stock and saved loadouts, to show them beside the fitted state in My Items.",
+    ),
+];
 
 /// List the gRPC sub-features this build knows — drives the Settings toggles.
 #[tauri::command]

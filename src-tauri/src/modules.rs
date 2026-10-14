@@ -53,12 +53,29 @@ impl Module for Contracts {
     }
 }
 
+/// My Items — the player's items and ships, where they are and how they
+/// are fitted (orchestration in `items.rs`, reading svc-dossier).
+struct Items;
+
+impl Module for Items {
+    fn id(&self) -> &'static str {
+        "items"
+    }
+    fn name(&self) -> &'static str {
+        "My Items"
+    }
+    fn description(&self) -> &'static str {
+        "Find any item or ship you own: where it is, what it is fitted to, and your saved loadouts"
+    }
+}
+
 /// All modules offered by this build, enabled or not. Unreleased modules
-/// (Contracts) exist only in debug builds — the Rust half of the frontend's
-/// `$lib/unreleased` gate (v0.1.0 scope decision).
+/// (Items while it is built, Contracts) exist only in debug builds — the
+/// Rust half of the frontend's `$lib/unreleased` gate (v0.1.0 scope
+/// decision).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
-        &[&Langpatch, &Contracts]
+        &[&Langpatch, &Items, &Contracts]
     } else {
         &[&Langpatch]
     }

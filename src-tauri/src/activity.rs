@@ -35,6 +35,8 @@ pub enum ActivityKind {
     Langpatch,
     /// svc-dossier owned-blueprints fetch.
     Blueprints,
+    /// svc-dossier inventory fetch (stashes, entitlements, loadouts).
+    Inventory,
 }
 
 /// Where an activity is. `stage` is a user-facing label ("Parsing

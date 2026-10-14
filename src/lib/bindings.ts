@@ -290,6 +290,42 @@ async langpatchPreviewSample(channel: string) : Promise<Result<MissionPreviewVie
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The cached inventory, in counts. **No network, no gate.**
+ */
+async itemsSummary() : Promise<InventorySummaryView> {
+    return await TAURI_INVOKE("items_summary");
+},
+/**
+ * Fetch the inventory live from CIG's backend and cache it, keeping the
+ * previous fetch and the last fetch per game build (the archive a future
+ * "what changed" compares against).
+ * 
+ * **Gated** by `require_grpc("items")`; the loadouts ride along only when
+ * `require_grpc("loadouts")` passes too. A stale launcher session surfaces
+ * as an error the page shows as a sign-in hint.
+ */
+async itemsRefresh() : Promise<Result<InventorySummaryView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("items_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The finder over the cached inventory, named from `channel`'s game data.
+ * `null` when nothing has been fetched yet. **No network, no gate** — the
+ * cache and the cooked snapshot are both local.
+ */
+async itemsFinder(channel: string) : Promise<Result<FinderView | null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("items_finder", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async authStatus() : Promise<AuthStatus> {
     return await TAURI_INVOKE("auth_status");
 },
@@ -442,7 +478,11 @@ export type ActivityKind =
 /**
  * svc-dossier owned-blueprints fetch.
  */
-"blueprints"
+"blueprints" | 
+/**
+ * svc-dossier inventory fetch (stashes, entitlements, loadouts).
+ */
+"inventory"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -690,6 +730,20 @@ export type EventRewardView = { event: string;
  * The overall ladder first, then the category ladders.
  */
 ladders: EventLadderView[] }
+export type FailedStashView = { inventory_id: string; error: string }
+/**
+ * Both finder views over the cached inventory.
+ */
+export type FinderView = { items: OwnedItemView[]; ships: ShipView[]; 
+/**
+ * Instances the game data couldn't name (a stale build shows here).
+ */
+unnamed: number; 
+/**
+ * When the inventory was fetched, epoch seconds.
+ */
+fetched_at: number }
+export type FittedPartView = { geid: string; port: string | null; depth: number; kind: ItemKindView }
 export type FriendGroup = { id: string; name: string; is_owner: boolean; members: GroupMember[] }
 export type FriendUser = { user_id: string; username: string }
 export type GroupMember = { username: string; is_owner: boolean }
@@ -700,10 +754,32 @@ export type GroupMember = { username: string; is_owner: boolean }
  * feature id here and gates through `AppState::require_grpc(id)`.
  */
 export type GrpcFeatureInfo = { id: string; name: string; description: string }
+export type HolderView = { geid: string; name: string; item_type: string }
 /**
  * Shell mirror of `svc_discovery::InstallInfo` (specta shape).
  */
 export type InstallView = { channel: string; platform: string; directory: string; version: string; build_id: string }
+/**
+ * What the last inventory fetch holds, in counts — the page header and
+ * the first check that the fetch works on a real account.
+ */
+export type InventorySummaryView = { 
+/**
+ * When fetched, epoch seconds; `null` when never fetched.
+ */
+fetched_at: number | null; stashes: number; 
+/**
+ * Item instances across every stash, attached and stowed ones included.
+ */
+items: number; 
+/**
+ * Stashes whose query failed, with the error.
+ */
+failed: FailedStashView[]; entitlements: number; 
+/**
+ * Loadout records; `null` when the loadouts feature was off.
+ */
+loadouts: number | null }
 export type ItemDetailView = { guid: string; name: string; short_name: string | null; description: string | null; item_type: string; item_sub_type: string; size: number; grade: number; record_path: string | null; 
 /**
  * Combat stats when the item is a ship weapon (weapons-index join).
@@ -713,6 +789,7 @@ ship_weapon: ShipWeaponStatsView | null;
  * Combat stats when the item is a missile / torpedo.
  */
 missile: MissileStatsView | null }
+export type ItemKindView = { guid: string; name: string; item_type: string; sub_type: string; size: number; grade: number }
 export type ItemPageView = { total: number; rows: ItemRowView[] }
 export type ItemRewardView = { entity_guid: string; name: string | null; amount: number }
 export type ItemRowView = { guid: string; name: string; item_type: string; item_sub_type: string; size: number; grade: number }
@@ -740,6 +817,11 @@ selected: boolean;
  */
 state: string; patched_at: string | null }
 export type LangpatchOverview = { auto_patch: boolean; channels: string[]; language_pack: string | null; patchers: PatcherInfoView[]; installs: LangpatchInstallView[] }
+export type LoadoutSlotView = { path: string[]; 
+/**
+ * `null` = an emptied port.
+ */
+item: ItemKindView | null }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
 export type MissileStatsView = { size: number; is_torpedo: boolean; damage: DamageBreakdownView | null; speed: number | null; arm_time: number; tracking: TrackingView | null }
 export type MissionCategoryView = { name: string | null; icon: string }
@@ -825,6 +907,15 @@ blueprint_ids: string[];
  * nothing has been fetched yet.
  */
 fetched_at: number | null }
+export type OwnedItemView = { geid: string; kind: ItemKindView; place: PlaceView; 
+/**
+ * Outermost first (ship, then turret).
+ */
+holders: HolderView[]; fitted: boolean; 
+/**
+ * `owned` | `rented` | `bricked` | `unowned`.
+ */
+ownership: string; stack: number; ammo: number | null; resource: ResourceStackView | null; crafted: boolean }
 export type PatcherConfigUpdate = { enabled: boolean | null; options: Partial<{ [key in string]: string }> }
 export type PatcherInfoView = { id: string; name: string; description: string; enabled: boolean; 
 /**
@@ -836,6 +927,15 @@ uses_replace_ops: boolean; options: PatcherOptionView[];
  */
 values: Partial<{ [key in string]: string }> }
 export type PatcherOptionView = { id: string; label: string; description: string; default: string; kind: OptionKindView }
+export type PlaceView = { name: string; 
+/**
+ * Parents, nearest first.
+ */
+parents: string[]; 
+/**
+ * `storage` | `hangar` | `carried` | `other`.
+ */
+kind: string }
 /**
  * One INI value before and after patching (`mod_langpatch::preview`).
  */
@@ -853,6 +953,7 @@ export type ResourceRowView = { guid: string; name: string; description: string 
  * Drug/contraband verdict when any jurisdiction outlaws this resource.
  */
 legality: ResourceLegalityView | null }
+export type ResourceStackView = { name: string; quality: number; scu: number }
 /**
  * A recognized RSI account. `citizen_record`/`enlisted` are the immutable
  * anchors from the public profile — `None` until verified.
@@ -887,6 +988,19 @@ launcher_handle: string | null;
 account: RsiAccount | null }
 export type ScripRewardView = { name: string | null; amount: number }
 export type ShipSlotView = { count_min: number; count_max: number; ships: string[]; factions: string[] }
+export type ShipView = { key: string; kind: ItemKindView; geid: string | null; place: PlaceView | null; holders: HolderView[]; 
+/**
+ * `owned` | `rented` | `bricked` | `unowned`.
+ */
+ownership: string; 
+/**
+ * `pledge` | `in_game` | `rental` | `unknown`.
+ */
+source: string; 
+/**
+ * Epoch seconds.
+ */
+rental_expiry: number | null; fitted: FittedPartView[]; stock: LoadoutSlotView[] | null; saved: LoadoutSlotView[] | null }
 export type ShipWeaponStatsView = { size: number; item_sub_type: string; damage: DamageBreakdownView | null; penetration_m: number | null; ammo_speed: number | null; ammo_lifetime: number | null; total_ammo: number | null; capacitor: number | null }
 /**
  * NPC / entity slot (`svc_data::SpawnSlot`).

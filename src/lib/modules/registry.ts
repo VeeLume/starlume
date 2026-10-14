@@ -9,12 +9,13 @@
 import type { ModuleDescriptor } from "./types";
 import { langpatchModule } from "./langpatch/descriptor";
 import { contractsModule } from "./contracts/descriptor";
+import { itemsModule } from "./items/descriptor";
 import { SHOW_UNRELEASED } from "$lib/unreleased";
 
 export const moduleRegistry: ModuleDescriptor[] = [
   langpatchModule,
   // Unreleased — see $lib/unreleased (mirrors modules::registry() in Rust).
-  ...(SHOW_UNRELEASED ? [contractsModule] : []),
+  ...(SHOW_UNRELEASED ? [itemsModule, contractsModule] : []),
 ];
 
 export function moduleById(id: string): ModuleDescriptor | undefined {

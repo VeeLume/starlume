@@ -76,7 +76,7 @@ pub use weapons::{DamageBreakdown, MissileEntry, ShipWeaponEntry, TrackingEntry,
 // Selected sc-holotable surface for CookedData consumers (module crates
 // depend on svc-data ONLY — the one-pin rule — so what they need to walk
 // the snapshot is re-exported here rather than pinned again).
-pub use sc_holotable::asset::{Guid, LocaleKey, LocaleMap, RecordCollection};
+pub use sc_holotable::asset::{Guid, LocaleKey, LocaleMap, RecordCollection, class_crc};
 
 /// Stack size for the loader thread — see the module docs.
 pub const LOADER_STACK_SIZE: usize = 32 * 1024 * 1024;

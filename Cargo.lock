@@ -2735,6 +2735,17 @@ name = "mod-contracts"
 version = "0.1.0"
 
 [[package]]
+name = "mod-items"
+version = "0.1.0"
+dependencies = [
+ "app-kit",
+ "serde",
+ "serde_json",
+ "svc-data",
+ "svc-dossier",
+]
+
+[[package]]
 name = "mod-langpatch"
 version = "0.1.0"
 dependencies = [
@@ -5372,6 +5383,7 @@ dependencies = [
  "app-kit",
  "chrono",
  "keyring",
+ "mod-items",
  "mod-langpatch",
  "reqwest 0.12.28",
  "serde",
@@ -5595,6 +5607,7 @@ dependencies = [
  "chrono",
  "sc-dossier",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",

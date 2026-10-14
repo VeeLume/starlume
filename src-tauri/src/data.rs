@@ -656,7 +656,7 @@ fn changelist(version: &str) -> u64 {
 /// (Live/Hotfix — what people actually play; Hotfix is Live-staged and can be
 /// newer), falling back to the newest install of any channel (PTU-only
 /// machines exist).
-fn default_install(installs: &[InstallRef]) -> Option<&InstallRef> {
+pub(crate) fn default_install(installs: &[InstallRef]) -> Option<&InstallRef> {
     installs
         .iter()
         .filter(|i| svc_data::is_prod_channel(&i.channel_key))
@@ -978,7 +978,7 @@ pub(crate) async fn prune_archive(app: &AppHandle) {
 
 /// The cooked bundle for query commands. Tier-1 reload at most (sub-second);
 /// never parses — the user starts parses explicitly via `data_load`.
-async fn cooked_for(
+pub(crate) async fn cooked_for(
     app: &AppHandle,
     channel: &str,
 ) -> Result<std::sync::Arc<svc_data::CookedData>, AppError> {
