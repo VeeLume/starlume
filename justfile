@@ -7,6 +7,10 @@ default:
 
 # --- repo-local recipes below (add yours here) ---
 
+# Frontend unit tests (pure model code: src/**/*.test.ts)
+test-ts:
+    pnpm test
+
 # The bin is gated behind the non-default `bindgen` feature (kept out of release builds).
 # Regenerate src/lib/bindings.ts from the Rust command surface
 bindings:
