@@ -70,14 +70,13 @@ impl Module for Items {
 }
 
 /// All modules offered by this build, enabled or not. Unreleased modules
-/// (Items while it is built, Contracts) exist only in debug builds — the
-/// Rust half of the frontend's `$lib/unreleased` gate (v0.1.0 scope
-/// decision).
+/// (Contracts) exist only in debug builds — the Rust half of the
+/// frontend's `$lib/unreleased` gate (v0.1.0 scope decision).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
         &[&Langpatch, &Items, &Contracts]
     } else {
-        &[&Langpatch]
+        &[&Langpatch, &Items]
     }
 }
 

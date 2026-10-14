@@ -14,8 +14,9 @@ import { SHOW_UNRELEASED } from "$lib/unreleased";
 
 export const moduleRegistry: ModuleDescriptor[] = [
   langpatchModule,
+  itemsModule,
   // Unreleased — see $lib/unreleased (mirrors modules::registry() in Rust).
-  ...(SHOW_UNRELEASED ? [itemsModule, contractsModule] : []),
+  ...(SHOW_UNRELEASED ? [contractsModule] : []),
 ];
 
 export function moduleById(id: string): ModuleDescriptor | undefined {
