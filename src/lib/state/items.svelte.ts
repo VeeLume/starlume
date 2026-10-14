@@ -5,9 +5,13 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands, type FinderView, type InventorySummaryView } from "$lib/bindings";
+import { buildTree, type Tree } from "$lib/components/items/model/tree";
 
 let _summary = $state<InventorySummaryView | null>(null);
-let _finder = $state<FinderView | null>(null);
+// Raw, not deep: the finder is replaced whole, and the tree it derives is a
+// cross-linked graph (parent pointers) a deep proxy would only slow down.
+let _finder = $state.raw<FinderView | null>(null);
+let _tree = $state.raw<Tree | null>(null);
 let _finderChannel: string | null = null;
 let _loading = $state(false);
 let _refreshing = $state(false);
@@ -23,6 +27,10 @@ export const itemsStore = {
   /** The finder over the cached inventory; null until loaded or fetched. */
   get finder() {
     return _finder;
+  },
+  /** The explorer's containment tree over the finder; null with it. */
+  get tree() {
+    return _tree;
   },
   /** A finder load is in flight (the cached one stays on screen). */
   get loading() {
@@ -51,6 +59,7 @@ export async function loadItems(): Promise<void> {
 export async function loadFinder(channel: string): Promise<void> {
   if (channel !== _finderChannel) {
     _finder = null;
+    _tree = null;
     _finderChannel = channel;
   }
   const mine = ++_finderReq;
@@ -60,6 +69,7 @@ export async function loadFinder(channel: string): Promise<void> {
   _loading = false;
   if (result.status === "ok") {
     _finder = result.data;
+    _tree = result.data ? buildTree(result.data.items, result.data.ships) : null;
     _finderError = "";
   } else {
     _finderError = result.error.message;
