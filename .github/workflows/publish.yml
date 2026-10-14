@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
 
+# The default GITHUB_TOKEN is read-only here; creating the release and
+# uploading its assets needs write access to contents.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
