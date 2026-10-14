@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-10-14
+
+- **Lighter in the tray.** Starlume closes its window's web view a minute
+  after you hide it to the tray, dropping from ~180 MB to ~11 MB of memory;
+  reopening rebuilds it in about half a second, on the page you left. A
+  minimized start (run at login) no longer creates a window until you open
+  it.
+- The update check no longer prompts again every time you reopen the window.
+
 ## [0.0.2] - 2026-10-14
 
 First published test release: it exercises the install and auto-update path
