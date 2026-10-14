@@ -54,7 +54,7 @@
     />
     <span>
       <strong>Enable online features</strong>
-      <span class="dim">Discord sign-in, RSI profile lookups, community. Off = no network at all (except update checks).</span>
+      <span class="dim">RSI profile lookups and the game-services features you opt into below. Off = no network at all (except update checks).</span>
     </span>
   </label>
 

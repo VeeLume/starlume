@@ -53,9 +53,15 @@ impl Module for Contracts {
     }
 }
 
-/// All modules compiled into this build, enabled or not.
+/// All modules offered by this build, enabled or not. Unreleased modules
+/// (Contracts) exist only in debug builds — the Rust half of the frontend's
+/// `$lib/unreleased` gate (v0.1.0 scope decision).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
-    &[&Langpatch, &Contracts]
+    if cfg!(debug_assertions) {
+        &[&Langpatch, &Contracts]
+    } else {
+        &[&Langpatch]
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]

@@ -124,11 +124,11 @@ pub struct GrpcFeatureInfo {
     pub description: String,
 }
 
-/// Compiled-in gRPC sub-features. Empty until the first dossier integration.
+/// Compiled-in gRPC sub-features.
 pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[(
     "blueprints",
     "Owned blueprints",
-    "Read your owned-blueprint set from CIG's backend, to mark owned rewards in the catalog.",
+    "Read your owned-blueprint set from CIG's backend, to mark owned rewards in mission text.",
 )];
 
 /// List the gRPC sub-features this build knows — drives the Settings toggles.

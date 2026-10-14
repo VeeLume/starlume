@@ -3,6 +3,7 @@
 
 import { Blocks, Database, Globe, SlidersHorizontal, UserRound } from "lucide-svelte";
 import type { SettingsCategory } from "@veelume/ui";
+import { SHOW_UNRELEASED } from "$lib/unreleased";
 
 export const settingsCategories: SettingsCategory[] = [
   {
@@ -33,11 +34,16 @@ export const settingsCategories: SettingsCategory[] = [
     icon: Globe,
     path: "/settings/online",
   },
-  {
-    id: "account",
-    label: "Account",
-    description: "Server URL, Discord sign-in",
-    icon: UserRound,
-    path: "/settings/account",
-  },
+  // Server + Discord serve only the unreleased friends/community layer.
+  ...(SHOW_UNRELEASED
+    ? [
+        {
+          id: "account",
+          label: "Account",
+          description: "Server URL, Discord sign-in",
+          icon: UserRound,
+          path: "/settings/account",
+        },
+      ]
+    : []),
 ];
