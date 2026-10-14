@@ -168,15 +168,15 @@ export function weightOf(n: ItemNode): Weight {
 }
 
 /** "Geist Armor Core Golden Blossom" → "Geist Golden Blossom": the set a
- *  piece belongs to. */
+ *  piece belongs to by its name, for pieces the game data gave no set. */
 export const setName = (name: string) =>
   name
     .replace(/\b(Helmet|Core|Arms|Legs|Backpack|Undersuit|Armor)\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
-export const PIECES = ["Helmet", "Core", "Arms", "Legs", "Backpack", "Undersuit"];
-/** What makes a set full. */
+export const PIECES = ["Helmet", "Core", "Arms", "Legs", "Undersuit", "Backpack"];
+/** What makes a set full when the game data doesn't say. */
 export const FULL_SET = ["Helmet", "Core", "Arms", "Legs"];
 
 export interface ArmourSet {
@@ -185,22 +185,31 @@ export interface ArmourSet {
   weight: Weight;
   /** Piece → count. */
   have: Map<string, number>;
-  /** Pieces of the full set owned (of four). */
+  /** The pieces that make it full: what the set has in the game data, a
+   *  backpack aside (a flight suit: helmet and suit). */
+  full: string[];
+  /** Of those, the pieces owned. */
   got: number;
 }
 
-/** The armour sets among a list of pieces. A set's weight is its core,
- *  arms and legs' most common class. Largest sets first. */
+/** All its pieces owned. A set of one piece (a helmet sold alone) is just
+ *  that piece, never a "full set". */
+export const isFull = (s: ArmourSet) => s.full.length > 1 && s.got === s.full.length;
+
+/** The armour sets among a list of pieces, grouped by the game data's set
+ *  (see mod-items `sets.rs`). A set's weight is its core, arms and legs'
+ *  most common class. Largest sets first. */
 export function armourSets(list: ItemNode[]): ArmourSet[] {
   const m = new Map<string, ItemNode[]>();
   for (const n of list) {
-    const k = setName(n.item.kind.name);
+    const k = n.item.set?.key ?? `name:${setName(n.item.kind.name)}`;
     const l = m.get(k);
     if (l) l.push(n);
     else m.set(k, [n]);
   }
-  return [...m.entries()]
-    .map(([name, items]) => {
+  return [...m.values()]
+    .map((items) => {
+      const set = items[0].item.set;
       const body = items.filter((n) =>
         ["Char_Armor_Torso", "Char_Armor_Arms", "Char_Armor_Legs"].includes(n.item.kind.item_type),
       );
@@ -212,7 +221,10 @@ export function armourSets(list: ItemNode[]): ArmourSet[] {
         const p = ARMOUR_SLOT[n.item.kind.item_type];
         if (p) have.set(p, (have.get(p) ?? 0) + n.item.stack);
       }
-      return { name, items, weight, have, got: FULL_SET.filter((p) => have.has(p)).length };
+      const pieces = set?.pieces.filter((p) => p !== "Backpack");
+      const full = pieces?.length ? pieces : FULL_SET;
+      const name = set?.name ?? setName(items[0].item.kind.name);
+      return { name, items, weight, have, full, got: full.filter((p) => have.has(p)).length };
     })
     .sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name));
 }

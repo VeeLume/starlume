@@ -181,6 +181,18 @@ pub struct OwnedItemView {
     /// What it came with, from its own stock loadout; `null` when unknown
     /// (looted, or loadouts not fetched).
     pub stock: Option<Vec<LoadoutSlotView>>,
+    /// The armour set the piece belongs to, from the game data.
+    pub set: Option<ArmourSetView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ArmourSetView {
+    pub key: String,
+    /// "Sol-III Aviator".
+    pub name: String,
+    /// The pieces the set has in the game data (`Helmet`, `Core`, `Arms`,
+    /// `Legs`, `Undersuit`, `Backpack`), in that order.
+    pub pieces: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -341,6 +353,11 @@ fn finder_view(f: mod_items::Finder, fetched_at: i64) -> FinderView {
                         .collect(),
                 }),
                 stock: slots_view(i.stock),
+                set: i.set.map(|s| ArmourSetView {
+                    key: s.key,
+                    name: s.name,
+                    pieces: s.pieces,
+                }),
             })
             .collect(),
         ships: f

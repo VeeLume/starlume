@@ -1,9 +1,9 @@
 <script lang="ts">
   // An armour set: owned pieces as solid accent chips, missing ones faint
-  // and dashed, and a count toward the full set (helmet, core, arms, legs)
-  // that becomes the "full set" badge.
+  // and dashed, and a count toward the full set (the pieces the set has in
+  // the game data) that becomes the "full set" badge.
   import { Shield } from "lucide-svelte";
-  import { FULL_SET, PIECES, type ArmourSet } from "../model/classify";
+  import { isFull, PIECES, type ArmourSet } from "../model/classify";
   import { avgIngredientQuality } from "../model/crafted";
   import Card from "./Card.svelte";
   import Weight from "./Weight.svelte";
@@ -12,7 +12,7 @@
 
   let { set, on, onclick }: { set: ArmourSet; on: boolean; onclick: () => void } = $props();
 
-  const shown = $derived(PIECES.filter((p) => set.have.has(p) || FULL_SET.includes(p)));
+  const shown = $derived(PIECES.filter((p) => set.have.has(p) || set.full.includes(p)));
   const bestQ = $derived(
     Math.max(-1, ...set.items.map((n) => (n.item.crafted ? (avgIngredientQuality(n.item.crafted) ?? -1) : -1))),
   );
@@ -21,9 +21,9 @@
 <Card icon={Shield} {on} crafted={bestQ >= 0} {onclick}>
   {#snippet name()}{set.name}{/snippet}
   {#snippet right()}
-    {#if set.got === FULL_SET.length}<Tag label="full set" tone="primary" />{:else}<span
+    {#if isFull(set)}<Tag label="full set" tone="primary" />{:else if set.full.length > 1}<span
         class="of"
-        title="Helmet, core, arms, legs">{set.got}/4</span
+        title={set.full.join(", ")}>{set.got}/{set.full.length}</span
       >{/if}
   {/snippet}
   <span class="pieces">

@@ -8,7 +8,7 @@
     armourSets,
     categoryOf,
     CATEGORIES,
-    FULL_SET,
+    isFull,
     isKitted,
     SUBCATEGORIES,
     subcategoryOf,
@@ -95,7 +95,7 @@
   const setGroups = $derived.by(() => {
     if (!showSets) return [];
     const sets = armourSets(narrowed);
-    const full = (s: ArmourSet) => (s.got === FULL_SET.length ? 1 : 0);
+    const full = (s: ArmourSet) => (isFull(s) ? 1 : 0);
     return WEIGHT_GROUPS.map((w) => ({
       w,
       sets: sets.filter((s) => s.weight === w).sort((a, b) => full(b) - full(a) || b.items.length - a.items.length),
@@ -120,7 +120,7 @@
       if (k) notes.push(`${k} kitted`);
     }
     if (c === "Armour") {
-      const f = armourSets(list).filter((s) => s.got === FULL_SET.length).length;
+      const f = armourSets(list).filter(isFull).length;
       if (f) notes.push(`${f} full sets`);
     }
     if (c === "Resources") {

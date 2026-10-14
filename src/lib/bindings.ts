@@ -621,6 +621,16 @@ archive_all_builds: boolean;
  * Archive PTU / Tech Preview builds too. Default off: Live/Hotfix only.
  */
 archive_test_channels: boolean }
+export type ArmourSetView = { key: string; 
+/**
+ * "Sol-III Aviator".
+ */
+name: string; 
+/**
+ * The pieces the set has in the game data (`Helmet`, `Core`, `Arms`,
+ * `Legs`, `Undersuit`, `Backpack`), in that order.
+ */
+pieces: string[] }
 export type AuthStatus = { 
 /**
  * A device token is present in the credential store.
@@ -947,7 +957,11 @@ ownership: string; stack: number; ammo: number | null; resource: ResourceStackVi
  * What it came with, from its own stock loadout; `null` when unknown
  * (looted, or loadouts not fetched).
  */
-stock: LoadoutSlotView[] | null }
+stock: LoadoutSlotView[] | null; 
+/**
+ * The armour set the piece belongs to, from the game data.
+ */
+set: ArmourSetView | null }
 export type PatcherConfigUpdate = { enabled: boolean | null; options: Partial<{ [key in string]: string }> }
 export type PatcherInfoView = { id: string; name: string; description: string; enabled: boolean; 
 /**

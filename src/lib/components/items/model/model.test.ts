@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ItemKindView, LoadoutSlotView, OwnedItemView, PlaceView, ShipView } from "$lib/bindings";
-import { armourSets, categoryOf, isKitted, kitOf, shortPartName, subcategoryOf } from "./classify";
+import { armourSets, categoryOf, isFull, isKitted, kitOf, shortPartName, subcategoryOf } from "./classify";
 import { avgIngredientQuality, statDeltas } from "./crafted";
 import { loadoutOf, offSaved, portLabel, portRows } from "./loadout";
 import { amountOf, fmtAmount, materials, qualityMix } from "./resources";
@@ -35,6 +35,7 @@ function item(k: ItemKindView, o: Partial<OwnedItemView> = {}): OwnedItemView {
     resource: null,
     crafted: null,
     stock: null,
+    set: null,
     ...o,
   };
 }
@@ -137,6 +138,23 @@ describe("classify", () => {
     expect(sets[0].name).toBe("ADP Black");
     expect(sets[0].weight).toBe("Heavy");
     expect(sets[0].got).toBe(4);
+  });
+
+  it("groups by the game data's set, which says what makes it full", () => {
+    const set = { key: "vgl_flightsuit_05_01_01:-", name: "Tailwind Flight Kruger", pieces: ["Helmet", "Undersuit"] };
+    const sets = armourSets(
+      buildTree(
+        [
+          item(kind("Tailwind Flight Helmet Kruger", "Char_Armor_Helmet", "Helmet"), { set }),
+          item(kind("Tailwind Flight Suit Kruger", "Char_Armor_Undersuit"), { set }),
+        ],
+        [],
+      ).items,
+    );
+    expect(sets).toHaveLength(1);
+    expect(sets[0].name).toBe("Tailwind Flight Kruger");
+    expect(sets[0].full).toEqual(["Helmet", "Undersuit"]);
+    expect(isFull(sets[0])).toBe(true);
   });
 
   it("marks a weapon's attachments stock or added against its own stock loadout", () => {

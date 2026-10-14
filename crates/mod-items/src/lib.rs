@@ -29,6 +29,10 @@ use svc_data::{
     CookedData, Guid, LocaleMap, Location, LocationKind, Locations, RecordCollection, class_crc,
 };
 use svc_dossier::Inventory;
+
+mod sets;
+pub use sets::ArmourSet;
+use sets::ArmourSets;
 use svc_dossier::inventory::{
     ContextRecord, CraftedRecord, EntitlementRecord, EntitlementSourceRecord,
     EntitlementStatusRecord, IngredientKindRecord, ItemRecord, LoadoutItemRecord, LoadoutRecord,
@@ -122,6 +126,8 @@ pub struct ItemRow {
     /// loadout. `None` when unknown: no entitlement of its own (looted), or
     /// loadouts not fetched.
     pub stock: Option<Vec<LoadoutSlot>>,
+    /// The armour set the piece belongs to (see [`sets`]).
+    pub set: Option<ArmourSet>,
 }
 
 /// A crafted item's recipe record, named.
@@ -281,6 +287,7 @@ struct Names<'a> {
     cooked: &'a CookedData,
     /// Resource CRC → display name.
     resources: HashMap<u32, String>,
+    sets: ArmourSets,
 }
 
 impl<'a> Names<'a> {
@@ -298,7 +305,11 @@ impl<'a> Names<'a> {
                     .collect()
             })
             .unwrap_or_default();
-        Self { cooked, resources }
+        Self {
+            cooked,
+            resources,
+            sets: ArmourSets::from_cooked(cooked),
+        }
     }
 
     fn by_crc(&self, crc: u32) -> Option<ItemKind> {
@@ -661,6 +672,10 @@ pub fn finder(inventory: &Inventory, cooked: &CookedData) -> Finder {
                                 .filter(|c| !c.ingredients.is_empty() || !c.properties.is_empty())
                                 .map(|c| self.names.crafted(c)),
                             stock,
+                            set: Guid::from_str(&kind.guid)
+                                .ok()
+                                .and_then(|g| self.names.sets.of(&g))
+                                .cloned(),
                         });
                     }
                     // Structure and the body hold things without being a
