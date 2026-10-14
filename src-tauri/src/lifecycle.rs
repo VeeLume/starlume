@@ -8,34 +8,11 @@
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_deep_link::DeepLinkExt;
 
-use crate::{AppState, auth, ipc, langpatch, suspend, watch};
-
-fn show_main_window(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        // Restore browser-view visibility first — auto-resumes a suspended
-        // webview (see suspend.rs).
-        suspend::resume_webview(&w);
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-    }
-}
-
-/// Hide the main window to the tray and suspend its webview so the hidden
-/// WebView2 releases its working set instead of idling at ~100+ MB. Also
-/// evicts the cooked SC data ("cooked data is evictable", CLAUDE.md) — reload from the
-/// processed snapshot is sub-second, so hidden means holding nothing.
-fn hide_to_tray(window: &tauri::Window) {
-    let _ = window.hide();
-    if let Some(w) = window.app_handle().get_webview_window("main") {
-        suspend::suspend_webview(&w);
-    }
-    window.app_handle().state::<AppState>().data.evict();
-}
+use crate::{AppState, auth, ipc, langpatch, watch, window};
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Starlume", true, None::<&str>)?;
@@ -48,7 +25,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => show_main_window(app),
+            "show" => window::show(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -59,7 +36,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                window::show(tray.app_handle());
             }
         })
         .build(app)?;
@@ -87,7 +64,7 @@ pub fn run() {
             // A second launch without a deep link is the user looking for the
             // window — bring it up. (Deep-link argv is forwarded separately by
             // the plugin's deep-link feature.)
-            show_main_window(app);
+            window::show(app);
         }));
     }
     builder
@@ -142,24 +119,11 @@ pub fn run() {
             // → InstallChanged on the bus → cache invalidation + re-warm.
             watch::spawn(app.handle());
 
-            // Window starts hidden (tauri.conf `visible: false`) so companion
-            // mode never flashes a frame; show it unless we're told not to.
+            // No window is built at startup (tauri.conf `create: false`): a
+            // companion start stays a tray icon until the window is first
+            // shown (see window.rs).
             if !start_minimized {
-                show_main_window(app.handle());
-            } else {
-                // Companion start: suspend the never-shown webview once its
-                // first navigation has had time to complete (TrySuspend
-                // fails before that — the delay is the cheap fix).
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    if let Some(w) = handle.get_webview_window("main")
-                        && !w.is_visible().unwrap_or(true)
-                    {
-                        suspend::suspend_webview(&w);
-                        handle.state::<AppState>().data.evict();
-                    }
-                });
+                window::show(app.handle());
             }
 
             Ok(())
@@ -174,13 +138,17 @@ pub fn run() {
                     .unwrap()
                     .close_to_tray;
                 if close_to_tray {
-                    hide_to_tray(window);
+                    window::hide_to_tray(window);
                     api.prevent_close();
+                } else {
+                    // The run loop keeps the app alive with no window (see
+                    // below), so closing means quitting explicitly.
+                    window.app_handle().exit(0);
                 }
             }
             // There is no "minimize requested" event with a prevent API —
             // the standard Tauri pattern is to catch the resize into the
-            // minimized state and hide instead. `show_main_window`
+            // minimized state and hide instead. `window::show`
             // unminimizes on the way back, so tray → Show restores normally.
             WindowEvent::Resized(_) => {
                 let minimize_to_tray = window
@@ -191,11 +159,22 @@ pub fn run() {
                     .unwrap()
                     .minimize_to_tray;
                 if minimize_to_tray && window.is_minimized().unwrap_or(false) {
-                    hide_to_tray(window);
+                    window::hide_to_tray(window);
                 }
             }
             _ => {}
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // A hidden window closes after a minute (window.rs) and the tray
+            // app lives on without one. An explicit exit (tray Quit, closing
+            // without close-to-tray) carries a code.
+            if let tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } = event
+            {
+                api.prevent_exit();
+            }
+        });
 }

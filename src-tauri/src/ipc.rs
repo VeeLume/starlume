@@ -5,7 +5,8 @@ use specta_typescript::Typescript;
 use tauri_specta::{Builder, collect_commands};
 
 use crate::{
-    activity, auth, data, dossier, friends, groups, items, langpatch, modules, notify, sc, settings,
+    activity, auth, data, dossier, friends, groups, items, langpatch, modules, notify, sc,
+    settings, window,
 };
 
 /// Single source of truth for the IPC command list. Used both by `run()` at
@@ -16,6 +17,8 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         settings::get_settings,
         settings::update_settings,
         settings::list_grpc_features,
+        window::take_restore_route,
+        window::update_check_due,
         dossier::blueprints_owned,
         dossier::blueprints_refresh,
         modules::list_modules,

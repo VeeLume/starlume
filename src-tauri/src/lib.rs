@@ -39,6 +39,7 @@ mod settings;
 mod state;
 mod suspend;
 mod watch;
+mod window;
 
 pub use ipc::{export_bindings, ipc_builder};
 pub use lifecycle::run;

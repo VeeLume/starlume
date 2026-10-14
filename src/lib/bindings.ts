@@ -28,6 +28,22 @@ async listGrpcFeatures() : Promise<GrpcFeatureInfo[]> {
     return await TAURI_INVOKE("list_grpc_features");
 },
 /**
+ * The page a closed window showed, once: the rebuilt frontend navigates
+ * back to it on mount.
+ */
+async takeRestoreRoute() : Promise<string | null> {
+    return await TAURI_INVOKE("take_restore_route");
+},
+/**
+ * Whether the frontend's startup update check is due, and if so, mark it
+ * done. Every window build mounts the layout, so without this a rebuilt
+ * window would re-check (and re-prompt) on every reopen; the first mount
+ * of a process always checks.
+ */
+async updateCheckDue() : Promise<boolean> {
+    return await TAURI_INVOKE("update_check_due");
+},
+/**
  * The cached owned-blueprint set, or an empty/null one when nothing has been
  * fetched. **No network, no gate** — safe on startup so a decoration renders
  * from the last fetch.
