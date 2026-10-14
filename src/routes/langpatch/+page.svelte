@@ -7,6 +7,7 @@
     Settings,
     StatusBadge,
     Switch,
+    storedValue,
     type StatusMap,
   } from "@veelume/ui";
   import {
@@ -19,8 +20,31 @@
     removeLangpatch,
   } from "$lib/state/langpatch.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
+  import MissionSamplePanel from "$lib/components/langpatch/MissionSamplePanel.svelte";
 
   const overview = $derived(langpatchStore.overview);
+
+  // The mission preview pane's open/closed state on a wide window — a
+  // per-device view preference, so it survives a restart.
+  const previewOpen = storedValue<boolean>(
+    "starlume.langpatch.previewOpen",
+    true,
+    (v): v is boolean => typeof v === "boolean",
+  );
+
+  // Below this width the two panes don't fit side by side: the preview turns
+  // into a drawer over the settings, closed until asked for. Its state there
+  // is transient, so narrowing the window never buries the settings.
+  const NARROW_PX = 1024;
+  let layoutWidth = $state(0);
+  const narrow = $derived(layoutWidth > 0 && layoutWidth < NARROW_PX);
+  let drawerOpen = $state(false);
+  const open = $derived(narrow ? drawerOpen : previewOpen.value);
+
+  function setOpen(next: boolean) {
+    if (narrow) drawerOpen = next;
+    else previewOpen.value = next;
+  }
 
   let packInput = $state("");
   let unlisten: UnlistenFn | undefined;
@@ -80,13 +104,16 @@
   };
 </script>
 
-<h1>Text Patching</h1>
-<p class="muted">
-  Enriches Star Citizen's own text — component grades, illegal-goods markers, weapon stats.
-  Patches re-apply automatically after game updates while Starlume is running.
-  <a href="/langpatch/preview">Preview mission text</a>
-</p>
-
+<!-- Two panes filling the content area: settings left, the mission preview
+     right, each scrolling on its own. The preview collapses to a handle on
+     the right border; on a narrow window it opens as a drawer instead. -->
+<div
+  class="panes"
+  class:narrow
+  class:collapsed={!open}
+  bind:clientWidth={layoutWidth}
+>
+<div class="settings">
 {#if langpatchStore.error}
   <p class="text-sm text-destructive">{langpatchStore.error}</p>
 {/if}
@@ -230,8 +257,93 @@
 {:else if !langpatchStore.error}
   <p class="muted">Loading…</p>
 {/if}
+</div>
+
+{#if open}
+  <div class="preview">
+    <MissionSamplePanel oncollapse={() => setOpen(false)} />
+  </div>
+{:else}
+  <!-- On the right border, like the kit's list-collapse handle on the left:
+       tall and narrow, reserving no column. -->
+  <button
+    type="button"
+    class="dock-handle"
+    title="Show mission preview"
+    aria-label="Show mission preview"
+    aria-expanded={false}
+    onclick={() => setOpen(true)}
+  >
+    ‹
+  </button>
+{/if}
+</div>
 
 <style>
+  /* The panes own the content padding, so main gives up its own: the layout
+   * then fills main exactly, main never scrolls, and the preview pane meets
+   * the right border. */
+  :global(main:has(> .panes)) {
+    padding: 0;
+  }
+  .panes {
+    position: relative;
+    display: flex;
+    height: 100%;
+  }
+  /* Collapsed: a handle-wide gutter on the right, so the handle never sits
+   * on the settings pane's scrollbar (the kit Split's rule, mirrored). */
+  .panes.collapsed {
+    padding-right: 12px;
+  }
+  /* The settings pane hugs its capped content (`.group`), and the preview
+   * takes the rest — no dead gap between the two. */
+  .settings {
+    flex: 0 1 calc(52rem + 2 * var(--content-pad));
+    min-width: 0;
+    overflow-y: auto;
+    padding: var(--content-pad);
+  }
+  .preview {
+    flex: 1 1 0;
+    min-width: 28rem;
+    overflow-y: auto;
+    padding: var(--content-pad);
+    border-left: 1px solid var(--border);
+    background: var(--bg);
+  }
+  /* Narrow: the preview is a drawer over the settings, not a column. */
+  .panes.narrow .preview {
+    position: absolute;
+    inset-block: 0;
+    right: 0;
+    z-index: 10;
+    width: min(36rem, 100%);
+    min-width: 0;
+    box-shadow: var(--shadow-panel);
+  }
+  .dock-handle {
+    position: absolute;
+    top: var(--content-pad);
+    right: 0;
+    display: grid;
+    place-items: center;
+    width: 12px;
+    height: 64px;
+    border: 1px solid var(--border);
+    border-right: 0;
+    border-radius: var(--radius) 0 0 var(--radius);
+    background: var(--bg);
+    color: var(--text-dim);
+    font-size: var(--text-sm);
+    transition:
+      width 120ms,
+      color 120ms;
+  }
+  .dock-handle:hover {
+    width: 16px;
+    color: var(--text);
+  }
   /* Cap the width: Settings.Row pushes controls to the right edge, which on a
    * wide window strands them far from their labels. */
   .group {

@@ -7,16 +7,32 @@ import {
   commands,
   type LangpatchOverview,
   type LangpatchConfigUpdate,
+  type MissionPreviewView,
 } from "$lib/bindings";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 let _overview = $state<LangpatchOverview | null>(null);
 let _busy = $state(false);
 let _error = $state<string | null>(null);
+let _savedRev = $state(0);
+// The preview pane's few missions, kept across visits (frontend rules 1–2):
+// the last sample renders at once, the re-read runs behind it.
+let _sample = $state<MissionPreviewView[] | null>(null);
+let _sampleChannel: string | null = null;
+let _sampleBusy = $state(false);
+let _sampleError = $state<string | null>(null);
+// Guards against an older response landing after a newer request.
+let _sampleReq = 0;
 
 export const langpatchStore = {
   get overview() {
     return _overview;
+  },
+  /** Bumps once a config edit is saved on disk — the point where anything
+   *  derived Rust-side from the config (the preview) can be re-read. The
+   *  overview itself changes earlier, optimistically. */
+  get savedRev() {
+    return _savedRev;
   },
   /** A config save / manual apply / remove is in flight. */
   get busy() {
@@ -25,7 +41,44 @@ export const langpatchStore = {
   get error() {
     return _error;
   },
+  /** The mission preview sample; null until the first read lands. */
+  get sample() {
+    return _sample;
+  },
+  /** A sample re-read is in flight (the derive takes seconds). */
+  get sampleBusy() {
+    return _sampleBusy;
+  },
+  get sampleError() {
+    return _sampleError;
+  },
 };
+
+/** Re-read the preview sample under the current saved config. The backend
+ *  picks the missions per build, not per config, so an option's effect
+ *  shows on text already on screen. */
+export async function loadPreviewSample(channel: string): Promise<void> {
+  if (channel !== _sampleChannel) {
+    _sample = null;
+    _sampleChannel = channel;
+  }
+  const mine = ++_sampleReq;
+  _sampleBusy = true;
+  try {
+    const r = await commands.langpatchPreviewSample(channel);
+    if (mine !== _sampleReq) return;
+    if (r.status === "ok") {
+      _sample = r.data;
+      _sampleError = null;
+    } else {
+      _sampleError = r.error.message;
+    }
+  } catch (e) {
+    if (mine === _sampleReq) _sampleError = String(e);
+  } finally {
+    if (mine === _sampleReq) _sampleBusy = false;
+  }
+}
 
 export async function loadLangpatch(): Promise<void> {
   const result = await commands.langpatchOverview();
@@ -110,6 +163,7 @@ export async function saveLangpatchConfig(
   } finally {
     _flushing = false;
   }
+  _savedRev++;
   await loadLangpatch();
 }
 

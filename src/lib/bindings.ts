@@ -275,14 +275,16 @@ async langpatchRemove(channel: string) : Promise<Result<null, AppError>> {
 }
 },
 /**
- * What the current config does to every mission's text, without writing
- * anything — English base text (a language pack isn't overlaid), current
- * patcher options, user overrides. The whole list ships at once; search
- * and sort are client-side (the catalog model).
+ * The mission preview pane: missions picked so every Mission Enhancer
+ * option shows in one of them (`preview::mission_showcases`), as the
+ * current config renders them — without writing anything. English base
+ * text (a language pack isn't overlaid), current patcher options, user
+ * overrides. The pick doesn't depend on the config, so the same missions
+ * stay on screen while options change.
  */
-async langpatchPreview(channel: string) : Promise<Result<MissionPreviewView[], AppError>> {
+async langpatchPreviewSample(channel: string) : Promise<Result<MissionPreviewView[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("langpatch_preview", { channel }) };
+    return { status: "ok", data: await TAURI_INVOKE("langpatch_preview_sample", { channel }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -767,7 +769,15 @@ crimestat: string; crimestat_mixed: boolean }
 /**
  * A mission's title + description as the contracts panel shows them.
  */
-export type MissionPreviewView = { title: PreviewTextView; description: PreviewTextView }
+export type MissionPreviewView = { 
+/**
+ * Stable across config changes (`title|description` key pair).
+ */
+id: string; title: PreviewTextView; description: PreviewTextView; 
+/**
+ * The Mission Enhancer option ids this mission shows.
+ */
+showcases: string[] }
 export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean }
 export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
 export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[]; spawns: SpawnSlotView[] }

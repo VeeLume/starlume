@@ -25,9 +25,12 @@
 //! offline users keep re-patching with the last fetched copy.
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use mod_langpatch::preview::{MissionPreview, Showcase, mission_showcases};
 use mod_langpatch::{
     Fingerprint, LangpatchConfig, PatchPlan, PatchStateFile, PatcherConfig, builtin_patchers,
     cache_complete, derive_ops, merge, owned_salt, plan_for, sha256_bytes, sha256_file,
@@ -680,17 +683,23 @@ pub struct PreviewTextView {
 /// A mission's title + description as the contracts panel shows them.
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct MissionPreviewView {
+    /// Stable across config changes (`title|description` key pair).
+    pub id: String,
     pub title: PreviewTextView,
     pub description: PreviewTextView,
+    /// The Mission Enhancer option ids this mission shows.
+    pub showcases: Vec<String>,
 }
 
-/// What the current config does to every mission's text, without writing
-/// anything — English base text (a language pack isn't overlaid), current
-/// patcher options, user overrides. The whole list ships at once; search
-/// and sort are client-side (the catalog model).
+/// The mission preview pane: missions picked so every Mission Enhancer
+/// option shows in one of them (`preview::mission_showcases`), as the
+/// current config renders them — without writing anything. English base
+/// text (a language pack isn't overlaid), current patcher options, user
+/// overrides. The pick doesn't depend on the config, so the same missions
+/// stay on screen while options change.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn langpatch_preview(
+pub(crate) async fn langpatch_preview_sample(
     app: AppHandle,
     channel: String,
 ) -> Result<Vec<MissionPreviewView>, AppError> {
@@ -700,34 +709,28 @@ pub(crate) async fn langpatch_preview(
         .into_iter()
         .find(|i| i.channel_key == key)
         .ok_or_else(|| AppError::Config(format!("no SC install found for channel '{channel}'")))?;
-    let previews = build_previews(&app, &load_config(), &install)
+    build_sample(&app, &load_config(), &install)
         .await
-        .map_err(|e| AppError::Internal(format!("{e:#}")))?;
-    Ok(previews
-        .into_iter()
-        .map(|p| MissionPreviewView {
-            title: text_view(p.title),
-            description: text_view(p.description),
-        })
-        .collect())
+        .map_err(|e| AppError::Internal(format!("{e:#}")))
 }
 
-fn text_view(t: mod_langpatch::preview::PreviewText) -> PreviewTextView {
-    PreviewTextView {
-        key: t.key,
-        original: t.original,
-        patched: t.patched,
-    }
-}
+/// The patcher whose options the mission preview showcases.
+const MISSION_ENHANCER: &str = "mission_enhancer";
+
+/// The last showcase pick, keyed by channel, build, derive rev and owned
+/// set — everything the pick depends on. A few ids; one entry is enough,
+/// since the pane shows one channel.
+static SHOWCASES: std::sync::Mutex<Option<(String, Arc<Vec<Showcase>>)>> =
+    std::sync::Mutex::new(None);
 
 /// The derive + per-key apply half of [`apply_install`], minus the p4k
 /// read: the base text comes from the cooked data, which the derive needs
 /// loaded anyway (snapshot-cached, so sub-second after the startup warm).
-async fn build_previews(
+async fn build_sample(
     app: &AppHandle,
     config: &LangpatchConfig,
     install: &InstallRef,
-) -> anyhow::Result<Vec<mod_langpatch::preview::MissionPreview>> {
+) -> anyhow::Result<Vec<MissionPreviewView>> {
     let patchers = builtin_patchers();
     let owned = app
         .state::<AppState>()
@@ -735,6 +738,52 @@ async fn build_previews(
         .cached_blueprints()
         .map(|o| o.blueprint_ids);
     let cooked = data::load_tracked(app, install).await?;
+
+    let pick_key = {
+        let mut hasher = std::hash::DefaultHasher::new();
+        owned.hash(&mut hasher);
+        format!(
+            "{}|{}|{}|{:x}",
+            install.channel_key,
+            install.build_id,
+            mod_langpatch::derive_rev(),
+            hasher.finish()
+        )
+    };
+    let cached = SHOWCASES
+        .lock()
+        .unwrap()
+        .as_ref()
+        .filter(|(k, _)| *k == pick_key)
+        .map(|(_, picks)| Arc::clone(picks));
+    let picks = match cached {
+        Some(picks) => picks,
+        None => {
+            let cooked = Arc::clone(&cooked);
+            let owned = owned.clone();
+            let started = std::time::Instant::now();
+            let picks = Arc::new(
+                tokio::task::spawn_blocking(move || {
+                    let patchers = builtin_patchers();
+                    let missions = patchers
+                        .iter()
+                        .find(|p| p.id() == MISSION_ENHANCER)
+                        .ok_or_else(|| anyhow::anyhow!("no {MISSION_ENHANCER} patcher"))?;
+                    mission_showcases(&cooked, missions.as_ref(), owned.as_ref())
+                })
+                .await??,
+            );
+            tracing::info!(
+                channel = %install.channel_key,
+                picks = picks.len(),
+                ms = started.elapsed().as_millis() as u64,
+                "mission preview showcases picked"
+            );
+            *SHOWCASES.lock().unwrap() = Some((pick_key, Arc::clone(&picks)));
+            picks
+        }
+    };
+
     let ops = derive_ops(
         &langpatch_dir(),
         &install.channel_key,
@@ -745,10 +794,32 @@ async fn build_previews(
         owned.as_ref(),
     )?;
     let overrides = load_overrides(&install.channel_key);
-    Ok(tokio::task::spawn_blocking(move || {
+    let previews = tokio::task::spawn_blocking(move || {
         mod_langpatch::preview::mission_previews(&cooked, &merge::stack_ops(&ops), &overrides)
     })
-    .await?)
+    .await?;
+    let mut by_id: HashMap<String, MissionPreview> =
+        previews.into_iter().map(|p| (p.id(), p)).collect();
+    Ok(picks
+        .iter()
+        .filter_map(|pick| {
+            let p = by_id.remove(&pick.id)?;
+            Some(MissionPreviewView {
+                id: pick.id.clone(),
+                title: text_view(p.title),
+                description: text_view(p.description),
+                showcases: pick.options.clone(),
+            })
+        })
+        .collect())
+}
+
+fn text_view(t: mod_langpatch::preview::PreviewText) -> PreviewTextView {
+    PreviewTextView {
+        key: t.key,
+        original: t.original,
+        patched: t.patched,
+    }
 }
 
 /// The whole Text Patching page state in one call.
