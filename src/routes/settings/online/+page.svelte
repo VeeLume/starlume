@@ -1,8 +1,13 @@
 <script lang="ts">
   import { ask } from "@tauri-apps/plugin-dialog";
-  import { Settings, Switch } from "@veelume/ui";
+  import { Button, Settings, Switch } from "@veelume/ui";
   import { commands, type GrpcFeatureInfo } from "$lib/bindings";
   import { settingsStore, applySettings, loadSettings } from "$lib/state/settings.svelte";
+  import {
+    blueprintsStore,
+    loadOwnedBlueprints,
+    refreshOwnedBlueprints,
+  } from "$lib/state/blueprints.svelte";
   import { onMount } from "svelte";
 
   const settings = $derived(settingsStore.current);
@@ -16,8 +21,14 @@
       (settings?.grpc_features.includes("blueprints") ?? false),
   );
 
+  const fetchedLabel = $derived(
+    blueprintsStore.fetchedAt
+      ? new Date(blueprintsStore.fetchedAt * 1000).toLocaleString()
+      : null,
+  );
+
   onMount(async () => {
-    await loadSettings();
+    await Promise.all([loadSettings(), loadOwnedBlueprints()]);
     grpcFeatures = await commands.listGrpcFeatures();
   });
 
@@ -98,6 +109,21 @@
 
     {#if blueprintsEnabled}
       <Settings.Section title="Owned blueprints">
+        <Settings.Row
+          label={blueprintsStore.count > 0 ? `${blueprintsStore.count} owned` : "Not fetched yet"}
+          hint={fetchedLabel ? `Updated ${fetchedLabel}` : undefined}
+        >
+          <Button
+            variant="outline"
+            onclick={refreshOwnedBlueprints}
+            disabled={blueprintsStore.refreshing}
+          >
+            {blueprintsStore.refreshing ? "Fetching…" : "Refresh from game"}
+          </Button>
+        </Settings.Row>
+        {#if blueprintsStore.error}
+          <p class="text-sm text-destructive">{blueprintsStore.error}</p>
+        {/if}
         <Settings.Row
           label="Fetch at startup"
           hint="Read your owned-blueprint set from CIG's backend each time Starlume starts."

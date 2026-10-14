@@ -2,45 +2,22 @@
   // The Me page — your identity hub + the unified visibility/sharing surface.
   //
   // Identity model: the **RSI account is primary** (who you are in the game).
-  // **Discord is a secondary connector** — it exists for the guild/org
-  // community layer, NOT for reading friends or chats (Discord OAuth can't).
+  // Connectors (Discord) and game-account data (owned blueprints) are
+  // settings, under Settings → Account / Online & privacy.
   // Modules contribute sharing sections via `ModuleDescriptor.meSections`.
-  import { onMount, onDestroy } from "svelte";
-  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { commands } from "$lib/bindings";
+  import { onMount } from "svelte";
   import { moduleRegistry } from "$lib/modules/registry";
   import { settingsStore } from "$lib/state/settings.svelte";
-  import { authStore, loadAuth } from "$lib/state/auth.svelte";
   import { scStore, loadSc, verifyAccount } from "$lib/state/sc.svelte";
   import Avatar from "$lib/components/Avatar.svelte";
-  import { Button, StatusBadge, type StatusMap } from "@veelume/ui";
-  import {
-    blueprintsStore,
-    loadOwnedBlueprints,
-    refreshOwnedBlueprints,
-  } from "$lib/state/blueprints.svelte";
+  import { SHOW_UNRELEASED } from "$lib/unreleased";
+  import { Button } from "@veelume/ui";
 
   const settings = $derived(settingsStore.current);
-  const auth = $derived(authStore.current);
   const account = $derived(scStore.account);
 
-  // Owned-blueprints (gRPC) — live only when online + gRPC + the per-feature
-  // allow-list all hold (the same triple require_grpc enforces backend-side).
-  const blueprintsEnabled = $derived(
-    !!settings?.online_enabled &&
-      !!settings?.grpc_enabled &&
-      (settings?.grpc_features.includes("blueprints") ?? false),
-  );
-  const fetchedLabel = $derived(
-    blueprintsStore.fetchedAt
-      ? new Date(blueprintsStore.fetchedAt * 1000).toLocaleString()
-      : null,
-  );
-
   let verifying = $state(false);
-  let manualLoginUrl = $state("");
   let error = $state("");
-  let unlisten: UnlistenFn | undefined;
 
   const meSections = $derived(
     moduleRegistry
@@ -50,11 +27,7 @@
       ),
   );
 
-  onMount(async () => {
-    await Promise.all([loadSc(), loadAuth(), loadOwnedBlueprints()]);
-    unlisten = await listen("auth-changed", () => void loadAuth());
-  });
-  onDestroy(() => unlisten?.());
+  onMount(() => void loadSc());
 
   async function verify() {
     if (!account) return;
@@ -64,30 +37,7 @@
     if (err) error = err;
     verifying = false;
   }
-
-  async function connectDiscord() {
-    error = "";
-    manualLoginUrl = "";
-    const result = await commands.loginStart();
-    if (result.status === "error") error = result.error.message;
-    else if (result.data) {
-      manualLoginUrl = result.data;
-      await navigator.clipboard.writeText(result.data).catch(() => {});
-    }
-  }
-
-  async function disconnectDiscord() {
-    await commands.logout();
-    await loadAuth();
-  }
-
-  const connMap: StatusMap = {
-    connected: { label: () => "connected", tone: "primary" },
-    disconnected: { label: () => "not connected", tone: "neutral" },
-  };
 </script>
-
-<h1>Me</h1>
 
 <!-- Primary identity: RSI account -->
 <section class="identity">
@@ -126,88 +76,22 @@
   {/if}
 </section>
 
-<!-- Secondary: connected accounts (Discord, for community/guilds) -->
-<h2>Connected accounts</h2>
-<section class="connections">
-  <div class="conn">
-    <div class="conn-head">
-      <span class="conn-name">Discord</span>
-      <StatusBadge status={auth?.logged_in ? "connected" : "disconnected"} map={connMap} />
-      {#if auth?.logged_in && authStore.profile}
-        <span class="conn-status">{authStore.profile.username}</span>
-      {/if}
-    </div>
+<!-- Sharing scopes are friends/groups — unreleased. -->
+{#if SHOW_UNRELEASED}
+  <h2>Sharing &amp; visibility</h2>
+  {#if meSections.length === 0}
     <p class="dim">
-      Used for the community layer — guilds and orgs are scoped by your Discord server
-      membership. (Discord can't share your friends or chats, so it's only for community
-      access, not your friends list here.)
+      Nothing is shared yet. As feature modules land, each one adds a section here showing
+      what of yours it shares and with whom (friends, groups) — one place to review it all.
     </p>
-    {#if auth?.logged_in}
-      <Button variant="outline" onclick={disconnectDiscord}>Disconnect</Button>
-    {:else if !settings?.online_enabled}
-      <span class="dim">Enable online features (Settings) to connect.</span>
-    {:else if auth?.server_configured}
-      <Button onclick={connectDiscord}>Connect Discord</Button>
-      {#if auth.dev_profile && manualLoginUrl}
-        <p class="manual-url">Copied to clipboard:<br /><code>{manualLoginUrl}</code></p>
-      {/if}
-    {:else}
-      <span class="dim">Set a server URL (Settings → Account) to connect.</span>
-    {/if}
-  </div>
-</section>
-
-<!-- Game-account data pulled from CIG's backend (gRPC) -->
-<h2>Game account data</h2>
-<section class="connections">
-  <div class="conn">
-    <div class="conn-head">
-      <span class="conn-name">Owned blueprints</span>
-      {#if blueprintsStore.count > 0}
-        <span class="conn-status ok">{blueprintsStore.count} owned</span>
-      {/if}
-    </div>
-    <p class="dim">
-      Your owned-blueprint set, read from CIG's game-services backend. Used to mark
-      blueprints you already own in the mission catalog. Read-only, on demand — never
-      polled.
-    </p>
-    {#if !blueprintsEnabled}
-      <p class="dim">
-        Enable online features and game-services (gRPC) with the “Owned blueprints” feature
-        in <a href="/settings/online">Settings → Online</a> to fetch this.
-      </p>
-    {:else}
-      <div class="bp-actions">
-        <Button
-          variant="outline"
-          onclick={refreshOwnedBlueprints}
-          disabled={blueprintsStore.refreshing}
-        >
-          {blueprintsStore.refreshing ? "Fetching…" : "Refresh from game"}
-        </Button>
-        {#if fetchedLabel}<span class="dim">updated {fetchedLabel}</span>{/if}
-      </div>
-    {/if}
-    {#if blueprintsStore.error}
-      <p class="error">{blueprintsStore.error}</p>
-    {/if}
-  </div>
-</section>
-
-<h2>Sharing &amp; visibility</h2>
-{#if meSections.length === 0}
-  <p class="dim">
-    Nothing is shared yet. As feature modules land, each one adds a section here showing
-    what of yours it shares and with whom (friends, groups) — one place to review it all.
-  </p>
-{:else}
-  {#each meSections as s (s.key)}
-    <section>
-      <h3>{s.title} <span class="module-tag">{s.moduleName}</span></h3>
-      <s.component />
-    </section>
-  {/each}
+  {:else}
+    {#each meSections as s (s.key)}
+      <section>
+        <h3>{s.title} <span class="module-tag">{s.moduleName}</span></h3>
+        <s.component />
+      </section>
+    {/each}
+  {/if}
 {/if}
 
 {#if error}<p class="error">{error}</p>{/if}
@@ -238,29 +122,6 @@
     margin: 0 0 6px;
   }
 
-  .connections {
-    margin-bottom: 28px;
-  }
-  .conn {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-    max-width: 480px;
-  }
-  .conn-head {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    margin-bottom: 4px;
-  }
-  .conn-name {
-    font-weight: 600;
-  }
-  .conn-status {
-    font-size: 12px;
-    color: var(--text-dim);
-  }
-
   .module-tag {
     font-size: 10px;
     text-transform: uppercase;
@@ -271,20 +132,6 @@
 
   section {
     margin-bottom: 20px;
-  }
-
-  .bp-actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .manual-url {
-    word-break: break-all;
-    font-size: 12px;
-  }
-  .manual-url code {
-    color: var(--accent);
   }
 
   .dim {
