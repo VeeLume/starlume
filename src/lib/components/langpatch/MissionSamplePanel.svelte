@@ -1,18 +1,17 @@
 <script lang="ts">
-  // The Text Patching page's preview pane: one mission at a time, as the
+  // The Text Patching page's preview pane body (the kit's Supporting pane
+  // owns the header and the toggle): one mission at a time, as the
   // current patch settings render it. The backend picks the missions so
   // every Mission Enhancer option shows in one of them, per build rather
   // than per config — toggling an option shows its effect on text already
   // on screen. Re-reads after each save lands (`savedRev`) and on every
   // mount, the cached sample shown meanwhile.
   import { onMount } from "svelte";
-  import { ChevronLeft, ChevronRight, PanelRightClose } from "lucide-svelte";
+  import { ChevronLeft, ChevronRight } from "lucide-svelte";
   import { Button } from "@veelume/ui";
   import RichText from "$lib/components/catalog/RichText.svelte";
   import { ensureChannel } from "$lib/state/data.svelte";
   import { langpatchStore, loadPreviewSample } from "$lib/state/langpatch.svelte";
-
-  let { oncollapse }: { oncollapse: () => void } = $props();
 
   /** The patcher whose options the picks showcase. */
   const PATCHER = "mission_enhancer";
@@ -62,18 +61,6 @@
 </script>
 
 <aside class="sample">
-  <div class="sample-head">
-    <h2>Mission preview</h2>
-    {#if langpatchStore.sampleBusy && sample}
-      <span class="muted text-sm">Updating…</span>
-    {/if}
-    <span class="hide">
-      <Button variant="ghost" size="icon" title="Hide preview" onclick={oncollapse}>
-        <PanelRightClose size={16} />
-      </Button>
-    </span>
-  </div>
-
   {#if langpatchStore.sampleError}
     <p class="text-sm text-destructive">{langpatchStore.sampleError}</p>
   {/if}
@@ -130,15 +117,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-  }
-  .sample-head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-  }
-  /* The hide button stays on the pane's right edge. */
-  .hide {
-    margin-left: auto;
   }
   .stepper {
     display: flex;
