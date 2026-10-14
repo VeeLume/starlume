@@ -122,8 +122,12 @@ pub fn run() {
             // No window is built at startup (tauri.conf `create: false`): a
             // companion start stays a tray icon until the window is first
             // shown (see window.rs).
+            // Built after setup returns: a webview built inside setup() in a
+            // dev build stays on about:blank (its first navigation is lost).
             if !start_minimized {
-                window::show(app.handle());
+                let handle = app.handle().clone();
+                app.handle()
+                    .run_on_main_thread(move || window::show(&handle))?;
             }
 
             Ok(())
