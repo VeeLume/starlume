@@ -77,7 +77,8 @@ impl DossierService {
     ///
     /// Errors propagate from [`sc_dossier`] — a stale/absent launcher session
     /// surfaces as [`sc_dossier::Error::Mint`], which the shell renders as a
-    /// "sign in to the RSI launcher" hint.
+    /// "sign in to the RSI launcher" hint; a launcher too old for the mint API
+    /// as [`sc_dossier::Error::LauncherOutdated`].
     pub async fn refresh_blueprints(&self, user_agent: &str) -> anyhow::Result<OwnedBlueprints> {
         let dossier = sc_dossier::Dossier::from_launcher(user_agent).await?;
         let blueprints = dossier.owned_blueprints().await?;
