@@ -234,7 +234,7 @@
     {#each setGroups as g (g.w)}
       <SectionHead title={g.w === "Other" ? "Flight, racing & other" : `${g.w} armour`} n={g.sets.length} />
       <div class="grid">
-        {#each g.sets as s (s.name)}
+        {#each g.sets as s (s.key)}
           <SetCard
             set={s}
             on={isOn(s.items)}

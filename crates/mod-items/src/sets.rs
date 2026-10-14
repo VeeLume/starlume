@@ -11,8 +11,12 @@
 //! suit's helmet) joins the one weighted set of its name, when there is
 //! exactly one and it lacks that piece.
 //!
-//! Checked on 4.10.2 live: 2,481 named armour pieces, 1,040 sets, none with
-//! two pieces in one slot. sc-holotable's `ItemCatalog` groups by display
+//! A part from another line under the same set name (a backpack) joins it
+//! when the two share no piece.
+//!
+//! Checked on 4.10.2 live: 2,481 named armour pieces, 941 sets, none with
+//! two pieces in one slot; 32 names still stand for two sets, so the key,
+//! not the name, tells sets apart. sc-holotable's `ItemCatalog` groups by display
 //! name and so splits these sets, which is why this doesn't use it.
 
 use std::collections::{BTreeMap, HashMap};
@@ -32,14 +36,17 @@ pub struct ArmourSet {
     pub pieces: Vec<String>,
 }
 
-/// Slot label, item type, and the entity-name word for the slot.
-const SLOTS: [(&str, &str, &str); 6] = [
-    ("Helmet", "Char_Armor_Helmet", "helmet"),
-    ("Core", "Char_Armor_Torso", "core"),
-    ("Arms", "Char_Armor_Arms", "arms"),
-    ("Legs", "Char_Armor_Legs", "legs"),
-    ("Undersuit", "Char_Armor_Undersuit", "undersuit"),
-    ("Backpack", "Char_Armor_Backpack", "backpack"),
+type Slot = (&'static str, &'static str, &'static [&'static str]);
+
+/// Slot label, item type, and the entity-name words for the slot.
+const SLOTS: [Slot; 6] = [
+    ("Helmet", "Char_Armor_Helmet", &["helmet"]),
+    ("Core", "Char_Armor_Torso", &["core"]),
+    ("Arms", "Char_Armor_Arms", &["arms"]),
+    ("Legs", "Char_Armor_Legs", &["legs"]),
+    // `rsi_utility_heavy_suit_*` is the Zeus suit.
+    ("Undersuit", "Char_Armor_Undersuit", &["undersuit", "suit"]),
+    ("Backpack", "Char_Armor_Backpack", &["backpack"]),
 ];
 
 const WEIGHTS: [&str; 4] = ["light", "medium", "heavy", "superheavy"];
@@ -119,23 +126,40 @@ impl ArmourSets {
                 .or_default()
                 .push(i);
         }
-        let mut out = Self::default();
+        let slot_of = |i: &usize| slot(pieces[*i].item_type).map_or("", |s| s.0);
+        let filled = |members: &[usize]| -> Vec<&str> { members.iter().map(slot_of).collect() };
+        // A part from another line under the same name (Geist Rogue's
+        // backpack is `cds_combat_*`, its armour `kap_combat_*`) joins the
+        // set of that name, unless the two share a piece: CIG names some
+        // distinct sets alike (TrueDef-Pro `_11` and `_15`, "Black/Silver").
+        let mut named: Vec<(String, String, Vec<usize>)> = Vec::new();
         for (key, members) in groups {
-            let slot_of = |i: &usize| slot(pieces[*i].item_type).map(|s| s.0);
             let lead = NAMING
                 .iter()
-                .find_map(|s| members.iter().find(|i| slot_of(i) == Some(*s)))
+                .find_map(|s| members.iter().find(|i| slot_of(i) == *s))
                 .unwrap_or(&members[0]);
-            let pieces_in: Vec<String> = SLOTS
-                .iter()
-                .filter(|s| members.iter().any(|i| slot_of(i) == Some(s.0)))
-                .map(|s| s.0.to_string())
-                .collect();
+            let name = set_name(pieces[*lead].name);
+            let have = filled(&members);
+            match named
+                .iter_mut()
+                .find(|(_, n, m)| *n == name && !filled(m).iter().any(|s| have.contains(s)))
+            {
+                Some((_, _, m)) => m.extend(members),
+                None => named.push((key, name, members)),
+            }
+        }
+        let mut out = Self::default();
+        for (key, name, members) in named {
+            let have = filled(&members);
             let id = out.sets.len();
             out.sets.push(ArmourSet {
                 key,
-                name: set_name(pieces[*lead].name),
-                pieces: pieces_in,
+                name,
+                pieces: SLOTS
+                    .iter()
+                    .filter(|s| have.contains(&s.0))
+                    .map(|s| s.0.to_string())
+                    .collect(),
             });
             for i in members {
                 out.by_guid.insert(pieces[i].guid, id);
@@ -149,7 +173,7 @@ impl ArmourSets {
     }
 }
 
-fn slot(item_type: &str) -> Option<&'static (&'static str, &'static str, &'static str)> {
+fn slot(item_type: &str) -> Option<&'static Slot> {
     SLOTS.iter().find(|s| s.1 == item_type)
 }
 
@@ -157,14 +181,14 @@ fn slot(item_type: &str) -> Option<&'static (&'static str, &'static str, &'stati
 /// weight. Only the piece's own slot word goes: `srvl_undersuit_helmet` is
 /// the helmet of the `srvl_undersuit` line.
 fn split<'a>(p: &Piece<'_>) -> (String, Option<&'a str>) {
-    let own = slot(p.item_type).map_or("", |s| s.2);
+    let own: &[&str] = slot(p.item_type).map_or(&[], |s| s.2);
     let lower = p.entity.to_ascii_lowercase();
     let mut weight = None;
     let mut base = Vec::new();
     for t in lower.split('_') {
         if let Some(w) = WEIGHTS.iter().find(|w| **w == t) {
             weight.get_or_insert(*w);
-        } else if t != own {
+        } else if !own.contains(&t) {
             base.push(t);
         }
     }
@@ -279,6 +303,53 @@ mod tests {
         assert_ne!(s.of(&g[0]), s.of(&g[1]));
         assert_eq!(s.of(&g[0]), s.of(&g[2]));
         assert_eq!(s.of(&g[0]).unwrap().name, "Geist");
+    }
+
+    #[test]
+    fn a_backpack_from_another_line_joins_the_set_of_its_name() {
+        let (s, g) = sets(&[
+            (
+                "kap_combat_light_core_01_01_02",
+                "Char_Armor_Torso",
+                "Geist Armor Core Rogue",
+            ),
+            (
+                "cds_combat_light_backpack_01_02_02",
+                "Char_Armor_Backpack",
+                "Geist Backpack Rogue",
+            ),
+            (
+                "vgl_armor_light_core_01_01_11",
+                "Char_Armor_Torso",
+                "TrueDef-Pro Core Black/Silver",
+            ),
+            (
+                "vgl_armor_light_core_01_01_15",
+                "Char_Armor_Torso",
+                "TrueDef-Pro Core Black/Silver",
+            ),
+        ]);
+        assert_eq!(s.of(&g[0]), s.of(&g[1]));
+        assert_eq!(s.of(&g[0]).unwrap().pieces, ["Core", "Backpack"]);
+        // Alike names, both a core: two sets, told apart by key.
+        assert_ne!(s.of(&g[2]).unwrap().key, s.of(&g[3]).unwrap().key);
+    }
+
+    #[test]
+    fn a_suit_word_marks_the_undersuit() {
+        let (s, g) = sets(&[
+            (
+                "rsi_utility_heavy_helmet_01_01_01",
+                "Char_Armor_Helmet",
+                "Zeus Exploration Helmet",
+            ),
+            (
+                "rsi_utility_heavy_suit_01_01_01",
+                "Char_Armor_Undersuit",
+                "Zeus Exploration Suit",
+            ),
+        ]);
+        assert_eq!(s.of(&g[0]), s.of(&g[1]));
     }
 
     #[test]

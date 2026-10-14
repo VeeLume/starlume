@@ -180,6 +180,8 @@ export const PIECES = ["Helmet", "Core", "Arms", "Legs", "Undersuit", "Backpack"
 export const FULL_SET = ["Helmet", "Core", "Arms", "Legs"];
 
 export interface ArmourSet {
+  /** Unique; names are not (a variant can share its set's name). */
+  key: string;
   name: string;
   items: ItemNode[];
   weight: Weight;
@@ -207,8 +209,8 @@ export function armourSets(list: ItemNode[]): ArmourSet[] {
     if (l) l.push(n);
     else m.set(k, [n]);
   }
-  return [...m.values()]
-    .map((items) => {
+  return [...m.entries()]
+    .map(([key, items]) => {
       const set = items[0].item.set;
       const body = items.filter((n) =>
         ["Char_Armor_Torso", "Char_Armor_Arms", "Char_Armor_Legs"].includes(n.item.kind.item_type),
@@ -224,7 +226,7 @@ export function armourSets(list: ItemNode[]): ArmourSet[] {
       const pieces = set?.pieces.filter((p) => p !== "Backpack");
       const full = pieces?.length ? pieces : FULL_SET;
       const name = set?.name ?? setName(items[0].item.kind.name);
-      return { name, items, weight, have, full, got: full.filter((p) => have.has(p)).length };
+      return { key, name, items, weight, have, full, got: full.filter((p) => have.has(p)).length };
     })
     .sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name));
 }
