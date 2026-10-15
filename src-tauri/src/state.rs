@@ -38,6 +38,13 @@ pub struct AppState {
     /// Account-data (gRPC) service + disk cache. Reads are ToS-grey — every
     /// network method is gated by `require_unofficial` at the call site.
     pub dossier: Arc<svc_dossier::DossierService>,
+    /// Spectrum (the staff feed) service + disk cache + the app-wide request
+    /// pace. Reads are ToS-grey — every network method is gated by
+    /// `require_unofficial("devtracker")` at the call site. Its consumer
+    /// (mod-devtracker) lands next; until then nothing reads it — drop the
+    /// allow with the first real caller.
+    #[allow(dead_code)]
+    pub spectrum: Arc<svc_spectrum::SpectrumService>,
 }
 
 impl AppState {
@@ -57,6 +64,9 @@ impl AppState {
             install_watch: Mutex::new(None),
             dossier: Arc::new(svc_dossier::DossierService::new(
                 app_kit::app_data_root().join("dossier"),
+            )),
+            spectrum: Arc::new(svc_spectrum::SpectrumService::new(
+                app_kit::app_data_root().join("spectrum"),
             )),
         }
     }
@@ -126,6 +136,7 @@ mod tests {
             bus: crate::bus::new_bus(),
             install_watch: Mutex::new(None),
             dossier: Arc::new(svc_dossier::DossierService::new(std::env::temp_dir())),
+            spectrum: Arc::new(svc_spectrum::SpectrumService::new(std::env::temp_dir())),
         }
     }
 
