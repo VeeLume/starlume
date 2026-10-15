@@ -41,6 +41,8 @@ pub enum ActivityKind {
     Devtracker,
     /// svc-patchnotes: reading RSI's patch-note pages.
     PatchNotes,
+    /// svc-commlinks: reading RSI's comm-link listing.
+    CommLinks,
 }
 
 /// Where an activity is. `stage` is a user-facing label ("Parsing

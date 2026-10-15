@@ -246,8 +246,7 @@ async fn refresh(app: &AppHandle) -> Result<(), AppError> {
         }
         notify(
             app,
-            n.with_action("View", "/patch-notes")
-                .with_source("patchnotes"),
+            n.with_action("View", "/news").with_source("patchnotes"),
         );
     }
     let _ = app.emit(PATCH_NOTES_CHANGED_EVENT, ());

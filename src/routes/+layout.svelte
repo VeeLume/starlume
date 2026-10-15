@@ -16,7 +16,7 @@
   import { listenForNotifications, syncNotifications } from "$lib/state/notifications.svelte";
   import { loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
   import { Notify, Shell, setKitContext, type NavGroup } from "@veelume/ui";
-  import { House, Library, ScrollText, Settings, Users } from "lucide-svelte";
+  import { House, Library, Newspaper, Settings, Users } from "lucide-svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
   import { checkForUpdates } from "$lib/updater";
   import { SHOW_UNRELEASED } from "$lib/unreleased";
@@ -52,15 +52,15 @@
   // read on open; the per-session log stays in the panel.
   let centerOpen = $state(false);
 
-  // Home + Patch Notes (shell-level), one entry per enabled module (registry
+  // Home + News (shell-level), one entry per enabled module (registry
   // order: the dev tracker first), then Friends + Catalogs (shell-level).
-  // Patch Notes, Friends and Catalogs are unreleased. Kit NavItems — the
+  // News, Friends and Catalogs are unreleased. Kit NavItems — the
   // shell owns active-state matching.
   const navGroups: NavGroup[] = $derived([
     {
       items: [
         { path: "/", label: "Home", icon: House },
-        ...(SHOW_UNRELEASED ? [{ path: "/patch-notes", label: "Patch Notes", icon: ScrollText }] : []),
+        ...(SHOW_UNRELEASED ? [{ path: "/news", label: "News", icon: Newspaper }] : []),
         ...moduleRegistry
           .filter((d) => settingsStore.current?.enabled_modules.includes(d.id))
           .flatMap((d) => d.nav ?? [])

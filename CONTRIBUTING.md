@@ -19,6 +19,7 @@ crates/
 ├── svc-dossier/    CIG game-services client: blueprints, inventory, loadouts (gated)
 ├── svc-spectrum/   RSI Spectrum client: the staff feed, paced + cached (gated)
 ├── svc-patchnotes/ LIVE patch notes from RSI's public pages, paced + cached (online)
+├── svc-commlinks/  newest comm-links from RSI's public listing, cached + first-seen (online)
 ├── svc-log/        ONE Game.log tailer broadcasting typed events (stub)
 ├── svc-sync/       server client: device-token auth, outbox, reference upload (stub)
 ├── mod-langpatch/  Text Patching
@@ -55,7 +56,7 @@ A module lands in two halves sharing one id:
 2. **Frontend** — `src/lib/modules/<id>/` exporting a `ModuleDescriptor`
    (routes under `src/routes/<id>/`, sidebar `nav` entries, optional
    `onboardingSteps`, `homeCards` for Home, an `installStatus` column on
-   Home's Game status card, `patchNotes` cards on the Patch Notes page),
+   Home's Game status card, `patchNotes` cards on the News page),
    added to `src/lib/modules/registry.ts`.
 
 The onboarding picker, the sidebar, and the Settings module list all derive

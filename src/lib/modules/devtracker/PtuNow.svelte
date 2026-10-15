@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The dev tracker's card on the Patch Notes page: the current PTU cycle
+  // The dev tracker's card on the News page: the current PTU cycle
   // from the Patch Notes forum threads in its staff feed (complete notes,
   // unlike Spectrum's LIVE notices, which the page leaves to RSI's
   // articles). Muted once LIVE has caught up with the cycle's version.

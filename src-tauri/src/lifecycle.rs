@@ -126,6 +126,7 @@ pub fn run() {
             // Read RSI's LIVE patch notes now and then (online-gated; also on
             // a settled install change — a new build often means new notes).
             crate::patchnotes::spawn_refresher(app.handle());
+            crate::commlinks::spawn_refresher(app.handle());
 
             // Watch installs for settled build changes (30s stat-only poll)
             // → InstallChanged on the bus → cache invalidation + re-warm.

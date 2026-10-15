@@ -4435,8 +4435,8 @@ dependencies = [
 
 [[package]]
 name = "sc-dossier"
-version = "0.6.0"
-source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.6.0#50f2297563aad6699f2783c336ad6f538769896a"
+version = "0.7.0"
+source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.7.0#0755787eb3793b37cf260e08d3d2044cc6971018"
 dependencies = [
  "aes",
  "cbc",
@@ -5442,6 +5442,7 @@ dependencies = [
  "serde_json",
  "specta",
  "specta-typescript",
+ "svc-commlinks",
  "svc-data",
  "svc-discovery",
  "svc-dossier",
@@ -5624,6 +5625,19 @@ dependencies = [
  "thiserror 2.0.18",
  "zerocopy",
  "zstd",
+]
+
+[[package]]
+name = "svc-commlinks"
+version = "0.1.0"
+dependencies = [
+ "app-kit",
+ "chrono",
+ "sc-dossier",
+ "serde",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -46,6 +46,10 @@ pub struct AppState {
     /// reads — every network method is gated by `require_online()` at the
     /// call site (`patchnotes.rs`).
     pub patchnotes: Arc<svc_patchnotes::PatchNotesService>,
+    /// Comm-links (RSI's public listing) + disk cache. Public reads — every
+    /// network method is gated by `require_online()` at the call site
+    /// (`commlinks.rs`).
+    pub commlinks: Arc<svc_commlinks::CommLinksService>,
 }
 
 impl AppState {
@@ -71,6 +75,9 @@ impl AppState {
             )),
             patchnotes: Arc::new(svc_patchnotes::PatchNotesService::new(
                 app_kit::app_data_root().join("patchnotes"),
+            )),
+            commlinks: Arc::new(svc_commlinks::CommLinksService::new(
+                app_kit::app_data_root().join("commlinks"),
             )),
         }
     }
@@ -142,6 +149,7 @@ mod tests {
             dossier: Arc::new(svc_dossier::DossierService::new(std::env::temp_dir())),
             spectrum: Arc::new(svc_spectrum::SpectrumService::new(std::env::temp_dir())),
             patchnotes: Arc::new(svc_patchnotes::PatchNotesService::new(std::env::temp_dir())),
+            commlinks: Arc::new(svc_commlinks::CommLinksService::new(std::env::temp_dir())),
         }
     }
 

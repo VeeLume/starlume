@@ -2,7 +2,7 @@
   // Dev Tracker — CIG staff posts from Spectrum, chat included, filtered by
   // content. Two views: the feed, and the filter settings (notifications,
   // follow list) — the module's settings live on its page, not in Settings.
-  // Its patch-note threads go to the Patch Notes page instead (an app page,
+  // Its patch-note threads go to the News page instead (an app page,
   // decision 2026-10-15). Renders the cached feed at once; the poll runs
   // Rust-side.
   import { onDestroy, onMount } from "svelte";

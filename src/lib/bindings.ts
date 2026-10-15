@@ -374,6 +374,35 @@ async patchNotesOpen(url: string) : Promise<Result<null, AppError>> {
 }
 },
 /**
+ * The cached comm-links. **No network, no gate.**
+ */
+async commLinksOverview() : Promise<CommLinksOverview> {
+    return await TAURI_INVOKE("comm_links_overview");
+},
+/**
+ * Refresh now. **Gated** by `require_online()`.
+ */
+async commLinksRefresh() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("comm_links_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open a comm-link in the browser. Only URLs from the cache, only on RSI's
+ * site — the frontend cannot open arbitrary links through this.
+ */
+async commLinksOpen(url: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("comm_links_open", { url }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The feed and the module's state. **No network, no gate.**
  */
 async devtrackerOverview() : Promise<DevtrackerOverview> {
@@ -663,7 +692,11 @@ export type ActivityKind =
 /**
  * svc-patchnotes: reading RSI's patch-note pages.
  */
-"patch-notes"
+"patch-notes" | 
+/**
+ * svc-commlinks: reading RSI's comm-link listing.
+ */
+"comm-links"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -854,6 +887,44 @@ export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: 
 export type BuildInfoView = { label: string; value: string }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
+/**
+ * One comm-link as the News page shows it.
+ */
+export type CommLinkView = { 
+/**
+ * Comm-link id (a string: specta exports no u64).
+ */
+id: string; url: string; title: string; 
+/**
+ * `"post"` | `"video"` | `"slideshow"` | `"poll"` | another slug.
+ */
+kind: string; 
+/**
+ * Channel slug from the URL ("transmission", "engineering", …).
+ */
+channel: string | null; 
+/**
+ * Text only; may be empty.
+ */
+summary: string; comments: number | null; 
+/**
+ * When it appeared, epoch ms: first seen by Starlume, or estimated from
+ * its age on the first fill.
+ */
+published_ms: number | null }
+export type CommLinksOverview = { 
+/**
+ * The online switch — off means no refreshes (the cache still shows).
+ */
+online: boolean; 
+/**
+ * When last refreshed, epoch seconds; `null` = never.
+ */
+fetched_at: number | null; last_error: string | null; 
+/**
+ * Newest first.
+ */
+items: CommLinkView[] }
 export type CraftedPropertyView = { 
 /**
  * `CraftingGameplayPropertyDef` CRC.

@@ -257,6 +257,7 @@ pub(crate) fn update_settings(
     // The change may have opened the dev tracker's gate or enabled it.
     crate::devtracker::nudge();
     crate::patchnotes::nudge();
+    crate::commlinks::nudge();
     // A tighter archive retention applies right away; a looser one only
     // keeps future builds (pruned ones are gone).
     if retention(&settings) != old_retention {

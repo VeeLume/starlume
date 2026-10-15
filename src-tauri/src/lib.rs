@@ -23,6 +23,7 @@
 mod activity;
 mod auth;
 mod bus;
+mod commlinks;
 mod data;
 mod devtracker;
 mod dossier;

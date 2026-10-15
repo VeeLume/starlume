@@ -83,7 +83,7 @@ export interface InstallStatus {
   component: Component<InstallStatusProps>;
 }
 
-/** A card a module adds to the Patch Notes page's top row, beside the LIVE
+/** A card a module adds to the News page's top row, beside the LIVE
  *  card (the page is the app's: LIVE notes are reference data). E.g. the dev
  *  tracker's PTU cycle from Spectrum. Render it in `NowCard` so the row reads
  *  alike; the component reads its own store. */
@@ -110,6 +110,6 @@ export interface ModuleDescriptor {
   homeCards?: HomeCard[];
   /** A per-install decoration on Home's Game status card, while enabled. */
   installStatus?: InstallStatus;
-  /** Cards in the Patch Notes page's top row, while enabled. */
+  /** Cards in the News page's top row, while enabled. */
   patchNotes?: PatchNotesCard[];
 }

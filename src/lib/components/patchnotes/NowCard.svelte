@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The frame of a card in the Patch Notes page's top row (LIVE, and module
+  // The frame of a card in the News page's top row (LIVE, and module
   // cards like the dev tracker's PTU): channel + version on the left, date on
   // the right, the body, and one action at the bottom right — so the cards
   // read alike side by side.

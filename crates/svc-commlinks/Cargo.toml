@@ -1,0 +1,21 @@
+[package]
+name = "svc-commlinks"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume comm-links service — RSI's public comm-link listing, paced and cached on disk with first-seen times"
+
+[dependencies]
+# The listing client is sc-dossier's (commlinks, anonymous). Public website
+# reads: every caller gates via AppState::require_online first.
+sc-dossier.workspace = true
+app-kit.workspace = true
+serde.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
