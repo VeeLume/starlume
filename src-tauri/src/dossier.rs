@@ -1,8 +1,9 @@
 //! Account-data (gRPC) IPC surface — the shell side of `svc-dossier`.
 //!
 //! The online-policy gate lives here: [`blueprints_refresh`] passes
-//! `require_grpc("blueprints")` before any network read; [`blueprints_owned`]
-//! is the ungated cached read (local file only). This is the accounts-model
+//! `require_unofficial("blueprints")` before any network read;
+//! [`blueprints_owned`] is the ungated cached read (local file only). This
+//! is the accounts-model
 //! "whose data" concern (see `sc.rs`) applied to gRPC-sourced data —
 //! app-level framework for now; the ownership set migrates into the tracker
 //! module when it lands.
@@ -58,9 +59,10 @@ pub(crate) fn blueprints_owned(state: tauri::State<'_, AppState>) -> OwnedBluepr
 
 /// Fetch the owned-blueprint set live from CIG's backend and cache it.
 ///
-/// **Gated** by `require_grpc("blueprints")` — the master online switch, the
-/// gRPC master, and the per-feature allow-list must all be on. A stale/absent
-/// launcher session surfaces as an error the UI renders as a sign-in hint.
+/// **Gated** by `require_unofficial("blueprints")` — the master online
+/// switch, the unofficial-API master, and the per-feature allow-list must all
+/// be on. A stale/absent launcher session surfaces as an error the UI renders
+/// as a sign-in hint.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn blueprints_refresh(app: AppHandle) -> Result<OwnedBlueprintsView, AppError> {
@@ -72,12 +74,12 @@ pub(crate) async fn blueprints_refresh(app: AppHandle) -> Result<OwnedBlueprints
 /// in-game mission text re-renders ownership. Shared by the manual command
 /// and the startup automation.
 ///
-/// **Gated:** `require_grpc("blueprints")` — the network read never happens
-/// without the consent the user gave in Settings.
+/// **Gated:** `require_unofficial("blueprints")` — the network read never
+/// happens without the consent the user gave in Settings.
 async fn refresh_and_react(app: &AppHandle) -> Result<OwnedBlueprintsView, AppError> {
     let (dossier, auto_langpatch) = {
         let state = app.state::<AppState>();
-        state.require_grpc("blueprints")?;
+        state.require_unofficial("blueprints")?;
         let auto = state.settings.lock().unwrap().blueprints_auto_langpatch;
         (state.dossier.clone(), auto)
     };
@@ -107,14 +109,14 @@ async fn refresh_and_react(app: &AppHandle) -> Result<OwnedBlueprintsView, AppEr
     Ok(owned.into())
 }
 
-/// Startup automation: when `blueprints_auto_fetch` is on and the gRPC gate
+/// Startup automation: when `blueprints_auto_fetch` is on and the gate
 /// permits, fetch the owned set in the background (and react to a change).
 /// Silent on the gate/off cases — this is best-effort background work.
 pub fn spawn_startup_fetch(app: &AppHandle) {
     let (auto_fetch, gate_ok) = {
         let state = app.state::<AppState>();
         let auto = state.settings.lock().unwrap().blueprints_auto_fetch;
-        (auto, state.require_grpc("blueprints").is_ok())
+        (auto, state.require_unofficial("blueprints").is_ok())
     };
     if !auto_fetch || !gate_ok {
         return;

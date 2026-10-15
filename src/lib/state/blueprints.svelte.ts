@@ -1,6 +1,6 @@
 // Owned-blueprint set (gRPC-sourced, cached). Personal account data behind
 // svc-dossier: the cached read is free and ungated; the refresh is the
-// ToS-grey network call the backend gates via require_grpc("blueprints").
+// ToS-grey network call the backend gates via require_unofficial("blueprints").
 //
 // The store owns the set; catalog pages decorate by GUID (missions' blueprint
 // pools), and the Me page owns the refresh affordance. App-level for now (like
@@ -42,8 +42,8 @@ export async function loadOwnedBlueprints(): Promise<void> {
   _fetchedAt = owned.fetched_at;
 }
 
-/** Fetch live from CIG's backend (gated by require_grpc — errors when online
- *  / gRPC / the blueprints feature aren't all enabled, or the launcher
+/** Fetch live from CIG's backend (gated by require_unofficial — errors when online
+ *  / unofficial APIs / the blueprints feature aren't all enabled, or the launcher
  *  session is stale). */
 export async function refreshOwnedBlueprints(): Promise<void> {
   _error = "";

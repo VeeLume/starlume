@@ -36,7 +36,7 @@ pub struct AppState {
     /// (set once in setup; dropping it stops the thread).
     pub install_watch: Mutex<Option<svc_discovery::watch::WatchHandle>>,
     /// Account-data (gRPC) service + disk cache. Reads are ToS-grey — every
-    /// network method is gated by `require_grpc` at the call site.
+    /// network method is gated by `require_unofficial` at the call site.
     pub dossier: Arc<svc_dossier::DossierService>,
 }
 
@@ -68,9 +68,9 @@ impl AppState {
     // that talks to the network without a gate call is a bug.
 
     /// Master online switch. `Err` when the user has turned all online
-    /// features off — no Discord, no RSI fetch, no gRPC, nothing. Sole
-    /// exception: **update checks** (see CLAUDE.md — legit app function,
-    /// no ToS implications).
+    /// features off — no Discord, no RSI fetch, no unofficial API, nothing.
+    /// Sole exception: **update checks** (see CLAUDE.md — legit app
+    /// function, no ToS implications).
     pub fn require_online(&self) -> Result<(), AppError> {
         if self.settings.lock().unwrap().online_enabled {
             Ok(())
@@ -81,16 +81,15 @@ impl AppState {
         }
     }
 
-    /// Gate for CIG game-services (gRPC) calls — the ToS-grey surface.
-    /// Requires, in order: the online master switch, the gRPC master switch
-    /// (opt-in, consent-gated), and the specific sub-feature being enabled —
-    /// so users can allow e.g. blueprints but not missions.
-    ///
-    /// No call sites yet — the first dossier-backed feature brings them
-    /// (tests below pin the semantics until then). Drop the allow with the
-    /// first real caller.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn require_grpc(&self, feature: &str) -> Result<(), AppError> {
+    /// Gate for **unofficial API** calls — the ToS-grey surface: any RSI/CIG
+    /// API Starlume is not an official client of. Today that is CIG's
+    /// game-services gRPC backend (svc-dossier) and RSI's Spectrum REST API
+    /// (svc-spectrum). Requires, in order: the online master switch, the
+    /// unofficial-API master switch (opt-in, consent-gated; persisted as
+    /// `grpc_enabled`), and the specific feature being enabled (persisted in
+    /// `grpc_features`) — so users can allow e.g. blueprints but not the dev
+    /// tracker. Feature ids are registered in `settings::GRPC_FEATURES`.
+    pub fn require_unofficial(&self, feature: &str) -> Result<(), AppError> {
         let settings = self.settings.lock().unwrap();
         if !settings.online_enabled {
             return Err(AppError::Config(
@@ -99,12 +98,12 @@ impl AppState {
         }
         if !settings.grpc_enabled {
             return Err(AppError::Config(
-                "game-services (gRPC) calls are disabled (Settings → Online)".into(),
+                "unofficial API calls are disabled (Settings → Online)".into(),
             ));
         }
         if !settings.grpc_features.iter().any(|f| f == feature) {
             return Err(AppError::Config(format!(
-                "gRPC feature '{feature}' is not enabled (Settings → Online)"
+                "unofficial API feature '{feature}' is not enabled (Settings → Online)"
             )));
         }
         Ok(())
@@ -131,23 +130,39 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_online_but_grpc_off() {
+    fn defaults_are_online_but_unofficial_off() {
         let state = state_with(AppSettings::default());
         assert!(state.require_online().is_ok());
-        assert!(state.require_grpc("blueprints").is_err());
+        assert!(state.require_unofficial("blueprints").is_err());
     }
 
     #[test]
-    fn grpc_needs_master_and_feature() {
+    fn unofficial_needs_master_and_feature() {
         let mut settings = AppSettings {
             grpc_enabled: true,
             ..AppSettings::default()
         };
         settings.grpc_features.push("blueprints".into());
         let state = state_with(settings);
-        assert!(state.require_grpc("blueprints").is_ok());
+        assert!(state.require_unofficial("blueprints").is_ok());
         // Master on, but this feature not in the allow-list.
-        assert!(state.require_grpc("missions").is_err());
+        assert!(state.require_unofficial("missions").is_err());
+        assert!(state.require_unofficial("devtracker").is_err());
+    }
+
+    #[test]
+    fn spectrum_passes_the_same_gate() {
+        // The dev tracker (Spectrum, not gRPC) rides the same master switch.
+        let mut settings = AppSettings::default();
+        settings.grpc_features.push("devtracker".into());
+        let state = state_with(settings.clone());
+        assert!(state.require_unofficial("devtracker").is_err());
+        settings.grpc_enabled = true;
+        let state = state_with(settings.clone());
+        assert!(state.require_unofficial("devtracker").is_ok());
+        settings.online_enabled = false;
+        let state = state_with(settings);
+        assert!(state.require_unofficial("devtracker").is_err());
     }
 
     #[test]
@@ -160,6 +175,6 @@ mod tests {
         settings.grpc_features.push("blueprints".into());
         let state = state_with(settings);
         assert!(state.require_online().is_err());
-        assert!(state.require_grpc("blueprints").is_err());
+        assert!(state.require_unofficial("blueprints").is_err());
     }
 }

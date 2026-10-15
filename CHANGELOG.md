@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **Settings → Online & privacy** — the game-services switch is now **Allow
+  unofficial API calls**: one opt-in for every RSI/CIG service Starlume is not
+  an official client of (CIG's game services, and RSI's Spectrum for upcoming
+  features). Your current choice and per-feature toggles carry over.
+
 ## [0.1.0] - 2026-10-15
 
 The first release of Starlume, a Star Citizen companion for Windows. It reads
