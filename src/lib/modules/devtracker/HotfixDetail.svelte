@@ -10,7 +10,7 @@
   import { devtrackerStore, openHotfixCentral, watchDevtracker } from "$lib/state/devtracker.svelte";
   import { installChangelist } from "$lib/home/version";
   import { shortDate } from "$lib/components/patchnotes/format";
-  import { hotfixFor } from "./testChannel";
+  import { hotfixFor } from "./cycle";
 
   let { channelKey }: InstallStatusProps = $props();
 
