@@ -58,12 +58,40 @@
 
   /** Past this many units a container opens on the category overview. */
   const BIG = 60;
+  /** Up to this many units (containers' contents included) a place shows
+   *  everything inside it on one page: its loose items, then a section per
+   *  container — a hangar's racks and cases without navigating into each. */
+  const SMALL = 200;
   const WEIGHTS: Weight[] = ["Light", "Medium", "Heavy", "Other"];
   const WEIGHT_GROUPS: Weight[] = ["Heavy", "Medium", "Light", "Other"];
 
   const kids = $derived(view.kids.filter((k) => visible(k, showBricked)));
   const folders = $derived(kids.filter(isFolder));
-  const items = $derived(kids.filter((k): k is ItemNode => k.type === "item" && !isFolder(k) && keep(k)));
+  const loose = $derived(kids.filter((k): k is ItemNode => k.type === "item" && !isFolder(k) && keep(k)));
+  /** Everything below a container, through nested containers (not into
+   *  ships, not into a weapon's attachments). A container that is itself an
+   *  item (a suit holding a backpack) counts as one too. */
+  function below(n: Node): ItemNode[] {
+    const out: ItemNode[] = [];
+    const walk = (x: Node) => {
+      for (const k of x.kids) {
+        if (!visible(k, showBricked) || k.type === "ship") continue;
+        if (k.type === "item" && keep(k)) out.push(k);
+        if (isFolder(k)) walk(k);
+      }
+    };
+    walk(n);
+    return out;
+  }
+  const containers = $derived(folders.filter((f) => f.type !== "ship"));
+  const ships = $derived(folders.filter((f) => f.type === "ship"));
+  const nested = $derived(containers.map((c) => ({ c, list: below(c) })).filter((g) => g.list.length));
+  const small = $derived(
+    nested.length > 0 && loose.reduce((s, x) => s + x.item.stack, 0) + nested.reduce((s, g) => s + g.list.reduce((t, x) => t + x.item.stack, 0), 0) <= SMALL,
+  );
+  /** What the categories count: the loose items, plus the containers'
+   *  contents when the place is small enough to show them all. */
+  const items = $derived(small ? [...loose, ...nested.flatMap((g) => g.list)] : loose);
   const byCat = $derived.by(() => {
     const m = new Map<Category, ItemNode[]>();
     for (const x of items) {
@@ -79,7 +107,8 @@
   const sum = (list: ItemNode[]) => list.reduce((s, x) => s + x.item.stack, 0);
   /** Materials for resources (boxes and pieces don't add up), units else. */
   const count = (list: ItemNode[], c: Category) => (c === "Resources" ? materials(list).length : sum(list));
-  const big = $derived(sum(items) > BIG);
+  const big = $derived(!small && sum(items) > BIG);
+  const looseCats = $derived(CATEGORIES.filter((c) => loose.some((x) => categoryOf(x) === c)));
   const pick = (c: string) => onfilter({ cat: c, sub: "", w: "", kit: "" });
 
   // The open category, narrowed.
@@ -212,6 +241,13 @@
       <FolderTile node={f} bricked={showBricked} on={selected === f} onclick={() => onopen(f)} />
     {/each}
   </div>
+{:else if ships.length}
+  <SectionHead title="Ships" n={ships.length} />
+  <div class="tiles">
+    {#each ships as f (f.id)}
+      <FolderTile node={f} bricked={showBricked} on={selected === f} onclick={() => onopen(f)} />
+    {/each}
+  </div>
 {/if}
 
 {#if !cats.length}
@@ -232,6 +268,20 @@
       </button>
     {/each}
   </div>
+{:else if !cat && small}
+  {#each looseCats as c (c)}
+    {@const list = loose.filter((x) => categoryOf(x) === c)}
+    <SectionHead title={c} n={count(list, c)} />
+    {@render cards(list, c)}
+  {/each}
+  {#each nested as g (g.c.id)}
+    <SectionHead title={g.c.name} n={sum(g.list)} onclick={() => onopen(g.c)} />
+    <div class="grid">
+      {#each stackIdentical(g.list) as st (st.key)}
+        <ItemCard stack={st} category={categoryOf(st.node)} on={isOn(st.nodes)} onclick={() => onselect(st.node)} />
+      {/each}
+    </div>
+  {/each}
 {:else if !cat}
   {#each cats as c (c)}
     <SectionHead title={c} n={count(byCat.get(c) ?? [], c)} />
