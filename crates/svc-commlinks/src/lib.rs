@@ -17,6 +17,12 @@
 //! `images/` beside the cache, and deletes files no position wants any more.
 //! The page shows the local files, so the webview never fetches from RSI.
 //!
+//! **Videos.** The listing doesn't say which video a video comm-link
+//! embeds; [`CommLinks::videos`] reads it from the comm-link's page (two
+//! GETs). A refresh looks it up once per new video comm-link, at most
+//! [`VIDEOS_PER_REFRESH`], and keeps the answer, so the News page can open
+//! the video itself.
+//!
 //! # Online-policy contract — READ THIS
 //!
 //! Public website pages read anonymously (the patch notes' footing). Still
@@ -27,8 +33,9 @@
 //!
 //! # Posture
 //!
-//! A refresh reads [`PAGES`] listing pages ([`MIN_INTERVAL`] apart), then
-//! the missing images ([`IMAGE_INTERVAL`] apart; usually none or one). The
+//! A refresh reads [`PAGES`] listing pages ([`MIN_INTERVAL`] apart), the
+//! new video comm-links' pages (same spacing; usually none), then the
+//! missing images ([`IMAGE_INTERVAL`] apart; usually none or one). The
 //! cache is loaded per call and dropped: nothing resident in the tray.
 
 use std::collections::BTreeMap;
@@ -41,7 +48,7 @@ pub mod media;
 pub use media::{IMAGE_INTERVAL, ImageSize, WantedImage};
 
 pub use sc_dossier::commlinks::{
-    Age, AgeUnit, CommLink, CommLinkKind, CommLinkPage, CommLinkQuery, CommLinks,
+    Age, AgeUnit, CommLink, CommLinkKind, CommLinkPage, CommLinkQuery, CommLinks, Video, VideoHost,
 };
 
 /// Listing pages per refresh (10 cards each).
@@ -50,6 +57,10 @@ pub const PAGES: u32 = 2;
 /// Spacing between requests (the Spectrum rule; the listing's own limit is
 /// unmeasured).
 pub const MIN_INTERVAL: Duration = Duration::from_millis(1250);
+
+/// Video lookups per refresh at most (each is two GETs); the rest wait for
+/// the next refresh. Only the first fill has more than one or two.
+pub const VIDEOS_PER_REFRESH: usize = 8;
 
 /// How many comm-links after the newest one show as image cards.
 pub const CARDS: usize = 4;
@@ -96,12 +107,30 @@ pub struct CommLinksCache {
     pub first_seen: BTreeMap<u64, i64>,
     /// When the last refresh completed, Unix seconds. `0` = never.
     pub fetched_at: i64,
+    /// The videos each video comm-link (by id) embeds, once looked up —
+    /// empty = looked up, none found. Kept for the cached items only.
+    pub videos: BTreeMap<u64, Vec<Video>>,
 }
 
 impl CommLinksCache {
     /// When an item appeared, Unix seconds, as well as Starlume can tell.
     pub fn published(&self, item: &CommLink) -> Option<i64> {
         self.first_seen.get(&item.id).copied()
+    }
+
+    /// The item's video, if it embeds one and it was looked up.
+    pub fn video(&self, item: &CommLink) -> Option<&Video> {
+        self.videos.get(&item.id)?.first()
+    }
+
+    /// Video comm-links not looked up yet, newest first.
+    fn videos_missing(&self) -> Vec<CommLink> {
+        self.items
+            .iter()
+            .filter(|i| i.kind == CommLinkKind::Video && !self.videos.contains_key(&i.id))
+            .take(VIDEOS_PER_REFRESH)
+            .cloned()
+            .collect()
     }
 }
 
@@ -192,7 +221,17 @@ impl CommLinksService {
             }
         }
         let first = old.fetched_at == 0;
-        let (cache, new_items) = merge(&old, fetched, chrono::Utc::now().timestamp());
+        let (mut cache, new_items) = merge(&old, fetched, chrono::Utc::now().timestamp());
+        for item in cache.videos_missing() {
+            tokio::time::sleep(MIN_INTERVAL).await;
+            match client.videos(&item.url).await {
+                Ok(videos) => {
+                    cache.videos.insert(item.id, videos);
+                }
+                // Not recorded: retried on the next refresh.
+                Err(e) => tracing::info!(id = item.id, "comm-link video lookup failed: {e}"),
+            }
+        }
         if let Err(e) = app_kit::save_json(&self.cache_path(), &cache) {
             tracing::warn!("failed to write the comm-links cache: {e}");
         }
@@ -239,11 +278,18 @@ fn merge(
         };
         first_seen.insert(item.id, seen);
     }
+    let videos = old
+        .videos
+        .iter()
+        .filter(|(id, _)| first_seen.contains_key(id))
+        .map(|(id, v)| (*id, v.clone()))
+        .collect();
     (
         CommLinksCache {
             items,
             first_seen,
             fetched_at: now,
+            videos,
         },
         new_items,
     )
@@ -320,6 +366,40 @@ mod tests {
             "no thumbnail, no image"
         );
         assert_eq!(files.len(), 7 + 1 + CARDS);
+    }
+
+    #[test]
+    fn videos_are_kept_for_cached_items_and_looked_up_once() {
+        let video = |id: u64| CommLink {
+            kind: CommLinkKind::Video,
+            ..item(id, None)
+        };
+        let (mut cache, _) = merge(
+            &CommLinksCache::default(),
+            vec![video(3), item(2, None), video(1)],
+            10,
+        );
+        let missing: Vec<u64> = cache.videos_missing().iter().map(|i| i.id).collect();
+        assert_eq!(missing, vec![3, 1], "only video comm-links");
+        cache.videos.insert(
+            3,
+            vec![Video {
+                host: VideoHost::YouTube,
+                id: "zNL_FgoTrjA".into(),
+            }],
+        );
+        cache.videos.insert(1, vec![]);
+        assert!(cache.videos_missing().is_empty());
+        assert_eq!(
+            cache.video(&video(3)).map(Video::watch_url).as_deref(),
+            Some("https://www.youtube.com/watch?v=zNL_FgoTrjA")
+        );
+        assert_eq!(cache.video(&video(1)), None, "looked up, none");
+
+        // #1 falls off the pages: its entry goes with it; #3 keeps its id.
+        let (next, _) = merge(&cache, vec![video(3)], 20);
+        assert!(next.videos.contains_key(&3));
+        assert!(!next.videos.contains_key(&1));
     }
 
     #[test]

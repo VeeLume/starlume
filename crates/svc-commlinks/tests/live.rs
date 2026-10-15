@@ -26,6 +26,21 @@ async fn refreshes_from_rsi() {
     assert!(on_disk * 10 >= wanted.len() * 9, "most images downloaded");
     assert!(service.image_path(&cache.items[0], 0).is_some());
 
+    // Videos: every video comm-link on the pages was looked up.
+    for item in cache
+        .items
+        .iter()
+        .filter(|i| i.kind == svc_commlinks::CommLinkKind::Video)
+    {
+        let video = cache.video(item);
+        println!(
+            "video {} -> {:?}",
+            item.id,
+            video.map(svc_commlinks::Video::watch_url)
+        );
+        assert!(video.is_some(), "video comm-link {} has its video", item.id);
+    }
+
     let again = service.refresh("starlume-test").await.expect("refresh");
     assert!(again.new_items.is_empty());
 }

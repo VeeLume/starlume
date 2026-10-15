@@ -3,7 +3,8 @@
   // wide image and summary, the next few as image cards, the rest as
   // compact rows with a square thumbnail. The images are local files the
   // Rust refresh downloaded (svc-commlinks); the webview fetches nothing
-  // from RSI. Everything opens on RSI in the browser. Times are when
+  // from RSI. Everything opens on RSI in the browser, videos on YouTube
+  // once the refresh looked up which one they embed. Times are when
   // Starlume first saw the item (estimated from its age on the first fill).
   import { onDestroy, onMount } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
@@ -33,7 +34,9 @@
     slug ? slug.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()) : null;
   const src = (c: CommLinkView) => (c.image ? convertFileSrc(c.image) : null);
   const when = (c: CommLinkView) => (c.published_ms ? postAge(c.published_ms) : "");
-  const open = (c: CommLinkView) => void openCommLink(c.url);
+  const open = (c: CommLinkView) => void openCommLink(c.video_url ?? c.url);
+  const openTitle = (c: CommLinkView) =>
+    c.video_url ? (c.video_url.includes("vimeo.com") ? "Watch on Vimeo" : "Watch on YouTube") : "Read on RSI";
 
   // Subscribe itself (ref-counted), like every store surface.
   let stop: (() => void) | undefined;
@@ -53,7 +56,7 @@
 
 {#if featured}
   <div class="commlinks">
-    <button type="button" class="featured" title="Read on RSI" onclick={() => open(featured)}>
+    <button type="button" class="featured" title={openTitle(featured)} onclick={() => open(featured)}>
       <div class="media">
         {#if src(featured)}<img src={src(featured)} alt="" />{/if}
         {#if featured.kind === "video"}<span class="play"><Play size={20} /></span>{/if}
@@ -68,7 +71,7 @@
     {#if cards.length}
       <div class="cards">
         {#each cards as c (c.id)}
-          <button type="button" class="card" title="Read on RSI" onclick={() => open(c)}>
+          <button type="button" class="card" title={openTitle(c)} onclick={() => open(c)}>
             <div class="media">
               {#if src(c)}<img src={src(c)} alt="" />{/if}
               {#if c.kind === "video"}<span class="play small"><Play size={14} /></span>{/if}
@@ -83,7 +86,7 @@
     {#if rows.length}
       <div class="rows">
         {#each rows as c (c.id)}
-          <button type="button" class="row" title="Read on RSI" onclick={() => open(c)}>
+          <button type="button" class="row" title={openTitle(c)} onclick={() => open(c)}>
             <span class="thumb">{#if src(c)}<img src={src(c)} alt="" />{/if}</span>
             <span class="row-text">
               <span class="row-title">{c.title}</span>

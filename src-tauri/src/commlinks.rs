@@ -57,6 +57,9 @@ pub struct CommLinkView {
     /// for `convertFileSrc` — or a smaller size while the right one is
     /// missing. `null` = none on disk.
     pub image: Option<String>,
+    /// The embedded video's own page (YouTube or Vimeo) for a video
+    /// comm-link, once looked up — opens via [`comm_links_open`] like `url`.
+    pub video_url: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -109,6 +112,7 @@ pub(crate) fn comm_links_overview(state: tauri::State<'_, AppState>) -> CommLink
                             .commlinks
                             .image_path(i, position)
                             .map(|p| p.to_string_lossy().into_owned()),
+                        video_url: c.video(i).map(svc_commlinks::Video::watch_url),
                     })
                     .collect()
             })
@@ -123,18 +127,22 @@ pub(crate) async fn comm_links_refresh(app: AppHandle) -> Result<(), AppError> {
     refresh(&app).await
 }
 
-/// Open a comm-link in the browser. Only URLs from the cache, only on RSI's
-/// site — the frontend cannot open arbitrary links through this.
+/// Open a comm-link, or its video, in the browser. Only URLs from the cache:
+/// a comm-link on RSI's site or a video it embeds — the frontend cannot open
+/// arbitrary links through this.
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn comm_links_open(app: AppHandle, url: String) -> Result<(), AppError> {
     use tauri_plugin_opener::OpenerExt;
-    let known = app
-        .state::<AppState>()
-        .commlinks
-        .cached()
-        .is_some_and(|c| c.items.iter().any(|i| i.url == url));
-    if !known || !url.starts_with("https://robertsspaceindustries.com/") {
+    let cache = app.state::<AppState>().commlinks.cached();
+    let page = cache
+        .as_ref()
+        .is_some_and(|c| c.items.iter().any(|i| i.url == url))
+        && url.starts_with("https://robertsspaceindustries.com/");
+    let video = cache
+        .as_ref()
+        .is_some_and(|c| c.videos.values().flatten().any(|v| v.watch_url() == url));
+    if !page && !video {
         return Err(AppError::Internal("not a known comm-link".into()));
     }
     app.opener()

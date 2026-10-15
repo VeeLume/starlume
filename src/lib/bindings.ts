@@ -391,8 +391,9 @@ async commLinksRefresh() : Promise<Result<null, AppError>> {
 }
 },
 /**
- * Open a comm-link in the browser. Only URLs from the cache, only on RSI's
- * site — the frontend cannot open arbitrary links through this.
+ * Open a comm-link, or its video, in the browser. Only URLs from the cache:
+ * a comm-link on RSI's site or a video it embeds — the frontend cannot open
+ * arbitrary links through this.
  */
 async commLinksOpen(url: string) : Promise<Result<null, AppError>> {
     try {
@@ -918,7 +919,12 @@ published_ms: number | null;
  * for `convertFileSrc` — or a smaller size while the right one is
  * missing. `null` = none on disk.
  */
-image: string | null }
+image: string | null; 
+/**
+ * The embedded video's own page (YouTube or Vimeo) for a video
+ * comm-link, once looked up — opens via [`comm_links_open`] like `url`.
+ */
+video_url: string | null }
 export type CommLinksOverview = { 
 /**
  * The online switch — off means no refreshes (the cache still shows).
