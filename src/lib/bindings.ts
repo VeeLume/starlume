@@ -345,6 +345,35 @@ async itemsFinder(channel: string) : Promise<Result<FinderView | null, AppError>
 }
 },
 /**
+ * The cached patch notes. **No network, no gate.**
+ */
+async patchNotesOverview() : Promise<PatchNotesOverview> {
+    return await TAURI_INVOKE("patch_notes_overview");
+},
+/**
+ * Refresh now. **Gated** by `require_online()`.
+ */
+async patchNotesRefresh() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("patch_notes_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open a patch-note article in the browser. Only URLs from the cache, only
+ * on RSI's site — the frontend cannot open arbitrary links through this.
+ */
+async patchNotesOpen(url: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("patch_notes_open", { url }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The feed and the module's state. **No network, no gate.**
  */
 async devtrackerOverview() : Promise<DevtrackerOverview> {
@@ -630,7 +659,11 @@ export type ActivityKind =
 /**
  * mod-devtracker: the first fill of the staff feed (svc-spectrum).
  */
-"devtracker"
+"devtracker" | 
+/**
+ * svc-patchnotes: reading RSI's patch-note pages.
+ */
+"patch-notes"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -794,6 +827,14 @@ name: string;
  * `Legs`, `Undersuit`, `Backpack`), in that order.
  */
 pieces: string[] }
+/**
+ * An article only listed (older than the parsed window).
+ */
+export type ArticleRefView = { url: string; title: string; version: string | null; 
+/**
+ * Relative, as RSI's index shows it ("1 year ago").
+ */
+age_text: string }
 export type AuthStatus = { 
 /**
  * A device token is present in the credential store.
@@ -810,6 +851,7 @@ server_configured: boolean;
 dev_profile: string | null }
 export type BpPoolEntryView = { blueprint_record_guid: string; name: string | null; weight: number }
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
+export type BuildInfoView = { label: string; value: string }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
 export type CraftedPropertyView = { 
@@ -1244,6 +1286,23 @@ stage: string | null; author: string;
  * Epoch milliseconds.
  */
 time_ms: number }
+export type PatchNotesOverview = { 
+/**
+ * The online switch — off means no refreshes (the cache still shows).
+ */
+online: boolean; 
+/**
+ * When last refreshed, epoch seconds; `null` = never.
+ */
+fetched_at: number | null; last_error: string | null; 
+/**
+ * Parsed releases, newest first. `releases[0]` is what LIVE is on.
+ */
+releases: ReleaseView[]; 
+/**
+ * Older articles, listed only.
+ */
+older: ArticleRefView[] }
 export type PatcherConfigUpdate = { enabled: boolean | null; options: Partial<{ [key in string]: string }> }
 export type PatcherInfoView = { id: string; name: string; description: string; enabled: boolean; 
 /**
@@ -1274,6 +1333,55 @@ key: string }
  */
 export type PreviewTextView = { key: string | null; original: string; patched: string }
 export type Profile = { username: string; avatar_url: string | null }
+/**
+ * One LIVE release as the page and Home show it (specta mirror of
+ * `sc_dossier::patchnotes::Release`, overview fields only).
+ */
+export type ReleaseView = { 
+/**
+ * Stable key (title + date as written).
+ */
+key: string; 
+/**
+ * The RSI article it is in (opens via [`patch_notes_open`]).
+ */
+article_url: string; 
+/**
+ * "Star Citizen Alpha 4.10.2 LIVE".
+ */
+title: string; 
+/**
+ * "4.10.2" (or "4.10" as the title writes it).
+ */
+version: string | null; 
+/**
+ * "LIVE".
+ */
+channel: string | null; 
+/**
+ * The patch name ("RSI Discovery Month"; "Update" on point releases).
+ */
+name: string | null; 
+/**
+ * ISO date (`2026-10-09`) when the banner date parsed.
+ */
+date: string | null; 
+/**
+ * The banner date as written.
+ */
+date_text: string; 
+/**
+ * "4.10.2-LIVE.12881860".
+ */
+build: string | null; 
+/**
+ * "12881860".
+ */
+changelist: string | null; build_info: BuildInfoView[]; 
+/**
+ * One-line headline items. May be empty (then link out only).
+ */
+highlights: string[]; bug_fixes: number | null; known_issues: number | null }
 export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }
 export type ResourceLegalityView = { 

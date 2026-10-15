@@ -4435,11 +4435,12 @@ dependencies = [
 
 [[package]]
 name = "sc-dossier"
-version = "0.5.0"
-source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.5.0#c7d832d4f3642470c88e8897802da9a27fab930f"
+version = "0.6.0"
+source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.6.0#50f2297563aad6699f2783c336ad6f538769896a"
 dependencies = [
  "aes",
  "cbc",
+ "chrono",
  "pbkdf2",
  "prost",
  "prost-types",
@@ -5444,6 +5445,7 @@ dependencies = [
  "svc-data",
  "svc-discovery",
  "svc-dossier",
+ "svc-patchnotes",
  "svc-spectrum",
  "sysinfo",
  "tauri",
@@ -5668,6 +5670,19 @@ dependencies = [
 [[package]]
 name = "svc-log"
 version = "0.1.0"
+
+[[package]]
+name = "svc-patchnotes"
+version = "0.1.0"
+dependencies = [
+ "app-kit",
+ "chrono",
+ "sc-dossier",
+ "serde",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "svc-spectrum"

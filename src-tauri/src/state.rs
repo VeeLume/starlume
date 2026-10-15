@@ -42,6 +42,10 @@ pub struct AppState {
     /// pace. Reads are ToS-grey — every network method is gated by
     /// `require_unofficial("devtracker")` at the call site (`devtracker.rs`).
     pub spectrum: Arc<svc_spectrum::SpectrumService>,
+    /// LIVE patch notes (RSI's public patch-note pages) + disk cache. Public
+    /// reads — every network method is gated by `require_online()` at the
+    /// call site (`patchnotes.rs`).
+    pub patchnotes: Arc<svc_patchnotes::PatchNotesService>,
 }
 
 impl AppState {
@@ -64,6 +68,9 @@ impl AppState {
             )),
             spectrum: Arc::new(svc_spectrum::SpectrumService::new(
                 app_kit::app_data_root().join("spectrum"),
+            )),
+            patchnotes: Arc::new(svc_patchnotes::PatchNotesService::new(
+                app_kit::app_data_root().join("patchnotes"),
             )),
         }
     }
@@ -134,6 +141,7 @@ mod tests {
             install_watch: Mutex::new(None),
             dossier: Arc::new(svc_dossier::DossierService::new(std::env::temp_dir())),
             spectrum: Arc::new(svc_spectrum::SpectrumService::new(std::env::temp_dir())),
+            patchnotes: Arc::new(svc_patchnotes::PatchNotesService::new(std::env::temp_dir())),
         }
     }
 

@@ -6,7 +6,7 @@ use tauri_specta::{Builder, collect_commands};
 
 use crate::{
     activity, auth, data, devtracker, dossier, friends, groups, items, langpatch, modules, notify,
-    sc, settings, window,
+    patchnotes, sc, settings, window,
 };
 
 /// Single source of truth for the IPC command list. Used both by `run()` at
@@ -46,6 +46,9 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         items::items_summary,
         items::items_refresh,
         items::items_finder,
+        patchnotes::patch_notes_overview,
+        patchnotes::patch_notes_refresh,
+        patchnotes::patch_notes_open,
         devtracker::devtracker_overview,
         devtracker::devtracker_authors,
         devtracker::devtracker_set_author_mode,

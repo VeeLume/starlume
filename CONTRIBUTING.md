@@ -18,6 +18,7 @@ crates/
 ├── svc-data/       ONE DataCore parse + snapshot cache per build, reference catalogs
 ├── svc-dossier/    CIG game-services client: blueprints, inventory, loadouts (gated)
 ├── svc-spectrum/   RSI Spectrum client: the staff feed, paced + cached (gated)
+├── svc-patchnotes/ LIVE patch notes from RSI's public pages, paced + cached (online)
 ├── svc-log/        ONE Game.log tailer broadcasting typed events (stub)
 ├── svc-sync/       server client: device-token auth, outbox, reference upload (stub)
 ├── mod-langpatch/  Text Patching

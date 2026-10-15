@@ -123,6 +123,10 @@ pub fn run() {
             // poll; idle when either is off).
             crate::devtracker::spawn_poller(app.handle());
 
+            // Read RSI's LIVE patch notes now and then (online-gated; also on
+            // a settled install change — a new build often means new notes).
+            crate::patchnotes::spawn_refresher(app.handle());
+
             // Watch installs for settled build changes (30s stat-only poll)
             // → InstallChanged on the bus → cache invalidation + re-warm.
             watch::spawn(app.handle());

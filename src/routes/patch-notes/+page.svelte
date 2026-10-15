@@ -4,10 +4,8 @@
   // gated by the online switch only, and Home reads them too. Modules add
   // sections while enabled (`ModuleDescriptor.patchNotes`), e.g. the dev
   // tracker's test-channel notes from Spectrum.
-  //
-  // The LIVE source (a patch-notes service over sc-dossier's parser) is not
-  // wired yet; until then the page shows the module sections only.
   import { moduleRegistry } from "$lib/modules/registry";
+  import LiveReleases from "$lib/components/patchnotes/LiveReleases.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
 
   const sections = $derived(
@@ -20,10 +18,7 @@
 <div class="page">
   <section>
     <h2>LIVE releases</h2>
-    <p class="dim">
-      The LIVE release notes, with a short headline per release, come from RSI's patch-note
-      articles. Not connected yet.
-    </p>
+    <LiveReleases />
   </section>
 
   {#each sections as s (s.key)}

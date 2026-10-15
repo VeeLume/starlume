@@ -11,6 +11,7 @@ members = [
     "crates/svc-discovery",
     "crates/svc-data",
     "crates/svc-dossier",
+    "crates/svc-patchnotes",
     "crates/svc-log",
     "crates/svc-spectrum",
     "crates/svc-sync",
@@ -41,6 +42,9 @@ scraper = "0.20"
 # consolidation). Base features here; svc-data adds `foundations` on the same
 # pin (Cargo unions features across the workspace).
 sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.19.0", features = ["installs"] }
+# The gRPC lab's shipped client: game services, Spectrum, patch notes. ONE
+# pin for every service that uses it.
+sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.6.0" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
@@ -73,6 +77,7 @@ mod-langpatch = { path = "crates/mod-langpatch" }
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
 svc-dossier = { path = "crates/svc-dossier" }
+svc-patchnotes = { path = "crates/svc-patchnotes" }
 svc-log = { path = "crates/svc-log" }
 svc-spectrum = { path = "crates/svc-spectrum" }
 svc-sync = { path = "crates/svc-sync" }

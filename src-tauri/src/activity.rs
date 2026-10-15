@@ -39,6 +39,8 @@ pub enum ActivityKind {
     Inventory,
     /// mod-devtracker: the first fill of the staff feed (svc-spectrum).
     Devtracker,
+    /// svc-patchnotes: reading RSI's patch-note pages.
+    PatchNotes,
 }
 
 /// Where an activity is. `stage` is a user-facing label ("Parsing

@@ -28,6 +28,7 @@ const SOURCE: Record<ActivityKind, string> = {
   blueprints: "blueprints",
   inventory: "items",
   devtracker: "devtracker",
+  "patch-notes": "patchnotes",
 };
 
 function apply(records: ActivityRecord[]) {

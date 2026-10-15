@@ -35,6 +35,7 @@ mod langpatch;
 mod lifecycle;
 mod modules;
 pub mod notify;
+mod patchnotes;
 mod sc;
 mod settings;
 mod state;
