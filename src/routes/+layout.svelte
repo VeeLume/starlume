@@ -52,24 +52,25 @@
   // read on open; the per-session log stays in the panel.
   let centerOpen = $state(false);
 
-  // Home + Friends + Catalogs (shell-level; the latter two unreleased) + one
-  // entry per enabled module (registry order). Kit NavItems — the shell owns
-  // active-state matching.
+  // Home + Patch Notes (shell-level), one entry per enabled module (registry
+  // order: the dev tracker first), then Friends + Catalogs (shell-level).
+  // Patch Notes, Friends and Catalogs are unreleased. Kit NavItems — the
+  // shell owns active-state matching.
   const navGroups: NavGroup[] = $derived([
     {
       items: [
         { path: "/", label: "Home", icon: House },
-        ...(SHOW_UNRELEASED
-          ? [
-              { path: "/friends", label: "Friends", icon: Users },
-              { path: "/data", label: "Catalogs", icon: Library },
-              { path: "/patch-notes", label: "Patch Notes", icon: ScrollText },
-            ]
-          : []),
+        ...(SHOW_UNRELEASED ? [{ path: "/patch-notes", label: "Patch Notes", icon: ScrollText }] : []),
         ...moduleRegistry
           .filter((d) => settingsStore.current?.enabled_modules.includes(d.id))
           .flatMap((d) => d.nav ?? [])
           .map((e) => ({ path: e.href, label: e.label, icon: e.icon })),
+        ...(SHOW_UNRELEASED
+          ? [
+              { path: "/friends", label: "Friends", icon: Users },
+              { path: "/data", label: "Catalogs", icon: Library },
+            ]
+          : []),
       ],
     },
   ]);

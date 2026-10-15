@@ -14,10 +14,12 @@ import { devtrackerModule } from "./devtracker/descriptor";
 import { SHOW_UNRELEASED } from "$lib/unreleased";
 
 export const moduleRegistry: ModuleDescriptor[] = [
+  // Unreleased ones are dev-build only — see $lib/unreleased (mirrors
+  // modules::registry() in Rust, same order).
+  ...(SHOW_UNRELEASED ? [devtrackerModule] : []),
   langpatchModule,
   itemsModule,
-  // Unreleased — see $lib/unreleased (mirrors modules::registry() in Rust).
-  ...(SHOW_UNRELEASED ? [devtrackerModule, contractsModule] : []),
+  ...(SHOW_UNRELEASED ? [contractsModule] : []),
 ];
 
 export function moduleById(id: string): ModuleDescriptor | undefined {

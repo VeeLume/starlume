@@ -90,7 +90,7 @@ impl Module for Devtracker {
 /// frontend's `$lib/unreleased` gate (v0.1.0 scope decision).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
-        &[&Langpatch, &Items, &Devtracker, &Contracts]
+        &[&Devtracker, &Langpatch, &Items, &Contracts]
     } else {
         &[&Langpatch, &Items]
     }
