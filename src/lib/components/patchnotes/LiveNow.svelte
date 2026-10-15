@@ -1,8 +1,10 @@
 <script lang="ts">
-  // The LIVE card: the newest release from RSI's patch notes — version and
-  // name, the headline items as tags, the facts as stat tiles, and the link
-  // to the article.
+  // The LIVE card: the newest release from RSI's patch notes — the
+  // article's card image (downloaded Rust-side), version and name, the
+  // headline items as tags, the facts as stat tiles, and the link to the
+  // article.
   import { onDestroy, onMount } from "svelte";
+  import { convertFileSrc } from "@tauri-apps/api/core";
   import { Button } from "@veelume/ui";
   import { ExternalLink } from "lucide-svelte";
   import { openPatchNote, patchNotesStore, watchPatchNotes } from "$lib/state/patchnotes.svelte";
@@ -38,6 +40,7 @@
     version={live.version ?? "?"}
     name={live.name ?? ""}
     date={shortDate(live.date, live.date_text)}
+    image={live.image ? convertFileSrc(live.image) : null}
   >
     {#if tags.length}
       <div class="tags">{#each tags as t, i (i)}<span class="tag">{t}</span>{/each}</div>

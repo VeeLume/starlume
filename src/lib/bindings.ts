@@ -1474,7 +1474,12 @@ changelist: string | null; build_info: BuildInfoView[];
 /**
  * One-line headline items. May be empty (then link out only).
  */
-highlights: string[]; bug_fixes: number | null; known_issues: number | null }
+highlights: string[]; bug_fixes: number | null; known_issues: number | null; 
+/**
+ * The article's card image on disk (local path for `convertFileSrc`);
+ * only the newest LIVE release's article has one. `null` = none.
+ */
+image: string | null }
 export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }
 export type ResourceLegalityView = { 

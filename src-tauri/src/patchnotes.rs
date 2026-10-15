@@ -10,9 +10,17 @@
 //! is older than [`MAX_AGE`] (checked hourly), on a settled install change,
 //! on a settings change (the online switch), and on Refresh. A refresh is
 //! two or three page reads; the cache is loaded per call and dropped.
+//!
+//! **Image.** The newest LIVE release's article card image (wide size) is
+//! downloaded with the refresh into `patchnotes/images/` through
+//! `svc_commlinks::media` — the comm-links' downloader — and shown on the
+//! News page's LIVE card from the local file.
 
+use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
+
+use svc_commlinks::media::{self, ImageSize, WantedImage};
 
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Notify;
@@ -69,6 +77,9 @@ pub struct ReleaseView {
     pub highlights: Vec<String>,
     pub bug_fixes: Option<u32>,
     pub known_issues: Option<u32>,
+    /// The article's card image on disk (local path for `convertFileSrc`);
+    /// only the newest LIVE release's article has one. `null` = none.
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -100,9 +111,42 @@ pub struct PatchNotesOverview {
     pub older: Vec<ArticleRefView>,
 }
 
+/// Where the article images live — readable by the webview (asset scope).
+fn images_dir() -> PathBuf {
+    app_kit::app_data_root().join("patchnotes").join("images")
+}
+
+/// The image an article should have: the newest LIVE release's, wide.
+fn wanted_image(cache: &svc_patchnotes::PatchNotesCache) -> Option<WantedImage> {
+    let (article, _) = cache.latest()?;
+    let thumb = cache
+        .index
+        .iter()
+        .find(|r| r.id == article.id)?
+        .thumbnail
+        .as_deref()?;
+    WantedImage::new(article.id, thumb, ImageSize::Wide)
+}
+
+/// An article's image on disk, if any.
+fn article_image(
+    cache: &svc_patchnotes::PatchNotesCache,
+    article: &svc_patchnotes::PatchNoteArticle,
+) -> Option<String> {
+    let thumb = cache
+        .index
+        .iter()
+        .find(|r| r.id == article.id)?
+        .thumbnail
+        .as_deref()?;
+    media::best_on_disk(&images_dir(), article.id, thumb, ImageSize::Wide)
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 fn release_view(
     article: &svc_patchnotes::PatchNoteArticle,
     r: &svc_patchnotes::Release,
+    image: Option<String>,
 ) -> ReleaseView {
     ReleaseView {
         key: format!("{}|{}", r.title, r.date_text),
@@ -126,6 +170,7 @@ fn release_view(
         highlights: r.highlights.clone(),
         bug_fixes: r.counts.bug_fixes,
         known_issues: r.counts.known_issues,
+        image,
     }
 }
 
@@ -144,7 +189,11 @@ pub(crate) fn patch_notes_overview(state: tauri::State<'_, AppState>) -> PatchNo
         last_error: LAST_ERROR.lock().unwrap().clone(),
         releases: cache
             .as_ref()
-            .map(|c| c.releases().map(|(a, r)| release_view(a, r)).collect())
+            .map(|c| {
+                c.releases()
+                    .map(|(a, r)| release_view(a, r, article_image(c, a)))
+                    .collect()
+            })
             .unwrap_or_default(),
         older: cache
             .as_ref()
@@ -218,6 +267,11 @@ async fn refresh(app: &AppHandle) -> Result<(), AppError> {
     let report = match result {
         Ok(report) => {
             *LAST_ERROR.lock().unwrap() = None;
+            // Still inside the gate: the LIVE card's image.
+            if let Some(cache) = service.cached() {
+                let wanted: Vec<WantedImage> = wanted_image(&cache).into_iter().collect();
+                media::sync(&images_dir(), &wanted, USER_AGENT).await;
+            }
             report
         }
         Err(e) => {
@@ -263,6 +317,12 @@ fn stale(app: &AppHandle) -> bool {
 /// The background refresher. Silent when offline — that is a choice, not an
 /// error.
 pub fn spawn_refresher(app: &AppHandle) {
+    // The webview may read the article images (the asset scope starts empty).
+    let images = images_dir();
+    let _ = std::fs::create_dir_all(&images);
+    if let Err(e) = app.asset_protocol_scope().allow_directory(&images, false) {
+        tracing::warn!("patch-note images not readable by the page: {e}");
+    }
     let mut bus = app.state::<AppState>().bus.subscribe();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
