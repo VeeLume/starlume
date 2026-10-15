@@ -6,7 +6,7 @@
 import { Radio } from "lucide-svelte";
 import type { ModuleDescriptor } from "../types";
 import PulseCard from "./PulseCard.svelte";
-import SpectrumPatchNotes from "./SpectrumPatchNotes.svelte";
+import PtuNow from "./PtuNow.svelte";
 
 export const devtrackerModule: ModuleDescriptor = {
   id: "devtracker",
@@ -16,5 +16,5 @@ export const devtrackerModule: ModuleDescriptor = {
   icon: "📡",
   nav: [{ href: "/devtracker", label: "Dev Tracker", icon: Radio }],
   homeCards: [{ id: "pulse", title: "Dev Tracker", component: PulseCard, href: "/devtracker" }],
-  patchNotes: [{ id: "spectrum", title: "From Spectrum", component: SpectrumPatchNotes }],
+  patchNotes: [{ id: "ptu", component: PtuNow }],
 };

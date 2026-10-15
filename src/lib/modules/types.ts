@@ -83,13 +83,13 @@ export interface InstallStatus {
   component: Component<InstallStatusProps>;
 }
 
-/** A section a module contributes to the Patch Notes page (an app page:
- *  LIVE notes are reference data). E.g. the dev tracker's test-channel notes
- *  from Spectrum. The component reads its own store. */
-export interface PatchNotesSection {
+/** A card a module adds to the Patch Notes page's top row, beside the LIVE
+ *  card (the page is the app's: LIVE notes are reference data). E.g. the dev
+ *  tracker's PTU cycle from Spectrum. Render it in `NowCard` so the row reads
+ *  alike; the component reads its own store. */
+export interface PatchNotesCard {
   /** Unique within the module. */
   id: string;
-  title: string;
   component: Component;
 }
 
@@ -110,6 +110,6 @@ export interface ModuleDescriptor {
   homeCards?: HomeCard[];
   /** A per-install decoration on Home's Game status card, while enabled. */
   installStatus?: InstallStatus;
-  /** Sections on the Patch Notes page, while enabled. */
-  patchNotes?: PatchNotesSection[];
+  /** Cards in the Patch Notes page's top row, while enabled. */
+  patchNotes?: PatchNotesCard[];
 }
