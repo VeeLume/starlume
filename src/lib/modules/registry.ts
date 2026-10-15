@@ -16,7 +16,7 @@ import { SHOW_UNRELEASED } from "$lib/unreleased";
 export const moduleRegistry: ModuleDescriptor[] = [
   // Unreleased ones are dev-build only — see $lib/unreleased (mirrors
   // modules::registry() in Rust, same order).
-  ...(SHOW_UNRELEASED ? [devtrackerModule] : []),
+  devtrackerModule,
   langpatchModule,
   itemsModule,
   ...(SHOW_UNRELEASED ? [contractsModule] : []),

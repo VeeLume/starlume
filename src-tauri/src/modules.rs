@@ -86,13 +86,14 @@ impl Module for Devtracker {
 }
 
 /// All modules offered by this build, enabled or not. Unreleased modules
-/// (Contracts, Dev Tracker) exist only in debug builds — the Rust half of the
-/// frontend's `$lib/unreleased` gate (v0.1.0 scope decision).
+/// (Contracts) exist only in debug builds — the Rust half of the frontend's
+/// `$lib/unreleased` gate (v0.1.0 scope decision; the Dev Tracker shipped in
+/// v0.2.0).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
         &[&Devtracker, &Langpatch, &Items, &Contracts]
     } else {
-        &[&Langpatch, &Items]
+        &[&Devtracker, &Langpatch, &Items]
     }
 }
 

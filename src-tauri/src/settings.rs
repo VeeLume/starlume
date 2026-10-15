@@ -164,6 +164,11 @@ pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
         "Saved loadouts",
         "Read your ships' stock and saved loadouts, to show them beside the fitted state in My Items.",
     ),
+    (
+        "devtracker",
+        "Dev tracker",
+        "Read the CIG staff posts feed from Spectrum (RSI's forums and chat) with your launcher session, for the dev tracker.",
+    ),
 ];
 
 /// Unofficial-API features whose consumer hasn't shipped: listed in debug
@@ -171,18 +176,11 @@ pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
 /// Rust half of `$lib/unreleased` for features, like the debug-only half of
 /// `modules::registry()`. Move an entry into [`GRPC_FEATURES`] when its
 /// consumer ships.
-const UNRELEASED_GRPC_FEATURES: &[(&str, &str, &str)] = &[
-    (
-        "devtracker",
-        "Dev tracker",
-        "Read the CIG staff posts feed from Spectrum (RSI's forums and chat) with your launcher session, for the dev tracker.",
-    ),
-    (
-        "launcher",
-        "Launcher library",
-        "Read which game channels your account can play and their current builds from the RSI launcher's API, so Home can tell when an install needs an update.",
-    ),
-];
+const UNRELEASED_GRPC_FEATURES: &[(&str, &str, &str)] = &[(
+    "launcher",
+    "Launcher library",
+    "Read which game channels your account can play and their current builds from the RSI launcher's API, so Home can tell when an install needs an update.",
+)];
 
 /// The unofficial-API features this build offers.
 fn grpc_features() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str)> {

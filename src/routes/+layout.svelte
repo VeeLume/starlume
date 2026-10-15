@@ -55,8 +55,8 @@
 
   // Three groups, divided: what's going on (Home, News, and module pages
   // in the `news` section — the dev tracker), the enabled modules' tools
-  // (registry order), then Friends + Catalogs (shell-level). News, Friends
-  // and Catalogs are unreleased. Kit NavItems — the shell owns active-state
+  // (registry order), then Friends + Catalogs (shell-level). Friends and
+  // Catalogs are unreleased. Kit NavItems — the shell owns active-state
   // matching; rows render through the rail's `item` snippet below.
   const moduleNav = $derived(
     moduleRegistry
@@ -67,7 +67,7 @@
     [
       [
         { path: "/", label: "Home", icon: House },
-        ...(SHOW_UNRELEASED ? [{ path: "/news", label: "News", icon: Newspaper }] : []),
+        { path: "/news", label: "News", icon: Newspaper },
         ...moduleNav.filter((e) => e.section === "news").map((e) => ({ path: e.href, label: e.label, icon: e.icon })),
       ],
       moduleNav.filter((e) => e.section !== "news").map((e) => ({ path: e.href, label: e.label, icon: e.icon })),

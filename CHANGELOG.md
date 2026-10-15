@@ -2,10 +2,42 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-15
+
+Starlume now keeps you up to date on the game, not only on your own things:
+a News page, a Dev Tracker, and a Home that says what is going on. Everything
+also got a new look.
+
+- **Home** — a game status card for each installed channel: its version,
+  whether its game data is ready, whether your build is current against the
+  patch notes (a hotfix that shipped after them is named, with what it fixed),
+  your text patch, and an **Open launcher** button. Beside it the newest
+  comm-links, the dev tracker and My Items. Customize hides and orders the
+  cards.
+- **News** — the LIVE patch notes in short (highlights, fix count, build) with
+  a link to the full article, the dev cycle as a timeline (PTU waves, release
+  candidates, the LIVE release, hotfixes), the newest comm-links with their
+  images (videos open on YouTube), and earlier releases.
+- **Dev Tracker** *(opt-in)* — CIG staff posts from Spectrum, forums and chat,
+  filtered down to game news: patches, PTU waves, maintenance, known issues. A
+  reply shows the post it answers, a chat message the one it reacts to. Follow
+  the staff you care about, and get a notification for game-ops posts (a
+  server restart, a PTU wave, the HOTFIX channel opening). It reads Spectrum
+  with your RSI launcher session, so it is an unofficial API and off until you
+  enable it.
+- **Text Patching** — one page that fits the window: your installs on the
+  left with each patcher's settings in a line, the selected patcher's options
+  and a preview of what it changes on the right.
+- **My Items** — navigate by the path at the top (each step lists its
+  neighbours; **Places** opens the whole tree), details open beside the cards
+  only when you pick something, and a small place such as your hangar shows
+  what its racks and cases hold on one page.
+- **New look** — calmer colours with one accent for what you can click and a
+  colour per channel (LIVE, PTU, HOTFIX) wherever channels show.
 - **Settings → Online & privacy** — the game-services switch is now **Allow
   unofficial API calls**: one opt-in for every RSI/CIG service Starlume is not
-  an official client of (CIG's game services, and RSI's Spectrum for upcoming
-  features). Your current choice and per-feature toggles carry over.
+  an official client of (CIG's game services, and RSI's Spectrum for the Dev
+  Tracker). Your current choice and per-feature toggles carry over.
 
 ## [0.1.0] - 2026-10-15
 
