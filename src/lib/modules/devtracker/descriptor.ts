@@ -7,6 +7,7 @@ import { Radio } from "lucide-svelte";
 import type { ModuleDescriptor } from "../types";
 import PulseCard from "./PulseCard.svelte";
 import PtuNow from "./PtuNow.svelte";
+import { devtrackerStore } from "$lib/state/devtracker.svelte";
 
 export const devtrackerModule: ModuleDescriptor = {
   id: "devtracker",
@@ -15,6 +16,17 @@ export const devtrackerModule: ModuleDescriptor = {
     "CIG staff posts from Spectrum, chat included, filtered down to game news: patches, PTU waves, maintenance, known issues.",
   icon: "📡",
   nav: [{ href: "/devtracker", label: "Dev Tracker", icon: Radio }],
-  homeCards: [{ id: "pulse", title: "Dev Tracker", component: PulseCard, href: "/devtracker" }],
+  homeCards: [
+    {
+      id: "pulse",
+      title: "Dev Tracker",
+      component: PulseCard,
+      href: "/devtracker",
+      badge: () => {
+        const n = devtrackerStore.overview?.unread ?? 0;
+        return n ? `${n} new` : null;
+      },
+    },
+  ],
   patchNotes: [{ id: "ptu", component: PtuNow }],
 };

@@ -5,10 +5,12 @@
 import type { HomeCard } from "$lib/modules/types";
 import { moduleRegistry } from "$lib/modules/registry";
 import GameStatusCard from "$lib/components/home/GameStatusCard.svelte";
+import NewsCard from "$lib/components/home/NewsCard.svelte";
 
 /** The shell's cards — always available, whatever modules are enabled. */
 const shellCards: HomeCard[] = [
-  { id: "game-status", title: "Game status", component: GameStatusCard, wide: true },
+  { id: "game-status", title: "Game status", component: GameStatusCard, wide: true, frameless: true },
+  { id: "news", title: "News", component: NewsCard, href: "/news" },
 ];
 
 export interface AvailableCard extends HomeCard {

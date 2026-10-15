@@ -26,3 +26,21 @@ export function upToDate(install: string, announced: string): UpToDate {
   const c = compareVersions(installVersion(install), announced);
   return c < 0 ? "behind" : c > 0 ? "ahead" : "current";
 }
+
+/** "4.10.2-live.12913470" → "12913470"; `null` without one. */
+export function installChangelist(version: string): string | null {
+  const m = /\.(\d{6,})$/.exec(version);
+  return m ? m[1] : null;
+}
+
+export type BuildStatus = UpToDate | "hotfix";
+
+/** {@link upToDate}, plus `hotfix`: the announced version with a newer
+ *  build than the notes name — a hotfix shipped after the notes (they get
+ *  no notes of their own). Needs the notes' changelist. */
+export function buildStatus(install: string, announced: string, changelist: string | null): BuildStatus {
+  const status = upToDate(install, announced);
+  if (status !== "current" || !changelist) return status;
+  const build = parseInt(installChangelist(install) ?? "", 10);
+  return Number.isFinite(build) && build > parseInt(changelist, 10) ? "hotfix" : "current";
+}

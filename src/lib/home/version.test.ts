@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareVersions, installVersion, upToDate } from "./version";
+import { buildStatus, compareVersions, installChangelist, installVersion, upToDate } from "./version";
 
 describe("version compare", () => {
   it("reads the install version without channel and build", () => {
@@ -16,5 +16,14 @@ describe("version compare", () => {
     expect(upToDate("4.10.2-live.12913470", "4.10.2")).toBe("current");
     expect(upToDate("4.10.1-live.12800000", "4.10.2")).toBe("behind");
     expect(upToDate("4.11.0-live.13000000", "4.10.2")).toBe("ahead");
+  });
+
+  it("tells a hotfix build from the noted one", () => {
+    expect(installChangelist("4.10.2-live.12913470")).toBe("12913470");
+    expect(installChangelist("4.10.2")).toBeNull();
+    expect(buildStatus("4.10.2-live.12913470", "4.10.2", "12881860")).toBe("hotfix");
+    expect(buildStatus("4.10.2-live.12881860", "4.10.2", "12881860")).toBe("current");
+    expect(buildStatus("4.10.2-live.12913470", "4.10.2", null)).toBe("current");
+    expect(buildStatus("4.10.1-live.12999999", "4.10.2", "12881860")).toBe("behind");
   });
 });

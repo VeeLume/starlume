@@ -51,31 +51,43 @@
     <p class="dim">Every card is hidden. Use Customize to bring some back.</p>
   {/if}
 
-  <div class="grid">
+  {#snippet controls(card: Placed<AvailableCard>, i: number)}
+    {#if card.ownerName !== card.title && !card.key.startsWith("shell:")}
+      <span class="module-tag">{card.ownerName}</span>
+    {/if}
+    <Button variant="ghost" size="icon" title="Move up" disabled={i === 0} onclick={() => move(i, -1)}>
+      <ChevronUp size={16} />
+    </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      title="Move down"
+      disabled={i === cards.length - 1}
+      onclick={() => move(i, 1)}
+    >
+      <ChevronDown size={16} />
+    </Button>
+    <Button variant="ghost" size="icon" title={card.visible ? "Hide" : "Show"} onclick={() => toggle(i)}>
+      {#if card.visible}<Eye size={16} />{:else}<EyeOff size={16} />{/if}
+    </Button>
+  {/snippet}
+
+  <div class="grid" class:customizing>
     {#each customizing ? cards : shown as card, i (card.key)}
-      <section class="card home-card" class:wide={card.wide} class:hidden-card={!card.visible}>
+      {#if card.frameless && (card.visible || !customizing)}
+        <!-- Draws its own frame and heading; Home adds only the controls. -->
+        <div class="frameless" class:wide={card.wide}>
+          {#if customizing}<div class="overlay">{@render controls(card, i)}</div>{/if}
+          <card.component />
+        </div>
+      {:else}
+      <section class="home-card" class:wide={card.wide} class:hidden-card={!card.visible}>
         <header>
           <h2>{card.title}</h2>
+          {#if !customizing && card.badge?.()}<span class="hue-chip badge-count">{card.badge()}</span>{/if}
           {#if customizing}
-            {#if card.ownerName !== card.title && !card.key.startsWith("shell:")}
-              <span class="module-tag">{card.ownerName}</span>
-            {/if}
             <span class="grow"></span>
-            <Button variant="ghost" size="icon" title="Move up" disabled={i === 0} onclick={() => move(i, -1)}>
-              <ChevronUp size={16} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              title="Move down"
-              disabled={i === cards.length - 1}
-              onclick={() => move(i, 1)}
-            >
-              <ChevronDown size={16} />
-            </Button>
-            <Button variant="ghost" size="icon" title={card.visible ? "Hide" : "Show"} onclick={() => toggle(i)}>
-              {#if card.visible}<Eye size={16} />{:else}<EyeOff size={16} />{/if}
-            </Button>
+            {@render controls(card, i)}
           {:else if card.href}
             <span class="grow"></span>
             <a class="open" href={card.href}>Open <ArrowRight size={13} /></a>
@@ -85,12 +97,14 @@
           <card.component />
         {/if}
       </section>
+      {/if}
     {/each}
   </div>
 </div>
 
 <style>
   .home {
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -119,8 +133,39 @@
     gap: 10px;
     min-width: 0;
   }
-  .home-card.wide {
+  .home-card,
+  .frameless {
+    position: relative;
+  }
+  .home-card {
+    padding: 14px 16px;
+    border-radius: var(--radius-lg);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+  }
+  .wide {
     grid-column: 1 / -1;
+  }
+  /* Customize: every card outlined, its controls in place. */
+  .customizing .home-card,
+  .customizing .frameless {
+    outline: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: 3px;
+  }
+  .overlay {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+  }
+  .badge-count {
+    --hue: var(--accent);
   }
   .home-card.hidden-card {
     opacity: 0.55;
@@ -128,9 +173,11 @@
   .home-card h2 {
     margin: 0;
     font-family: var(--font-display);
-    font-size: 1rem;
-    font-weight: var(--weight-bold);
-    color: var(--text-strong);
+    font-size: 0.75rem;
+    font-weight: var(--weight-normal);
+    color: var(--text-faint);
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
   }
   .module-tag {
     font-size: var(--text-small);
@@ -141,10 +188,10 @@
     align-items: center;
     gap: 4px;
     font-size: var(--text-small);
-    color: var(--text-dim);
+    color: var(--accent);
     text-decoration: none;
   }
   .open:hover {
-    color: var(--accent);
+    text-decoration: underline;
   }
 </style>

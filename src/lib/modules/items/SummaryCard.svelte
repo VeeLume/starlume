@@ -16,11 +16,15 @@
 </script>
 
 {#if summary?.fetched_at}
-  <p>
-    <span class="metric-inline">{summary.items.toLocaleString()}</span> items in
-    <span class="metric-inline">{summary.stashes.toLocaleString()}</span> storage locations
-  </p>
-  <p class="dim">Read from the game {updated}.</p>
+  <div class="stat-tiles">
+    <div class="stat-tile"><b>{summary.items.toLocaleString()}</b><span>items</span></div>
+    <div class="stat-tile"><b>{summary.stashes.toLocaleString()}</b><span>storage spots</span></div>
+    <div class="stat-tile"><b>{summary.entitlements.toLocaleString()}</b><span>entitlements</span></div>
+    {#if summary.loadouts != null}
+      <div class="stat-tile"><b>{summary.loadouts.toLocaleString()}</b><span>loadouts</span></div>
+    {/if}
+  </div>
+  <p class="dim small">Read from the game {updated}.</p>
 {:else if summary}
   <p class="dim">
     Not read yet. Turn on “Items &amp; ships” in <a href="/settings/online">Settings → Online</a>,
@@ -32,9 +36,8 @@
   p {
     margin: 0 0 4px;
   }
-  .metric-inline {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    color: var(--text-strong);
+  .small {
+    margin: 8px 0 0;
+    font-size: var(--text-small);
   }
 </style>

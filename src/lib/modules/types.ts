@@ -66,6 +66,12 @@ export interface HomeCard {
   wide?: boolean;
   /** The feature page; the card header links there. */
   href?: string;
+  /** Draws its own frame and heading (Game status's hero); Home adds only
+   *  the customize controls. */
+  frameless?: boolean;
+  /** A short count beside the heading ("29 new"); read reactively, so it
+   *  may read a store. `null` = none. */
+  badge?: () => string | null;
 }
 
 /** Props of a module's per-install decoration on the Game status card. */
