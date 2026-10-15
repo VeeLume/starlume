@@ -37,6 +37,7 @@
 {#if live}
   <NowCard
     channel="LIVE"
+    size="wide"
     version={live.version ?? "?"}
     name={live.name ?? ""}
     date={shortDate(live.date, live.date_text)}
@@ -59,7 +60,7 @@
     {/snippet}
   </NowCard>
 {:else}
-  <NowCard channel="LIVE" version="—" muted>
+  <NowCard channel="LIVE" size="wide" version="—" muted>
     <p class="dim">
       {#if reading}
         ⟳ {activityLabel(reading)}

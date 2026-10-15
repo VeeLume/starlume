@@ -5,7 +5,8 @@
   //
   // Layout: the top row is "now" — the LIVE card, plus cards modules add
   // while enabled (`ModuleDescriptor.patchNotes`, e.g. the dev tracker's PTU
-  // cycle), tinted in their channel's hue. Below, side by side on a wide
+  // cycle), tinted in their channel's hue; a flex row, so a quiet card
+  // shrinks and LIVE takes the space. Below, side by side on a wide
   // window: the comm-links (featured, image cards, rows) and the earlier
   // releases. A short overview only; the full texts are on RSI's site.
   import { onDestroy, onMount } from "svelte";
@@ -94,8 +95,8 @@
     font-size: var(--text-small);
   }
   .now {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 14px;
     align-items: stretch;
   }

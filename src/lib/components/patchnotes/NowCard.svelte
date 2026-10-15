@@ -4,6 +4,11 @@
   // channel and date on top, the version large with the patch name beside
   // it, the body, and one action at the bottom right — so the cards read
   // alike side by side. An image (a local file) sits on the left when given.
+  //
+  // `size` sets its share of the row (a flex row on the News page): `wide`
+  // for LIVE, `normal` for an open test channel, `compact` for one that is
+  // quiet — narrow, untinted, the version small, so the row reads as "LIVE
+  // is what's current".
   import type { Snippet } from "svelte";
   import { channelHue } from "$lib/channels";
 
@@ -13,6 +18,7 @@
     name = "",
     date = "",
     image = null,
+    size = "normal",
     muted = false,
     children,
     action,
@@ -24,6 +30,7 @@
     date?: string;
     /** An asset URL (`convertFileSrc`) — never a remote one. */
     image?: string | null;
+    size?: "wide" | "normal" | "compact";
     /** Nothing current (e.g. no PTU cycle open). */
     muted?: boolean;
     children?: Snippet;
@@ -31,8 +38,13 @@
   } = $props();
 </script>
 
-<article class="now" class:muted class:with-image={!!image} style:--hue={channelHue(channel)}>
-  {#if image}<div class="image"><img src={image} alt="" /></div>{/if}
+<article
+  class="now {size}"
+  class:muted
+  class:with-image={!!image && size !== "compact"}
+  style:--hue={channelHue(channel)}
+>
+  {#if image && size !== "compact"}<div class="image"><img src={image} alt="" /></div>{/if}
   <div class="main">
     <header>
       <span class="hue-chip channel">{channel}</span>
@@ -51,6 +63,7 @@
 <style>
   .now {
     --hue: var(--text-dim);
+    flex: 1 1 320px;
     display: grid;
     min-width: 0;
     border-radius: var(--radius-lg);
@@ -61,6 +74,26 @@
       var(--bg-raised) 60%
     );
     border: 1px solid color-mix(in srgb, var(--hue) 28%, var(--border));
+  }
+  .now.wide {
+    flex: 2 1 440px;
+  }
+  .now.compact {
+    flex: 0 1 230px;
+    background: var(--bg-raised);
+    border-color: var(--border);
+  }
+  .compact .main {
+    gap: 6px;
+    padding: 12px 14px;
+  }
+  .compact .version {
+    font-size: 1.3rem;
+    color: var(--text-dim);
+  }
+  .compact .name {
+    font-size: var(--text-base);
+    color: var(--text-dim);
   }
   .now.with-image {
     grid-template-columns: minmax(140px, 36%) minmax(0, 1fr);

@@ -1,27 +1,30 @@
 <script lang="ts">
-  // The dev tracker's card on the News page: the current PTU cycle
-  // from the Patch Notes forum threads in its staff feed (complete notes,
-  // unlike Spectrum's LIVE notices, which the page leaves to RSI's
-  // articles): version and stage, the thread title, the build, and what
-  // LIVE is on — in the LIVE hue once LIVE has caught up with the cycle.
+  // The dev tracker's card on the News page: the test channel — PTU, EPTU,
+  // Hotfix or Tech Preview — from the Patch Notes forum threads in its staff
+  // feed (complete notes, unlike Spectrum's LIVE notices, which the page
+  // leaves to RSI's articles). Open (a build ahead of LIVE): full size in
+  // the channel's hue, the thread title, the build and what LIVE is on.
+  // Quiet (LIVE caught up): a compact card, one line. testChannel.ts holds
+  // the rules.
   import { onDestroy, onMount } from "svelte";
   import { Button } from "@veelume/ui";
   import { ExternalLink } from "lucide-svelte";
   import { devtrackerStore, openPost, watchDevtracker } from "$lib/state/devtracker.svelte";
   import { patchNotesStore } from "$lib/state/patchnotes.svelte";
-  import { compareVersions } from "$lib/home/version";
   import { shortDate } from "$lib/components/patchnotes/format";
   import NowCard from "$lib/components/patchnotes/NowCard.svelte";
   import GateNotice from "./GateNotice.svelte";
+  import { testChannel } from "./testChannel";
 
   const overview = $derived(devtrackerStore.overview);
-  const notes = $derived((overview?.patch_notes ?? []).filter((n) => n.channel && n.channel !== "LIVE"));
-  const latest = $derived(notes[0] ?? null);
-  const live = $derived(patchNotesStore.latestLive?.version ?? null);
-  const liveDate = $derived(patchNotesStore.latestLive?.date ?? null);
-  const released = $derived(
-    !!latest?.version && !!live && compareVersions(live, latest.version) >= 0,
+  const live = $derived(patchNotesStore.latestLive);
+  const test = $derived(
+    testChannel(
+      overview?.patch_notes ?? [],
+      live ? { version: live.version, changelist: live.changelist } : null,
+    ),
   );
+  const note = $derived(test?.note ?? null);
 
   const day = (ms: number) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
 
@@ -31,36 +34,49 @@
 </script>
 
 {#if overview?.gate.state === "closed"}
-  <NowCard channel="PTU" version="—" muted>
+  <NowCard channel="PTU" version="—" size="compact">
     <GateNotice reason={overview.gate.reason} compact />
   </NowCard>
-{:else if latest}
+{:else if test?.open && note}
   <NowCard
-    channel={latest.channel ?? "PTU"}
-    version={latest.version ?? "?"}
-    name={latest.stage ?? ""}
-    date={day(latest.time_ms)}
+    channel={note.channel ?? "PTU"}
+    version={note.version ?? "?"}
+    name={note.stage ?? ""}
+    date={day(note.time_ms)}
   >
-    <div class="dim small subject">{latest.subject}</div>
+    <div class="dim small subject">{note.subject}</div>
     <div class="stat-tiles">
-      {#if latest.build}<div class="stat-tile"><b>{latest.build}</b><span>build</span></div>{/if}
-      {#if released}
-        <div class="stat-tile live">
-          <b>LIVE</b><span>since {shortDate(liveDate, live ?? "")}</span>
-        </div>
-      {:else if live}
-        <div class="stat-tile"><b>{live}</b><span>on LIVE</span></div>
+      {#if note.build}<div class="stat-tile"><b>{note.build}</b><span>build</span></div>{/if}
+      {#if live?.version}
+        <div class="stat-tile live"><b>{live.version}</b><span>on LIVE</span></div>
       {/if}
     </div>
     {#snippet action()}
-      <Button variant="outline" onclick={() => void openPost(latest.key)}>
+      <Button variant="outline" onclick={() => void openPost(note.key)}>
         Open on Spectrum <ExternalLink size={14} />
       </Button>
     {/snippet}
   </NowCard>
+{:else if note}
+  <NowCard
+    channel={note.channel ?? "PTU"}
+    version={note.version ?? "?"}
+    name={note.stage ?? ""}
+    size="compact"
+  >
+    <div class="quiet">
+      <span>
+        Quiet · <span class="live-text">LIVE</span>
+        {live?.date ? `since ${shortDate(live.date)}` : "caught up"}
+      </span>
+      <button type="button" class="open" title="Open the last notes on Spectrum" onclick={() => void openPost(note.key)}>
+        <ExternalLink size={13} />
+      </button>
+    </div>
+  </NowCard>
 {:else if overview}
-  <NowCard channel="PTU" version="—" muted>
-    <p class="dim">No PTU patch notes in the dev tracker's feed yet.</p>
+  <NowCard channel="PTU" version="—" size="compact">
+    <p class="dim small">No test-channel patch notes in the dev tracker's feed yet.</p>
   </NowCard>
 {/if}
 
@@ -71,8 +87,26 @@
   .subject {
     overflow-wrap: anywhere;
   }
-  .stat-tile.live b {
+  .stat-tile.live b,
+  .live-text {
     color: color-mix(in srgb, var(--hue-live) 80%, var(--text));
+  }
+  .quiet {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: var(--text-small);
+    color: var(--text-dim);
+  }
+  .open {
+    display: inline-flex;
+    color: var(--text-dim);
+    padding: 2px;
+    border-radius: var(--radius-chip);
+  }
+  .open:hover {
+    color: var(--accent);
   }
   p {
     margin: 0;
