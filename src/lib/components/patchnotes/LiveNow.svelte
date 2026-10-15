@@ -1,24 +1,26 @@
 <script lang="ts">
-  // The LIVE card: the newest release from RSI's patch notes — name,
-  // highlights, build info and fix count, and the link to the article.
+  // The LIVE card: the newest release from RSI's patch notes — version and
+  // name, the headline items as tags, the facts as stat tiles, and the link
+  // to the article.
   import { onDestroy, onMount } from "svelte";
   import { Button } from "@veelume/ui";
   import { ExternalLink } from "lucide-svelte";
   import { openPatchNote, patchNotesStore, watchPatchNotes } from "$lib/state/patchnotes.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
   import NowCard from "./NowCard.svelte";
-  import Highlights from "./Highlights.svelte";
-  import { shortDate } from "./format";
+  import { highlightGroup, shortDate } from "./format";
 
   const overview = $derived(patchNotesStore.overview);
   const live = $derived(patchNotesStore.latestLive);
   const reading = $derived(activityFor("patch-notes", ""));
-  const facts = $derived(
+  const tags = $derived((live?.highlights ?? []).flatMap((h) => highlightGroup(h).items));
+  const stats = $derived(
     live
       ? [
-          ...live.build_info.map((b) => `${b.label}: ${b.value}`),
-          ...(live.bug_fixes != null ? [`${live.bug_fixes} fixes`] : []),
-          ...(live.known_issues != null ? [`${live.known_issues} known issues`] : []),
+          ...(live.bug_fixes != null ? [{ value: String(live.bug_fixes), label: "fixes" }] : []),
+          ...(live.known_issues != null ? [{ value: String(live.known_issues), label: "known issues" }] : []),
+          ...live.build_info.map((b) => ({ value: b.value, label: b.label })),
+          ...(live.changelist ? [{ value: live.changelist, label: "build" }] : []),
         ]
       : [],
   );
@@ -31,11 +33,22 @@
 </script>
 
 {#if live}
-  <NowCard channel="LIVE" version={live.version ?? "?"} date={shortDate(live.date, live.date_text)}>
-    {#if live.name}<div class="name">{live.name}</div>{/if}
-    {#if live.highlights.length}<Highlights highlights={live.highlights} />{/if}
-    {#if facts.length}<div class="dim facts">{facts.join(" · ")}</div>{/if}
-    {#if live.changelist}<div class="dim facts">build <span class="mono">{live.changelist}</span></div>{/if}
+  <NowCard
+    channel="LIVE"
+    version={live.version ?? "?"}
+    name={live.name ?? ""}
+    date={shortDate(live.date, live.date_text)}
+  >
+    {#if tags.length}
+      <div class="tags">{#each tags as t, i (i)}<span class="tag">{t}</span>{/each}</div>
+    {/if}
+    {#if stats.length}
+      <div class="stat-tiles">
+        {#each stats as s (s.label)}
+          <div class="stat-tile" title="{s.label}: {s.value}"><b>{s.value}</b><span>{s.label}</span></div>
+        {/each}
+      </div>
+    {/if}
     {#snippet action()}
       <Button variant="outline" onclick={() => void openPatchNote(live.article_url)}>
         Read on RSI <ExternalLink size={14} />
@@ -58,11 +71,17 @@
 {/if}
 
 <style>
-  .name {
-    font-weight: var(--weight-semibold);
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
-  .facts {
+  .tag {
     font-size: var(--text-small);
+    padding: 1px 8px;
+    border-radius: var(--radius-chip);
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+    color: var(--text-dim);
   }
   p {
     margin: 0;

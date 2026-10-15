@@ -1,8 +1,9 @@
 <script lang="ts">
-  // Earlier LIVE releases, one line each: version, name, date. A parsed
-  // release expands to its highlights and counts; older articles (not
-  // parsed) are lines with only the link. Expansion is page-local
-  // (frontend rule 7), never the URL.
+  // Earlier LIVE releases, one line each: version, name, a bar for the fix
+  // count (scaled to the biggest release listed, so a large patch shows at a
+  // glance) and the date. A parsed release expands to its highlights and
+  // counts; older articles (not parsed) are lines with only the link.
+  // Expansion is page-local (frontend rule 7), never the URL.
   import { onDestroy, onMount } from "svelte";
   import { Button, Expand, createExpansion } from "@veelume/ui";
   import { ExternalLink } from "lucide-svelte";
@@ -14,6 +15,7 @@
   const latestKey = $derived(patchNotesStore.latestLive?.key);
   const releases = $derived((overview?.releases ?? []).filter((r) => r.key !== latestKey));
   const expanded = createExpansion("many");
+  const maxFixes = $derived(Math.max(1, ...releases.map((r) => r.bug_fixes ?? 0)));
 
   const counts = (fixes: number | null, known: number | null) =>
     [fixes != null ? `${fixes} fixes` : null, known != null ? `${known} known issues` : null]
@@ -35,7 +37,15 @@
         ontoggle={() => expanded.toggle(r.key)}
       >
         {#snippet gutter()}<span class="mono version">{r.version ?? "—"}</span>{/snippet}
-        {#snippet right()}<span class="dim date">{shortDate(r.date, r.date_text)}</span>{/snippet}
+        {#snippet right()}
+          {#if r.bug_fixes != null}
+            <span class="fixes" title="{r.bug_fixes} fixes">
+              <span class="track"><i style:width="{Math.max(4, (r.bug_fixes / maxFixes) * 100)}%"></i></span>
+              <span class="mono">{r.bug_fixes}</span>
+            </span>
+          {/if}
+          <span class="dim date">{shortDate(r.date, r.date_text)}</span>
+        {/snippet}
         {#snippet actions()}
           <Button variant="ghost" size="icon" title="Read on RSI" onclick={() => void openPatchNote(r.article_url)}>
             <ExternalLink size={14} />
@@ -67,6 +77,26 @@
   .version {
     display: inline-block;
     min-width: 4.5em;
+    font-weight: var(--weight-bold);
+    color: color-mix(in srgb, var(--hue-live) 65%, var(--text));
+  }
+  .fixes {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 10px;
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .track {
+    display: block;
+    width: 56px;
+  }
+  .track i {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--hue-live) 55%, transparent);
   }
   .date {
     font-size: var(--text-small);

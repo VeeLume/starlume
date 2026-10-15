@@ -5,9 +5,9 @@
   //
   // Layout: the top row is "now" — the LIVE card, plus cards modules add
   // while enabled (`ModuleDescriptor.patchNotes`, e.g. the dev tracker's PTU
-  // cycle). Below, side by side on a wide window: the newest comm-links and
-  // the earlier releases, one line each, expandable. A short overview only;
-  // the full texts are on RSI's site.
+  // cycle), tinted in their channel's hue. Below, side by side on a wide
+  // window: the comm-links (featured, image cards, rows) and the earlier
+  // releases. A short overview only; the full texts are on RSI's site.
   import { onDestroy, onMount } from "svelte";
   import { Button } from "@veelume/ui";
   import { RefreshCw } from "lucide-svelte";
@@ -76,9 +76,10 @@
 
 <style>
   .page {
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
   }
   .bar {
     display: flex;
@@ -95,20 +96,28 @@
   .now {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-    gap: 12px;
+    gap: 14px;
     align-items: stretch;
   }
   .columns {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-    gap: 20px;
+    grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr);
+    gap: 28px;
     align-items: start;
   }
   section {
     min-width: 0;
   }
   h2 {
-    margin: 8px 0 6px;
-    font-size: 16px;
+    margin: 8px 0 10px;
+    font-size: 0.75rem;
+    color: var(--text-faint);
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
+  }
+  @container (width < 820px) {
+    .columns {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 </style>

@@ -38,13 +38,17 @@
 {:else if latest}
   <NowCard
     channel={latest.channel ?? "PTU"}
-    version={[latest.version, latest.stage].filter(Boolean).join(" ")}
+    version={latest.version ?? "?"}
+    name={latest.stage ?? ""}
     date={day(latest.time_ms)}
     muted={released}
   >
     {#if released}<div class="dim">Released to LIVE as {live}.</div>{/if}
-    {#if latest.build}<div class="dim small">build <span class="mono">{latest.build}</span></div>{/if}
-    <div class="small">
+    <div class="stat-tiles">
+      {#if latest.build}<div class="stat-tile"><b>{latest.build}</b><span>build</span></div>{/if}
+      <div class="stat-tile"><b>{cycle.length}</b><span>{cycle.length === 1 ? "build" : "builds"} this cycle</span></div>
+    </div>
+    <div class="dim small">
       {cycle.map((n) => `${n.stage ?? n.channel} ${day(n.time_ms)}`).join(" · ")}
     </div>
     {#snippet action()}
