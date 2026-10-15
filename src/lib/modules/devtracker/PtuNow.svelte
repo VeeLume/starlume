@@ -1,30 +1,40 @@
 <script lang="ts">
-  // The dev tracker's card on the News page: the test channel — PTU, EPTU,
-  // Hotfix or Tech Preview — from the Patch Notes forum threads in its staff
-  // feed (complete notes, unlike Spectrum's LIVE notices, which the page
-  // leaves to RSI's articles). Open (a build ahead of LIVE): full size in
-  // the channel's hue, the thread title, the build and what LIVE is on.
-  // Quiet (LIVE caught up): a compact card, one line. testChannel.ts holds
-  // the rules.
+  // The dev tracker's card on the News page: the test channel. HOTFIX when
+  // Hotfix Central says its channel is open — full size in the hotfix hue,
+  // with what is on it. Else PTU, EPTU or Tech Preview from the Patch Notes
+  // forum threads in the staff feed: open (a build ahead of LIVE) at full
+  // size with the thread title, the build and what LIVE is on; quiet (LIVE
+  // caught up) as a compact card with one line — or, when a hotfix went to
+  // LIVE after the notes, that hotfix. testChannel.ts holds the rules.
   import { onDestroy, onMount } from "svelte";
   import { Button } from "@veelume/ui";
   import { ExternalLink } from "lucide-svelte";
-  import { devtrackerStore, openPost, watchDevtracker } from "$lib/state/devtracker.svelte";
+  import {
+    devtrackerStore,
+    openHotfixCentral,
+    openPost,
+    watchDevtracker,
+  } from "$lib/state/devtracker.svelte";
   import { patchNotesStore } from "$lib/state/patchnotes.svelte";
   import { shortDate } from "$lib/components/patchnotes/format";
   import NowCard from "$lib/components/patchnotes/NowCard.svelte";
   import GateNotice from "./GateNotice.svelte";
-  import { testChannel } from "./testChannel";
+  import { liveHotfixSince, testChannel } from "./testChannel";
+
+  /** Hotfix lines on the open HOTFIX card before "and N more". */
+  const MAX_ITEMS = 5;
 
   const overview = $derived(devtrackerStore.overview);
   const live = $derived(patchNotesStore.latestLive);
+  const hotfix = $derived(overview?.hotfix ?? null);
   const test = $derived(
     testChannel(
       overview?.patch_notes ?? [],
       live ? { version: live.version, changelist: live.changelist } : null,
+      hotfix,
     ),
   );
-  const note = $derived(test?.note ?? null);
+  const liveHotfix = $derived(liveHotfixSince(hotfix, live?.date ?? null));
 
   const day = (ms: number) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
 
@@ -37,7 +47,32 @@
   <NowCard channel="PTU" version="—" size="compact">
     <GateNotice reason={overview.gate.reason} compact />
   </NowCard>
-{:else if test?.open && note}
+{:else if test?.kind === "hotfix"}
+  <NowCard
+    channel="HOTFIX"
+    version={test.hotfix.version ?? "?"}
+    name="Channel open"
+    date={test.entry?.date ? shortDate(test.entry.date) : ""}
+  >
+    {#if test.entry}
+      <div class="small headline">{test.entry.headline}</div>
+      {#if test.entry.items.length}
+        <ul>
+          {#each test.entry.items.slice(0, MAX_ITEMS) as item, i (i)}<li>{item}</li>{/each}
+        </ul>
+        {#if test.entry.items.length > MAX_ITEMS}
+          <div class="dim small">and {test.entry.items.length - MAX_ITEMS} more</div>
+        {/if}
+      {/if}
+    {/if}
+    {#snippet action()}
+      <Button variant="outline" onclick={() => void openHotfixCentral()}>
+        Hotfix Central <ExternalLink size={14} />
+      </Button>
+    {/snippet}
+  </NowCard>
+{:else if test?.open}
+  {@const note = test.note}
   <NowCard
     channel={note.channel ?? "PTU"}
     version={note.version ?? "?"}
@@ -57,7 +92,8 @@
       </Button>
     {/snippet}
   </NowCard>
-{:else if note}
+{:else if test}
+  {@const note = test.note}
   <NowCard
     channel={note.channel ?? "PTU"}
     version={note.version ?? "?"}
@@ -73,6 +109,11 @@
         <ExternalLink size={13} />
       </button>
     </div>
+    {#if liveHotfix}
+      <button type="button" class="hotfix-line" title="Open Hotfix Central" onclick={() => void openHotfixCentral()}>
+        Hotfix {liveHotfix.builds[0] ?? ""} on LIVE{liveHotfix.date ? ` · ${shortDate(liveHotfix.date)}` : ""}
+      </button>
+    {/if}
   </NowCard>
 {:else if overview}
   <NowCard channel="PTU" version="—" size="compact">
@@ -87,6 +128,18 @@
   .subject {
     overflow-wrap: anywhere;
   }
+  .headline {
+    color: var(--text-dim);
+  }
+  ul {
+    margin: 0;
+    padding-left: 18px;
+    list-style: disc;
+    color: var(--text-dim);
+  }
+  li + li {
+    margin-top: 2px;
+  }
   .stat-tile.live b,
   .live-text {
     color: color-mix(in srgb, var(--hue-live) 80%, var(--text));
@@ -98,6 +151,14 @@
     gap: 8px;
     font-size: var(--text-small);
     color: var(--text-dim);
+  }
+  .hotfix-line {
+    text-align: left;
+    font-size: var(--text-small);
+    color: color-mix(in srgb, var(--hue-hotfix) 80%, var(--text));
+  }
+  .hotfix-line:hover {
+    text-decoration: underline;
   }
   .open {
     display: inline-flex;

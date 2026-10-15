@@ -11,6 +11,12 @@
 //! timely) — one paced request, the feed loaded from disk and dropped, nothing
 //! resident. A settings change or a manual refresh wakes it early. The first
 //! poll on an empty cache backfills [`FIRST_BACKFILL_DAYS`].
+//!
+//! **Hotfix Central.** Hotfixes get no patch-note thread; the pinned Hotfix
+//! Central thread says whether the HOTFIX channel is open and what each
+//! hotfix contains. A poll re-reads it when the cache is older than
+//! [`HOTFIX_EVERY`] (two paced requests), and notifies (with the ops
+//! notifications' switch) when the channel opens.
 
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
@@ -42,6 +48,10 @@ const FIRST_UNREAD_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 const CONTEXT_PER_POLL: usize = 12;
 /// How far back the page's feed reaches.
 const VIEW_DAYS: i64 = 30;
+/// Re-read Hotfix Central when the cache is older than this.
+const HOTFIX_EVERY: i64 = 60 * 60;
+/// Hotfix entries the view carries (newest first).
+const HOTFIX_ENTRIES: usize = 5;
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
 /// Wakes the poller early (manual refresh, settings change).
@@ -162,6 +172,61 @@ pub struct DevtrackerOverview {
     pub notify_ops: bool,
     /// Patch-note threads in the whole cache, newest first.
     pub patch_notes: Vec<PatchNoteView>,
+    /// Hotfix Central, once read; `null` = never read, or none pinned.
+    pub hotfix: Option<HotfixView>,
+}
+
+/// Hotfix Central: the HOTFIX channel's state and the newest hotfixes.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct HotfixView {
+    /// The thread title ("Star Citizen Alpha 4.10.2 LIVE - Hotfix Central").
+    pub subject: String,
+    /// The version it covers ("4.10.2").
+    pub version: Option<String>,
+    /// "Status: Hotfix Channel Currently OPEN/CLOSED"; `null` = not stated.
+    pub channel_open: Option<bool>,
+    /// The LIVE client build the post names.
+    pub live_client_cl: Option<String>,
+    /// When CIG last edited the post, epoch ms.
+    pub edited_ms: f64,
+    /// Newest first, at most [`HOTFIX_ENTRIES`].
+    pub entries: Vec<HotfixEntryView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct HotfixEntryView {
+    /// ISO date (`2026-10-13`).
+    pub date: Option<String>,
+    /// "Hotfix 12913470 - Now on the LIVE channel".
+    pub headline: String,
+    /// Changelists it names (strings: specta exports no u64).
+    pub builds: Vec<String>,
+    /// `"HOTFIX"` | `"LIVE"`; `null` for server-only canaries.
+    pub channel: Option<String>,
+    /// What it fixes, one line each.
+    pub items: Vec<String>,
+}
+
+fn hotfix_view(central: &svc_spectrum::HotfixCentral) -> HotfixView {
+    HotfixView {
+        subject: central.subject.trim().to_owned(),
+        version: central.status.version.clone(),
+        channel_open: central.status.hotfix_channel_open,
+        live_client_cl: central.status.live_client_cl.map(|c| c.to_string()),
+        edited_ms: central.edited_ms as f64,
+        entries: central
+            .entries
+            .iter()
+            .take(HOTFIX_ENTRIES)
+            .map(|e| HotfixEntryView {
+                date: e.date.map(|d| d.to_string()),
+                headline: e.headline.clone(),
+                builds: e.builds.iter().map(u64::to_string).collect(),
+                channel: e.channel.clone(),
+                items: e.items.iter().map(|i| i.text.clone()).collect(),
+            })
+            .collect(),
+    }
 }
 
 /// A patch-note thread and what its title says.
@@ -305,6 +370,11 @@ pub(crate) fn devtracker_overview(state: tauri::State<'_, AppState>) -> Devtrack
                     .collect()
             })
             .unwrap_or_default(),
+        hotfix: state
+            .spectrum
+            .cached_hotfix()
+            .and_then(|c| c.central)
+            .map(|c| hotfix_view(&c)),
     }
 }
 
@@ -492,6 +562,25 @@ pub(crate) fn devtracker_mark_all_read(app: AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Open the cached Hotfix Central thread on Spectrum. The URL comes from the
+/// cache, never from the caller.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn devtracker_open_hotfix(app: AppHandle) -> Result<(), AppError> {
+    use tauri_plugin_opener::OpenerExt;
+    let url = app
+        .state::<AppState>()
+        .spectrum
+        .cached_hotfix()
+        .and_then(|c| c.central)
+        .map(|c| c.url)
+        .filter(|u| u.starts_with("https://robertsspaceindustries.com/"))
+        .ok_or_else(|| AppError::Internal("Hotfix Central has not been read yet".into()))?;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| AppError::Internal(format!("could not open the browser: {e}")))
+}
+
 /// Open a post on Spectrum in the user's browser and mark it read. The URL
 /// comes from the cached feed, never from the caller — the frontend cannot
 /// open arbitrary links through this.
@@ -584,7 +673,57 @@ async fn poll(app: &AppHandle) -> Result<(), AppError> {
     }
     let _ = app.emit(DEVTRACKER_CHANGED_EVENT, ());
     fill_context(app, &spectrum).await;
+    refresh_hotfix(app, &spectrum).await;
     Ok(())
+}
+
+/// Re-read Hotfix Central when the cache is older than [`HOTFIX_EVERY`];
+/// notify when the HOTFIX channel opened. Best effort: a failure waits for
+/// a later poll. Runs inside the gated poll.
+async fn refresh_hotfix(app: &AppHandle, spectrum: &svc_spectrum::SpectrumService) {
+    let fresh = spectrum
+        .cached_hotfix()
+        .is_some_and(|c| chrono::Utc::now().timestamp() - c.fetched_at < HOTFIX_EVERY);
+    if fresh {
+        return;
+    }
+    let (previous, cache) = match spectrum
+        .refresh_hotfix(crate::dossier::GRPC_USER_AGENT)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::info!("Hotfix Central: {e}");
+            return;
+        }
+    };
+    let open = |c: Option<&svc_spectrum::HotfixCache>| {
+        c.and_then(|c| c.central.as_ref())
+            .and_then(|c| c.status.hotfix_channel_open)
+            == Some(true)
+    };
+    // Not on the first read: that is state, not news.
+    if previous.is_some()
+        && !open(previous.as_ref())
+        && open(Some(&cache))
+        && load_config().notify_ops
+    {
+        let central = cache.central.as_ref().expect("open implies a central");
+        let mut n = Notification::info(match &central.status.version {
+            Some(v) => format!("HOTFIX channel open ({v})"),
+            None => "HOTFIX channel open".to_owned(),
+        });
+        if let Some(entry) = central.entries.first() {
+            n = n.with_body(entry.headline.clone());
+        }
+        notify(app, n.with_action("View", "/news").with_source(MODULE_ID));
+    }
+    let edited = |c: Option<&svc_spectrum::HotfixCache>| {
+        c.and_then(|c| c.central.as_ref()).map(|c| c.edited_ms)
+    };
+    if previous.is_none() || edited(previous.as_ref()) != edited(Some(&cache)) {
+        let _ = app.emit(DEVTRACKER_CHANGED_EVENT, ());
+    }
 }
 
 /// Resolve what the newest shown posts answer, a few per poll (each costs

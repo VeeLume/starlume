@@ -87,6 +87,11 @@ export async function openPost(key: string): Promise<void> {
   settle(await commands.devtrackerOpenPost(key));
 }
 
+/** Open the cached Hotfix Central thread on Spectrum. */
+export async function openHotfixCentral(): Promise<void> {
+  settle(await commands.devtrackerOpenHotfix());
+}
+
 export async function setAuthorMode(id: string, mode: string): Promise<void> {
   // Optimistic: the segmented control reflects the click at once.
   if (_authors) _authors = _authors.map((a) => (a.id === id ? { ...a, mode } : a));

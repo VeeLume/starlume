@@ -89,9 +89,14 @@ export interface InstallStatusProps {
  *  naming the module's subject, so the row's checks read alike; render
  *  nothing when there is nothing to say. */
 export interface InstallStatus {
-  /** Short column label ("Text"). */
+  /** Short label ("Text"), for customize mode and tooltips. */
   label: string;
-  component: Component<InstallStatusProps>;
+  /** The pill in the install's row of checks. */
+  component?: Component<InstallStatusProps>;
+  /** A block under the install's checks, for what a pill can't hold (the
+   *  dev tracker's "what this hotfix changed"). Render nothing when there
+   *  is nothing to say. */
+  detail?: Component<InstallStatusProps>;
 }
 
 /** A card a module adds to the News page's top row, beside the LIVE

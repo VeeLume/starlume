@@ -63,6 +63,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         devtracker::devtracker_mark_read,
         devtracker::devtracker_mark_all_read,
         devtracker::devtracker_open_post,
+        devtracker::devtracker_open_hotfix,
         devtracker::devtracker_refresh,
         auth::auth_status,
         auth::login_start,

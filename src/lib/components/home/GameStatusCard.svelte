@@ -99,10 +99,13 @@
             >
           {/if}
           {#each decorations as d (d.key)}
-            <d.component channelKey={row.key} />
+            {#if d.component}<d.component channelKey={row.key} />{/if}
           {/each}
           {#if row.build && row.patch !== "hotfix"}<span class="build">build {row.build}</span>{/if}
         </div>
+        {#each decorations as d (d.key)}
+          {#if d.detail}<d.detail channelKey={row.key} />{/if}
+        {/each}
       </div>
     {/each}
 

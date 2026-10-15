@@ -7,6 +7,7 @@ import { Radio } from "lucide-svelte";
 import type { ModuleDescriptor } from "../types";
 import PulseCard from "./PulseCard.svelte";
 import PtuNow from "./PtuNow.svelte";
+import HotfixDetail from "./HotfixDetail.svelte";
 import { devtrackerStore } from "$lib/state/devtracker.svelte";
 
 export const devtrackerModule: ModuleDescriptor = {
@@ -29,4 +30,5 @@ export const devtrackerModule: ModuleDescriptor = {
     },
   ],
   patchNotes: [{ id: "ptu", component: PtuNow }],
+  installStatus: { label: "Hotfix", detail: HotfixDetail },
 };

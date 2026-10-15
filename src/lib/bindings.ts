@@ -518,6 +518,18 @@ async devtrackerOpenPost(key: string) : Promise<Result<null, AppError>> {
 }
 },
 /**
+ * Open the cached Hotfix Central thread on Spectrum. The URL comes from the
+ * cache, never from the caller.
+ */
+async devtrackerOpenHotfix() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_open_hotfix") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Fetch now. **Gated** by `require_unofficial("devtracker")`; errors
  * (launcher session, throttle) come back to the caller.
  */
@@ -1125,7 +1137,11 @@ unread: number; notify_ops: boolean;
 /**
  * Patch-note threads in the whole cache, newest first.
  */
-patch_notes: PatchNoteView[] }
+patch_notes: PatchNoteView[]; 
+/**
+ * Hotfix Central, once read; `null` = never read, or none pinned.
+ */
+hotfix: HotfixView | null }
 export type EventLadderView = { 
 /**
  * Category label; `null` for the overall ladder.
@@ -1177,6 +1193,55 @@ export type HolderView = { geid: string; name: string; item_type: string }
  * One card's place on Home (see [`AppSettings::home_cards`]).
  */
 export type HomeCardPref = { id: string; visible: boolean }
+export type HotfixEntryView = { 
+/**
+ * ISO date (`2026-10-13`).
+ */
+date: string | null; 
+/**
+ * "Hotfix 12913470 - Now on the LIVE channel".
+ */
+headline: string; 
+/**
+ * Changelists it names (strings: specta exports no u64).
+ */
+builds: string[]; 
+/**
+ * `"HOTFIX"` | `"LIVE"`; `null` for server-only canaries.
+ */
+channel: string | null; 
+/**
+ * What it fixes, one line each.
+ */
+items: string[] }
+/**
+ * Hotfix Central: the HOTFIX channel's state and the newest hotfixes.
+ */
+export type HotfixView = { 
+/**
+ * The thread title ("Star Citizen Alpha 4.10.2 LIVE - Hotfix Central").
+ */
+subject: string; 
+/**
+ * The version it covers ("4.10.2").
+ */
+version: string | null; 
+/**
+ * "Status: Hotfix Channel Currently OPEN/CLOSED"; `null` = not stated.
+ */
+channel_open: boolean | null; 
+/**
+ * The LIVE client build the post names.
+ */
+live_client_cl: string | null; 
+/**
+ * When CIG last edited the post, epoch ms.
+ */
+edited_ms: number; 
+/**
+ * Newest first, at most [`HOTFIX_ENTRIES`].
+ */
+entries: HotfixEntryView[] }
 export type IngredientView = { 
 /**
  * `resource` | `item` | `other`.

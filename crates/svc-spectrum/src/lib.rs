@@ -49,12 +49,14 @@ use sc_dossier::spectrum::{Range, SearchPage, SearchQuery, Spectrum};
 use tokio::time::Instant;
 
 mod feed;
+mod hotfix;
 mod policy;
 
 pub use feed::{
     Author, Feed, FeedPost, FetchReport, MAX_CACHED_POSTS, PAGE_SIZE, Place, PostKind, Quote,
     QuoteKind, ThreadRef,
 };
+pub use hotfix::{HotfixCache, HotfixCentral, HotfixEntry, HotfixItem, HotfixStatus};
 pub use policy::{MAX_REQUESTS_PER_SECOND, MIN_INTERVAL, THROTTLE_BACKOFF};
 
 use feed::{Mode, Next, Run};
