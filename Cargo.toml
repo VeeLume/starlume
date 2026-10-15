@@ -11,6 +11,7 @@ members = [
     "crates/svc-data",
     "crates/svc-dossier",
     "crates/svc-log",
+    "crates/svc-spectrum",
     "crates/svc-sync",
 ]
 
@@ -71,6 +72,7 @@ svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
 svc-dossier = { path = "crates/svc-dossier" }
 svc-log = { path = "crates/svc-log" }
+svc-spectrum = { path = "crates/svc-spectrum" }
 svc-sync = { path = "crates/svc-sync" }
 
 # TOML parsing (mod-langpatch's embedded curated patchers).

@@ -30,7 +30,7 @@ export const settingsCategories: SettingsCategory[] = [
   {
     id: "online",
     label: "Online & privacy",
-    description: "Network master switch, game-services consent",
+    description: "Network master switch, unofficial-API consent",
     icon: Globe,
     path: "/settings/online",
   },

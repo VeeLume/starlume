@@ -5433,6 +5433,7 @@ dependencies = [
  "svc-data",
  "svc-discovery",
  "svc-dossier",
+ "svc-spectrum",
  "sysinfo",
  "tauri",
  "tauri-build",
@@ -5656,6 +5657,20 @@ dependencies = [
 [[package]]
 name = "svc-log"
 version = "0.1.0"
+
+[[package]]
+name = "svc-spectrum"
+version = "0.1.0"
+dependencies = [
+ "app-kit",
+ "chrono",
+ "sc-dossier",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "svc-sync"

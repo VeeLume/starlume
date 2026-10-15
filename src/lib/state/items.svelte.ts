@@ -1,7 +1,7 @@
 // My Items state — the inventory tier (gRPC-sourced, cached on disk by
 // svc-dossier) and the finder joined from it. The cached reads are free and
 // ungated; the refresh is the ToS-grey network call the backend gates via
-// require_grpc("items").
+// require_unofficial("items").
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands, type FinderView, type InventorySummaryView } from "$lib/bindings";
@@ -76,7 +76,7 @@ export async function loadFinder(channel: string): Promise<void> {
   }
 }
 
-/** Fetch live from CIG's backend (gated — errors when online / gRPC / the
+/** Fetch live from CIG's backend (gated — errors when online / unofficial APIs / the
  *  items feature aren't all on, or the launcher session is stale). The
  *  `items:changed` push reloads the finder. */
 export async function refreshItems(): Promise<void> {

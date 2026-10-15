@@ -8,6 +8,7 @@
     loadOwnedBlueprints,
     refreshOwnedBlueprints,
   } from "$lib/state/blueprints.svelte";
+  import { UNOFFICIAL_CONSENT } from "$lib/unofficial";
   import { onMount } from "svelte";
 
   const settings = $derived(settingsStore.current);
@@ -42,13 +43,10 @@
     // First enable shows the one-time ToS consent (the Hearth pattern);
     // the backend records grpc_consented on the transition.
     if (on && settings && !settings.grpc_consented) {
-      const consent = await ask(
-        "Live game-services sync connects to CIG's backend using your launcher " +
-          "session. This is not an official API — it sits in a ToS-grey area. " +
-          "Calls are read-only, manual or startup-only, never polled. " +
-          "Your account, your risk.\n\nEnable game-services calls?",
-        { title: "Game-services (gRPC) consent", kind: "warning" },
-      );
+      const consent = await ask(UNOFFICIAL_CONSENT.message, {
+        title: UNOFFICIAL_CONSENT.title,
+        kind: "warning",
+      });
       if (!consent) return;
     }
     await apply({ grpc_enabled: on });
@@ -76,13 +74,13 @@
       </Settings.Row>
     </Settings.Section>
 
-    <Settings.Section title="Game services (gRPC)">
+    <Settings.Section title="Unofficial APIs">
       <Settings.Row
-        label="Allow game-services calls"
-        hint="ToS-grey, read-only, opt-in per feature below."
+        label="Allow unofficial API calls"
+        hint="RSI and CIG services Starlume is not an official client of. ToS-grey, read-only, opt-in per feature below."
       >
         <Switch
-          label="Allow game-services calls"
+          label="Allow unofficial API calls"
           checked={settings.grpc_enabled}
           disabled={!settings.online_enabled}
           onchange={(v) => toggleGrpc(v)}
@@ -90,8 +88,8 @@
       </Settings.Row>
       {#if grpcFeatures.length === 0}
         <p class="text-sm text-muted-foreground">
-          No game-services features in this build yet — per-feature toggles appear here as
-          they land (blueprints, missions, …).
+          No unofficial-API features in this build yet — per-feature toggles appear here
+          as they land.
         </p>
       {:else}
         {#each grpcFeatures as f (f.id)}

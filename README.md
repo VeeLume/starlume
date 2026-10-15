@@ -74,15 +74,15 @@ parses the game data locally. Online use is limited and under your control:
 - **Update check:** always on, even offline, so everyone gets security fixes.
   It only asks GitHub whether a new release exists.
 
-### CIG's game services *(off by default)*
+### Unofficial APIs *(off by default)*
 
 Some features (My Items, and the "owned blueprint" marks in mission text) read
 your own account data through the backend services the game client itself
 uses. **These are not an official public API, and using them may be against
 CIG's Terms of Service.** Starlume only reads, only your own account, and never
-changes anything. Each feature stays off until you turn on **Allow game-services
-calls** in Settings → Online & privacy and then enable that feature. Use them at
-your own risk.
+changes anything. Each feature stays off until you turn on **Allow unofficial
+API calls** in Settings → Online & privacy and then enable that feature. Use
+them at your own risk.
 
 ## Your data
 
