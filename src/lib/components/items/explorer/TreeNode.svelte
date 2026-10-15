@@ -86,8 +86,8 @@
     background: var(--bg-raised);
   }
   .tnode.on {
-    background: var(--accent-fill);
-    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--text-strong);
   }
   .tnode :global(svg) {
     flex: 0 0 auto;
@@ -121,6 +121,6 @@
     color: var(--text-faint);
   }
   .on .n {
-    color: var(--accent);
+    color: var(--text-dim);
   }
 </style>

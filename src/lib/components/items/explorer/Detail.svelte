@@ -1,6 +1,8 @@
 <script lang="ts">
-  // The detail pane: what the selection is and where. Never moves, never
-  // disappears; a material gets its own read (ResourceDetail).
+  // The item sheet: what the selection is and where — the explorer opens it
+  // beside the cards while something is picked (design pass). Sections fill
+  // in as the game data grows; a material gets its own read
+  // (ResourceDetail).
   import { Dot, Paperclip } from "lucide-svelte";
   import { kitOf } from "../model/classify";
   import { avgIngredientQuality, statDeltas } from "../model/crafted";
@@ -194,6 +196,7 @@
     display: flex;
     align-items: flex-start;
     gap: 8px;
+    padding-right: 28px;
   }
   .titles {
     flex: 1;
@@ -201,16 +204,16 @@
   }
   h3 {
     margin: 0;
-    font-family: var(--font-display);
-    font-size: 1.05rem;
-    font-weight: 700;
-    line-height: 1.25;
+    font-family: var(--font-body);
+    font-size: 1.1rem;
+    font-weight: var(--weight-semibold);
+    line-height: 1.3;
     color: var(--text-strong);
   }
   .sub {
     margin: 3px 0 0;
-    font-size: 0.76rem;
-    color: var(--text-dim);
+    font-size: var(--text-small);
+    color: var(--text-faint);
   }
   .tags {
     display: flex;
@@ -219,20 +222,20 @@
     margin-top: 8px;
   }
   h4 {
-    margin: 14px 0 6px;
-    font-family: var(--font-mono);
-    font-size: 0.6rem;
+    margin: 18px 0 6px;
+    font-family: var(--font-display);
+    font-size: 0.72rem;
     font-weight: 400;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
     color: var(--text-faint);
   }
   dl {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 3px 10px;
+    gap: 5px 12px;
     margin: 0;
-    font-size: 0.8rem;
+    font-size: var(--text-control);
   }
   dt {
     color: var(--text-dim);
@@ -308,7 +311,7 @@
     color: var(--text-dim);
   }
   .att-name.added {
-    color: var(--accent);
+    color: var(--text-strong);
   }
   .fact {
     display: flex;

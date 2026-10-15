@@ -116,7 +116,7 @@
     color: var(--text-strong);
   }
   .big.accent {
-    color: var(--accent);
+    color: color-mix(in srgb, var(--hue-quality) 85%, var(--text));
   }
   .qrow {
     display: grid;
@@ -136,7 +136,7 @@
     background: var(--text-faint);
   }
   .bar.hi {
-    background: var(--accent);
+    background: var(--hue-quality);
   }
   .amt {
     text-align: right;

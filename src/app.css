@@ -161,6 +161,8 @@ main ol {
   --hue-reply: var(--hue-sky);
   /* Comm-links. */
   --hue-video: var(--hue-rose);
+  /* My Items: resource quality (bars, Q chips from the stock line up). */
+  --hue-quality: var(--hue-teal);
 
   /* ── Semantic aliases ─────────────────────────────────────────────── */
   --surface-app: var(--bg);

@@ -4,6 +4,12 @@
   // on an overview card per category; a category has sub filters, armour
   // folds into sets (or pieces), weapons can narrow to kitted ones, and
   // resources fold per material.
+  //
+  // Rendered twice by the explorer: `part="bar"` is the category bar (and
+  // the open category's sub filters), full width above the cards so the
+  // sheet opening beside them never moves it; `part="body"` is the cards.
+  // Containers show as tiles only where the place holds no items of its own
+  // (a planet, a station) — elsewhere the breadcrumb's "Inside" lists them.
   import {
     armourSets,
     categoryOf,
@@ -29,6 +35,7 @@
   import { CATEGORY_ICON, fmtN, type BrowseFilters } from "./ui";
 
   let {
+    part,
     view,
     showBricked,
     keep,
@@ -38,6 +45,7 @@
     onselect,
     onopen,
   }: {
+    part: "bar" | "body";
     view: Node;
     showBricked: boolean;
     keep: (n: ItemNode) => boolean;
@@ -160,21 +168,48 @@
   </div>
 {/snippet}
 
-{#if folders.length}
+{#if part === "bar"}
+  {#if cats.length && (cats.length > 1 || big)}
+    <div class="cat-bar">
+      <ChipButton on={!cat} n={sum(items)} onclick={() => pick("")}>All</ChipButton>
+      {#each cats as c (c)}
+        <ChipButton on={cat === c} n={count(byCat.get(c) ?? [], c)} onclick={() => pick(c)}>{c}</ChipButton>
+      {/each}
+    </div>
+  {/if}
+  {#if cat}
+    <div class="sub-bar">
+      {#if order.length}<ChipButton on={!filters.sub} onclick={() => onfilter({ sub: "" })}>All</ChipButton>{/if}
+      {#each order.filter((s) => subCount(s) > 0) as s (s)}
+        <ChipButton on={filters.sub === s} n={subCount(s)} onclick={() => onfilter({ sub: filters.sub === s ? "" : s })}
+          >{s}</ChipButton
+        >
+      {/each}
+      {#if weights.length}<span class="sep"></span>{/if}
+      {#each weights as w (w)}
+        <ChipButton on={filters.w === w} onclick={() => onfilter({ w: filters.w === w ? "" : w })}
+          >{w === "Other" ? "Flight & other" : w}</ChipButton
+        >
+      {/each}
+      {#if cat === "Armour"}
+        <span class="sep"></span>
+        <ChipButton on={filters.arm !== "pieces"} onclick={() => onfilter({ arm: "" })}>Sets</ChipButton>
+        <ChipButton on={filters.arm === "pieces"} onclick={() => onfilter({ arm: "pieces" })}>Pieces</ChipButton>
+      {/if}
+      {#if cat === "Weapons"}
+        <span class="sep"></span>
+        <ChipButton on={!!filters.kit} n={all.filter(isKitted).length} onclick={() => onfilter({ kit: filters.kit ? "" : "1" })}
+          >Kitted</ChipButton
+        >
+      {/if}
+    </div>
+  {/if}
+{:else}
+{#if folders.length && !items.length}
   <SectionHead title={folderHeading} n={folders.length} />
   <div class="tiles">
     {#each folders as f (f.id)}
       <FolderTile node={f} bricked={showBricked} on={selected === f} onclick={() => onopen(f)} />
-    {/each}
-  </div>
-{/if}
-
-{#if cats.length && (cats.length > 1 || big)}
-  <div class="cat-bar">
-    <ChipButton on={!cat} n={sum(items)} onclick={() => pick("")}>All</ChipButton>
-    {#each cats as c (c)}
-      {@const Icon = CATEGORY_ICON[c]}
-      <ChipButton on={cat === c} n={count(byCat.get(c) ?? [], c)} onclick={() => pick(c)}><Icon size={12} />{c}</ChipButton>
     {/each}
   </div>
 {/if}
@@ -203,31 +238,6 @@
     {@render cards(byCat.get(c) ?? [], c)}
   {/each}
 {:else}
-  <div class="sub-bar">
-    {#if order.length}<ChipButton on={!filters.sub} onclick={() => onfilter({ sub: "" })}>All</ChipButton>{/if}
-    {#each order.filter((s) => subCount(s) > 0) as s (s)}
-      <ChipButton on={filters.sub === s} n={subCount(s)} onclick={() => onfilter({ sub: filters.sub === s ? "" : s })}
-        >{s}</ChipButton
-      >
-    {/each}
-    {#if weights.length}<span class="sep"></span>{/if}
-    {#each weights as w (w)}
-      <ChipButton on={filters.w === w} onclick={() => onfilter({ w: filters.w === w ? "" : w })}
-        >{w === "Other" ? "Flight & other" : w}</ChipButton
-      >
-    {/each}
-    {#if cat === "Armour"}
-      <span class="sep"></span>
-      <ChipButton on={filters.arm !== "pieces"} onclick={() => onfilter({ arm: "" })}>Sets</ChipButton>
-      <ChipButton on={filters.arm === "pieces"} onclick={() => onfilter({ arm: "pieces" })}>Pieces</ChipButton>
-    {/if}
-    {#if cat === "Weapons"}
-      <span class="sep"></span>
-      <ChipButton on={!!filters.kit} n={all.filter(isKitted).length} onclick={() => onfilter({ kit: filters.kit ? "" : "1" })}
-        >Kitted</ChipButton
-      >
-    {/if}
-  </div>
   {#if !narrowed.length}
     <p class="empty">Nothing here.</p>
   {:else if showSets}
@@ -250,6 +260,7 @@
     {/each}
   {/if}
 {/if}
+{/if}
 
 <style>
   .tiles {
@@ -267,24 +278,25 @@
   .grid.wide {
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   }
+  /* One row; it scrolls sideways, fading out, when it doesn't fit. */
   .cat-bar {
-    position: sticky;
-    top: 0;
-    z-index: 2;
     display: flex;
-    flex-wrap: wrap;
     gap: 6px;
-    margin-top: 10px;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border-soft);
-    background: var(--bg);
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-right: 32px;
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  }
+  .cat-bar > :global(*) {
+    flex: none;
   }
   .sub-bar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-    padding: 8px 0 2px;
+    margin-top: 8px;
   }
   .sep {
     width: 1px;
@@ -331,7 +343,7 @@
   .ov-n {
     font-family: var(--font-mono);
     font-size: 0.9rem;
-    color: var(--accent);
+    color: var(--text-strong);
   }
   .ov-subs {
     display: flex;
@@ -351,7 +363,7 @@
   }
   .ov-note {
     font-size: 0.7rem;
-    color: var(--accent);
+    color: var(--text-faint);
   }
   .empty {
     padding: 14px 2px;

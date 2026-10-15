@@ -43,7 +43,7 @@
   );
   const selName = $derived(selected?.type === "item" ? selected.item.resource?.name : undefined);
   const heat = (share: number, hi: boolean) =>
-    `color-mix(in srgb, ${hi ? "var(--accent)" : "var(--text-dim)"} ${Math.round(22 + 78 * share)}%, transparent)`;
+    `color-mix(in srgb, ${hi ? "var(--hue-quality)" : "var(--text-dim)"} ${Math.round(22 + 78 * share)}%, transparent)`;
 </script>
 
 <div class="rlist">
@@ -180,7 +180,7 @@
     color: var(--text-strong);
   }
   .amt.good {
-    color: var(--accent);
+    color: color-mix(in srgb, var(--hue-quality) 85%, var(--text));
   }
   .amt.none {
     color: var(--text-faint);
