@@ -87,7 +87,7 @@
             <span class="thumb">{#if src(c)}<img src={src(c)} alt="" />{/if}</span>
             <span class="row-text">
               <span class="row-title">{c.title}</span>
-              <span class="row-sub">{c.summary || channelName(c.channel) || ""}</span>
+              <span class="row-sub">{@render chips(c)}<span class="row-summary">{c.summary}</span></span>
             </span>
             <span class="when">{when(c)}</span>
           </button>
@@ -277,7 +277,7 @@
     min-width: 0;
   }
   .row-title,
-  .row-sub {
+  .row-summary {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -286,8 +286,16 @@
     font-weight: var(--weight-medium);
   }
   .row-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-top: 2px;
     font-size: var(--text-small);
     color: var(--text-faint);
+  }
+  .row-summary {
+    min-width: 0;
   }
   .when {
     font-size: var(--text-small);

@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Earlier LIVE releases, one line each: version, name, a bar for the fix
-  // count (scaled to the biggest release listed, so a large patch shows at a
-  // glance) and the date. A parsed release expands to its highlights and
+  // Earlier LIVE releases, two lines each: version, name and date, and under
+  // the name a bar for the fix count (scaled to the biggest release listed,
+  // so a large patch shows at a glance). A parsed release expands to its highlights and
   // counts; older articles (not parsed) are lines with only the link.
   // Expansion is page-local (frontend rule 7), never the URL.
   import { onDestroy, onMount } from "svelte";
@@ -37,15 +37,17 @@
         ontoggle={() => expanded.toggle(r.key)}
       >
         {#snippet gutter()}<span class="mono version">{r.version ?? "—"}</span>{/snippet}
-        {#snippet right()}
+        {#snippet meta()}
           {#if r.bug_fixes != null}
-            <span class="fixes" title="{r.bug_fixes} fixes">
+            <span class="fixes">
               <span class="track"><i style:width="{Math.max(4, (r.bug_fixes / maxFixes) * 100)}%"></i></span>
-              <span class="mono">{r.bug_fixes}</span>
+              {r.bug_fixes} fixes
             </span>
+          {:else}
+            <span class="fixes">no fix count</span>
           {/if}
-          <span class="dim date">{shortDate(r.date, r.date_text)}</span>
         {/snippet}
+        {#snippet right()}<span class="dim date">{shortDate(r.date, r.date_text)}</span>{/snippet}
         {#snippet actions()}
           <Button variant="ghost" size="icon" title="Read on RSI" onclick={() => void openPatchNote(r.article_url)}>
             <ExternalLink size={14} />
@@ -81,16 +83,18 @@
     color: color-mix(in srgb, var(--hue-live) 65%, var(--text));
   }
   .fixes {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 6px;
-    margin-right: 10px;
-    font-size: var(--text-small);
+    gap: 8px;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
     color: var(--text-faint);
+    white-space: nowrap;
   }
   .track {
     display: block;
-    width: 56px;
+    flex: 0 1 140px;
   }
   .track i {
     display: block;
