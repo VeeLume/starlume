@@ -123,7 +123,9 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    /* auto-fit: the cards share the row instead of leaving empty tracks
+     * on a wide window. */
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
     gap: 12px;
     align-items: start;
   }

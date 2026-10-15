@@ -1,6 +1,7 @@
 <script lang="ts">
   // The dev tracker on Home: ops posts of the last two days first, then the
-  // newest unread, three of each at most, in the feed's shapes (monogram,
+  // newest unread, three of each at most, topped up with the newest posts
+  // to four lines when little is new — in the feed's shapes (monogram,
   // lobby or kind chip). The unread count is the card's heading badge
   // (descriptor). Before the opt-in it is the explainer. Reads the store;
   // the poll runs Rust-side.
@@ -25,6 +26,16 @@
       .slice(0, 3),
   );
 
+  const MIN_LINES = 4;
+  const lines = $derived.by(() => {
+    const picked = [...ops, ...unread];
+    for (const p of overview?.posts ?? []) {
+      if (picked.length >= MIN_LINES) break;
+      if (p.shown && !picked.some((q) => q.key === p.key)) picked.push(p);
+    }
+    return picked;
+  });
+
   const headline = (p: DevPostView) => p.subject ?? p.body.replace(/\s+/g, " ");
 
   let stop: (() => void) | undefined;
@@ -35,7 +46,7 @@
 {#if overview?.gate.state === "closed"}
   <GateNotice reason={overview.gate.reason} compact />
 {:else if overview}
-  {#each [...ops, ...unread] as p (p.key)}
+  {#each lines as p (p.key)}
     <button class="line" onclick={() => void openPost(p.key)} title="Open on Spectrum">
       <Monogram name={p.author} size={26} />
       <span class="txt">
@@ -57,7 +68,7 @@
   {:else}
     <p class="dim">
       {overview.fetched_at
-        ? "Nothing new. Older posts are on the tracker page."
+        ? "No staff posts in the last 30 days made it through the filter."
         : "Waiting for the first check…"}
     </p>
   {/each}
@@ -98,8 +109,10 @@
   .what {
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     color: var(--text-dim);
   }
   .when {

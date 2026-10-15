@@ -565,10 +565,10 @@ table.data tr.selected {
 }
 
 /* Category chip — a pill tinted from one hue. Set `--hue` to a role alias
- * (`style="--hue: var(--hue-live)"`); without one it is a neutral pill.
+ * (`style="--hue: var(--hue-live)"`) on it or on any ancestor (a channel
+ * card's chip takes the card's hue); with none it is a neutral pill.
  * (Not `.chip`: two components already scope a `.chip` of their own.) */
 .hue-chip {
-  --hue: var(--text-dim);
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -579,9 +579,9 @@ table.data tr.selected {
   letter-spacing: 0.03em;
   padding: 1px 7px;
   border-radius: var(--radius-pill);
-  color: color-mix(in srgb, var(--hue) 85%, var(--text));
-  background: color-mix(in srgb, var(--hue) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--hue) 30%, transparent);
+  color: color-mix(in srgb, var(--hue, var(--text-dim)) 85%, var(--text));
+  background: color-mix(in srgb, var(--hue, var(--text-dim)) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hue, var(--text-dim)) 30%, transparent);
 }
 
 /* Stat tiles — figures as a row of small tiles instead of a sentence
