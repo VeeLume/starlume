@@ -17,6 +17,7 @@
   import { loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
   import { Notify, Shell, setKitContext, type NavGroup } from "@veelume/ui";
   import { House, Library, Newspaper, Settings, Users } from "lucide-svelte";
+  import brandMark from "../../src-tauri/icons/source/icon-small.svg?url";
   import Onboarding from "$lib/components/Onboarding.svelte";
   import { checkForUpdates } from "$lib/updater";
   import { SHOW_UNRELEASED } from "$lib/unreleased";
@@ -52,28 +53,34 @@
   // read on open; the per-session log stays in the panel.
   let centerOpen = $state(false);
 
-  // Home + News (shell-level), one entry per enabled module (registry
-  // order: the dev tracker first), then Friends + Catalogs (shell-level).
-  // News, Friends and Catalogs are unreleased. Kit NavItems — the
-  // shell owns active-state matching.
-  const navGroups: NavGroup[] = $derived([
-    {
-      items: [
+  // Three groups, divided: what's going on (Home, News, and module pages
+  // in the `news` section — the dev tracker), the enabled modules' tools
+  // (registry order), then Friends + Catalogs (shell-level). News, Friends
+  // and Catalogs are unreleased. Kit NavItems — the shell owns active-state
+  // matching; rows render through the rail's `item` snippet below.
+  const moduleNav = $derived(
+    moduleRegistry
+      .filter((d) => settingsStore.current?.enabled_modules.includes(d.id))
+      .flatMap((d) => d.nav ?? []),
+  );
+  const navGroups: NavGroup[] = $derived(
+    [
+      [
         { path: "/", label: "Home", icon: House },
         ...(SHOW_UNRELEASED ? [{ path: "/news", label: "News", icon: Newspaper }] : []),
-        ...moduleRegistry
-          .filter((d) => settingsStore.current?.enabled_modules.includes(d.id))
-          .flatMap((d) => d.nav ?? [])
-          .map((e) => ({ path: e.href, label: e.label, icon: e.icon })),
-        ...(SHOW_UNRELEASED
-          ? [
-              { path: "/friends", label: "Friends", icon: Users },
-              { path: "/data", label: "Catalogs", icon: Library },
-            ]
-          : []),
+        ...moduleNav.filter((e) => e.section === "news").map((e) => ({ path: e.href, label: e.label, icon: e.icon })),
       ],
-    },
-  ]);
+      moduleNav.filter((e) => e.section !== "news").map((e) => ({ path: e.href, label: e.label, icon: e.icon })),
+      SHOW_UNRELEASED
+        ? [
+            { path: "/friends", label: "Friends", icon: Users },
+            { path: "/data", label: "Catalogs", icon: Library },
+          ]
+        : [],
+    ]
+      .filter((items) => items.length > 0)
+      .map((items) => ({ items })),
+  );
 
   // Account footer — RSI-primary identity (who you are in the game);
   // Discord is a secondary connector, surfaced on the Me page.
@@ -170,9 +177,9 @@
 />
 
 <Shell.Root groups={navGroups}>
-  <!-- The rail speaks the display face (Lekton — nav/tabs/buttons per the
-       type roles); the account footer drops back to sans (body role). -->
-  <Shell.Rail class="font-display">
+  <!-- The brand speaks the display face (Lekton); the nav rows and the
+       account footer the body face, at 16 px icons (design pass). -->
+  <Shell.Rail>
     {#snippet header({ showLabels })}
       <div
         class="relative flex items-center"
@@ -180,7 +187,12 @@
         class:justify-center={!showLabels}
       >
         {#if showLabels}
-          <span class="brand-name min-w-0 flex-1 truncate px-3">Starlume</span>
+          <span class="brand min-w-0 flex-1 px-2">
+            <img src={brandMark} alt="" />
+            <span class="brand-name truncate">Starlume</span>
+          </span>
+        {:else}
+          <img class="brand-mark-only" src={brandMark} alt="Starlume" />
         {/if}
         <Notify.Bell onclick={() => (centerOpen = !centerOpen)} />
         <Notify.Center
@@ -190,6 +202,20 @@
           align="start"
         />
       </div>
+    {/snippet}
+    {#snippet item({ item: nav, active, showLabels })}
+      {@const Icon = nav.icon}
+      <a
+        href={nav.path}
+        class="nav-row"
+        class:active
+        class:icon-only={!showLabels}
+        aria-current={active ? "page" : undefined}
+        title={showLabels ? undefined : nav.label}
+      >
+        {#if Icon}<Icon size={16} />{/if}
+        {#if showLabels}<span class="truncate">{nav.label}</span>{/if}
+      </a>
     {/snippet}
     {#snippet footer({ showLabels })}
       <div class="w-full font-sans">
@@ -235,11 +261,56 @@
 {/if}
 
 <style>
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .brand img,
+  .brand-mark-only {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    border-radius: 6px;
+  }
   .brand-name {
     font-family: var(--font-display);
+    font-size: 1.05rem;
     font-weight: 700;
-    color: var(--accent);
-    letter-spacing: 0.01em;
+    color: var(--text-strong);
+    letter-spacing: 0.04em;
+  }
+  /* Nav rows (the rail's `item` snippet): body face, 16 px icons, a soft
+   * violet tint on the active page — the design-pass mockup. */
+  .nav-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    height: 34px;
+    padding: 0 10px;
+    border-radius: var(--radius);
+    font-family: var(--font-body);
+    font-size: 0.93rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: background-color var(--transition-fast) var(--easing);
+  }
+  .nav-row :global(svg) {
+    flex: none;
+  }
+  .nav-row:hover {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+    color: var(--text);
+  }
+  .nav-row.active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--text-strong);
+  }
+  .nav-row.icon-only {
+    justify-content: center;
+    width: 40px;
+    padding: 0;
   }
 
   .avatar-fallback {

@@ -15,7 +15,7 @@ export const devtrackerModule: ModuleDescriptor = {
   description:
     "CIG staff posts from Spectrum, chat included, filtered down to game news: patches, PTU waves, maintenance, known issues.",
   icon: "📡",
-  nav: [{ href: "/devtracker", label: "Dev Tracker", icon: Radio }],
+  nav: [{ href: "/devtracker", label: "Dev Tracker", icon: Radio, section: "news" }],
   homeCards: [
     {
       id: "pulse",

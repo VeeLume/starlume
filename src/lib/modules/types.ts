@@ -35,6 +35,9 @@ export interface NavEntry {
   label: string;
   /** Icon component (lucide-svelte) — the kit NavRail contract. */
   icon: NavIcon;
+  /** `news`: listed with Home and News ("what's going on") instead of
+   *  with the tools. Default: the module group. */
+  section?: "news";
 }
 
 /** A section a module contributes to the Me page — the unified place for
