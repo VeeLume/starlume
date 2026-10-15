@@ -1,12 +1,14 @@
-/* Starlume theme — one dark theme, neutral graphite ground, violet accent.
+/* Starlume theme — one dark theme, violet-biased graphite ground, violet accent.
  * Styling rules live in CLAUDE.md ("Frontend"). Components use tokens only (no
  * hex); a pattern used on 2+ pages belongs here, not in scoped <style>.
  *
- * Direction (2026-10): a neutral graphite ground (no blue, no warmth) so
- * violet, the one interactive accent, and the functional status colours
- * have room; the logo's rose moon is logo-only. Flat surfaces and a
- * three-role type system (Lekton / IBM Plex Sans / JetBrains Mono).
- * Replaces the amber carried over from Hearth. The
+ * Direction (2026-10): a graphite ground biased slightly toward the violet,
+ * so the accent and the category hues sit in one family; violet is the one
+ * interactive accent, the category hues say what kind of thing something is,
+ * and the status colours stay separate (decision "Design direction: images,
+ * category hues, per-type post shapes", 2026-10-15). The logo's rose moon is
+ * logo-only. Flat surfaces and a three-role type system (Lekton / IBM Plex
+ * Sans / JetBrains Mono). Replaces the amber carried over from Hearth. The
  * fonts are self-hosted under static/fonts/ — no webfont CDN at runtime (the
  * online-policy invariant forbids ungated network calls). */
 
@@ -117,11 +119,12 @@ main ol {
   accent-color: var(--accent);
 
   /* ── Base palette ─────────────────────────────────────────────────── */
-  --bg: #151515; /* app ground — neutral graphite */
-  --bg-raised: #1e1e1f; /* raised surface: controls, panels, cards-on-hover */
-  --border: #2e2e30; /* hairline dividers + control outlines (neutral) */
-  --text: #e6e6e6; /* primary text (neutral off-white) */
-  --text-dim: #9c9c9f; /* secondary/muted text, labels, metadata */
+  --bg: #141319; /* app ground — graphite with a violet bias */
+  --bg-raised: #1c1a23; /* raised surface: controls, panels, cards-on-hover */
+  --bg-sunk: #0f0e13; /* inset surface: quotes, image wells */
+  --border: #2b2934; /* hairline dividers + control outlines */
+  --text: #e7e6ec; /* primary text (off-white) */
+  --text-dim: #a19eac; /* secondary/muted text, labels, metadata */
 
   --accent: #a996ff; /* Starlume violet — the one interactive accent */
   --accent-dim: #7b66e0; /* deeper violet for the identity gradient */
@@ -134,6 +137,31 @@ main ol {
   --discord: #5865f2; /* Discord blurple — the one non-palette brand color */
   --em-link: #6cb6e3; /* SC in-text link/highlight blue (mission <EM4> runs) */
 
+  /* ── Category hues ────────────────────────────────────────────────── *
+   * "What kind of thing is this" — never "you can click this" (violet's
+   * job) and never good/warn/bad. One small palette mapped per domain: a
+   * hue may mean different things on different pages, but always the same
+   * thing within one. Components take a role alias, not a raw hue, and
+   * tint with color-mix (see `.hue-chip`). */
+  --hue-sky: #63b4e3;
+  --hue-apricot: #ec9a63;
+  --hue-rose: #e485b2;
+  --hue-teal: #48bfb6;
+  --hue-sand: #cbb37c;
+
+  /* Game channels — everywhere a channel shows (Home, News, catalogs). */
+  --hue-live: var(--hue-sky);
+  --hue-hotfix: var(--hue-sand);
+  --hue-ptu: var(--hue-apricot);
+  --hue-eptu: var(--hue-rose);
+  --hue-tech-preview: var(--hue-teal);
+  /* Dev tracker post kinds. */
+  --hue-chat: var(--hue-teal);
+  --hue-thread: var(--hue-sand);
+  --hue-reply: var(--hue-sky);
+  /* Comm-links. */
+  --hue-video: var(--hue-rose);
+
   /* ── Semantic aliases ─────────────────────────────────────────────── */
   --surface-app: var(--bg);
   --surface-raised: var(--bg-raised);
@@ -141,9 +169,9 @@ main ol {
   --surface-card-hover: var(--bg-raised);
 
   --text-body: var(--text);
-  --text-strong: #f5f5f5; /* headings / handles / emphasis */
+  --text-strong: #f4f3f8; /* headings / handles / emphasis */
   --text-muted: var(--text-dim);
-  --text-faint: #68686c; /* micro-labels, tertiary */
+  --text-faint: #6f6c7b; /* micro-labels, tertiary */
   --text-accent: var(--accent);
   --text-on-accent: var(--on-accent);
 
@@ -534,6 +562,26 @@ table.data tr.selected {
 .badge.danger {
   color: var(--bad);
   border-color: var(--danger-border);
+}
+
+/* Category chip — a pill tinted from one hue. Set `--hue` to a role alias
+ * (`style="--hue: var(--hue-live)"`); without one it is a neutral pill.
+ * (Not `.chip`: two components already scope a `.chip` of their own.) */
+.hue-chip {
+  --hue: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-badge);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.03em;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  color: color-mix(in srgb, var(--hue) 85%, var(--text));
+  background: color-mix(in srgb, var(--hue) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hue) 30%, transparent);
 }
 
 /* Owned-progress chip — the Hearth catalog "4/8". Amber once owned ≥ 1. */

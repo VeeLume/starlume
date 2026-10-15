@@ -4,6 +4,7 @@
   // the right, the body, and one action at the bottom right — so the cards
   // read alike side by side.
   import type { Snippet } from "svelte";
+  import { channelHue } from "$lib/channels";
 
   let {
     channel,
@@ -25,7 +26,7 @@
 
 <article class="card now" class:muted>
   <header>
-    <span class="channel">{channel}</span>
+    <span class="channel" style:--hue={channelHue(channel)}>{channel}</span>
     <span class="version">{version}</span>
     <span class="grow"></span>
     <span class="dim date">{date}</span>
@@ -50,9 +51,10 @@
     gap: 10px;
   }
   .channel {
+    --hue: var(--text-dim);
     font-family: var(--font-display);
     font-weight: var(--weight-bold);
-    color: var(--accent);
+    color: color-mix(in srgb, var(--hue) 75%, var(--text));
   }
   .version {
     font-family: var(--font-mono);

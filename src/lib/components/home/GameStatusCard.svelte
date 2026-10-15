@@ -13,6 +13,7 @@
   import { installStatuses } from "$lib/home/installStatus";
   import { patchNotesStore, watchPatchNotes } from "$lib/state/patchnotes.svelte";
   import { upToDate } from "$lib/home/version";
+  import { channelHue } from "$lib/channels";
 
   const installs = $derived(scStore.status?.installs ?? []);
   const decorations = $derived(installStatuses(settingsStore.current?.enabled_modules ?? []));
@@ -73,7 +74,7 @@
       {#each rows as row (row.key)}
         {@const work = activityFor("data-load", row.key)}
         <tr>
-          <td class="channel">{row.name}</td>
+          <td class="channel" style:--hue={channelHue(row.key)}>{row.name}</td>
           <td class="mono dim">{row.version}</td>
           <td>
             {#if work}
@@ -105,7 +106,9 @@
 
 <style>
   .channel {
+    --hue: var(--text);
     font-family: var(--font-display);
     font-weight: var(--weight-bold);
+    color: color-mix(in srgb, var(--hue) 75%, var(--text));
   }
 </style>
