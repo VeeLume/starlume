@@ -342,11 +342,23 @@ async fn fetch_image(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Str
     if !is_image {
         return Err("not an image".into());
     }
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
-    if bytes.len() > MAX_IMAGE_BYTES {
-        return Err(format!("too large ({} bytes)", bytes.len()));
+    // The cap holds before anything is buffered: refuse on the declared
+    // length, then read chunk by chunk and stop as soon as it is passed.
+    if response
+        .content_length()
+        .is_some_and(|n| n > MAX_IMAGE_BYTES as u64)
+    {
+        return Err("too large".into());
     }
-    Ok(bytes.to_vec())
+    let mut response = response;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        if bytes.len() + chunk.len() > MAX_IMAGE_BYTES {
+            return Err("too large".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 /// The new cache and the items it didn't have. First-seen times: kept for
