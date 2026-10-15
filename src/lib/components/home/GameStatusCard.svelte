@@ -5,9 +5,10 @@
   // pills: game data ready, where the build stands against the LIVE notes
   // (a newer build of the noted version is a hotfix that shipped after
   // them), and each enabled module's decoration (Text Patching's state).
-  // Each row ends in "Open launcher" (the launcher can't be told to press
-  // Play — launcher.rs), "Update in launcher" when the launcher's library
-  // has a newer build, or "Running" while the game runs.
+  // The footer holds "Open launcher" beside Patch notes (the launcher
+  // can't be told to press Play — launcher.rs — and picks the channel
+  // itself), or "Running" while the game runs; an install whose build the
+  // launcher's library has moved past gets an "Update in launcher" pill.
   // Reads stores only; fetches nothing itself.
   import { onDestroy, onMount } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
@@ -103,20 +104,6 @@
           {#if row.key === "live" && latest?.name && row.patch !== "behind"}
             <span class="name">{latest.name}</span>
           {/if}
-          {#if launcherStore.status?.launcher_found}
-            <span class="grow"></span>
-            {#if launcherStore.status.game_running}
-              <span class="status-pill good"><i></i>Running</span>
-            {:else if updateNeeded(row.key, row.label)}
-              <Button variant="outline" onclick={launch} title="The launcher has a newer build for this channel">
-                Update in launcher
-              </Button>
-            {:else}
-              <Button onclick={launch} title="Start the RSI launcher (or bring it forward), then press Play there">
-                <Play size={14} /> Open launcher
-              </Button>
-            {/if}
-          {/if}
         </div>
         <div class="pills">
           {#if work}
@@ -138,6 +125,9 @@
           {#each decorations as d (d.key)}
             {#if d.component}<d.component channelKey={row.key} />{/if}
           {/each}
+          {#if updateNeeded(row.key, row.label)}
+            <span class="status-pill warn" title="The launcher has a newer build for this channel"><i></i>Update in launcher</span>
+          {/if}
           {#if row.build && row.patch !== "hotfix"}<span class="build">build {row.build}</span>{/if}
         </div>
         {#each decorations as d (d.key)}
@@ -147,11 +137,20 @@
     {/each}
 
     {#if launcherStore.error}<p class="error">{launcherStore.error}</p>{/if}
-    {#if latest}
-      <div>
-        <Button variant="outline" onclick={() => void openPatchNote(latest.article_url)}>
-          Patch notes <ExternalLink size={14} />
-        </Button>
+    {#if launcherStore.status?.launcher_found || latest}
+      <div class="footer">
+        {#if launcherStore.status?.game_running}
+          <span class="status-pill good"><i></i>Star Citizen is running</span>
+        {:else if launcherStore.status?.launcher_found}
+          <Button onclick={launch} title="Start the RSI launcher (or bring it forward), then press Play there">
+            <Play size={14} /> Open launcher
+          </Button>
+        {/if}
+        {#if latest}
+          <Button variant="outline" onclick={() => void openPatchNote(latest.article_url)}>
+            Patch notes <ExternalLink size={14} />
+          </Button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -210,8 +209,11 @@
     padding-top: 10px;
     border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   }
-  .grow {
-    flex: 1;
+  .footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
   }
   .line {
     display: flex;
