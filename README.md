@@ -1,114 +1,112 @@
+<p align="center">
+  <img src="src-tauri/icons/128x128.png" width="96" height="96" alt="Starlume icon">
+</p>
+
 # Starlume
 
-**The Star Citizen companion** — one desktop app for the machine-local side of SC tooling:
-language patching, blueprint/mission tracking, cargo planning, hangar sync. Feature modules
-share one install discovery, one DataCore parse, and one Game.log watcher instead of every
-tool reimplementing them.
+**A Star Citizen companion for Windows.** Starlume reads your game install and
+makes the game's own text more useful, and (if you opt in) shows you where every
+item and ship you own actually is.
 
-> Early scaffold. No feature modules are wired yet — this repo currently builds the app
-> shell (window, tray, settings, auto-update, deep-link auth plumbing).
+> **Early test releases (0.0.x).** Things work, but expect rough edges and
+> changes. Feedback and bug reports are welcome in
+> [Issues](https://github.com/VeeLume/starlume/issues).
 
-## Architecture
+## Features
 
-Shared services below, feature modules above, an event bus between them:
+### Text Patching
 
-```
-crates/
-├── app-kit/        data-dir resolution, atomic IO, JSON persistence
-├── server/         starlume-server: Discord auth + device tokens (grows into the v2 API)
-├── svc-discovery/  SC install discovery, channel selection, build-change events
-├── svc-data/       ONE DataCore parse + snapshot cache per build
-├── svc-log/        ONE Game.log tailer broadcasting typed events
-└── svc-sync/       server client (device-token auth, outbox, reference upload)
-src-tauri/          shell: module registry, tray, settings, auth, updater
-src/                SvelteKit frontend (static SPA)
-```
+Patches Star Citizen's English text with information the game doesn't show:
 
-### Module rules (do not break)
+- **Mission Enhancer:** blueprint rewards, cooldowns, crimestat risk and more in
+  mission titles and descriptions.
+- **Weapon Enhancer:** size prefixes, missile tracking type and combat stats in
+  weapon descriptions.
+- **Component Grades:** ship components labelled with class and grade, e.g.
+  *Bracer Military C*.
+- **Illegal Goods Markers:** drugs and contraband marked, with where they are
+  outlawed.
+- **Label Fixes:** shorter labels where the game's UI text overlaps.
 
-1. Modules never touch the filesystem / game / network directly — they consume `svc-*`
-   services and react to bus events. No module-to-module dependencies.
-2. The user picks modules in onboarding; modules not enabled stay invisible. The app must
-   stay lightweight for someone who only wants one module.
-3. New Star Citizen features land here as modules — not as new apps.
-4. **Reference vs personal.** Reference catalogs (items / resources / missions /
-   manufacturers, later blueprints) are **app framework**: cooked in `svc-data`, served
-   by shell commands, browsable by everyone — they cost nothing until loaded. Modules
-   own **personal state and behavior** (ownership, wishlists, tracking, patching) and
-   attach to catalogs by GUID — decorating catalog rows/details through registry
-   extension points (the `meSections` pattern), never owning or re-cooking reference
-   data. Litmus test: disabling a module leaves every catalog fully functional, just
-   undecorated.
+Every patcher can be switched on or off, most have options, and a preview pane
+shows how mission text will look. After a game update Starlume re-patches on
+its own as soon as it notices the update; if the game is running, it waits
+until you close it.
 
-### Adding a module
+### My Items *(opt-in)*
 
-A module lands in two halves sharing one id:
+Finds every item and ship on your account:
 
-1. **Rust** — a `crates/mod-<id>` crate, registered in
-   `src-tauri/src/modules.rs::registry()`; its commands join the list in
-   `src-tauri/src/ipc.rs` (then regenerate bindings).
-2. **Frontend** — `src/lib/modules/<id>/` exporting a `ModuleDescriptor`
-   (routes under `src/routes/<id>/`, sidebar `nav` entries, optional
-   `onboardingSteps`), added to `src/lib/modules/registry.ts`.
+- where it is, by system, planet and station, including ship lockers and what
+  you carry
+- what is fitted to which ship, beside the saved and stock loadouts
+- armour sets with the pieces you own, weapons with their attachments
+- crafted items with their stats, and your resources by quality
 
-The onboarding picker, the sidebar, and the Settings module list all derive
-from the registry — no wizard or layout edits needed. Module onboarding steps
-appear automatically when the module is selected during setup.
+My Items reads your inventory from CIG's game services, so it only works when
+you switch those on (see [Online and privacy](#online-and-privacy)).
 
-## Build
+## Install
 
-```sh
-pnpm install
-just dev                  # dev with hot reload (pnpm tauri dev)
-just build                # production build (NSIS installer)
+1. Download `Starlume_<version>_x64-setup.exe` from the
+   [latest release](https://github.com/VeeLume/starlume/releases/latest).
+2. Run it. The installer isn't code-signed yet, so Windows SmartScreen may warn
+   about an unknown publisher: choose **More info → Run anyway**.
 
-just test                 # Rust tests
-just check                # what CI runs: fmt + clippy + svelte-check
-just bindings             # regenerate src/lib/bindings.ts after IPC changes
-```
+Requires Windows 10 or 11 (64-bit) and Microsoft's WebView2 runtime. Windows 11
+ships with it; on Windows 10 the installer fetches it if it's missing.
 
-`just --list` shows everything (shared recipes come from `common.just`, synced
-from the [template](https://github.com/VeeLume/template-rust) via `copier update`).
+**Updates:** Starlume checks for a new version when it starts and asks before
+installing it. Updates are signed and verified before they're installed.
 
-Prerequisites: Node.js LTS, pnpm, Rust (stable / edition 2024), just, copier.
+**Tray app:** closing the window keeps Starlume in the tray, where it uses very
+little memory. It can start with Windows (Settings → General → Run at login).
 
-## Server (Discord sign-in)
+## Online and privacy
 
-The desktop app's sign-in talks to `starlume-server`. To run it locally:
+Starlume does its work on your machine: it reads your Star Citizen install and
+parses the game data locally. Online use is limited and under your control:
 
-1. `just server-env`, then fill in the Discord application credentials in the
-   root `.env` (creation steps + redirect URI are inside the file).
-2. `just server` — listens on `http://localhost:5863`.
-3. In the app: Settings → Account → Server URL → `http://localhost:5863` →
-   Sign in with Discord.
+- **Online features** (Settings → Online & privacy → Enable online features, on
+  by default) let Starlume look up your public RSI profile and download what
+  you ask it to. Switch them off and nothing leaves your machine except the
+  update check.
+- **Update check:** always on, even offline, so everyone gets security fixes.
+  It only asks GitHub whether a new release exists.
 
-Flow: app opens the browser at `/auth/desktop/start?nonce=…` → server runs
-Discord OAuth (`identify` scope) → redirects to
-`starlume://auth/callback?nonce&code` → app exchanges the one-time code for a
-device token (`POST /auth/desktop/exchange`, token stored in the Windows
-Credential Manager) → `GET /api/me` powers the sidebar profile. Tokens are
-stored server-side as sha256 hashes, one row per device.
+### CIG's game services *(off by default)*
 
-## Testing with two accounts
+Some features (My Items, and the "owned blueprint" marks in mission text) read
+your own account data through the backend services the game client itself
+uses. **These are not an official public API, and using them may be against
+CIG's Terms of Service.** Starlume only reads, only your own account, and never
+changes anything. Each feature stays off until you turn on **Allow game-services
+calls** in Settings → Online & privacy and then enable that feature. Use them at
+your own risk.
 
-Community features (friend groups, later sharing) need two signed-in users to
-test against each other. Dev profile mode (`STARLUME_PROFILE`, debug builds
-only) runs a second instance side by side — own data dir
-(`starlume-dev-<profile>`), own keyring slot, no single-instance lock, and a
-**loopback auth callback** instead of the deep link (deep links are
-machine-global and always land in the first instance).
+## Your data
 
-1. `just server` and `just dev` — server + first instance; sign in normally
-   (your main Discord account).
-2. `just dev-alt` — second instance under profile `alt`, sharing the first
-   instance's vite dev server.
-3. In the second instance: Settings → same server URL → Sign in. Instead of
-   opening a browser it shows + copies the sign-in URL — **paste it into a
-   browser session where the second Discord account is logged in** (private
-   window, second browser, or a browser profile). The browser session, not
-   the Discord client, decides which account OAuth uses.
-4. Both instances are now different users against the same local server —
-   create a group in one, mint an invite, join from the other.
+- **Settings, caches and your inventory snapshots:** `%APPDATA%\starlume`
+- **In your Star Citizen folder, while Text Patching is on:**
+  `data\Localization\english\global.ini` and a `g_language = english` line in
+  `user.cfg`. Switching Text Patching off removes both.
+
+## Uninstall
+
+Switch Text Patching off first to get the game's original text back, then
+uninstall Starlume from Windows Settings → Apps. To remove its data too, delete
+`%APPDATA%\starlume`.
+
+## Not affiliated with CIG
+
+Starlume is a fan-made tool. It is not affiliated with or endorsed by Cloud
+Imperium Games. Star Citizen® and Squadron 42® are trademarks of Cloud Imperium
+Rights LLC.
+
+## Development
+
+Building, architecture and the module rules are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

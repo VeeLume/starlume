@@ -1,5 +1,5 @@
 //! Weapons index cooking — sc-weapons ship weapons + missiles → serde-clean
-//! entries. Reference-catalog framework data (README module rule 4): joins
+//! entries. Reference-catalog framework data (CONTRIBUTING module rule 4): joins
 //! item detail by GUID for the catalog, and feeds mod-langpatch's
 //! weapon-enhancer derive.
 //!

@@ -629,7 +629,7 @@ fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) ->
         &foundations.resources,
         &asset_data.locale,
     );
-    // Legality + weapons ride the same parse window (README module rule 4:
+    // Legality + weapons ride the same parse window (CONTRIBUTING module rule 4:
     // reference catalogs are framework — these also feed mod-langpatch's
     // derive, so the module never needs the raw Datacore).
     let legality = legality::build_legality(&datacore, &foundations.resources);

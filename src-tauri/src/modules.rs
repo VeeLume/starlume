@@ -1,6 +1,6 @@
 //! Feature-module registry.
 //!
-//! The module rules (see README): modules never touch the filesystem / game /
+//! The module rules (see CONTRIBUTING.md): modules never touch the filesystem / game /
 //! network directly — they consume `svc-*` services and react to bus events;
 //! no module-to-module dependencies; the enabled-set is user-controlled
 //! (onboarding picks it) and modules not enabled stay invisible in the UI.

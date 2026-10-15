@@ -1,0 +1,130 @@
+# Developing Starlume
+
+Starlume consolidates the machine-local side of Star Citizen tooling into one
+app: feature modules share one install discovery, one DataCore parse and one
+set of services instead of every tool reimplementing them. It is the
+consolidation target for Hearth, sc-langpatch, sc-cargo-planner and
+sc-fleetsync, which migrate in as modules over time.
+
+## Architecture
+
+Shared services below, feature modules above, an event bus between them:
+
+```
+crates/
+├── app-kit/        data-dir resolution, atomic IO, JSON persistence
+├── server/         starlume-server: Discord auth + device tokens (grows into the v2 API)
+├── svc-discovery/  SC install discovery, channel selection, build-change events
+├── svc-data/       ONE DataCore parse + snapshot cache per build, reference catalogs
+├── svc-dossier/    CIG game-services client: blueprints, inventory, loadouts (gated)
+├── svc-log/        ONE Game.log tailer broadcasting typed events (stub)
+├── svc-sync/       server client: device-token auth, outbox, reference upload (stub)
+├── mod-langpatch/  Text Patching
+├── mod-items/      My Items
+└── mod-contracts/  contracts (unreleased)
+src-tauri/          shell: module registry, tray, window, settings, auth, updater
+src/                SvelteKit frontend (static SPA)
+```
+
+### Module rules (do not break)
+
+1. Modules never touch the filesystem / game / network directly — they consume `svc-*`
+   services and react to bus events. No module-to-module dependencies.
+2. The user picks modules in onboarding; modules not enabled stay invisible. The app must
+   stay lightweight for someone who only wants one module.
+3. New Star Citizen features land here as modules — not as new apps.
+4. **Reference vs personal.** Reference catalogs (items / resources / missions /
+   manufacturers, later blueprints) are **app framework**: cooked in `svc-data`, served
+   by shell commands, browsable by everyone — they cost nothing until loaded. Modules
+   own **personal state and behavior** (ownership, wishlists, tracking, patching) and
+   attach to catalogs by GUID — decorating catalog rows/details through registry
+   extension points (the `meSections` pattern), never owning or re-cooking reference
+   data. Litmus test: disabling a module leaves every catalog fully functional, just
+   undecorated.
+
+### Adding a module
+
+A module lands in two halves sharing one id:
+
+1. **Rust** — a `crates/mod-<id>` crate, registered in
+   `src-tauri/src/modules.rs::registry()`; its commands join the list in
+   `src-tauri/src/ipc.rs` (then regenerate bindings).
+2. **Frontend** — `src/lib/modules/<id>/` exporting a `ModuleDescriptor`
+   (routes under `src/routes/<id>/`, sidebar `nav` entries, optional
+   `onboardingSteps`), added to `src/lib/modules/registry.ts`.
+
+The onboarding picker, the sidebar, and the Settings module list all derive
+from the registry — no wizard or layout edits needed. Module onboarding steps
+appear automatically when the module is selected during setup.
+
+Unreleased surfaces stay behind `src/lib/unreleased.ts` (and the debug-only
+half of `modules::registry()`): dev builds show them, release builds don't.
+
+## Build
+
+```sh
+pnpm install
+just dev                  # dev with hot reload (pnpm tauri dev)
+just build                # production build (NSIS installer)
+
+just test                 # Rust tests
+just test-ts              # frontend model tests (vitest)
+just check                # what CI runs: fmt + clippy + svelte-check
+just bindings             # regenerate src/lib/bindings.ts after IPC changes
+```
+
+`just --list` shows everything (shared recipes come from `common.just`, synced
+from the [template](https://github.com/VeeLume/template-rust) via `copier update`).
+
+Prerequisites: Node.js LTS, pnpm, Rust (stable / edition 2024), just, copier.
+
+## Releasing
+
+1. Bump the version in `Cargo.toml` (workspace), `package.json` and
+   `src-tauri/tauri.conf.json`, and add a `## [x.y.z]` entry to `CHANGELOG.md`
+   (it becomes the release notes).
+2. Merge that through a PR, then tag `vx.y.z` on `main` and push the tag.
+   `publish.yml` builds the signed installer, `latest.json` for the updater and
+   the GitHub release.
+
+## Server (Discord sign-in)
+
+The desktop app's sign-in talks to `starlume-server`. To run it locally:
+
+1. `just server-env`, then fill in the Discord application credentials in the
+   root `.env` (creation steps + redirect URI are inside the file).
+2. `just server` — listens on `http://localhost:5863`.
+3. In the app: Settings → Account → Server URL → `http://localhost:5863` →
+   Sign in with Discord.
+
+Flow: app opens the browser at `/auth/desktop/start?nonce=…` → server runs
+Discord OAuth (`identify` scope) → redirects to
+`starlume://auth/callback?nonce&code` → app exchanges the one-time code for a
+device token (`POST /auth/desktop/exchange`, token stored in the Windows
+Credential Manager) → `GET /api/me` powers the sidebar profile. Tokens are
+stored server-side as sha256 hashes, one row per device.
+
+## Testing with two accounts
+
+Community features (friend groups, later sharing) need two signed-in users to
+test against each other. Dev profile mode (`STARLUME_PROFILE`, debug builds
+only) runs a second instance side by side — own data dir
+(`starlume-dev-<profile>`), own keyring slot, no single-instance lock, and a
+**loopback auth callback** instead of the deep link (deep links are
+machine-global and always land in the first instance).
+
+1. `just server` and `just dev` — server + first instance; sign in normally
+   (your main Discord account).
+2. `just dev-alt` — second instance under profile `alt`, sharing the first
+   instance's vite dev server.
+3. In the second instance: Settings → same server URL → Sign in. Instead of
+   opening a browser it shows + copies the sign-in URL — **paste it into a
+   browser session where the second Discord account is logged in** (private
+   window, second browser, or a browser profile). The browser session, not
+   the Discord client, decides which account OAuth uses.
+4. Both instances are now different users against the same local server —
+   create a group in one, mint an invite, join from the other.
+
+Profile mode also skips the single-instance lock, so a dev instance can run
+beside an installed release: `STARLUME_PROFILE=<name>` plus
+`STARLUME_DATA_DIR=%APPDATA%\starlume-dev` reuses the normal dev data.

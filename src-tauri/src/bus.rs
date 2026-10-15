@@ -1,5 +1,5 @@
 //! The in-process event bus — services below, modules above, this between
-//! them (the README architecture line). A tokio broadcast channel: producers
+//! them (the CONTRIBUTING architecture line). A tokio broadcast channel: producers
 //! `send` and don't care who listens; consumers hold a `Receiver` from
 //! [`AppState::bus`](crate::AppState) and react.
 //!

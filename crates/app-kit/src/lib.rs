@@ -14,7 +14,7 @@ use serde::de::DeserializeOwned;
 /// side). Honored in **debug builds only** — release users can't footgun
 /// themselves into a shadow profile. A profile gets its own data dir, its
 /// own keyring slot, no single-instance lock, and a loopback (instead of
-/// deep-link) auth callback — see the repo README, "Testing with two
+/// deep-link) auth callback — see CONTRIBUTING.md, "Testing with two
 /// accounts".
 pub fn profile() -> Option<String> {
     if !cfg!(debug_assertions) {
