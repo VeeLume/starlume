@@ -1,5 +1,5 @@
 // Install patch states → one badge each (the StatusBadge map contract).
-// Shared by the Text Patching page and its Home decoration.
+// The Text Patching page's install table (Home's pill words them on its own).
 
 import type { StatusMap } from "@veelume/ui";
 

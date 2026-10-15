@@ -82,7 +82,9 @@ export interface InstallStatusProps {
 
 /** A module's contribution to each install row of Home's Game status card
  *  ("can I play?"): a compact state for that channel, e.g. Text Patching's
- *  patched / re-patch pending. Render nothing when there is nothing to say. */
+ *  patched / re-patch pending. Render it as one `.status-pill` (app.css)
+ *  naming the module's subject, so the row's checks read alike; render
+ *  nothing when there is nothing to say. */
 export interface InstallStatus {
   /** Short column label ("Text"). */
   label: string;

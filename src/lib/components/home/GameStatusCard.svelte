@@ -83,13 +83,13 @@
         </div>
         <div class="pills">
           {#if work}
-            <span class="pill busy"><i></i>{activityLabel(work)}</span>
+            <span class="status-pill busy"><i></i>{activityLabel(work)}</span>
           {:else if row.ready != null}
-            <span class="pill" class:good={row.ready}><i></i>{row.ready ? "Game data ready" : "Game data not prepared yet"}</span>
+            <span class="status-pill" class:good={row.ready}><i></i>{row.ready ? "Game data ready" : "Game data not prepared yet"}</span>
           {/if}
           {#if row.patch}
             <span
-              class="pill"
+              class="status-pill"
               class:good={row.patch === "current"}
               class:warn={row.patch === "behind"}
               class:hotfix={row.patch === "hotfix"}
@@ -99,7 +99,7 @@
             >
           {/if}
           {#each decorations as d (d.key)}
-            <span class="deco"><span class="deco-label">{d.label}</span><d.component channelKey={row.key} /></span>
+            <d.component channelKey={row.key} />
           {/each}
           {#if row.build && row.patch !== "hotfix"}<span class="build">build {row.build}</span>{/if}
         </div>
@@ -196,48 +196,10 @@
     align-items: center;
     gap: 6px 8px;
   }
-  .pill {
-    --dot: var(--text-faint);
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 9px;
-    border-radius: var(--radius-pill);
-    font-size: var(--text-small);
-    color: var(--text-dim);
-    background: color-mix(in srgb, var(--bg-sunk) 70%, transparent);
-    border: 1px solid var(--border);
-    backdrop-filter: blur(4px);
-  }
-  .pill i {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--dot);
-  }
-  .pill.good {
-    --dot: var(--good);
-  }
-  .pill.warn {
-    --dot: var(--warn);
-    color: var(--warn);
-  }
-  .pill.busy {
-    --dot: var(--accent);
-  }
-  .pill.hotfix {
+  .status-pill.hotfix {
     --dot: var(--hue-hotfix);
     color: color-mix(in srgb, var(--hue-hotfix) 85%, var(--text));
     border-color: color-mix(in srgb, var(--hue-hotfix) 40%, transparent);
-  }
-  .deco {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--text-small);
-  }
-  .deco-label {
-    color: var(--text-faint);
   }
   .build {
     font-family: var(--font-mono);

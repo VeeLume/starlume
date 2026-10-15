@@ -584,6 +584,50 @@ table.data tr.selected {
   border: 1px solid color-mix(in srgb, var(--hue, var(--text-dim)) 30%, transparent);
 }
 
+/* Status pill — one check's state with a tone dot (Home's Game status:
+ * game data, build, module decorations). One shape for every check, so a
+ * row of them reads evenly; tones: good / warn / bad / busy, or set
+ * `--dot` (and a color) for a category hue. `<span class="status-pill
+ * good"><i></i>Game data ready</span>` */
+.status-pill {
+  --dot: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-small);
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--bg-sunk) 70%, transparent);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(4px);
+}
+.status-pill > i {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+.status-pill.good {
+  --dot: var(--good);
+}
+.status-pill.warn {
+  --dot: var(--warn);
+  color: color-mix(in srgb, var(--warn) 85%, var(--text));
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.status-pill.bad {
+  --dot: var(--bad);
+  color: color-mix(in srgb, var(--bad) 85%, var(--text));
+  border-color: color-mix(in srgb, var(--bad) 35%, transparent);
+}
+.status-pill.busy {
+  --dot: var(--accent);
+}
+
 /* Stat tiles — figures as a row of small tiles instead of a sentence
  * ("89 / fixes"). Flex, so a short last row stretches instead of leaving
  * an empty cell. `<div class="stat-tiles"><div class="stat-tile"><b>89</b>
