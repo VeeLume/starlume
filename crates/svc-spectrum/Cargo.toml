@@ -1,0 +1,26 @@
+[package]
+name = "svc-spectrum"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume Spectrum service — RSI's chat/forum REST API (the CIG staff feed) via the launcher session: paced, throttle-aware, deduped and cached on disk"
+
+[dependencies]
+# The Spectrum client lives in the gRPC lab's shipped crate, on the same pin
+# as svc-dossier. A non-official client of RSI's private API — ToS-grey; every
+# caller gates via AppState::require_unofficial first.
+sc-dossier.workspace = true
+app-kit.workspace = true
+serde.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true
+# Paused clock: pacing/backoff tests run in virtual time.
+tokio = { workspace = true, features = ["test-util"] }

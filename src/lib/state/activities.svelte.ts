@@ -27,6 +27,9 @@ const SOURCE: Record<ActivityKind, string> = {
   langpatch: "langpatch",
   blueprints: "blueprints",
   inventory: "items",
+  devtracker: "devtracker",
+  "patch-notes": "patchnotes",
+  "comm-links": "commlinks",
 };
 
 function apply(records: ActivityRecord[]) {

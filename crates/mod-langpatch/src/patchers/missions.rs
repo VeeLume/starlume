@@ -101,7 +101,8 @@ impl crate::Patcher for MissionEnhancer {
             PatcherOption {
                 id: "crimestat_tag".into(),
                 label: "Crimestat Risk Tag".into(),
-                description: "Mark missions where killing friendly NPCs gives crimestat".into(),
+                description: "Mark missions where killing friendly NPCs gives crimestat \n                              (Emphasised: underlined / highlighted)"
+                    .into(),
                 kind: OptionKind::Choice {
                     choices: vec![
                         ChoiceOption {
@@ -110,11 +111,11 @@ impl crate::Patcher for MissionEnhancer {
                         },
                         ChoiceOption {
                             value: "simple".into(),
-                            label: "Simple [CS Risk]".into(),
+                            label: "Tag [CS Risk]".into(),
                         },
                         ChoiceOption {
                             value: "colored".into(),
-                            label: "Emphasised (underline / highlight)".into(),
+                            label: "Emphasised".into(),
                         },
                     ],
                 },
@@ -149,11 +150,11 @@ impl crate::Patcher for MissionEnhancer {
                         },
                         ChoiceOption {
                             value: "mark".into(),
-                            label: format!("Mark owned ({OWNED_MARK})"),
+                            label: format!("Mark ({OWNED_MARK})"),
                         },
                         ChoiceOption {
                             value: "hide".into(),
-                            label: "Hide owned".into(),
+                            label: "Hide".into(),
                         },
                     ],
                 },

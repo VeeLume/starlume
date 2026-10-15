@@ -178,7 +178,7 @@
     color: var(--text-dim);
   }
   h4 .num {
-    color: var(--accent);
+    color: var(--text-faint);
     letter-spacing: 0;
   }
   .hp {
@@ -238,7 +238,7 @@
     font-size: 0.64rem;
     font-weight: 700;
     text-align: center;
-    color: var(--accent);
+    color: var(--text-dim);
   }
   .lbody {
     flex: 1;

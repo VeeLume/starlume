@@ -10,7 +10,7 @@
 //!
 //! Every method that touches the network ([`DossierService::refresh_blueprints`],
 //! [`DossierService::refresh_inventory`]) is ToS-grey and **must** be called only after the shell has passed the gate
-//! `AppState::require_grpc("<feature>")`. This crate cannot see settings, so it
+//! `AppState::require_unofficial("<feature>")`. This crate cannot see settings, so it
 //! cannot gate itself — the gate lives at the call site, exactly like
 //! mod-langpatch's pack fetch behind `require_online()`. The cached reads
 //! ([`DossierService::cached_blueprints`], [`DossierService::cached_inventory`])
@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub mod inventory;
+pub mod launcher;
 
 pub use inventory::Inventory;
 /// CRC32C of a lowercased item-port name — how stash trees name ports.
@@ -77,7 +78,7 @@ impl DossierService {
 
     /// Fetch the owned-blueprint set live and cache it.
     ///
-    /// **Gated:** the caller must have passed `require_grpc("blueprints")`
+    /// **Gated:** the caller must have passed `require_unofficial("blueprints")`
     /// first (see the module contract). Mints a launcher session, queries
     /// `BlueprintLibraryService`, drops the connection. `user_agent` is the
     /// gRPC user-agent the shell supplies.
@@ -191,8 +192,8 @@ impl DossierService {
     /// game build it is fetched under — the archive keeps the last fetch per
     /// build, so a patch's losses stay comparable.
     ///
-    /// **Gated:** the caller must have passed `require_grpc("items")`, and
-    /// `require_grpc("loadouts")` for `with_loadouts` (see the module
+    /// **Gated:** the caller must have passed `require_unofficial("items")`, and
+    /// `require_unofficial("loadouts")` for `with_loadouts` (see the module
     /// contract). A stash that fails (the server's AQL limit on a big ship)
     /// lands in [`Inventory::failed`] instead of failing the fetch.
     pub async fn refresh_inventory(

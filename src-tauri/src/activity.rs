@@ -37,6 +37,12 @@ pub enum ActivityKind {
     Blueprints,
     /// svc-dossier inventory fetch (stashes, entitlements, loadouts).
     Inventory,
+    /// mod-devtracker: the first fill of the staff feed (svc-spectrum).
+    Devtracker,
+    /// svc-patchnotes: reading RSI's patch-note pages.
+    PatchNotes,
+    /// svc-commlinks: reading RSI's comm-link listing.
+    CommLinks,
 }
 
 /// Where an activity is. `stage` is a user-facing label ("Parsing

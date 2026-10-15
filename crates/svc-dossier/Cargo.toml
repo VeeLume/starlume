@@ -10,8 +10,8 @@ description = "Starlume account-data service — read-only CIG game-services (gR
 [dependencies]
 # The gRPC lab's shipped client (owned blueprints, entitlements, items,
 # missions, stashes, loadouts, Spectrum). ToS-grey; every caller gates via
-# AppState::require_grpc first.
-sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.5.0" }
+# AppState::require_unofficial first.
+sc-dossier.workspace = true
 app-kit.workspace = true
 anyhow.workspace = true
 serde.workspace = true

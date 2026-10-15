@@ -2,10 +2,11 @@
 //! its cached read, and the change event.
 //!
 //! The network read lives in `svc-dossier`; the gate lives here:
-//! [`items_refresh`] passes `require_grpc("items")`, and adds the loadouts
-//! only when `require_grpc("loadouts")` passes too. [`items_summary`] reads
-//! the on-disk cache and touches no network; [`items_finder`] joins that
-//! cache with the cooked game data (`mod-items`).
+//! [`items_refresh`] passes `require_unofficial("items")`, and adds the
+//! loadouts only when `require_unofficial("loadouts")` passes too.
+//! [`items_summary`] reads the on-disk cache and touches no network;
+//! [`items_finder`] joins that cache with the cooked game data
+//! (`mod-items`).
 
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -83,18 +84,18 @@ pub(crate) fn items_summary(state: tauri::State<'_, AppState>) -> InventorySumma
 /// previous fetch and the last fetch per game build (the archive a future
 /// "what changed" compares against).
 ///
-/// **Gated** by `require_grpc("items")`; the loadouts ride along only when
-/// `require_grpc("loadouts")` passes too. A stale launcher session surfaces
-/// as an error the page shows as a sign-in hint.
+/// **Gated** by `require_unofficial("items")`; the loadouts ride along only
+/// when `require_unofficial("loadouts")` passes too. A stale launcher session
+/// surfaces as an error the page shows as a sign-in hint.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn items_refresh(app: AppHandle) -> Result<InventorySummaryView, AppError> {
     let (dossier, with_loadouts) = {
         let state = app.state::<AppState>();
-        state.require_grpc("items")?;
+        state.require_unofficial("items")?;
         (
             state.dossier.clone(),
-            state.require_grpc("loadouts").is_ok(),
+            state.require_unofficial("loadouts").is_ok(),
         )
     };
     // The build it's fetched under keys the archive. Rescan (local, cheap)

@@ -60,7 +60,17 @@
 </script>
 
 <div class="page">
-  <PageNav {view} {counts} {updated} refreshing={itemsStore.refreshing} onview={setView} onrefresh={refreshItems} />
+  <PageNav
+    {view}
+    {counts}
+    {updated}
+    refreshing={itemsStore.refreshing}
+    q={browse.values.q}
+    placeholder={view === "ships" ? "Find a ship…" : view === "res" ? "Find a material…" : "Find an item, anywhere…"}
+    onview={setView}
+    onq={(q) => browse.set("q", q)}
+    onrefresh={refreshItems}
+  />
 
   {#if itemsStore.error}<p class="text-sm text-destructive">{itemsStore.error}</p>{/if}
   {#if itemsStore.finderError}<p class="text-sm text-destructive">{itemsStore.finderError}</p>{/if}

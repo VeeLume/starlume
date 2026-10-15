@@ -119,6 +119,15 @@ pub fn run() {
             // a change re-applies text patching so the mission text updates.
             crate::dossier::spawn_startup_fetch(app.handle());
 
+            // Poll the dev tracker's staff feed (module + gate checked per
+            // poll; idle when either is off).
+            crate::devtracker::spawn_poller(app.handle());
+
+            // Read RSI's LIVE patch notes now and then (online-gated; also on
+            // a settled install change — a new build often means new notes).
+            crate::patchnotes::spawn_refresher(app.handle());
+            crate::commlinks::spawn_refresher(app.handle());
+
             // Watch installs for settled build changes (30s stat-only poll)
             // → InstallChanged on the bus → cache invalidation + re-warm.
             watch::spawn(app.handle());

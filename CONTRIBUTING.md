@@ -17,10 +17,14 @@ crates/
 ├── svc-discovery/  SC install discovery, channel selection, build-change events
 ├── svc-data/       ONE DataCore parse + snapshot cache per build, reference catalogs
 ├── svc-dossier/    CIG game-services client: blueprints, inventory, loadouts (gated)
+├── svc-spectrum/   RSI Spectrum client: the staff feed, paced + cached (gated)
+├── svc-patchnotes/ LIVE patch notes from RSI's public pages, paced + cached (online)
+├── svc-commlinks/  newest comm-links from RSI's public listing, cached + first-seen (online)
 ├── svc-log/        ONE Game.log tailer broadcasting typed events (stub)
 ├── svc-sync/       server client: device-token auth, outbox, reference upload (stub)
 ├── mod-langpatch/  Text Patching
 ├── mod-items/      My Items
+├── mod-devtracker/ dev tracker: content filter, author modes, read state (unreleased)
 └── mod-contracts/  contracts (unreleased)
 src-tauri/          shell: module registry, tray, window, settings, auth, updater
 src/                SvelteKit frontend (static SPA)
@@ -51,7 +55,9 @@ A module lands in two halves sharing one id:
    `src-tauri/src/ipc.rs` (then regenerate bindings).
 2. **Frontend** — `src/lib/modules/<id>/` exporting a `ModuleDescriptor`
    (routes under `src/routes/<id>/`, sidebar `nav` entries, optional
-   `onboardingSteps`), added to `src/lib/modules/registry.ts`.
+   `onboardingSteps`, `homeCards` for Home, an `installStatus` column on
+   Home's Game status card, `patchNotes` cards on the News page),
+   added to `src/lib/modules/registry.ts`.
 
 The onboarding picker, the sidebar, and the Settings module list all derive
 from the registry — no wizard or layout edits needed. Module onboarding steps

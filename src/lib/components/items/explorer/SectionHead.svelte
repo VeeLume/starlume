@@ -66,6 +66,6 @@
   .n {
     font-family: var(--font-mono);
     font-size: 0.66rem;
-    color: var(--accent);
+    color: var(--text-faint);
   }
 </style>

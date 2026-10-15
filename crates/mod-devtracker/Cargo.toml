@@ -1,0 +1,17 @@
+[package]
+name = "mod-devtracker"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume dev tracker module — CIG staff posts from Spectrum, filtered by content, with per-author overrides and read state"
+
+[dependencies]
+# The staff feed comes from svc-spectrum (module rule 1: no network here).
+svc-spectrum.workspace = true
+serde.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

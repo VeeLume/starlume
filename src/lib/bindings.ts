@@ -22,7 +22,8 @@ async updateSettings(settings: AppSettings) : Promise<Result<AppSettings, AppErr
 }
 },
 /**
- * List the gRPC sub-features this build knows — drives the Settings toggles.
+ * List the unofficial-API features this build knows — drives the Settings
+ * toggles.
  */
 async listGrpcFeatures() : Promise<GrpcFeatureInfo[]> {
     return await TAURI_INVOKE("list_grpc_features");
@@ -54,9 +55,10 @@ async blueprintsOwned() : Promise<OwnedBlueprintsView> {
 /**
  * Fetch the owned-blueprint set live from CIG's backend and cache it.
  * 
- * **Gated** by `require_grpc("blueprints")` — the master online switch, the
- * gRPC master, and the per-feature allow-list must all be on. A stale/absent
- * launcher session surfaces as an error the UI renders as a sign-in hint.
+ * **Gated** by `require_unofficial("blueprints")` — the master online
+ * switch, the unofficial-API master, and the per-feature allow-list must all
+ * be on. A stale/absent launcher session surfaces as an error the UI renders
+ * as a sign-in hint.
  */
 async blueprintsRefresh() : Promise<Result<OwnedBlueprintsView, AppError>> {
     try {
@@ -317,9 +319,9 @@ async itemsSummary() : Promise<InventorySummaryView> {
  * previous fetch and the last fetch per game build (the archive a future
  * "what changed" compares against).
  * 
- * **Gated** by `require_grpc("items")`; the loadouts ride along only when
- * `require_grpc("loadouts")` passes too. A stale launcher session surfaces
- * as an error the page shows as a sign-in hint.
+ * **Gated** by `require_unofficial("items")`; the loadouts ride along only
+ * when `require_unofficial("loadouts")` passes too. A stale launcher session
+ * surfaces as an error the page shows as a sign-in hint.
  */
 async itemsRefresh() : Promise<Result<InventorySummaryView, AppError>> {
     try {
@@ -337,6 +339,236 @@ async itemsRefresh() : Promise<Result<InventorySummaryView, AppError>> {
 async itemsFinder(channel: string) : Promise<Result<FinderView | null, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("items_finder", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The cached patch notes. **No network, no gate.**
+ */
+async patchNotesOverview() : Promise<PatchNotesOverview> {
+    return await TAURI_INVOKE("patch_notes_overview");
+},
+/**
+ * Refresh now. **Gated** by `require_online()`.
+ */
+async patchNotesRefresh() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("patch_notes_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open a patch-note article in the browser. Only URLs from the cache, only
+ * on RSI's site — the frontend cannot open arbitrary links through this.
+ */
+async patchNotesOpen(url: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("patch_notes_open", { url }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The cached comm-links. **No network, no gate.**
+ */
+async commLinksOverview() : Promise<CommLinksOverview> {
+    return await TAURI_INVOKE("comm_links_overview");
+},
+/**
+ * Refresh now. **Gated** by `require_online()`.
+ */
+async commLinksRefresh() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("comm_links_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open a comm-link, or its video, in the browser. Only URLs from the cache:
+ * a comm-link on RSI's site or a video it embeds — the frontend cannot open
+ * arbitrary links through this.
+ */
+async commLinksOpen(url: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("comm_links_open", { url }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The feed and the module's state. **No network, no gate.**
+ */
+async devtrackerOverview() : Promise<DevtrackerOverview> {
+    return await TAURI_INVOKE("devtracker_overview");
+},
+/**
+ * The follow list, then the staff the feed saw that are not on it. Each
+ * group most active first. **No network, no gate.**
+ */
+async devtrackerAuthors() : Promise<DevAuthorView[]> {
+    return await TAURI_INVOKE("devtracker_authors");
+},
+/**
+ * Set one author's mode (`"always"` | `"filter"` | `"mute"`).
+ */
+async devtrackerSetAuthorMode(authorId: string, mode: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_set_author_mode", { authorId, mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Back to the defaults: the seeded follow list, every author filtered by
+ * content.
+ */
+async devtrackerResetAuthors() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_reset_authors") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Put an account on the follow list (one the feed has seen: id + handle
+ * known locally).
+ */
+async devtrackerFollow(authorId: string, nickname: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_follow", { authorId, nickname }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Take an account off the follow list (its override goes too).
+ */
+async devtrackerUnfollow(authorId: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_unfollow", { authorId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Put an account on the follow list by its Spectrum handle. **Gated**: the
+ * handle → member id lookup is a Spectrum request.
+ */
+async devtrackerFollowHandle(handle: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_follow_handle", { handle }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async devtrackerSetNotifyOps(on: boolean) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_set_notify_ops", { on }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Mark posts read by key.
+ */
+async devtrackerMarkRead(keys: string[]) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_mark_read", { keys }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Mark everything up to now read.
+ */
+async devtrackerMarkAllRead() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_mark_all_read") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open a post on Spectrum in the user's browser and mark it read. The URL
+ * comes from the cached feed, never from the caller — the frontend cannot
+ * open arbitrary links through this.
+ */
+async devtrackerOpenPost(key: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_open_post", { key }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open the cached Hotfix Central thread on Spectrum. The URL comes from the
+ * cache, never from the caller.
+ */
+async devtrackerOpenHotfix() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_open_hotfix") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Fetch now. **Gated** by `require_unofficial("devtracker")`; errors
+ * (launcher session, throttle) come back to the caller.
+ */
+async devtrackerRefresh() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Whether the launcher is installed and the game runs. Local only: a
+ * file check and a process scan, no network.
+ */
+async launcherStatus() : Promise<LauncherStatusView> {
+    return await TAURI_INVOKE("launcher_status");
+},
+/**
+ * Start the RSI launcher, or bring the running one forward (it is
+ * single-instance). No arguments: it ignores them. Local, no network gate —
+ * the launcher is the user's own app and does its own sign-in.
+ */
+async launcherOpen() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("launcher_open") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The channels this account may play, with their current builds — the
+ * launcher's game library. Cached for [`LIBRARY_MAX_AGE`]. **Gated** by
+ * `require_unofficial("launcher")`.
+ */
+async launcherLibrary() : Promise<Result<LibraryChannelView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("launcher_library") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -498,7 +730,19 @@ export type ActivityKind =
 /**
  * svc-dossier inventory fetch (stashes, entitlements, loadouts).
  */
-"inventory"
+"inventory" | 
+/**
+ * mod-devtracker: the first fill of the staff feed (svc-spectrum).
+ */
+"devtracker" | 
+/**
+ * svc-patchnotes: reading RSI's patch-note pages.
+ */
+"patch-notes" | 
+/**
+ * svc-commlinks: reading RSI's comm-link listing.
+ */
+"comm-links"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -572,27 +816,33 @@ server_url: string | null;
 enabled_modules: string[]; 
 /**
  * Master online switch (default ON). Off → no Discord auth, no RSI
- * fetch, no gRPC — no network calls except **update checks** (the one
- * documented exception; see CLAUDE.md). Enforced via
+ * fetch, no unofficial API — no network calls except **update checks**
+ * (the one documented exception; see CLAUDE.md). Enforced via
  * [`AppState::require_online`](crate::AppState).
  */
 online_enabled: boolean; 
 /**
- * Master switch for CIG game-services (gRPC) calls — the ToS-grey
- * surface (default OFF, opt-in). Preserved but inert while
- * `online_enabled` is off. Enforced via `AppState::require_grpc`.
+ * Master switch for **unofficial API** calls — the ToS-grey surface
+ * (default OFF, opt-in): CIG's game-services gRPC backend and RSI's
+ * Spectrum REST API, any RSI/CIG API Starlume is not an official client
+ * of. Named for gRPC, its first member; the meaning widened when
+ * Spectrum joined (2026-10), the name stays (settings rule: never
+ * rename). Preserved but inert while `online_enabled` is off. Enforced
+ * via `AppState::require_unofficial`.
  */
 grpc_enabled: boolean; 
 /**
  * One-time ToS acknowledgement — set automatically the first time
  * `grpc_enabled` flips on (the UI shows the consent dialog before that).
+ * Covers every unofficial API, like `grpc_enabled`.
  */
 grpc_consented: boolean; 
 /**
- * Per-sub-feature allow-list for gRPC calls (ids from
- * [`GRPC_FEATURES`]), so users can enable e.g. blueprints but not
- * missions. A feature is live only when `online_enabled` +
- * `grpc_enabled` + membership here all hold.
+ * Per-feature allow-list for unofficial API calls (ids from
+ * [`GRPC_FEATURES`] — gRPC and Spectrum features alike, despite the
+ * name), so users can enable e.g. blueprints but not the dev tracker. A
+ * feature is live only when `online_enabled` + `grpc_enabled` +
+ * membership here all hold.
  */
 grpc_features: string[]; 
 /**
@@ -636,7 +886,16 @@ archive_all_builds: boolean;
 /**
  * Archive PTU / Tech Preview builds too. Default off: Live/Hotfix only.
  */
-archive_test_channels: boolean }
+archive_test_channels: boolean; 
+/**
+ * The Home page layout: the cards the user arranged, in order, each
+ * shown or hidden. Ids are `<owner>:<card>` (`shell:game-status`,
+ * `items:summary`). Empty = the default layout. Cards not listed — a
+ * module enabled later — follow the listed ones at their default
+ * visibility; listed ids no longer available are skipped, not dropped,
+ * so re-enabling a module restores its placement.
+ */
+home_cards: HomeCardPref[] }
 export type ArmourSetView = { key: string; 
 /**
  * "Sol-III Aviator".
@@ -647,6 +906,14 @@ name: string;
  * `Legs`, `Undersuit`, `Backpack`), in that order.
  */
 pieces: string[] }
+/**
+ * An article only listed (older than the parsed window).
+ */
+export type ArticleRefView = { url: string; title: string; version: string | null; 
+/**
+ * Relative, as RSI's index shows it ("1 year ago").
+ */
+age_text: string }
 export type AuthStatus = { 
 /**
  * A device token is present in the credential store.
@@ -663,8 +930,59 @@ server_configured: boolean;
 dev_profile: string | null }
 export type BpPoolEntryView = { blueprint_record_guid: string; name: string | null; weight: number }
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
+export type BuildInfoView = { label: string; value: string }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
+/**
+ * One comm-link as the News page shows it.
+ */
+export type CommLinkView = { 
+/**
+ * Comm-link id (a string: specta exports no u64).
+ */
+id: string; url: string; title: string; 
+/**
+ * `"post"` | `"video"` | `"slideshow"` | `"poll"` | another slug.
+ */
+kind: string; 
+/**
+ * Channel slug from the URL ("transmission", "engineering", …).
+ */
+channel: string | null; 
+/**
+ * Text only; may be empty.
+ */
+summary: string; comments: number | null; 
+/**
+ * When it appeared, epoch ms: first seen by Starlume, or estimated from
+ * its age on the first fill.
+ */
+published_ms: number | null; 
+/**
+ * The downloaded card image for this position on the page (wide for
+ * the newest, card for the next few, thumbnail after), as a local path
+ * for `convertFileSrc` — or a smaller size while the right one is
+ * missing. `null` = none on disk.
+ */
+image: string | null; 
+/**
+ * The embedded video's own page (YouTube or Vimeo) for a video
+ * comm-link, once looked up — opens via [`comm_links_open`] like `url`.
+ */
+video_url: string | null }
+export type CommLinksOverview = { 
+/**
+ * The online switch — off means no refreshes (the cache still shows).
+ */
+online: boolean; 
+/**
+ * When last refreshed, epoch seconds; `null` = never.
+ */
+fetched_at: number | null; last_error: string | null; 
+/**
+ * Newest first.
+ */
+items: CommLinkView[] }
 export type CraftedPropertyView = { 
 /**
  * `CraftingGameplayPropertyDef` CRC.
@@ -753,6 +1071,110 @@ export type DataTierView =
  * Nothing cached — full `Data.p4k` parse, ~30s+.
  */
 "live"
+/**
+ * One staff account in the follow list.
+ */
+export type DevAuthorView = { id: string; nickname: string; 
+/**
+ * `"always"` | `"filter"` | `"mute"`.
+ */
+mode: string; 
+/**
+ * Posts in the cached feed over the last [`VIEW_DAYS`] days.
+ */
+posts: number; 
+/**
+ * Of those, how many the content filter keeps.
+ */
+kept: number; 
+/**
+ * On the follow list; `false` = staff seen in the feed, not listed.
+ */
+listed: boolean }
+/**
+ * One post as the page shows it (specta mirror; module crates stay
+ * specta-free).
+ */
+export type DevPostView = { 
+/**
+ * Read key (`kind:id`).
+ */
+key: string; 
+/**
+ * `"chat"` | `"thread"` | `"reply"`.
+ */
+kind: string; author_id: string; author: string; 
+/**
+ * The chat lobby or forum channel.
+ */
+place: string | null; 
+/**
+ * The forum thread's title, for threads and replies.
+ */
+subject: string | null; 
+/**
+ * Plain text, entities decoded, line breaks kept.
+ */
+body: string; 
+/**
+ * Epoch milliseconds.
+ */
+time_ms: number; url: string; 
+/**
+ * On the feed; `false` = filtered out (shown only with the toggle).
+ */
+shown: boolean; 
+/**
+ * Why — the filter's reason, or the author override.
+ */
+reason: string; 
+/**
+ * A strong game-ops signal (maintenance, PTU, hotfix, known issue).
+ */
+ops: boolean; unread: boolean; 
+/**
+ * What the post answers, quoted (forum parent / thread opener / the
+ * mentioned member's latest chat message). `null` until resolved or when
+ * there is nothing to quote.
+ */
+quote: QuoteView | null }
+/**
+ * Whether the tracker can fetch right now, and if not, why.
+ */
+export type DevtrackerGate = { state: "open" } | 
+/**
+ * The online master or the unofficial-API opt-in is off.
+ */
+{ state: "closed"; reason: string }
+export type DevtrackerOverview = { gate: DevtrackerGate; 
+/**
+ * When the feed was last fetched, epoch seconds; `null` = never.
+ */
+fetched_at: number | null; 
+/**
+ * Spectrum is rate-limiting: paused until (epoch seconds).
+ */
+throttled_until: number | null; 
+/**
+ * The last poll's error, if it failed.
+ */
+last_error: string | null; 
+/**
+ * The last [`VIEW_DAYS`] days, newest first, filtered-out posts included.
+ */
+posts: DevPostView[]; 
+/**
+ * Unread posts on the feed.
+ */
+unread: number; notify_ops: boolean; 
+/**
+ * Patch-note threads in the whole cache, newest first.
+ */
+patch_notes: PatchNoteView[]; 
+/**
+ * Hotfix Central, once read; `null` = never read, or none pinned.
+ */
+hotfix: HotfixView | null }
 export type EventLadderView = { 
 /**
  * Category label; `null` for the overall ladder.
@@ -792,13 +1214,67 @@ export type FriendGroup = { id: string; name: string; is_owner: boolean; members
 export type FriendUser = { user_id: string; username: string }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
- * A gRPC sub-feature users can individually allow. The registry grows as
- * dossier-backed features land (blueprints, missions, inventory,
- * reputation, entitlements/ships…) — each new gRPC call site names its
- * feature id here and gates through `AppState::require_grpc(id)`.
+ * An unofficial-API feature users can individually allow (named for gRPC,
+ * its first member; Spectrum features are listed too). The registry grows
+ * as features land (blueprints, missions, inventory, reputation, the dev
+ * tracker…) — each new unofficial-API call site names its feature id here
+ * and gates through `AppState::require_unofficial(id)`.
  */
 export type GrpcFeatureInfo = { id: string; name: string; description: string }
 export type HolderView = { geid: string; name: string; item_type: string }
+/**
+ * One card's place on Home (see [`AppSettings::home_cards`]).
+ */
+export type HomeCardPref = { id: string; visible: boolean }
+export type HotfixEntryView = { 
+/**
+ * ISO date (`2026-10-13`).
+ */
+date: string | null; 
+/**
+ * "Hotfix 12913470 - Now on the LIVE channel".
+ */
+headline: string; 
+/**
+ * Changelists it names (strings: specta exports no u64).
+ */
+builds: string[]; 
+/**
+ * `"HOTFIX"` | `"LIVE"`; `null` for server-only canaries.
+ */
+channel: string | null; 
+/**
+ * What it fixes, one line each.
+ */
+items: string[] }
+/**
+ * Hotfix Central: the HOTFIX channel's state and the newest hotfixes.
+ */
+export type HotfixView = { 
+/**
+ * The thread title ("Star Citizen Alpha 4.10.2 LIVE - Hotfix Central").
+ */
+subject: string; 
+/**
+ * The version it covers ("4.10.2").
+ */
+version: string | null; 
+/**
+ * "Status: Hotfix Channel Currently OPEN/CLOSED"; `null` = not stated.
+ */
+channel_open: boolean | null; 
+/**
+ * The LIVE client build the post names.
+ */
+live_client_cl: string | null; 
+/**
+ * When CIG last edited the post, epoch ms.
+ */
+edited_ms: number; 
+/**
+ * Newest first, at most [`HOTFIX_ENTRIES`].
+ */
+entries: HotfixEntryView[] }
 export type IngredientView = { 
 /**
  * `resource` | `item` | `other`.
@@ -870,6 +1346,27 @@ selected: boolean;
  */
 state: string; patched_at: string | null }
 export type LangpatchOverview = { auto_patch: boolean; channels: string[]; language_pack: string | null; patchers: PatcherInfoView[]; installs: LangpatchInstallView[] }
+export type LauncherStatusView = { 
+/**
+ * The RSI launcher is installed where Starlume looks for it.
+ */
+launcher_found: boolean; 
+/**
+ * `StarCitizen.exe` (or its EAC bootstrapper) is running.
+ */
+game_running: boolean }
+/**
+ * One channel the account may play, as the launcher would install it.
+ */
+export type LibraryChannelView = { 
+/**
+ * `"LIVE"`, `"PTU"`, ….
+ */
+id: string; 
+/**
+ * `"4.10.2-live.12913470"` — compare with the install's version label.
+ */
+version_label: string }
 export type LoadoutSlotView = { path: string[]; 
 /**
  * `null` = an emptied port.
@@ -978,6 +1475,43 @@ stock: LoadoutSlotView[] | null;
  * The armour set the piece belongs to, from the game data.
  */
 set: ArmourSetView | null }
+/**
+ * A patch-note thread and what its title says.
+ */
+export type PatchNoteView = { 
+/**
+ * Read key of the thread opener (opens it on Spectrum).
+ */
+key: string; subject: string; version: string | null; 
+/**
+ * `"LIVE"`, `"PTU"`, `"EPTU"`, `"Tech Preview"`, `"Hotfix"`, `"Evocati"`.
+ */
+channel: string | null; build: string | null; 
+/**
+ * `"RC2"`, `"Wave 1"`.
+ */
+stage: string | null; author: string; 
+/**
+ * Epoch milliseconds.
+ */
+time_ms: number }
+export type PatchNotesOverview = { 
+/**
+ * The online switch — off means no refreshes (the cache still shows).
+ */
+online: boolean; 
+/**
+ * When last refreshed, epoch seconds; `null` = never.
+ */
+fetched_at: number | null; last_error: string | null; 
+/**
+ * Parsed releases, newest first. `releases[0]` is what LIVE is on.
+ */
+releases: ReleaseView[]; 
+/**
+ * Older articles, listed only.
+ */
+older: ArticleRefView[] }
 export type PatcherConfigUpdate = { enabled: boolean | null; options: Partial<{ [key in string]: string }> }
 export type PatcherInfoView = { id: string; name: string; description: string; enabled: boolean; 
 /**
@@ -1008,6 +1542,69 @@ key: string }
  */
 export type PreviewTextView = { key: string | null; original: string; patched: string }
 export type Profile = { username: string; avatar_url: string | null }
+export type QuoteView = { 
+/**
+ * `"reply"` | `"opener"` | `"mention"`.
+ */
+kind: string; author: string; 
+/**
+ * Plain text, line breaks kept; empty when erased.
+ */
+text: string; erased: boolean }
+/**
+ * One LIVE release as the page and Home show it (specta mirror of
+ * `sc_dossier::patchnotes::Release`, overview fields only).
+ */
+export type ReleaseView = { 
+/**
+ * Stable key (title + date as written).
+ */
+key: string; 
+/**
+ * The RSI article it is in (opens via [`patch_notes_open`]).
+ */
+article_url: string; 
+/**
+ * "Star Citizen Alpha 4.10.2 LIVE".
+ */
+title: string; 
+/**
+ * "4.10.2" (or "4.10" as the title writes it).
+ */
+version: string | null; 
+/**
+ * "LIVE".
+ */
+channel: string | null; 
+/**
+ * The patch name ("RSI Discovery Month"; "Update" on point releases).
+ */
+name: string | null; 
+/**
+ * ISO date (`2026-10-09`) when the banner date parsed.
+ */
+date: string | null; 
+/**
+ * The banner date as written.
+ */
+date_text: string; 
+/**
+ * "4.10.2-LIVE.12881860".
+ */
+build: string | null; 
+/**
+ * "12881860".
+ */
+changelist: string | null; build_info: BuildInfoView[]; 
+/**
+ * One-line headline items. May be empty (then link out only).
+ */
+highlights: string[]; bug_fixes: number | null; known_issues: number | null; 
+/**
+ * The article's card image on disk (local path for `convertFileSrc`);
+ * only the newest LIVE release's article has one. `null` = none.
+ */
+image: string | null }
 export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }
 export type ResourceLegalityView = { 

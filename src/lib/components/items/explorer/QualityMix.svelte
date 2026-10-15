@@ -11,7 +11,7 @@
 
   const cells = $derived(qualityMix(list));
   const heat = (band: number, share: number) =>
-    `color-mix(in srgb, ${band >= 5 ? "var(--accent)" : "var(--text-dim)"} ${Math.round(22 + 78 * share)}%, transparent)`;
+    `color-mix(in srgb, ${band >= 5 ? "var(--hue-quality)" : "var(--text-dim)"} ${Math.round(22 + 78 * share)}%, transparent)`;
 </script>
 
 {#if isRated(list)}

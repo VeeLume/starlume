@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Onboarding: online + gRPC privacy posture. A framework step (not
+  // Onboarding: online + unofficial-API privacy posture. A framework step (not
   // module-specific) — every SC feature respects these switches. Nothing is
   // required here, so the wizard's Next stays enabled; we only surface the
   // choice early so the posture is deliberate.
@@ -7,6 +7,7 @@
   import { commands, type GrpcFeatureInfo } from "$lib/bindings";
   import type { OnboardingStepProps } from "$lib/modules/types";
   import { settingsStore, applySettings } from "$lib/state/settings.svelte";
+  import { UNOFFICIAL_CONSENT } from "$lib/unofficial";
   import { onMount } from "svelte";
 
   // Typed for the step contract; this step never blocks Next (all optional).
@@ -21,13 +22,10 @@
 
   async function toggleGrpc(on: boolean) {
     if (on && settings && !settings.grpc_consented) {
-      const consent = await ask(
-        "Live game-services sync connects to CIG's backend using your launcher " +
-          "session. This is not an official API — it sits in a ToS-grey area. " +
-          "Calls are read-only, manual or startup-only, never polled. " +
-          "Your account, your risk.\n\nEnable game-services calls?",
-        { title: "Game-services (gRPC) consent", kind: "warning" },
-      );
+      const consent = await ask(UNOFFICIAL_CONSENT.message, {
+        title: UNOFFICIAL_CONSENT.title,
+        kind: "warning",
+      });
       if (!consent) return;
     }
     await applySettings({ grpc_enabled: on });
@@ -54,7 +52,7 @@
     />
     <span>
       <strong>Enable online features</strong>
-      <span class="dim">RSI profile lookups and the game-services features you opt into below. Off = no network at all (except update checks).</span>
+      <span class="dim">RSI profile lookups and the unofficial-API features you opt into below. Off = no network at all (except update checks).</span>
     </span>
   </label>
 
@@ -66,8 +64,8 @@
       onchange={(e) => toggleGrpc(e.currentTarget.checked)}
     />
     <span>
-      <strong>Allow game-services (gRPC) calls</strong>
-      <span class="dim">Reads live account data from CIG's backend. ToS-grey, read-only, opt-in per feature.</span>
+      <strong>Allow unofficial API calls</strong>
+      <span class="dim">Reads your data from RSI and CIG services Starlume is not an official client of. ToS-grey, read-only, opt-in per feature.</span>
     </span>
   </label>
 

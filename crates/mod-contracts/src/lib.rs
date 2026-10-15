@@ -34,7 +34,7 @@
 //! ## Module rules that bind here
 //!
 //! - Network access (contract fetch, rep fetch) goes through a service /
-//!   the shell behind `AppState::require_grpc("<feature>")` — feature ids
+//!   the shell behind `AppState::require_unofficial("<feature>")` — feature ids
 //!   registered in `settings::GRPC_FEATURES` when the first real call
 //!   lands. This module never talks to the network itself.
 //! - Reference data (mission catalog) comes from svc-data; this module

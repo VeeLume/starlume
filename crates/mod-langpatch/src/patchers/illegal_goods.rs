@@ -36,16 +36,17 @@ impl crate::Patcher for IllegalGoods {
         vec![PatcherOption {
             id: "display".into(),
             label: "Display style".into(),
-            description: "How to mark illegal goods in the commodity name".into(),
+            description: "How to mark illegal goods in the commodity name \n                          (Emphasised: a distinct style for drugs vs contraband)"
+                .into(),
             kind: OptionKind::Choice {
                 choices: vec![
                     ChoiceOption {
                         value: "color_coded".into(),
-                        label: "Emphasised (distinct style for drugs vs contraband)".into(),
+                        label: "Emphasised".into(),
                     },
                     ChoiceOption {
                         value: "simple".into(),
-                        label: "Plain [!] prefix".into(),
+                        label: "Plain [!]".into(),
                     },
                 ],
             },

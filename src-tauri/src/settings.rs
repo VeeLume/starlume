@@ -36,21 +36,27 @@ pub struct AppSettings {
     /// not in this list stay invisible in the UI.
     pub enabled_modules: Vec<String>,
     /// Master online switch (default ON). Off → no Discord auth, no RSI
-    /// fetch, no gRPC — no network calls except **update checks** (the one
-    /// documented exception; see CLAUDE.md). Enforced via
+    /// fetch, no unofficial API — no network calls except **update checks**
+    /// (the one documented exception; see CLAUDE.md). Enforced via
     /// [`AppState::require_online`](crate::AppState).
     pub online_enabled: bool,
-    /// Master switch for CIG game-services (gRPC) calls — the ToS-grey
-    /// surface (default OFF, opt-in). Preserved but inert while
-    /// `online_enabled` is off. Enforced via `AppState::require_grpc`.
+    /// Master switch for **unofficial API** calls — the ToS-grey surface
+    /// (default OFF, opt-in): CIG's game-services gRPC backend and RSI's
+    /// Spectrum REST API, any RSI/CIG API Starlume is not an official client
+    /// of. Named for gRPC, its first member; the meaning widened when
+    /// Spectrum joined (2026-10), the name stays (settings rule: never
+    /// rename). Preserved but inert while `online_enabled` is off. Enforced
+    /// via `AppState::require_unofficial`.
     pub grpc_enabled: bool,
     /// One-time ToS acknowledgement — set automatically the first time
     /// `grpc_enabled` flips on (the UI shows the consent dialog before that).
+    /// Covers every unofficial API, like `grpc_enabled`.
     pub grpc_consented: bool,
-    /// Per-sub-feature allow-list for gRPC calls (ids from
-    /// [`GRPC_FEATURES`]), so users can enable e.g. blueprints but not
-    /// missions. A feature is live only when `online_enabled` +
-    /// `grpc_enabled` + membership here all hold.
+    /// Per-feature allow-list for unofficial API calls (ids from
+    /// [`GRPC_FEATURES`] — gRPC and Spectrum features alike, despite the
+    /// name), so users can enable e.g. blueprints but not the dev tracker. A
+    /// feature is live only when `online_enabled` + `grpc_enabled` +
+    /// membership here all hold.
     pub grpc_features: Vec<String>,
     /// Show native OS toasts for notifications raised while the window is
     /// hidden/minimized (companion mode). Default ON — a hidden tray app has
@@ -82,6 +88,20 @@ pub struct AppSettings {
     pub archive_all_builds: bool,
     /// Archive PTU / Tech Preview builds too. Default off: Live/Hotfix only.
     pub archive_test_channels: bool,
+    /// The Home page layout: the cards the user arranged, in order, each
+    /// shown or hidden. Ids are `<owner>:<card>` (`shell:game-status`,
+    /// `items:summary`). Empty = the default layout. Cards not listed — a
+    /// module enabled later — follow the listed ones at their default
+    /// visibility; listed ids no longer available are skipped, not dropped,
+    /// so re-enabling a module restores its placement.
+    pub home_cards: Vec<HomeCardPref>,
+}
+
+/// One card's place on Home (see [`AppSettings::home_cards`]).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct HomeCardPref {
+    pub id: String,
+    pub visible: bool,
 }
 
 fn default_true() -> bool {
@@ -109,14 +129,16 @@ impl Default for AppSettings {
             archive_releases: 3,
             archive_all_builds: false,
             archive_test_channels: false,
+            home_cards: Vec::new(),
         }
     }
 }
 
-/// A gRPC sub-feature users can individually allow. The registry grows as
-/// dossier-backed features land (blueprints, missions, inventory,
-/// reputation, entitlements/ships…) — each new gRPC call site names its
-/// feature id here and gates through `AppState::require_grpc(id)`.
+/// An unofficial-API feature users can individually allow (named for gRPC,
+/// its first member; Spectrum features are listed too). The registry grows
+/// as features land (blueprints, missions, inventory, reputation, the dev
+/// tracker…) — each new unofficial-API call site names its feature id here
+/// and gates through `AppState::require_unofficial(id)`.
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct GrpcFeatureInfo {
     pub id: String,
@@ -124,7 +146,8 @@ pub struct GrpcFeatureInfo {
     pub description: String,
 }
 
-/// Compiled-in gRPC sub-features.
+/// Compiled-in unofficial-API features: `(id, name, description)`. The
+/// name is historical — Spectrum features belong here as much as gRPC ones.
 pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
     (
         "blueprints",
@@ -141,14 +164,40 @@ pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
         "Saved loadouts",
         "Read your ships' stock and saved loadouts, to show them beside the fitted state in My Items.",
     ),
+    (
+        "devtracker",
+        "Dev tracker",
+        "Read the CIG staff posts feed from Spectrum (RSI's forums and chat) with your launcher session, for the dev tracker.",
+    ),
 ];
 
-/// List the gRPC sub-features this build knows — drives the Settings toggles.
+/// Unofficial-API features whose consumer hasn't shipped: listed in debug
+/// builds only, so release users never see a toggle that does nothing — the
+/// Rust half of `$lib/unreleased` for features, like the debug-only half of
+/// `modules::registry()`. Move an entry into [`GRPC_FEATURES`] when its
+/// consumer ships.
+const UNRELEASED_GRPC_FEATURES: &[(&str, &str, &str)] = &[(
+    "launcher",
+    "Launcher library",
+    "Read which game channels your account can play and their current builds from the RSI launcher's API, so Home can tell when an install needs an update.",
+)];
+
+/// The unofficial-API features this build offers.
+fn grpc_features() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str)> {
+    let unreleased: &[_] = if cfg!(debug_assertions) {
+        UNRELEASED_GRPC_FEATURES
+    } else {
+        &[]
+    };
+    GRPC_FEATURES.iter().chain(unreleased)
+}
+
+/// List the unofficial-API features this build knows — drives the Settings
+/// toggles.
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn list_grpc_features() -> Vec<GrpcFeatureInfo> {
-    GRPC_FEATURES
-        .iter()
+    grpc_features()
         .map(|(id, name, description)| GrpcFeatureInfo {
             id: (*id).into(),
             name: (*name).into(),
@@ -210,6 +259,10 @@ pub(crate) fn update_settings(
     }
     settings.save()?;
     *state.settings.lock().unwrap() = settings.clone();
+    // The change may have opened the dev tracker's gate or enabled it.
+    crate::devtracker::nudge();
+    crate::patchnotes::nudge();
+    crate::commlinks::nudge();
     // A tighter archive retention applies right away; a looser one only
     // keeps future builds (pruned ones are gone).
     if retention(&settings) != old_retention {
@@ -225,4 +278,24 @@ fn retention(s: &AppSettings) -> (u32, bool, bool) {
         s.archive_all_builds,
         s.archive_test_channels,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unreleased_features_are_listed_in_debug_builds_only() {
+        let ids: Vec<String> = list_grpc_features().into_iter().map(|f| f.id).collect();
+        assert!(ids.iter().any(|id| id == "blueprints"));
+        assert_eq!(
+            ids.iter().any(|id| id == "devtracker"),
+            cfg!(debug_assertions)
+        );
+        // One id, one toggle.
+        let mut unique = ids.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), ids.len());
+    }
 }

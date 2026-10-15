@@ -10,12 +10,15 @@ import type { ModuleDescriptor } from "./types";
 import { langpatchModule } from "./langpatch/descriptor";
 import { contractsModule } from "./contracts/descriptor";
 import { itemsModule } from "./items/descriptor";
+import { devtrackerModule } from "./devtracker/descriptor";
 import { SHOW_UNRELEASED } from "$lib/unreleased";
 
 export const moduleRegistry: ModuleDescriptor[] = [
+  // Unreleased ones are dev-build only — see $lib/unreleased (mirrors
+  // modules::registry() in Rust, same order).
+  devtrackerModule,
   langpatchModule,
   itemsModule,
-  // Unreleased — see $lib/unreleased (mirrors modules::registry() in Rust).
   ...(SHOW_UNRELEASED ? [contractsModule] : []),
 ];
 

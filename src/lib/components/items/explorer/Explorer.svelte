@@ -1,12 +1,18 @@
 <script lang="ts">
-  // The explorer: the place tree · what the open place holds · a detail
-  // pane that never moves. One surface, three views over the same tree:
-  // Items (containers browse by category), Ships (where every ship is; a
-  // ship opens on its loadout) and Resources (every material below the
-  // place, by quality). No inline expanders.
+  // The explorer, three views over one tree: Items (containers browse by
+  // category), Ships (where every ship is; a ship opens on its loadout) and
+  // Resources (every material below the place, by quality).
+  //
+  // Layout (design pass, 2026-10-15): one wide pane, two at most. The
+  // breadcrumb navigates — each crumb's dropdown lists its neighbours, the
+  // trailing "Inside" what the place holds, and Places opens the whole tree
+  // as a popover. The place name, filters and category bar span the full
+  // width and never move; the item sheet (Detail) opens beside the cards
+  // only while something is picked, as tall as they are (✕ or Esc).
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { Surface, storedValue } from "@veelume/ui";
+  import { Button, Popup } from "@veelume/ui";
+  import { ChevronDown, Globe, X } from "lucide-svelte";
   import { categoryOf } from "../model/classify";
   import { materials } from "../model/resources";
   import { stackIdentical } from "../model/stack";
@@ -36,7 +42,7 @@
   import SectionHead from "./SectionHead.svelte";
   import ShipView from "./ShipView.svelte";
   import TreeNode from "./TreeNode.svelte";
-  import { nodeIcon, type View } from "./ui";
+  import { fmtN, nodeIcon, type View } from "./ui";
 
   let { tree, browse }: { tree: Tree; browse: ItemsBrowse } = $props();
 
@@ -58,13 +64,9 @@
     untrack(() => path.forEach((id) => open.add(id)));
   });
 
-  // The detail pane's docked state and width: per-device preferences.
-  const detailOpen = storedValue<boolean>("starlume.items.detailOpen", true, (x): x is boolean => typeof x === "boolean");
-  const detailWidth = storedValue<number | null>(
-    "starlume.items.detailWidth",
-    null,
-    (x): x is number | null => x === null || typeof x === "number",
-  );
+  // The navigation popovers: Places (the tree), or one crumb's menu.
+  let placesOpen = $state(false);
+  let menuFor = $state<string | null>(null);
 
   // ── What counts ──────────────────────────────────────────────────────────
   const matches = (n: Node) =>
@@ -113,11 +115,22 @@
 
   // ── Navigation ───────────────────────────────────────────────────────────
   /** Open a place (and select something in it). A container keeps no
-   *  filters from the last one. */
+   *  filters from the last one. Opening a ship selects it (its sheet is
+   *  the ship's); a place opens with nothing picked, the sheet closed. */
   function go(folder: Node, item?: Node) {
-    browse.setMany({ at: folder.id, sel: (item ?? folder).id, cat: "", sub: "", w: "", kit: "" });
+    placesOpen = false;
+    menuFor = null;
+    const sel = item ?? (folder.type === "ship" ? folder : null);
+    browse.setMany({ at: folder.id, sel: sel?.id ?? "", cat: "", sub: "", w: "", kit: "" });
   }
   const select = (n: Node) => browse.set("sel", n.id);
+  const closeSheet = () => browse.set("sel", "");
+  function onkeydown(e: KeyboardEvent) {
+    if (e.key !== "Escape" || placesOpen || menuFor) return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest("input, textarea, select")) return;
+    if (sel) closeSheet();
+  }
   function setView(next: View) {
     if (next === view) return;
     const leaveGroup = next !== "ships" && ancestors(at).some((a) => a.type === "place" && a.level === "group");
@@ -161,19 +174,19 @@
     return [...m.values()].sort((a, b) => b.list.length - a.list.length);
   });
 
-  /** What the detail pane shows: the selection, else the answer the body
-   *  leads with (the first search hit, the best material). */
+  /** What the sheet shows: the selection while it is in view; nothing
+   *  (the sheet closed) otherwise. */
   const shown = $derived.by<Node | null>(() => {
+    if (!sel) return null;
     if (resMode) {
-      if (sel?.type === "item" && sel.item.resource && resList.some((x) => x.item.resource!.name === sel.item.resource!.name)) return sel;
-      return materials(resList, min).sort((a, b) => b.best - a.best)[0]?.nodes[0] ?? null;
+      return sel.type === "item" && sel.item.resource && resList.some((x) => x.item.resource!.name === sel.item.resource!.name)
+        ? sel
+        : null;
     }
     if (filtering && !shipsMode && at.type !== "ship") {
-      const all = hits.flatMap((g) => g.list);
-      if (sel && all.includes(sel as ItemNode)) return sel;
-      return hits.length ? stackIdentical(hits[0].list)[0].node : null;
+      return hits.some((g) => g.list.includes(sel as ItemNode)) ? sel : null;
     }
-    return sel ?? at;
+    return sel;
   });
   const here = $derived(
     shown?.type === "item" && shown.parent
@@ -183,20 +196,85 @@
       : [],
   );
   const crumbs = $derived(ancestors(at));
+  /** A crumb's dropdown: its neighbours (the parent's places). */
+  const menuOf = (k: number) => (k > 0 ? kidsOf(crumbs[k - 1]) : []);
+  const inside = $derived(kidsOf(at));
+  const summary = $derived(
+    shipsMode
+      ? `${fmtN(count(at))} ${count(at) === 1 ? "ship" : "ships"}`
+      : resMode
+        ? `${fmtN(count(at))} ${count(at) === 1 ? "material" : "materials"}`
+        : `${fmtN(count(at))} ${count(at) === 1 ? "item" : "items"}`,
+  );
+  const browsing = $derived(!resMode && !shipsMode && at.type !== "ship" && !filtering);
   const craftedCount = $derived(units(tree.root, (x) => visible(x, bricked) && !!x.item.crafted));
   const placeholder = $derived(shipsMode ? "Find a ship…" : resMode ? "Find a material…" : "Find an item, anywhere…");
 </script>
 
+<svelte:window {onkeydown} />
+
+{#snippet placeMenu(nodes: Node[], label: string)}
+  <div class="menu" role="menu" aria-label={label}>
+    {#each nodes as n (n.id)}
+      {@const Icon = nodeIcon(n)}
+      <button type="button" class="menu-row" class:cur={n === at} role="menuitem" onclick={() => go(n)}>
+        <Icon size={14} /><span class="menu-name">{n.name}</span><span class="menu-n">{fmtN(count(n))}</span>
+      </button>
+    {/each}
+  </div>
+{/snippet}
+
 <div class="explorer">
-  <div class="tools">
-    <input
-      class="input search"
-      type="search"
-      value={v.q}
-      placeholder={placeholder}
-      aria-label={placeholder}
-      oninput={(e) => browse.set("q", e.currentTarget.value)}
-    />
+  <div class="navrow">
+    <div class="anchor">
+      <Button variant="outline" onclick={() => ((placesOpen = !placesOpen), (menuFor = null))}>
+        <Globe size={14} /> Places
+      </Button>
+      <Popup open={placesOpen} onclose={() => (placesOpen = false)} label="Places" class="places-pop">
+        <div role="tree">
+          <TreeNode node={tree.root} depth={0} {open} forceOpen={!!q} {isAt} {count} {kidsOf} ongo={(n) => go(n)} />
+        </div>
+      </Popup>
+    </div>
+    <nav class="crumbs" aria-label="Where">
+      {#each crumbs as c, k (c.id)}
+        {#if k > 0}<span class="sep">›</span>{/if}
+        {@const menu = menuOf(k)}
+        <span class="anchor crumb-wrap">
+          <button type="button" class="crumb" class:cur={c === at} onclick={() => go(c)}>{c.name}</button>
+          {#if menu.length > 1}
+            <button
+              type="button"
+              class="chev"
+              title="Other places here"
+              aria-label="Other places beside {c.name}"
+              onclick={() => ((menuFor = menuFor === c.id ? null : c.id), (placesOpen = false))}
+            >
+              <ChevronDown size={13} />
+            </button>
+            <Popup open={menuFor === c.id} onclose={() => (menuFor = null)} label="Beside {c.name}" class="menu-pop">
+              {@render placeMenu(menu, `Beside ${c.name}`)}
+            </Popup>
+          {/if}
+        </span>
+      {/each}
+      {#if inside.length}
+        <span class="sep">›</span>
+        <span class="anchor crumb-wrap">
+          <button
+            type="button"
+            class="crumb inside"
+            onclick={() => ((menuFor = menuFor === "inside" ? null : "inside"), (placesOpen = false))}
+          >
+            Inside <ChevronDown size={13} />
+          </button>
+          <Popup open={menuFor === "inside"} onclose={() => (menuFor = null)} label="Inside {at.name}" class="menu-pop">
+            {@render placeMenu(inside, `Inside ${at.name}`)}
+          </Popup>
+        </span>
+      {/if}
+    </nav>
+    <span class="grow"></span>
     {#if view === "items"}
       <ChipButton on={crafted} n={craftedCount} onclick={() => browse.setMany({ crafted: crafted ? "" : "1", sel: "" })}>Crafted</ChipButton>
     {/if}
@@ -205,190 +283,305 @@
     {/if}
   </div>
 
-  <Surface.Supporting
-    class="explorer-panes"
-    title="Details"
-    open={detailOpen.value}
-    onopen={(next) => (detailOpen.value = next)}
-    width={detailWidth.value}
-    onresize={(next) => (detailWidth.value = next)}
-  >
-    {#snippet main()}
-      <div class="main">
-        <nav class="tree" aria-label="Places">
-          <div role="tree">
-            <TreeNode node={tree.root} depth={0} {open} forceOpen={!!q} {isAt} {count} {kidsOf} ongo={(n) => go(n)} />
-          </div>
-        </nav>
-        <section class="content">
-          <div class="crumbs">
-            {#each crumbs as c, k (c.id)}
-              {#if k > 0}<span class="sep">›</span>{/if}
-              <button type="button" class="crumb" class:cur={c === at} onclick={() => go(c)}>{c.name}</button>
+  <div class="title-row">
+    <h2>{at.name}</h2>
+    <span class="summary">{summary}</span>
+  </div>
+
+  {#if browsing}
+    {#key viewNode.id}
+      <Browse
+        part="bar"
+        view={viewNode}
+        showBricked={bricked}
+        keep={keepItem}
+        selected={sel}
+        filters={{ cat: v.cat, sub: v.sub, w: v.w, arm: v.arm, kit: v.kit }}
+        onfilter={(patch) => browse.setMany(patch)}
+        onselect={select}
+        onopen={(n) => go(n)}
+      />
+    {/key}
+  {/if}
+
+  <div class="body-row" class:with-sheet={!!shown}>
+    <section class="content">
+      {#if resMode}
+        {#if resList.length}
+          <ResourceList
+            list={resList}
+            selected={shown}
+            multi={resMulti}
+            {min}
+            sort={v.sort}
+            onselect={select}
+            onmin={(m) => browse.set("min", String(m))}
+            onsort={(s) => browse.set("sort", s)}
+          />
+        {:else}
+          <p class="empty">No resources here.</p>
+        {/if}
+      {:else if at.type === "ship"}
+        <ShipView ship={at} {tree} showBricked={bricked} selected={sel} onselect={select} ongo={(n) => go(n)} />
+      {:else if shipsMode}
+        {#if !shipGroups.length}<p class="empty">No ships match.</p>{/if}
+        {#each shipGroups as g (g.c.id)}
+          {@const Icon = nodeIcon(g.c)}
+          <SectionHead title={pathLabel(g.c)} n={g.list.length} onclick={() => go(g.c)}>
+            {#snippet lead()}<Icon size={13} />{/snippet}
+          </SectionHead>
+          <div class="ships">
+            {#each g.list as s (s.id)}
+              <FolderTile node={s} bricked={bricked} on={sel === s} onclick={() => go(s)} />
             {/each}
           </div>
-          <div class="body">
-            {#if resMode}
-              {#if resList.length}
-                <ResourceList
-                  list={resList}
-                  selected={shown}
-                  multi={resMulti}
-                  {min}
-                  sort={v.sort}
-                  onselect={select}
-                  onmin={(m) => browse.set("min", String(m))}
-                  onsort={(s) => browse.set("sort", s)}
-                />
-              {:else}
-                <p class="empty">No resources here.</p>
-              {/if}
-            {:else if at.type === "ship"}
-              <ShipView ship={at} {tree} showBricked={bricked} selected={sel} onselect={select} ongo={(n) => go(n)} />
-            {:else if shipsMode}
-              {#if !shipGroups.length}<p class="empty">No ships match.</p>{/if}
-              {#each shipGroups as g (g.c.id)}
-                {@const Icon = nodeIcon(g.c)}
-                <SectionHead title={pathLabel(g.c)} n={g.list.length} onclick={() => go(g.c)}>
-                  {#snippet lead()}<Icon size={13} />{/snippet}
-                </SectionHead>
-                <div class="ships">
-                  {#each g.list as s (s.id)}
-                    <FolderTile node={s} bricked={bricked} on={sel === s} onclick={() => go(s)} />
-                  {/each}
-                </div>
-              {/each}
-            {:else if filtering}
-              {#if !hits.length}<p class="empty">Nothing here matches.</p>{/if}
-              {#each hits as g (g.c.id)}
-                {@const Icon = nodeIcon(g.c)}
-                {@const stacks = stackIdentical(g.list)}
-                <SectionHead title={pathLabel(g.c)} n={stacks.reduce((s, t) => s + t.n, 0)} onclick={() => go(g.c)}>
-                  {#snippet lead()}<Icon size={13} />{/snippet}
-                </SectionHead>
-                <div class="grid">
-                  {#each stacks as s (s.key)}
-                    <ItemCard stack={s} category={categoryOf(s.node)} on={!!shown && s.nodes.includes(shown as ItemNode)} onclick={() => select(s.node)} />
-                  {/each}
-                </div>
-              {/each}
-            {:else}
-              {#key viewNode.id}
-                <Browse
-                  view={viewNode}
-                  showBricked={bricked}
-                  keep={keepItem}
-                  selected={sel}
-                  filters={{ cat: v.cat, sub: v.sub, w: v.w, arm: v.arm, kit: v.kit }}
-                  onfilter={(patch) => browse.setMany(patch)}
-                  onselect={select}
-                  onopen={(n) => go(n)}
-                />
-              {/key}
-            {/if}
+        {/each}
+      {:else if filtering}
+        {#if !hits.length}<p class="empty">Nothing here matches.</p>{/if}
+        {#each hits as g (g.c.id)}
+          {@const Icon = nodeIcon(g.c)}
+          {@const stacks = stackIdentical(g.list)}
+          <SectionHead title={pathLabel(g.c)} n={stacks.reduce((s, t) => s + t.n, 0)} onclick={() => go(g.c)}>
+            {#snippet lead()}<Icon size={13} />{/snippet}
+          </SectionHead>
+          <div class="grid">
+            {#each stacks as s (s.key)}
+              <ItemCard stack={s} category={categoryOf(s.node)} on={!!shown && s.nodes.includes(shown as ItemNode)} onclick={() => select(s.node)} />
+            {/each}
           </div>
-        </section>
-      </div>
-    {/snippet}
-    {#snippet pane()}
-      <Detail node={shown} {tree} showBricked={bricked} {here} ongo={go} />
-    {/snippet}
-  </Surface.Supporting>
+        {/each}
+      {:else}
+        {#key viewNode.id}
+          <Browse
+            part="body"
+            view={viewNode}
+            showBricked={bricked}
+            keep={keepItem}
+            selected={sel}
+            filters={{ cat: v.cat, sub: v.sub, w: v.w, arm: v.arm, kit: v.kit }}
+            onfilter={(patch) => browse.setMany(patch)}
+            onselect={select}
+            onopen={(n) => go(n)}
+          />
+        {/key}
+      {/if}
+    </section>
+    {#if shown}
+      <aside class="sheet" aria-label="Details">
+        <button type="button" class="close" title="Close (Esc)" aria-label="Close the details" onclick={closeSheet}>
+          <X size={16} />
+        </button>
+        <Detail node={shown} {tree} showBricked={bricked} {here} ongo={go} />
+      </aside>
+    {/if}
+  </div>
 </div>
 
 <style>
   .explorer {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     flex: 1;
     min-height: 0;
   }
-  .tools {
+  .navrow {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
   }
-  .search {
-    flex: 1;
-    min-width: 0;
+  .anchor {
+    position: relative;
   }
-  .explorer :global(.explorer-panes) {
-    flex: 1;
-    min-height: 0;
-  }
-  .main {
-    display: flex;
-    gap: 10px;
-    height: 100%;
-    min-height: 0;
-  }
-  .tree {
-    flex: 0 0 228px;
+  .anchor :global(.places-pop) {
+    width: 300px;
+    max-height: 60vh;
     overflow-y: auto;
-    padding: 5px;
-    border: 1px solid var(--border);
+    padding: 6px;
     border-radius: var(--radius-lg);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-panel);
   }
-  .content {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--border);
+  .anchor :global(.menu-pop) {
+    min-width: 240px;
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 4px;
     border-radius: var(--radius-lg);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-panel);
   }
   .crumbs {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    min-height: 45px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.82rem;
+    gap: 2px;
+    min-width: 0;
   }
-  .crumb {
-    padding: 0;
+  .crumb-wrap {
+    display: inline-flex;
+    align-items: center;
+  }
+  .crumb,
+  .chev {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
     border: 0;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--text-dim);
     font: inherit;
+    font-size: var(--text-control);
     cursor: pointer;
   }
-  .crumb:hover {
+  .chev {
+    padding: 4px 3px;
+    color: var(--text-faint);
+  }
+  .crumb:hover,
+  .chev:hover {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
     color: var(--text);
   }
   .crumb.cur {
-    font-family: var(--font-display);
-    font-size: 0.95rem;
-    font-weight: 700;
     color: var(--text-strong);
+    font-weight: var(--weight-semibold);
+  }
+  .crumb.inside {
+    color: var(--text-faint);
   }
   .sep {
     color: var(--text-faint);
+    padding: 0 2px;
   }
-  .body {
+  .grow {
+    flex: 1;
+  }
+  .menu {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .menu-row {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: var(--text-control);
+    text-align: left;
+    cursor: pointer;
+  }
+  .menu-row:hover {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+    color: var(--text);
+  }
+  .menu-row.cur {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--text-strong);
+  }
+  .menu-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .menu-n {
+    font-family: var(--font-mono);
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: var(--weight-bold);
+    line-height: 1.1;
+    color: var(--text-strong);
+  }
+  .summary {
+    font-size: var(--text-control);
+    color: var(--text-dim);
+  }
+  .body-row {
     flex: 1;
     min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .body-row.with-sheet {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  }
+  .content {
+    min-width: 0;
+    min-height: 0;
     overflow-y: auto;
-    padding: 0 10px 12px;
+    padding-right: 4px;
+    scrollbar-width: thin;
+  }
+  .sheet {
+    position: relative;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 18px;
+    border-radius: var(--radius-lg);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    scrollbar-width: thin;
+  }
+  .close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: grid;
+    place-items: center;
+    padding: 4px;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .close:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--text) 6%, transparent);
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 6px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
     margin-top: 6px;
   }
   .ships {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 6px;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 8px;
     margin-top: 6px;
   }
   .empty {
     padding: 18px 2px;
     font-size: 0.85rem;
     color: var(--text-dim);
+  }
+  @media (max-width: 900px) {
+    .body-row.with-sheet {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 </style>

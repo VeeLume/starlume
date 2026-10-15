@@ -4,18 +4,22 @@ members = [
     "src-tauri",
     "crates/app-kit",
     "crates/mod-contracts",
+    "crates/mod-devtracker",
     "crates/mod-items",
     "crates/mod-langpatch",
     "crates/server",
     "crates/svc-discovery",
     "crates/svc-data",
+    "crates/svc-commlinks",
     "crates/svc-dossier",
+    "crates/svc-patchnotes",
     "crates/svc-log",
+    "crates/svc-spectrum",
     "crates/svc-sync",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Valerie"]
 license = "MIT"
 edition = "2024"
@@ -39,6 +43,10 @@ scraper = "0.20"
 # consolidation). Base features here; svc-data adds `foundations` on the same
 # pin (Cargo unions features across the workspace).
 sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.19.0", features = ["installs"] }
+# The gRPC lab's shipped client: game services, Spectrum, patch notes,
+# comm-links. ONE
+# pin for every service that uses it.
+sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.10.0" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
@@ -65,16 +73,22 @@ tauri-specta = { version = "2.0.0-rc.21", features = ["typescript"] }
 # Internal crates
 app-kit = { path = "crates/app-kit" }
 mod-contracts = { path = "crates/mod-contracts" }
+mod-devtracker = { path = "crates/mod-devtracker" }
 mod-items = { path = "crates/mod-items" }
 mod-langpatch = { path = "crates/mod-langpatch" }
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
+svc-commlinks = { path = "crates/svc-commlinks" }
 svc-dossier = { path = "crates/svc-dossier" }
+svc-patchnotes = { path = "crates/svc-patchnotes" }
 svc-log = { path = "crates/svc-log" }
+svc-spectrum = { path = "crates/svc-spectrum" }
 svc-sync = { path = "crates/svc-sync" }
 
 # TOML parsing (mod-langpatch's embedded curated patchers).
 toml = "0.8"
+# The dev tracker's content filter (mod-devtracker).
+regex = "1"
 
 [profile.release]
 opt-level = 3

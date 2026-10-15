@@ -1,14 +1,13 @@
 <script lang="ts">
-  // An armour set: owned pieces as solid accent chips, missing ones faint
-  // and dashed, and a count toward the full set (the pieces the set has in
-  // the game data) that becomes the "full set" badge.
+  // An armour set: its pieces by name (owned ones plain, missing ones
+  // faint), a count toward the full set (the pieces the set has in the game
+  // data) that becomes "Full set", and crafted quality. The weight class is
+  // the group heading Browse puts above the cards (design pass).
   import { Shield } from "lucide-svelte";
   import { isFull, PIECES, type ArmourSet } from "../model/classify";
   import { avgIngredientQuality } from "../model/crafted";
   import Card from "./Card.svelte";
-  import Weight from "./Weight.svelte";
   import Quality from "./Quality.svelte";
-  import Tag from "./Tag.svelte";
 
   let { set, on, onclick }: { set: ArmourSet; on: boolean; onclick: () => void } = $props();
 
@@ -21,7 +20,7 @@
 <Card icon={Shield} {on} crafted={bestQ >= 0} {onclick}>
   {#snippet name()}{set.name}{/snippet}
   {#snippet right()}
-    {#if isFull(set)}<Tag label="full set" tone="primary" />{:else if set.full.length > 1}<span
+    {#if isFull(set)}<span class="full">Full set</span>{:else if set.full.length > 1}<span
         class="of"
         title={set.full.join(", ")}>{set.got}/{set.full.length}</span
       >{/if}
@@ -33,40 +32,43 @@
       >
     {/each}
   </span>
-  {#if set.weight !== "Other" || bestQ >= 0}
-    <span class="meta">
-      <Weight weight={set.weight} />
-      {#if bestQ >= 0}<Quality q={bestQ} prefix="avg Q" />{/if}
-    </span>
+  {#if bestQ >= 0}
+    <span class="meta"><Quality q={bestQ} prefix="avg Q" /><span class="crafted">crafted</span></span>
   {/if}
 </Card>
 
 <style>
   .of {
-    font-size: 0.64rem;
-    color: var(--text-dim);
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .full {
+    font-size: var(--text-small);
+    color: var(--good);
+    white-space: nowrap;
   }
   .pieces {
     display: flex;
     flex-wrap: wrap;
-    gap: 3px;
+    gap: 2px 0;
+    font-size: var(--text-small);
   }
   .piece {
-    font-size: 0.62rem;
-    line-height: 1.65;
-    padding: 0 6px;
-    border-radius: 3px;
-    border: 1px dashed var(--border);
     color: var(--text-faint);
-    opacity: 0.6;
+    opacity: 0.65;
   }
   .piece.have {
     opacity: 1;
-    border-style: solid;
-    border-color: var(--accent-border);
-    background: var(--accent-fill);
-    color: var(--text-strong);
-    font-weight: 600;
+    color: var(--text-dim);
+  }
+  .piece + .piece::before {
+    content: "·";
+    margin: 0 6px;
+    color: var(--text-faint);
+  }
+  .crafted {
+    font-size: var(--text-small);
+    color: var(--text-faint);
   }
   .meta {
     display: flex;

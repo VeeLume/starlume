@@ -85,7 +85,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "app-kit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs 6.0.0",
  "serde",
@@ -2016,6 +2016,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-range"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21dec9db110f5f872ed9699c3ecf50cf16f423502706ba5c72462e28d3157573"
+
+[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2751,11 +2757,21 @@ dependencies = [
 
 [[package]]
 name = "mod-contracts"
-version = "0.1.0"
+version = "0.2.0"
+
+[[package]]
+name = "mod-devtracker"
+version = "0.2.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "svc-spectrum",
+]
 
 [[package]]
 name = "mod-items"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "app-kit",
  "serde",
@@ -2766,7 +2782,7 @@ dependencies = [
 
 [[package]]
 name = "mod-langpatch"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "app-kit",
@@ -4425,11 +4441,12 @@ dependencies = [
 
 [[package]]
 name = "sc-dossier"
-version = "0.5.0"
-source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.5.0#c7d832d4f3642470c88e8897802da9a27fab930f"
+version = "0.10.0"
+source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.10.0#88e1c5508118f2d8c8602a3e080e006d295f3865"
 dependencies = [
  "aes",
  "cbc",
+ "chrono",
  "pbkdf2",
  "prost",
  "prost-types",
@@ -5417,12 +5434,13 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "starlume"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "app-kit",
  "chrono",
  "keyring",
+ "mod-devtracker",
  "mod-items",
  "mod-langpatch",
  "reqwest 0.12.28",
@@ -5430,9 +5448,12 @@ dependencies = [
  "serde_json",
  "specta",
  "specta-typescript",
+ "svc-commlinks",
  "svc-data",
  "svc-discovery",
  "svc-dossier",
+ "svc-patchnotes",
+ "svc-spectrum",
  "sysinfo",
  "tauri",
  "tauri-build",
@@ -5458,7 +5479,7 @@ dependencies = [
 
 [[package]]
 name = "starlume-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5613,8 +5634,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-commlinks"
+version = "0.2.0"
+dependencies = [
+ "app-kit",
+ "chrono",
+ "reqwest 0.12.28",
+ "sc-dossier",
+ "serde",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "svc-data"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5627,7 +5662,7 @@ dependencies = [
 
 [[package]]
 name = "svc-discovery"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5640,7 +5675,7 @@ dependencies = [
 
 [[package]]
 name = "svc-dossier"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "app-kit",
@@ -5655,11 +5690,39 @@ dependencies = [
 
 [[package]]
 name = "svc-log"
-version = "0.1.0"
+version = "0.2.0"
+
+[[package]]
+name = "svc-patchnotes"
+version = "0.2.0"
+dependencies = [
+ "app-kit",
+ "chrono",
+ "sc-dossier",
+ "serde",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "svc-spectrum"
+version = "0.2.0"
+dependencies = [
+ "app-kit",
+ "chrono",
+ "sc-dossier",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "svc-sync"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "swift-rs"
@@ -5825,6 +5888,7 @@ dependencies = [
  "gtk",
  "heck 0.5.0",
  "http",
+ "http-range",
  "image",
  "jni 0.21.1",
  "libc",

@@ -5,8 +5,8 @@ use specta_typescript::Typescript;
 use tauri_specta::{Builder, collect_commands};
 
 use crate::{
-    activity, auth, data, dossier, friends, groups, items, langpatch, modules, notify, sc,
-    settings, window,
+    activity, auth, commlinks, data, devtracker, dossier, friends, groups, items, langpatch,
+    launcher, modules, notify, patchnotes, sc, settings, window,
 };
 
 /// Single source of truth for the IPC command list. Used both by `run()` at
@@ -46,6 +46,28 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         items::items_summary,
         items::items_refresh,
         items::items_finder,
+        patchnotes::patch_notes_overview,
+        patchnotes::patch_notes_refresh,
+        patchnotes::patch_notes_open,
+        commlinks::comm_links_overview,
+        commlinks::comm_links_refresh,
+        commlinks::comm_links_open,
+        devtracker::devtracker_overview,
+        devtracker::devtracker_authors,
+        devtracker::devtracker_set_author_mode,
+        devtracker::devtracker_reset_authors,
+        devtracker::devtracker_follow,
+        devtracker::devtracker_unfollow,
+        devtracker::devtracker_follow_handle,
+        devtracker::devtracker_set_notify_ops,
+        devtracker::devtracker_mark_read,
+        devtracker::devtracker_mark_all_read,
+        devtracker::devtracker_open_post,
+        devtracker::devtracker_open_hotfix,
+        devtracker::devtracker_refresh,
+        launcher::launcher_status,
+        launcher::launcher_open,
+        launcher::launcher_library,
         auth::auth_status,
         auth::login_start,
         auth::fetch_profile,

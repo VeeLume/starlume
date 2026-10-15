@@ -1,6 +1,6 @@
 <script lang="ts">
   // One stack of identical items. A weapon shows its kit as one row per
-  // slot (accent = added to stock, grey = stock, plain = stock unknown);
+  // slot (bright = added to stock, grey = stock, plain = stock unknown);
   // armour its weight class; crafted items their quality and top stat.
   import type { Category } from "../model/classify";
   import { kitOf, shortPartName, SLOT_NAME, weightOf, type Slot } from "../model/classify";
@@ -83,7 +83,8 @@
     white-space: nowrap;
   }
   .part.added {
-    color: var(--accent);
+    color: var(--text-strong);
+    font-weight: var(--weight-medium);
   }
   .part.stock {
     color: var(--text-dim);

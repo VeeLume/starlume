@@ -1,0 +1,21 @@
+[package]
+name = "svc-patchnotes"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume patch-notes service — LIVE release notes from RSI's public patch-note pages, paced and cached on disk"
+
+[dependencies]
+# The parser is sc-dossier's (patchnotes, anonymous). Public website reads:
+# every caller gates via AppState::require_online first.
+sc-dossier.workspace = true
+app-kit.workspace = true
+serde.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

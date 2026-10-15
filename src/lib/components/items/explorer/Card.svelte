@@ -39,12 +39,12 @@
 <style>
   .item-card {
     display: flex;
-    gap: 9px;
+    gap: 11px;
     min-width: 0;
-    padding: 8px 9px;
+    padding: 10px 11px;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    background: transparent;
+    border-radius: var(--radius-lg);
+    background: var(--bg-raised);
     color: inherit;
     font: inherit;
     text-align: left;
@@ -54,29 +54,22 @@
       border-color 90ms;
   }
   .item-card:hover {
-    background: var(--bg-raised);
+    border-color: color-mix(in srgb, var(--text) 18%, var(--border));
   }
   .item-card.on {
-    border-color: var(--accent);
-    background: var(--accent-fill-faint);
-  }
-  .item-card.crafted:not(.on) {
-    border-color: var(--accent-line);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg-raised));
   }
   .ico {
     flex: 0 0 auto;
     display: grid;
     place-items: center;
-    width: 38px;
-    height: 38px;
-    border-radius: 6px;
-    border: 1px solid var(--border-soft);
-    color: var(--text-faint);
-    background: repeating-linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--border) 45%, transparent) 0 4px,
-      transparent 4px 8px
-    );
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    background: var(--bg);
   }
   .body {
     flex: 1;
@@ -93,7 +86,7 @@
   .name {
     flex: 1;
     min-width: 0;
-    font-size: 0.8rem;
+    font-size: 0.88rem;
     font-weight: 600;
     color: var(--text-strong);
     line-height: 1.25;

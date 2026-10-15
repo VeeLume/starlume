@@ -29,7 +29,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset"] }
 # Auto-update: check GitHub Releases on launch, prompt + install, relaunch.
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
@@ -67,10 +67,14 @@ tauri-specta.workspace = true
 # Internal crates
 app-kit.workspace = true
 mod-items.workspace = true
+mod-devtracker.workspace = true
 mod-langpatch.workspace = true
 svc-discovery.workspace = true
 svc-data.workspace = true
 svc-dossier.workspace = true
+svc-spectrum.workspace = true
+svc-patchnotes.workspace = true
+svc-commlinks.workspace = true
 
 # Game-running detection (write gate for text patching): a patched
 # global.ini must never be written while StarCitizen.exe is up.

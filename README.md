@@ -5,14 +5,32 @@
 # Starlume
 
 **A Star Citizen companion for Windows.** Starlume reads your game install and
-makes the game's own text more useful, and (if you opt in) shows you where every
-item and ship you own actually is.
+makes the game's own text more useful, keeps you up to date on patches and
+news, and (if you opt in) follows what CIG's developers post and shows you where
+every item and ship you own actually is.
 
 > **Starlume is young.** Things work, but expect rough edges and changes
 > between releases. Feedback and bug reports are welcome in
 > [Issues](https://github.com/VeeLume/starlume/issues).
 
 ## Features
+
+### Home and News
+
+- **Game status** for each installed channel: its version, whether your build
+  is current against the patch notes (and what a later hotfix fixed), your text
+  patch, and a button that opens the RSI launcher.
+- **News:** the LIVE patch notes in short with a link to the full article, the
+  dev cycle as a timeline (PTU waves, release candidates, LIVE, hotfixes), and
+  the newest comm-links with their images.
+
+### Dev Tracker *(opt-in)*
+
+CIG staff posts from Spectrum, forums and chat, filtered down to game news:
+patches, PTU waves, maintenance, known issues. Replies show what they answer,
+you can follow the staff you care about, and game-ops posts can raise a
+notification. It reads Spectrum with your RSI launcher session, so it only works
+when you switch it on (see [Online and privacy](#online-and-privacy)).
 
 ### Text Patching
 
@@ -28,8 +46,8 @@ Patches Star Citizen's English text with information the game doesn't show:
   outlawed.
 - **Label Fixes:** shorter labels where the game's UI text overlaps.
 
-Every patcher can be switched on or off, most have options, and a preview pane
-shows how mission text will look. After a game update Starlume re-patches on
+Every patcher can be switched on or off, most have options, and a preview
+shows what each one changes. After a game update Starlume re-patches on
 its own as soon as it notices the update; if the game is running, it waits
 until you close it.
 
@@ -68,21 +86,24 @@ Starlume does its work on your machine: it reads your Star Citizen install and
 parses the game data locally. Online use is limited and under your control:
 
 - **Online features** (Settings → Online & privacy → Enable online features, on
-  by default) let Starlume look up your public RSI profile and download what
+  by default) let Starlume look up your public RSI profile, read RSI's public
+  patch notes and comm-links (with their images) for News, and download what
   you ask it to. Switch them off and nothing leaves your machine except the
   update check.
 - **Update check:** always on, even offline, so everyone gets security fixes.
   It only asks GitHub whether a new release exists.
 
-### CIG's game services *(off by default)*
+### Unofficial APIs *(off by default)*
 
-Some features (My Items, and the "owned blueprint" marks in mission text) read
-your own account data through the backend services the game client itself
-uses. **These are not an official public API, and using them may be against
-CIG's Terms of Service.** Starlume only reads, only your own account, and never
-changes anything. Each feature stays off until you turn on **Allow game-services
-calls** in Settings → Online & privacy and then enable that feature. Use them at
-your own risk.
+Some features (My Items, the "owned blueprint" marks in mission text, and the
+Dev Tracker) read through services the game client and the RSI launcher
+themselves use: your own account data from CIG's game services, and RSI's
+Spectrum forums and chat with your launcher session. **These are not an
+official public API, and using them may be against CIG's Terms of Service.**
+Starlume only reads and never changes or posts anything; the account data it
+reads is only ever your own. Each feature stays off until you turn on **Allow unofficial
+API calls** in Settings → Online & privacy and then enable that feature. Use
+them at your own risk.
 
 ## Your data
 
