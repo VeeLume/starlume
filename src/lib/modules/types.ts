@@ -83,6 +83,16 @@ export interface InstallStatus {
   component: Component<InstallStatusProps>;
 }
 
+/** A section a module contributes to the Patch Notes page (an app page:
+ *  LIVE notes are reference data). E.g. the dev tracker's test-channel notes
+ *  from Spectrum. The component reads its own store. */
+export interface PatchNotesSection {
+  /** Unique within the module. */
+  id: string;
+  title: string;
+  component: Component;
+}
+
 export interface ModuleDescriptor {
   /** Must match the Rust `Module::id`. */
   id: string;
@@ -100,4 +110,6 @@ export interface ModuleDescriptor {
   homeCards?: HomeCard[];
   /** A per-install decoration on Home's Game status card, while enabled. */
   installStatus?: InstallStatus;
+  /** Sections on the Patch Notes page, while enabled. */
+  patchNotes?: PatchNotesSection[];
 }

@@ -1,9 +1,10 @@
 <script lang="ts">
   // Dev Tracker — CIG staff posts from Spectrum, chat included, filtered by
-  // content. Three views: the feed, the patch notes (Patch Notes forum
-  // threads, from the same feed), and the filter settings (notifications,
+  // content. Two views: the feed, and the filter settings (notifications,
   // follow list) — the module's settings live on its page, not in Settings.
-  // Renders the cached feed at once; the poll runs Rust-side.
+  // Its patch-note threads go to the Patch Notes page instead (an app page,
+  // decision 2026-10-15). Renders the cached feed at once; the poll runs
+  // Rust-side.
   import { onDestroy, onMount } from "svelte";
   import { Button, Switch } from "@veelume/ui";
   import { RefreshCw, X } from "lucide-svelte";
@@ -18,10 +19,9 @@
   import GateNotice from "$lib/modules/devtracker/GateNotice.svelte";
   import PostItem from "$lib/modules/devtracker/PostItem.svelte";
   import FollowList from "$lib/modules/devtracker/FollowList.svelte";
-  import PatchNotes from "$lib/modules/devtracker/PatchNotes.svelte";
   import { dayLabel, postAge } from "$lib/modules/devtracker/time";
 
-  type Tab = "feed" | "patches" | "filters";
+  type Tab = "feed" | "filters";
   let tab = $state<Tab>("feed");
   let showFiltered = $state(false);
   // One account's posts (from the follow list), filtered-out ones included.
@@ -64,9 +64,6 @@
       <button class="tab" class:active={tab === "feed"} onclick={() => (tab = "feed")}>
         Feed
         {#if overview?.unread}<span class="count-badge owned">{overview.unread}</span>{/if}
-      </button>
-      <button class="tab" class:active={tab === "patches"} onclick={() => (tab = "patches")}>
-        Patch notes
       </button>
       <button class="tab" class:active={tab === "filters"} onclick={() => (tab = "filters")}>
         Filters &amp; follow list
@@ -129,8 +126,6 @@
     </section>
     <h2>Follow list</h2>
     <FollowList onview={viewAuthor} />
-  {:else if tab === "patches"}
-    <PatchNotes notes={overview.patch_notes} />
   {:else if overview.gate.state === "closed"}
     <GateNotice reason={overview.gate.reason} />
   {:else}

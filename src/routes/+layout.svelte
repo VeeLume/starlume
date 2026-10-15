@@ -16,7 +16,7 @@
   import { listenForNotifications, syncNotifications } from "$lib/state/notifications.svelte";
   import { loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
   import { Notify, Shell, setKitContext, type NavGroup } from "@veelume/ui";
-  import { House, Library, Settings, Users } from "lucide-svelte";
+  import { House, Library, ScrollText, Settings, Users } from "lucide-svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
   import { checkForUpdates } from "$lib/updater";
   import { SHOW_UNRELEASED } from "$lib/unreleased";
@@ -63,6 +63,7 @@
           ? [
               { path: "/friends", label: "Friends", icon: Users },
               { path: "/data", label: "Catalogs", icon: Library },
+              { path: "/patch-notes", label: "Patch Notes", icon: ScrollText },
             ]
           : []),
         ...moduleRegistry
