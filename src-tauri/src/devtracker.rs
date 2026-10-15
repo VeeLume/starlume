@@ -144,6 +144,25 @@ pub struct DevtrackerOverview {
     /// Unread posts on the feed.
     pub unread: u32,
     pub notify_ops: bool,
+    /// Patch-note threads in the whole cache, newest first.
+    pub patch_notes: Vec<PatchNoteView>,
+}
+
+/// A patch-note thread and what its title says.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct PatchNoteView {
+    /// Read key of the thread opener (opens it on Spectrum).
+    pub key: String,
+    pub subject: String,
+    pub version: Option<String>,
+    /// `"LIVE"`, `"PTU"`, `"EPTU"`, `"Tech Preview"`, `"Hotfix"`, `"Evocati"`.
+    pub channel: Option<String>,
+    pub build: Option<String>,
+    /// `"RC2"`, `"Wave 1"`.
+    pub stage: Option<String>,
+    pub author: String,
+    /// Epoch milliseconds.
+    pub time_ms: f64,
 }
 
 /// One staff account in the follow list.
@@ -157,6 +176,8 @@ pub struct DevAuthorView {
     pub posts: u32,
     /// Of those, how many the content filter keeps.
     pub kept: u32,
+    /// On the follow list; `false` = staff seen in the feed, not listed.
+    pub listed: bool,
 }
 
 fn mode_str(mode: AuthorMode) -> &'static str {
@@ -236,11 +257,32 @@ pub(crate) fn devtracker_overview(state: tauri::State<'_, AppState>) -> Devtrack
         unread: posts.iter().filter(|p| p.unread).count() as u32,
         posts,
         notify_ops: config.notify_ops,
+        patch_notes: feed
+            .as_ref()
+            .map(|f| {
+                f.posts
+                    .iter()
+                    .filter_map(|p| {
+                        let note = mod_devtracker::patch::patch_note(p)?;
+                        Some(PatchNoteView {
+                            key: mod_devtracker::read_key(p),
+                            subject: p.thread.as_ref().map(|t| t.subject.clone())?,
+                            version: note.version,
+                            channel: note.channel,
+                            build: note.build,
+                            stage: note.stage,
+                            author: p.author.nickname.clone(),
+                            time_ms: p.time_ms as f64,
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 
-/// The follow list: the known staff plus every author in the cached feed,
-/// most active first. **No network, no gate.**
+/// The follow list, then the staff the feed saw that are not on it. Each
+/// group most active first. **No network, no gate.**
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn devtracker_authors(state: tauri::State<'_, AppState>) -> Vec<DevAuthorView> {
@@ -248,22 +290,27 @@ pub(crate) fn devtracker_authors(state: tauri::State<'_, AppState>) -> Vec<DevAu
     let since = now_ms() - VIEW_DAYS * DAY_MS;
     let mut rows: Vec<DevAuthorView> = Vec::new();
     let mut index = std::collections::HashMap::new();
-    let mut row = |rows: &mut Vec<DevAuthorView>, id: &str, nickname: &str| -> usize {
-        *index.entry(id.to_owned()).or_insert_with(|| {
-            rows.push(DevAuthorView {
-                id: id.to_owned(),
-                nickname: nickname.to_owned(),
-                mode: mode_str(config.mode(id)).into(),
-                posts: 0,
-                kept: 0,
-            });
-            rows.len() - 1
-        })
-    };
+    let mut row =
+        |rows: &mut Vec<DevAuthorView>, id: &str, nickname: &str, listed: bool| -> usize {
+            *index.entry(id.to_owned()).or_insert_with(|| {
+                rows.push(DevAuthorView {
+                    id: id.to_owned(),
+                    nickname: nickname.to_owned(),
+                    mode: mode_str(config.mode(id)).into(),
+                    posts: 0,
+                    kept: 0,
+                    listed,
+                });
+                rows.len() - 1
+            })
+        };
+    for f in config.follow_list() {
+        row(&mut rows, &f.id, &f.nickname, true);
+    }
     if let Some(feed) = state.spectrum.cached_feed() {
         for p in feed.posts.iter().take_while(|p| p.time_ms >= since) {
-            let i = row(&mut rows, &p.author.id, &p.author.nickname);
-            // The feed's nickname is current; the seed's may be stale.
+            let i = row(&mut rows, &p.author.id, &p.author.nickname, false);
+            // The feed's nickname is current; the list's may be stale.
             rows[i].nickname = p.author.nickname.clone();
             rows[i].posts += 1;
             let is_chat = p.kind == PostKind::Chat;
@@ -273,19 +320,68 @@ pub(crate) fn devtracker_authors(state: tauri::State<'_, AppState>) -> Vec<DevAu
             }
         }
     }
-    for (id, nickname) in mod_devtracker::SEED_AUTHORS {
-        row(&mut rows, id, nickname);
-    }
-    // Overridden authors the feed hasn't seen and the seed doesn't know.
-    for id in config.authors.keys() {
-        row(&mut rows, id, id);
-    }
     rows.sort_by(|a, b| {
-        b.posts
-            .cmp(&a.posts)
-            .then_with(|| a.nickname.cmp(&b.nickname))
+        b.listed
+            .cmp(&a.listed)
+            .then_with(|| b.posts.cmp(&a.posts))
+            .then_with(|| a.nickname.to_lowercase().cmp(&b.nickname.to_lowercase()))
     });
     rows
+}
+
+/// Put an account on the follow list (one the feed has seen: id + handle
+/// known locally).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn devtracker_follow(
+    app: AppHandle,
+    author_id: String,
+    nickname: String,
+) -> Result<(), AppError> {
+    edit_config(&app, |c| c.follow(&author_id, &nickname))
+}
+
+/// Take an account off the follow list (its override goes too).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn devtracker_unfollow(app: AppHandle, author_id: String) -> Result<(), AppError> {
+    edit_config(&app, |c| c.unfollow(&author_id))
+}
+
+/// Put an account on the follow list by its Spectrum handle. **Gated**: the
+/// handle → member id lookup is a Spectrum request.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn devtracker_follow_handle(
+    app: AppHandle,
+    handle: String,
+) -> Result<(), AppError> {
+    let handle = handle.trim().to_owned();
+    if handle.is_empty() {
+        return Err(AppError::Config("enter a Spectrum handle".into()));
+    }
+    let spectrum = {
+        let state = app.state::<AppState>();
+        state.require_unofficial(MODULE_ID)?;
+        state.spectrum.clone()
+    };
+    let id = spectrum
+        .member_id(crate::dossier::GRPC_USER_AGENT, &handle)
+        .await
+        .map_err(|e| AppError::Config(format!("couldn't find '{handle}' on Spectrum: {e}")))?;
+    edit_config(&app, |c| c.follow(&id, &handle))
+}
+
+/// Read-modify-write the module config, then announce the change.
+fn edit_config(app: &AppHandle, edit: impl FnOnce(&mut DevtrackerConfig)) -> Result<(), AppError> {
+    {
+        let _guard = STATE_LOCK.lock().unwrap();
+        let mut config = load_config();
+        edit(&mut config);
+        save_config(&config)?;
+    }
+    let _ = app.emit(DEVTRACKER_CHANGED_EVENT, ());
+    Ok(())
 }
 
 /// Set one author's mode (`"always"` | `"filter"` | `"mute"`).
@@ -312,18 +408,12 @@ pub(crate) fn devtracker_set_author_mode(
     Ok(())
 }
 
-/// Back to the defaults: every author filtered by content.
+/// Back to the defaults: the seeded follow list, every author filtered by
+/// content.
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn devtracker_reset_authors(app: AppHandle) -> Result<(), AppError> {
-    {
-        let _guard = STATE_LOCK.lock().unwrap();
-        let mut config = load_config();
-        config.authors.clear();
-        save_config(&config)?;
-    }
-    let _ = app.emit(DEVTRACKER_CHANGED_EVENT, ());
-    Ok(())
+    edit_config(&app, DevtrackerConfig::reset_follows)
 }
 
 #[tauri::command]

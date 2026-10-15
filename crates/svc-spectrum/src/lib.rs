@@ -26,7 +26,7 @@
 //! Spectrum is RSI's private API; Starlume is not an official client, so every
 //! call is ToS-grey — the same footing as the game-services gRPC. Every method
 //! that touches the network ([`SpectrumService::fetch_newest`],
-//! [`SpectrumService::backfill`]) **must** be called only after the shell has
+//! [`SpectrumService::backfill`], [`SpectrumService::member_id`]) **must** be called only after the shell has
 //! passed the gate `AppState::require_unofficial("devtracker")`. This crate
 //! cannot see settings, so it cannot gate itself — the gate lives at the call
 //! site, exactly like svc-dossier's. The cached reads
@@ -71,6 +71,8 @@ pub const MAX_BACKFILL_PAGES: u32 = 40;
 
 /// The content-search route — the pacing/backoff key for the feed.
 const SEARCH: &str = "/search/content/extended";
+/// The handle → member lookup route (its own pacing/backoff key).
+const MEMBER_BY_NICKNAME: &str = "/member/info/nickname";
 
 /// Errors from a Spectrum fetch.
 #[derive(Debug, thiserror::Error)]
@@ -186,6 +188,16 @@ impl SpectrumService {
             MAX_BACKFILL_PAGES,
         )
         .await
+    }
+
+    /// Resolve a Spectrum handle (nickname) to its member id — what the dev
+    /// tracker's follow list keys accounts by. One request, paced.
+    ///
+    /// **Gated:** like [`SpectrumService::fetch_newest`].
+    pub async fn member_id(&self, user_agent: &str, nickname: &str) -> Result<String> {
+        let client = launcher_client(user_agent).await?;
+        self.paced(MEMBER_BY_NICKNAME, || client.member_id(nickname))
+            .await
     }
 
     /// One fetch run: page through the feed per `mode`, merge, save. What a

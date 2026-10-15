@@ -9,11 +9,13 @@
 //! - [`AuthorMode`] — the user's per-author override on top of it: always
 //!   show, filter by content (the default), or mute;
 //! - [`ReadState`] — what the user has seen;
-//! - [`SEED_AUTHORS`] — the known staff accounts, so the follow list is not
-//!   empty before the feed has seen them.
+//! - the follow list — the user's curated accounts, seeded with
+//!   [`SEED_AUTHORS`] (the known staff) until the user edits it;
+//! - [`patch`] — patch-note threads and what their titles say (version,
+//!   channel, build).
 //!
-//! The defaults are data: resetting the follow list clears the overrides,
-//! and every author falls back to [`AuthorMode::Filter`].
+//! The defaults are data: resetting the follow list restores the seed and
+//! clears the overrides, and every author falls back to [`AuthorMode::Filter`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use svc_spectrum::{FeedPost, PostKind};
 
 pub mod filter;
+pub mod patch;
 
 pub use filter::{Reason, Verdict};
 
@@ -47,6 +50,18 @@ pub struct DevtrackerConfig {
     /// Raise a notification for new posts with a strong game-ops signal
     /// (maintenance, PTU waves, hotfixes, known issues).
     pub notify_ops: bool,
+    /// The follow list, in the user's order. `None` = the defaults
+    /// ([`SEED_AUTHORS`]); the first edit stores the whole list.
+    pub follows: Option<Vec<Followed>>,
+}
+
+/// One account on the follow list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Followed {
+    /// Spectrum member id — the stable key.
+    pub id: String,
+    /// Handle when it was added (the feed's current one wins for display).
+    pub nickname: String,
 }
 
 impl Default for DevtrackerConfig {
@@ -54,6 +69,7 @@ impl Default for DevtrackerConfig {
         Self {
             authors: BTreeMap::new(),
             notify_ops: true,
+            follows: None,
         }
     }
 }
@@ -71,6 +87,50 @@ impl DevtrackerConfig {
         } else {
             self.authors.insert(member_id.to_owned(), mode);
         }
+    }
+
+    /// The follow list: the user's, or the seed until they edit it.
+    pub fn follow_list(&self) -> Vec<Followed> {
+        self.follows.clone().unwrap_or_else(|| {
+            SEED_AUTHORS
+                .iter()
+                .map(|(id, nickname)| Followed {
+                    id: (*id).to_owned(),
+                    nickname: (*nickname).to_owned(),
+                })
+                .collect()
+        })
+    }
+
+    pub fn is_followed(&self, member_id: &str) -> bool {
+        self.follow_list().iter().any(|f| f.id == member_id)
+    }
+
+    /// Add an account to the end of the list (no-op when it is on it).
+    pub fn follow(&mut self, member_id: &str, nickname: &str) {
+        let mut list = self.follow_list();
+        if !list.iter().any(|f| f.id == member_id) {
+            list.push(Followed {
+                id: member_id.to_owned(),
+                nickname: nickname.to_owned(),
+            });
+        }
+        self.follows = Some(list);
+    }
+
+    /// Take an account off the list. Its override goes too: an account off
+    /// the list is filtered by content like any other.
+    pub fn unfollow(&mut self, member_id: &str) {
+        let mut list = self.follow_list();
+        list.retain(|f| f.id != member_id);
+        self.follows = Some(list);
+        self.authors.remove(member_id);
+    }
+
+    /// Back to the defaults: the seeded list, no overrides.
+    pub fn reset_follows(&mut self) {
+        self.follows = None;
+        self.authors.clear();
     }
 }
 
@@ -283,6 +343,29 @@ mod tests {
             2,
         );
         assert!(!decide(&chat, &config).ops);
+    }
+
+    #[test]
+    fn follow_list_starts_as_the_seed_and_edits_store_it() {
+        let mut config = DevtrackerConfig::default();
+        assert_eq!(config.follow_list().len(), SEED_AUTHORS.len());
+        assert!(config.is_followed("429390"));
+        config.set_mode("429390", AuthorMode::Always);
+        config.unfollow("429390");
+        assert!(!config.is_followed("429390"));
+        assert_eq!(
+            config.mode("429390"),
+            AuthorMode::Filter,
+            "override goes with it"
+        );
+        config.follow("42", "New-CIG");
+        config.follow("42", "New-CIG");
+        let list = config.follow_list();
+        assert_eq!(list.len(), SEED_AUTHORS.len());
+        assert_eq!(list.last().unwrap().id, "42");
+        config.reset_follows();
+        assert!(config.follows.is_none());
+        assert!(config.is_followed("429390"));
     }
 
     #[test]

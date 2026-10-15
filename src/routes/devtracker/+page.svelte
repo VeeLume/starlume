@@ -1,11 +1,12 @@
 <script lang="ts">
   // Dev Tracker — CIG staff posts from Spectrum, chat included, filtered by
-  // content. Two views: the feed, and the filter settings (notifications and
-  // the follow list) — the module's settings live on its page, not in
-  // Settings. Renders the cached feed at once; the poll runs Rust-side.
+  // content. Three views: the feed, the patch notes (Patch Notes forum
+  // threads, from the same feed), and the filter settings (notifications,
+  // follow list) — the module's settings live on its page, not in Settings.
+  // Renders the cached feed at once; the poll runs Rust-side.
   import { onDestroy, onMount } from "svelte";
   import { Button, Switch } from "@veelume/ui";
-  import { RefreshCw } from "lucide-svelte";
+  import { RefreshCw, X } from "lucide-svelte";
   import {
     devtrackerStore,
     markAllRead,
@@ -17,15 +18,27 @@
   import GateNotice from "$lib/modules/devtracker/GateNotice.svelte";
   import PostItem from "$lib/modules/devtracker/PostItem.svelte";
   import FollowList from "$lib/modules/devtracker/FollowList.svelte";
+  import PatchNotes from "$lib/modules/devtracker/PatchNotes.svelte";
   import { dayLabel, postAge } from "$lib/modules/devtracker/time";
 
-  type Tab = "feed" | "filters";
+  type Tab = "feed" | "patches" | "filters";
   let tab = $state<Tab>("feed");
   let showFiltered = $state(false);
+  // One account's posts (from the follow list), filtered-out ones included.
+  let author = $state<{ id: string; nickname: string } | null>(null);
 
   const overview = $derived(devtrackerStore.overview);
   const gateOpen = $derived(overview?.gate.state === "open");
-  const posts = $derived((overview?.posts ?? []).filter((p) => showFiltered || p.shown));
+  const posts = $derived(
+    (overview?.posts ?? []).filter((p) =>
+      author ? p.author_id === author.id : showFiltered || p.shown,
+    ),
+  );
+
+  function viewAuthor(id: string, nickname: string) {
+    author = { id, nickname };
+    tab = "feed";
+  }
   const hiddenCount = $derived((overview?.posts ?? []).filter((p) => !p.shown).length);
   const filling = $derived(activityFor("devtracker", ""));
 
@@ -51,6 +64,9 @@
       <button class="tab" class:active={tab === "feed"} onclick={() => (tab = "feed")}>
         Feed
         {#if overview?.unread}<span class="count-badge owned">{overview.unread}</span>{/if}
+      </button>
+      <button class="tab" class:active={tab === "patches"} onclick={() => (tab = "patches")}>
+        Patch notes
       </button>
       <button class="tab" class:active={tab === "filters"} onclick={() => (tab = "filters")}>
         Filters &amp; follow list
@@ -112,12 +128,21 @@
       </p>
     </section>
     <h2>Follow list</h2>
-    <FollowList />
+    <FollowList onview={viewAuthor} />
+  {:else if tab === "patches"}
+    <PatchNotes notes={overview.patch_notes} />
   {:else if overview.gate.state === "closed"}
     <GateNotice reason={overview.gate.reason} />
   {:else}
     <div class="feed-tools">
-      <label class="toggle">
+      {#if author}
+        <span class="chip">
+          All posts by <strong>{author.nickname}</strong>, filtered-out included
+          <button title="Back to the feed" onclick={() => (author = null)}><X size={13} /></button>
+        </span>
+        <span class="grow"></span>
+      {/if}
+      <label class="toggle" class:hidden={author}>
         <Switch
           label="Show filtered-out"
           checked={showFiltered}
@@ -149,7 +174,6 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-width: 920px;
   }
   .bar {
     display: flex;
@@ -165,7 +189,28 @@
   }
   .feed-tools {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px 2px 10px;
+    border: 1px solid var(--accent-border);
+    border-radius: var(--radius-pill);
+    background: var(--accent-fill-faint);
+    font-size: var(--text-small);
+  }
+  .chip button {
+    display: inline-flex;
+    color: var(--text-dim);
+  }
+  .chip button:hover {
+    color: var(--accent);
+  }
+  .hidden {
+    display: none;
   }
   .toggle {
     display: inline-flex;

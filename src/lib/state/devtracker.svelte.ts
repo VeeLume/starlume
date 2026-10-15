@@ -93,6 +93,21 @@ export async function setAuthorMode(id: string, mode: string): Promise<void> {
   settle(await commands.devtrackerSetAuthorMode(id, mode));
 }
 
+export async function follow(id: string, nickname: string): Promise<void> {
+  settle(await commands.devtrackerFollow(id, nickname));
+}
+
+export async function unfollow(id: string): Promise<void> {
+  settle(await commands.devtrackerUnfollow(id));
+}
+
+/** Follow by Spectrum handle (a gated lookup). Returns the error, if any,
+ *  for the input it came from. */
+export async function followHandle(handle: string): Promise<string | null> {
+  const result = await commands.devtrackerFollowHandle(handle);
+  return result.status === "error" ? result.error.message : null;
+}
+
 export async function resetAuthors(): Promise<void> {
   settle(await commands.devtrackerResetAuthors());
 }

@@ -351,8 +351,8 @@ async devtrackerOverview() : Promise<DevtrackerOverview> {
     return await TAURI_INVOKE("devtracker_overview");
 },
 /**
- * The follow list: the known staff plus every author in the cached feed,
- * most active first. **No network, no gate.**
+ * The follow list, then the staff the feed saw that are not on it. Each
+ * group most active first. **No network, no gate.**
  */
 async devtrackerAuthors() : Promise<DevAuthorView[]> {
     return await TAURI_INVOKE("devtracker_authors");
@@ -369,11 +369,47 @@ async devtrackerSetAuthorMode(authorId: string, mode: string) : Promise<Result<n
 }
 },
 /**
- * Back to the defaults: every author filtered by content.
+ * Back to the defaults: the seeded follow list, every author filtered by
+ * content.
  */
 async devtrackerResetAuthors() : Promise<Result<null, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("devtracker_reset_authors") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Put an account on the follow list (one the feed has seen: id + handle
+ * known locally).
+ */
+async devtrackerFollow(authorId: string, nickname: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_follow", { authorId, nickname }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Take an account off the follow list (its override goes too).
+ */
+async devtrackerUnfollow(authorId: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_unfollow", { authorId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Put an account on the follow list by its Spectrum handle. **Gated**: the
+ * handle → member id lookup is a Spectrum request.
+ */
+async devtrackerFollowHandle(handle: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_follow_handle", { handle }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -879,7 +915,11 @@ posts: number;
 /**
  * Of those, how many the content filter keeps.
  */
-kept: number }
+kept: number; 
+/**
+ * On the follow list; `false` = staff seen in the feed, not listed.
+ */
+listed: boolean }
 /**
  * One post as the page shows it (specta mirror; module crates stay
  * specta-free).
@@ -949,7 +989,11 @@ posts: DevPostView[];
 /**
  * Unread posts on the feed.
  */
-unread: number; notify_ops: boolean }
+unread: number; notify_ops: boolean; 
+/**
+ * Patch-note threads in the whole cache, newest first.
+ */
+patch_notes: PatchNoteView[] }
 export type EventLadderView = { 
 /**
  * Category label; `null` for the overall ladder.
@@ -1180,6 +1224,26 @@ stock: LoadoutSlotView[] | null;
  * The armour set the piece belongs to, from the game data.
  */
 set: ArmourSetView | null }
+/**
+ * A patch-note thread and what its title says.
+ */
+export type PatchNoteView = { 
+/**
+ * Read key of the thread opener (opens it on Spectrum).
+ */
+key: string; subject: string; version: string | null; 
+/**
+ * `"LIVE"`, `"PTU"`, `"EPTU"`, `"Tech Preview"`, `"Hotfix"`, `"Evocati"`.
+ */
+channel: string | null; build: string | null; 
+/**
+ * `"RC2"`, `"Wave 1"`.
+ */
+stage: string | null; author: string; 
+/**
+ * Epoch milliseconds.
+ */
+time_ms: number }
 export type PatcherConfigUpdate = { enabled: boolean | null; options: Partial<{ [key in string]: string }> }
 export type PatcherInfoView = { id: string; name: string; description: string; enabled: boolean; 
 /**
