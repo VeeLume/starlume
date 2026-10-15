@@ -541,6 +541,39 @@ async devtrackerRefresh() : Promise<Result<null, AppError>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Whether the launcher is installed and the game runs. Local only: a
+ * file check and a process scan, no network.
+ */
+async launcherStatus() : Promise<LauncherStatusView> {
+    return await TAURI_INVOKE("launcher_status");
+},
+/**
+ * Start the RSI launcher, or bring the running one forward (it is
+ * single-instance). No arguments: it ignores them. Local, no network gate —
+ * the launcher is the user's own app and does its own sign-in.
+ */
+async launcherOpen() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("launcher_open") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The channels this account may play, with their current builds — the
+ * launcher's game library. Cached for [`LIBRARY_MAX_AGE`]. **Gated** by
+ * `require_unofficial("launcher")`.
+ */
+async launcherLibrary() : Promise<Result<LibraryChannelView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("launcher_library") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async authStatus() : Promise<AuthStatus> {
     return await TAURI_INVOKE("auth_status");
 },
@@ -1313,6 +1346,27 @@ selected: boolean;
  */
 state: string; patched_at: string | null }
 export type LangpatchOverview = { auto_patch: boolean; channels: string[]; language_pack: string | null; patchers: PatcherInfoView[]; installs: LangpatchInstallView[] }
+export type LauncherStatusView = { 
+/**
+ * The RSI launcher is installed where Starlume looks for it.
+ */
+launcher_found: boolean; 
+/**
+ * `StarCitizen.exe` (or its EAC bootstrapper) is running.
+ */
+game_running: boolean }
+/**
+ * One channel the account may play, as the launcher would install it.
+ */
+export type LibraryChannelView = { 
+/**
+ * `"LIVE"`, `"PTU"`, ….
+ */
+id: string; 
+/**
+ * `"4.10.2-live.12913470"` — compare with the install's version label.
+ */
+version_label: string }
 export type LoadoutSlotView = { path: string[]; 
 /**
  * `null` = an emptied port.

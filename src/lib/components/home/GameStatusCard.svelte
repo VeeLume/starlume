@@ -5,11 +5,15 @@
   // pills: game data ready, where the build stands against the LIVE notes
   // (a newer build of the noted version is a hotfix that shipped after
   // them), and each enabled module's decoration (Text Patching's state).
+  // Each row ends in "Open launcher" (the launcher can't be told to press
+  // Play — launcher.rs), "Update in launcher" when the launcher's library
+  // has a newer build, or "Running" while the game runs.
   // Reads stores only; fetches nothing itself.
   import { onDestroy, onMount } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { Button } from "@veelume/ui";
-  import { ExternalLink } from "lucide-svelte";
+  import { ExternalLink, Play } from "lucide-svelte";
+  import { launcherStore, libraryLabel, loadLauncher, openLauncher } from "$lib/state/launcher.svelte";
   import { scStore } from "$lib/state/sc.svelte";
   import { dataStore } from "$lib/state/data.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
@@ -32,6 +36,7 @@
         key,
         channel: install.channel.toUpperCase(),
         version: installVersion(install.version),
+        label: install.version,
         build: installChangelist(install.version),
         ready: data ? data.loaded || data.predicted_tier === "processed" : null,
         // Only LIVE compares with the LIVE notes.
@@ -52,9 +57,27 @@
           ? `Hotfix build${build ? ` ${build}` : ""}`
           : `Newer than the notes (${latest?.version})`;
 
+  // The launcher state changes outside Starlume: re-read on focus (frontend
+  // rule 5) and after opening it.
+  const refreshLauncher = () => void loadLauncher();
   let stop: (() => void) | undefined;
-  onMount(() => (stop = watchPatchNotes()));
-  onDestroy(() => stop?.());
+  onMount(() => {
+    stop = watchPatchNotes();
+    refreshLauncher();
+    window.addEventListener("focus", refreshLauncher);
+  });
+  onDestroy(() => {
+    stop?.();
+    window.removeEventListener("focus", refreshLauncher);
+  });
+  async function launch() {
+    await openLauncher();
+    setTimeout(refreshLauncher, 4000);
+  }
+  const updateNeeded = (channel: string, version: string) => {
+    const label = libraryLabel(launcherStore.library, channel);
+    return typeof label === "string" && label.toLowerCase() !== version.toLowerCase();
+  };
 </script>
 
 <section class="status" class:with-image={!!image}>
@@ -79,6 +102,20 @@
           <span class="version">{row.version}</span>
           {#if row.key === "live" && latest?.name && row.patch !== "behind"}
             <span class="name">{latest.name}</span>
+          {/if}
+          {#if launcherStore.status?.launcher_found}
+            <span class="grow"></span>
+            {#if launcherStore.status.game_running}
+              <span class="status-pill good"><i></i>Running</span>
+            {:else if updateNeeded(row.key, row.label)}
+              <Button variant="outline" onclick={launch} title="The launcher has a newer build for this channel">
+                Update in launcher
+              </Button>
+            {:else}
+              <Button onclick={launch} title="Start the RSI launcher (or bring it forward), then press Play there">
+                <Play size={14} /> Open launcher
+              </Button>
+            {/if}
           {/if}
         </div>
         <div class="pills">
@@ -109,6 +146,7 @@
       </div>
     {/each}
 
+    {#if launcherStore.error}<p class="error">{launcherStore.error}</p>{/if}
     {#if latest}
       <div>
         <Button variant="outline" onclick={() => void openPatchNote(latest.article_url)}>
@@ -171,6 +209,9 @@
   .install + .install {
     padding-top: 10px;
     border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  }
+  .grow {
+    flex: 1;
   }
   .line {
     display: flex;

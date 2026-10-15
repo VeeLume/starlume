@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub mod inventory;
+pub mod launcher;
 
 pub use inventory::Inventory;
 /// CRC32C of a lowercased item-port name — how stash trees name ports.

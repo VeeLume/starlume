@@ -33,6 +33,7 @@ mod groups;
 mod ipc;
 mod items;
 mod langpatch;
+mod launcher;
 mod lifecycle;
 mod modules;
 pub mod notify;

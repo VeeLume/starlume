@@ -44,7 +44,8 @@ migrate in as feature modules over time.
   (shell, `svc-*`, modules, frontend), passes a gate first: `AppState::require_online()`
   for any network call (Discord, RSI, server), and `AppState::require_unofficial("<feature>")`
   for any **unofficial API** — an RSI/CIG API Starlume is not an official client of:
-  CIG's game-services gRPC (`svc-dossier`) and RSI's Spectrum REST API (`svc-spectrum`).
+  CIG's game-services gRPC and the RSI launcher's API (`svc-dossier`) and RSI's Spectrum
+  REST API (`svc-spectrum`).
   ToS-grey; master opt-in + per-feature allow-list. The persisted fields keep their
   original gRPC names (`AppSettings::grpc_enabled` / `grpc_features`) with the widened
   meaning; feature ids are registered in `settings::GRPC_FEATURES` (debug-only ones,
