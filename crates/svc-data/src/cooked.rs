@@ -97,7 +97,7 @@ pub struct ItemDetail {
     /// DCB record path (`libs/foundry/records/...`), when known.
     pub record_path: Option<String>,
     /// Combat stats when this item is a ship weapon (the weapons-index
-    /// join — README rule 4: enrichments are framework reference data).
+    /// join — CONTRIBUTING rule 4: enrichments are framework reference data).
     pub ship_weapon: Option<crate::weapons::ShipWeaponEntry>,
     /// Combat stats when this item is a missile / torpedo.
     pub missile: Option<crate::weapons::MissileEntry>,

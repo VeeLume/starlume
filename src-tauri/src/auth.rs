@@ -15,7 +15,7 @@
 //!    avatar for the sidebar. `svc-sync` (later) uses the same token.
 //!
 //! **Dev profile mode** (`STARLUME_PROFILE`, debug builds only — see
-//! `app_kit::profile` and the README "Testing with two accounts"): the login
+//! `app_kit::profile` and CONTRIBUTING "Testing with two accounts"): the login
 //! uses a **loopback callback** (ephemeral `127.0.0.1` port) instead of the
 //! deep link — deep links are machine-global and always land in the first
 //! instance — and `login_start` returns the sign-in URL instead of opening

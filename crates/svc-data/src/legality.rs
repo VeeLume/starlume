@@ -1,5 +1,5 @@
 //! Legality index cooking — `Jurisdiction` records → per-commodity legality
-//! rows. Reference-catalog framework data (README module rule 4): the same
+//! rows. Reference-catalog framework data (CONTRIBUTING module rule 4): the same
 //! index feeds the resource catalog's "Illegal in …" facts and
 //! mod-langpatch's illegal-goods derive.
 //!

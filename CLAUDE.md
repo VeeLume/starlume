@@ -6,7 +6,9 @@ migrate in as feature modules over time.
 
 ## Orientation
 
-- `README.md` — architecture picture + the module rules. Read the rules before adding code.
+- `README.md` — the user-facing overview (features, install, privacy).
+- `CONTRIBUTING.md` — architecture picture + the module rules. Read the rules before adding
+  code.
 - Design decisions, rationale, measurements, open work and ideas live in the maintainer's
   Firefly records (project `starlume`), not in this repo. Public design docs come later,
   once things are stable.
@@ -23,7 +25,7 @@ migrate in as feature modules over time.
   `svc-data` (DCB parse + snapshot cache + reference catalogs incl. missions) are live;
   `svc-log` / `svc-sync` are doc-only stubs, filled by carving working code out of
   Hearth, **not** by writing speculative APIs. Reference catalogs are app framework,
-  not modules — README module rule 4.
+  not modules — CONTRIBUTING module rule 4.
 - `src-tauri` — the shell: lifecycle (plugins, tray, windows), settings, auth, module
   registry, typed IPC.
 - `src` — SvelteKit static SPA (adapter-static, SSR off).
@@ -53,7 +55,7 @@ migrate in as feature modules over time.
 - **Data dirs are build-namespaced**: debug → `%APPDATA%\starlume-dev`, release →
   `%APPDATA%\starlume`, `STARLUME_DATA_DIR` overrides — dev experiments must never touch
   release data.
-- **Module rules** are in the README; treat them as invariants, not guidelines.
+- **Module rules** are in CONTRIBUTING.md; treat them as invariants, not guidelines.
 - Updater signing: private key is a GitHub secret (`TAURI_SIGNING_PRIVATE_KEY`), only the
   pubkey lives in `tauri.conf.json`. Never commit `*.key`.
 

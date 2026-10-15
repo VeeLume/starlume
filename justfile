@@ -33,13 +33,13 @@ server-db-reset:
 
 # Needs `just dev` running (shares its vite server, and provides the build —
 # this runs the existing exe directly: cargo can't relink while the first
-# instance holds the file lock). See README "Testing with two accounts".
+# instance holds the file lock). See CONTRIBUTING "Testing with two accounts".
 # Run a second app instance under a dev profile
 dev-alt profile="alt":
     STARLUME_PROFILE={{profile}} ./target/debug/starlume.exe
 
 # Backgrounds the server and kills it when `just dev` exits (Ctrl+C). Needs
-# `just server-env` done once first. See README "Testing with two accounts"
+# `just server-env` done once first. See CONTRIBUTING "Testing with two accounts"
 # for the two-instance flow — this only starts server + first instance.
 # Run the server and the first app instance together
 # Does not work, hangs terminal after exit

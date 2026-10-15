@@ -1,6 +1,6 @@
 //! Crafting reference data — the `CraftingGameplayPropertyDef` records
 //! (sc-crafting's [`GameplayProperties`]): what a crafted item's stat
-//! factors are. Reference framework (README module rule 4): mod-items names
+//! factors are. Reference framework (CONTRIBUTING module rule 4): mod-items names
 //! the factors of the player's crafted items through it, and the blueprint
 //! library / crafting planner build on the same feature later.
 //!

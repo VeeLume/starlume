@@ -2,7 +2,7 @@
   // Catalogs frame — the tab nav shared by the catalog pages (items /
   // resources / missions / manufacturers) plus the browse-channel picker.
   // These catalogs are app-framework reference surfaces over svc-data, not
-  // a module (see README module rules). Install and cache management lives
+  // a module (see CONTRIBUTING module rules). Install and cache management lives
   // in Settings → Game data.
   import { page } from "$app/state";
   import { dataStore, setChannel } from "$lib/state/data.svelte";
