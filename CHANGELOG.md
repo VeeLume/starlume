@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-15
+
+The first release of Starlume, a Star Citizen companion for Windows. It reads
+your game install and makes the game's own text more useful, and (if you opt
+in) shows you where everything you own is.
+
+- **Text Patching** — enriches Star Citizen's English text: blueprint rewards,
+  cooldowns and crimestat risk in missions; size, tracking type and stats in
+  weapon descriptions; class and grade on ship components; markers on illegal
+  goods; shorter labels where the UI overlaps. Every patcher is optional, a
+  preview pane shows the result, and Starlume re-patches by itself after a game
+  update (waiting until the game is closed).
+- **My Items** *(opt-in)* — every item and ship on your account: where it is by
+  system, planet and station, what is fitted to which ship beside its saved and
+  stock loadouts, armour sets, weapon attachments, crafted stats and resources
+  by quality. It reads your inventory through CIG's game services, which are
+  off by default (Settings → Online & privacy): not an official API, read-only,
+  your own account only.
+- **A light tray app** — close the window and Starlume drops to about 11 MB in
+  the tray; it can start with Windows, and updates itself after asking.
+
+Coming from a 0.0.x test build? This release only changes the version and the
+documentation; your settings and data carry over.
+
 ## [0.0.4] - 2026-10-15
 
 - **New look.** Starlume has its own icon: a violet ringed planet with a

@@ -8,8 +8,8 @@
 makes the game's own text more useful, and (if you opt in) shows you where every
 item and ship you own actually is.
 
-> **Early test releases (0.0.x).** Things work, but expect rough edges and
-> changes. Feedback and bug reports are welcome in
+> **Starlume is young.** Things work, but expect rough edges and changes
+> between releases. Feedback and bug reports are welcome in
 > [Issues](https://github.com/VeeLume/starlume/issues).
 
 ## Features
