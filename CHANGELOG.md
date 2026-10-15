@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-10-15
+
+- **New look.** Starlume has its own icon: a violet ringed planet with a
+  rose moon, replacing the placeholder carried over from Hearth, plus a
+  matching tray icon. The app moves from warm amber to a neutral graphite
+  background with violet as its accent.
+
 ## [0.0.3] - 2026-10-14
 
 - **Lighter in the tray.** Starlume closes its window's web view a minute
