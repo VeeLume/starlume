@@ -22,6 +22,7 @@
   } from "$lib/state/langpatch.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
   import MissionSamplePanel from "$lib/components/langpatch/MissionSamplePanel.svelte";
+  import { installStateMap } from "$lib/modules/langpatch/status";
 
   const overview = $derived(langpatchStore.overview);
 
@@ -84,14 +85,6 @@
     });
   }
 
-  // Install patch states → one badge each (the StatusBadge map contract).
-  const stateMap: StatusMap = {
-    "up-to-date": { label: () => "Patched · current", tone: "primary" },
-    stale: { label: () => "Stale — re-patch pending", tone: "warning" },
-    foreign: { label: () => "Paused — modified by another tool", tone: "warning" },
-    unpatched: { label: () => "Not patched", tone: "neutral" },
-  };
-
   const packBadgeMap: StatusMap = {
     replaces: { label: () => "overwrites pack text", tone: "warning" },
   };
@@ -138,7 +131,7 @@
               {#if work}
                 <span class="activity-note">⟳ {activityLabel(work)}</span>
               {:else}
-                <StatusBadge status={install.state} map={stateMap} />
+                <StatusBadge status={install.state} map={installStateMap} />
               {/if}
               <Button
                 variant="outline"

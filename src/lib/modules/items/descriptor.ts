@@ -4,6 +4,7 @@
 
 import { Package } from "lucide-svelte";
 import type { ModuleDescriptor } from "../types";
+import SummaryCard from "./SummaryCard.svelte";
 
 export const itemsModule: ModuleDescriptor = {
   id: "items",
@@ -12,4 +13,5 @@ export const itemsModule: ModuleDescriptor = {
     "Find any item or ship you own: where it is, what it is fitted to, and your saved loadouts.",
   icon: "▣",
   nav: [{ href: "/items", label: "My Items", icon: Package }],
+  homeCards: [{ id: "summary", title: "My Items", component: SummaryCard, href: "/items" }],
 };

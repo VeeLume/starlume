@@ -51,7 +51,8 @@ A module lands in two halves sharing one id:
    `src-tauri/src/ipc.rs` (then regenerate bindings).
 2. **Frontend** — `src/lib/modules/<id>/` exporting a `ModuleDescriptor`
    (routes under `src/routes/<id>/`, sidebar `nav` entries, optional
-   `onboardingSteps`), added to `src/lib/modules/registry.ts`.
+   `onboardingSteps`, `homeCards` for Home and an `installStatus` column on
+   Home's Game status card), added to `src/lib/modules/registry.ts`.
 
 The onboarding picker, the sidebar, and the Settings module list all derive
 from the registry — no wizard or layout edits needed. Module onboarding steps

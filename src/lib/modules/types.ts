@@ -49,6 +49,40 @@ export interface MeSection {
   component: Component;
 }
 
+/** A card on Home. Cards answer "can I play" / "what is going on" at a
+ *  glance and link to their feature page for the rest. A card reads stores
+ *  only: Home never fetches and never starts polling (data-lifecycle rules
+ *  1–2; the tray idle footprint). Loading its store's cache on mount is
+ *  fine — that is a local read. */
+export interface HomeCard {
+  /** Unique within the owner (module, or the shell). */
+  id: string;
+  /** Card heading; also the label in Home's customize mode. */
+  title: string;
+  component: Component;
+  /** Shown until the user hides it. Default true. */
+  defaultVisible?: boolean;
+  /** Spans the full row of the card grid. */
+  wide?: boolean;
+  /** The feature page; the card header links there. */
+  href?: string;
+}
+
+/** Props of a module's per-install decoration on the Game status card. */
+export interface InstallStatusProps {
+  /** Lowercase channel key ("live"), the key activity records carry. */
+  channelKey: string;
+}
+
+/** A module's contribution to each install row of Home's Game status card
+ *  ("can I play?"): a compact state for that channel, e.g. Text Patching's
+ *  patched / re-patch pending. Render nothing when there is nothing to say. */
+export interface InstallStatus {
+  /** Short column label ("Text"). */
+  label: string;
+  component: Component<InstallStatusProps>;
+}
+
 export interface ModuleDescriptor {
   /** Must match the Rust `Module::id`. */
   id: string;
@@ -62,4 +96,8 @@ export interface ModuleDescriptor {
   onboardingSteps?: OnboardingStep[];
   /** Visibility/sharing sections on the Me page, rendered while enabled. */
   meSections?: MeSection[];
+  /** Cards on Home, rendered while enabled; the user orders and hides them. */
+  homeCards?: HomeCard[];
+  /** A per-install decoration on Home's Game status card, while enabled. */
+  installStatus?: InstallStatus;
 }

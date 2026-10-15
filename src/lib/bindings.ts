@@ -636,7 +636,16 @@ archive_all_builds: boolean;
 /**
  * Archive PTU / Tech Preview builds too. Default off: Live/Hotfix only.
  */
-archive_test_channels: boolean }
+archive_test_channels: boolean; 
+/**
+ * The Home page layout: the cards the user arranged, in order, each
+ * shown or hidden. Ids are `<owner>:<card>` (`shell:game-status`,
+ * `items:summary`). Empty = the default layout. Cards not listed — a
+ * module enabled later — follow the listed ones at their default
+ * visibility; listed ids no longer available are skipped, not dropped,
+ * so re-enabling a module restores its placement.
+ */
+home_cards: HomeCardPref[] }
 export type ArmourSetView = { key: string; 
 /**
  * "Sol-III Aviator".
@@ -799,6 +808,10 @@ export type GroupMember = { username: string; is_owner: boolean }
  */
 export type GrpcFeatureInfo = { id: string; name: string; description: string }
 export type HolderView = { geid: string; name: string; item_type: string }
+/**
+ * One card's place on Home (see [`AppSettings::home_cards`]).
+ */
+export type HomeCardPref = { id: string; visible: boolean }
 export type IngredientView = { 
 /**
  * `resource` | `item` | `other`.

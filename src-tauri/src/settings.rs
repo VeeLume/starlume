@@ -82,6 +82,20 @@ pub struct AppSettings {
     pub archive_all_builds: bool,
     /// Archive PTU / Tech Preview builds too. Default off: Live/Hotfix only.
     pub archive_test_channels: bool,
+    /// The Home page layout: the cards the user arranged, in order, each
+    /// shown or hidden. Ids are `<owner>:<card>` (`shell:game-status`,
+    /// `items:summary`). Empty = the default layout. Cards not listed — a
+    /// module enabled later — follow the listed ones at their default
+    /// visibility; listed ids no longer available are skipped, not dropped,
+    /// so re-enabling a module restores its placement.
+    pub home_cards: Vec<HomeCardPref>,
+}
+
+/// One card's place on Home (see [`AppSettings::home_cards`]).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct HomeCardPref {
+    pub id: String,
+    pub visible: bool,
 }
 
 fn default_true() -> bool {
@@ -109,6 +123,7 @@ impl Default for AppSettings {
             archive_releases: 3,
             archive_all_builds: false,
             archive_test_channels: false,
+            home_cards: Vec::new(),
         }
     }
 }

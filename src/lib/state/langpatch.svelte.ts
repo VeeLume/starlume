@@ -99,6 +99,29 @@ export function listenForLangpatchChanges(): Promise<UnlistenFn> {
   });
 }
 
+// Ref-counted subscription for inline surfaces (Home's per-install column):
+// several can show the overview at once and share one listener.
+let _watchers = 0;
+let _watchUnlisten: Promise<UnlistenFn> | null = null;
+
+/** Keep the overview current while an inline surface shows it: refresh the
+ *  cache now and on `langpatch:changed`. Returns the stop function. */
+export function watchLangpatch(): () => void {
+  if (_watchers++ === 0) {
+    _watchUnlisten = listenForLangpatchChanges();
+    void loadLangpatch();
+  }
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    if (--_watchers === 0) {
+      void _watchUnlisten?.then((u) => u());
+      _watchUnlisten = null;
+    }
+  };
+}
+
 /** Build a full config update from the current overview (the IPC takes the
  *  whole config — one shape for every edit). */
 export function updateFromOverview(o: LangpatchOverview): LangpatchConfigUpdate {
