@@ -5658,6 +5658,20 @@ name = "svc-log"
 version = "0.1.0"
 
 [[package]]
+name = "svc-spectrum"
+version = "0.1.0"
+dependencies = [
+ "app-kit",
+ "chrono",
+ "sc-dossier",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "svc-sync"
 version = "0.1.0"
 
