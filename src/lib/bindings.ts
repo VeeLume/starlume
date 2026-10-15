@@ -1073,7 +1073,13 @@ reason: string;
 /**
  * A strong game-ops signal (maintenance, PTU, hotfix, known issue).
  */
-ops: boolean; unread: boolean }
+ops: boolean; unread: boolean; 
+/**
+ * What the post answers, quoted (forum parent / thread opener / the
+ * mentioned member's latest chat message). `null` until resolved or when
+ * there is nothing to quote.
+ */
+quote: QuoteView | null }
 /**
  * Whether the tracker can fetch right now, and if not, why.
  */
@@ -1404,6 +1410,15 @@ key: string }
  */
 export type PreviewTextView = { key: string | null; original: string; patched: string }
 export type Profile = { username: string; avatar_url: string | null }
+export type QuoteView = { 
+/**
+ * `"reply"` | `"opener"` | `"mention"`.
+ */
+kind: string; author: string; 
+/**
+ * Plain text, line breaks kept; empty when erased.
+ */
+text: string; erased: boolean }
 /**
  * One LIVE release as the page and Home show it (specta mirror of
  * `sc_dossier::patchnotes::Release`, overview fields only).

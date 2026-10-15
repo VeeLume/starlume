@@ -52,7 +52,8 @@ mod feed;
 mod policy;
 
 pub use feed::{
-    Author, Feed, FeedPost, FetchReport, MAX_CACHED_POSTS, PAGE_SIZE, Place, PostKind, ThreadRef,
+    Author, Feed, FeedPost, FetchReport, MAX_CACHED_POSTS, PAGE_SIZE, Place, PostKind, Quote,
+    QuoteKind, ThreadRef,
 };
 pub use policy::{MAX_REQUESTS_PER_SECOND, MIN_INTERVAL, THROTTLE_BACKOFF};
 
@@ -73,6 +74,12 @@ pub const MAX_BACKFILL_PAGES: u32 = 40;
 const SEARCH: &str = "/search/content/extended";
 /// The handle → member lookup route (its own pacing/backoff key).
 const MEMBER_BY_NICKNAME: &str = "/member/info/nickname";
+/// One forum reply by id (context: a reply's parent).
+const REPLY_GET: &str = "/v2/forum/thread/reply/get";
+/// One forum thread by slug (context: the opener a top-level reply answers).
+const THREAD_GET: &str = "/v2/forum/thread/get";
+/// A lobby's history (context: the message a mention points at).
+const LOBBY_HISTORY: &str = "/message/history";
 
 /// Errors from a Spectrum fetch.
 #[derive(Debug, thiserror::Error)]
@@ -200,6 +207,108 @@ impl SpectrumService {
             .await
     }
 
+    /// Resolve what the given cached posts answer and store it with them:
+    /// a forum reply's parent (or, top-level, the thread opener), a chat
+    /// message's mentioned member's latest earlier message in the lobby.
+    /// Thread openers and chat without a mention need no request. Each
+    /// resolved post is marked checked, found or not; a post whose lookup
+    /// failed stays unchecked for the next call. Stops at a throttle and
+    /// keeps what it resolved. Returns how many posts were checked.
+    ///
+    /// The caller picks the posts (the ones its filter shows, a few per
+    /// call): each costs one or two paced requests.
+    ///
+    /// **Gated:** like [`SpectrumService::fetch_newest`].
+    pub async fn fill_context(&self, user_agent: &str, keys: &[(PostKind, String)]) -> Result<u32> {
+        if keys.is_empty() {
+            return Ok(0);
+        }
+        let _serial = self.run_lock.lock().await;
+        let mut feed: Feed = app_kit::load_json(&self.feed_path());
+        let client = launcher_client(user_agent).await?;
+        let mut checked = 0;
+        let mut outcome = Ok(());
+        for (kind, id) in keys {
+            let Some(i) = feed
+                .posts
+                .iter()
+                .position(|p| p.kind == *kind && &p.id == id)
+            else {
+                continue;
+            };
+            match self.resolve(&client, &feed.posts[i]).await {
+                Ok(quote) => {
+                    feed.posts[i].context = quote;
+                    feed.posts[i].context_checked = true;
+                    checked += 1;
+                }
+                Err(e @ Error::Throttled { .. }) => {
+                    outcome = Err(e);
+                    break;
+                }
+                // The post is gone or malformed upstream: nothing to quote.
+                Err(Error::Spectrum(
+                    e @ (sc_dossier::Error::Spectrum { .. } | sc_dossier::Error::Invalid(_)),
+                )) => {
+                    tracing::info!(id, "spectrum context: {e}");
+                    feed.posts[i].context_checked = true;
+                    checked += 1;
+                }
+                Err(e) => {
+                    outcome = Err(e);
+                    break;
+                }
+            }
+        }
+        if checked > 0 {
+            write_cache(&self.feed_path(), &feed);
+        }
+        outcome.map(|()| checked)
+    }
+
+    /// One post's context (see [`SpectrumService::fill_context`]).
+    async fn resolve(&self, client: &Spectrum, post: &FeedPost) -> Result<Option<Quote>> {
+        match post.kind {
+            PostKind::Thread => Ok(None),
+            PostKind::Reply => {
+                let reply = self.paced(REPLY_GET, || client.reply(&post.id)).await?;
+                if let Some(parent) = reply.parent_reply_id {
+                    let p = self.paced(REPLY_GET, || client.reply(&parent)).await?;
+                    return Ok(Some(Quote {
+                        kind: QuoteKind::Reply,
+                        author: p.member.nickname,
+                        erased: p.is_erased,
+                        text: p.text,
+                    }));
+                }
+                let Some(slug) = post.thread.as_ref().map(|t| t.slug.clone()) else {
+                    return Ok(None);
+                };
+                let op = self
+                    .paced(THREAD_GET, || client.thread_opener(&slug))
+                    .await?;
+                Ok(Some(Quote {
+                    kind: QuoteKind::Opener,
+                    author: op.member.nickname,
+                    text: op.text,
+                    erased: false,
+                }))
+            }
+            PostKind::Chat => {
+                // No "@": no mention entity either — skip the request.
+                let (true, Some(lobby)) = (post.body.contains('@'), post.lobby.as_ref()) else {
+                    return Ok(None);
+                };
+                let history = self
+                    .paced(LOBBY_HISTORY, || {
+                        client.lobby_history(&lobby.id, Some(&post.id))
+                    })
+                    .await?;
+                Ok(mention_quote(post, &history))
+            }
+        }
+    }
+
     /// One fetch run: page through the feed per `mode`, merge, save. What a
     /// run fetched before an error is still saved.
     async fn run<S: Source>(&self, source: &S, mode: Mode, max_pages: u32) -> Result<FetchReport> {
@@ -293,6 +402,29 @@ impl SpectrumService {
             other => other.map_err(Error::from),
         }
     }
+}
+
+/// The quote for a staff chat message from its lobby history page (which
+/// holds the message itself and the 49 before it): the first member it
+/// mentions (not the author) and that member's newest earlier message.
+fn mention_quote(post: &FeedPost, history: &[sc_dossier::spectrum::Message]) -> Option<Quote> {
+    let own = history.iter().find(|m| m.id == post.id)?;
+    let mention = own
+        .mentions
+        .iter()
+        .find(|m| m.member_id != post.author.id)?;
+    let earlier = history
+        .iter()
+        .filter(|m| {
+            m.member.id == mention.member_id && m.time_created <= own.time_created && m.id != own.id
+        })
+        .max_by_key(|m| m.time_created)?;
+    Some(Quote {
+        kind: QuoteKind::Mention,
+        author: earlier.member.nickname.clone(),
+        text: earlier.text.clone(),
+        erased: false,
+    })
 }
 
 /// A Spectrum client on the launcher session. Reading the credentials scans
@@ -550,5 +682,72 @@ mod tests {
                 .iter()
                 .all(|p| p.time_ms != t + 5000)
         );
+    }
+
+    fn message(
+        id: &str,
+        member: (&str, &str),
+        text: &str,
+        mentions: &[(&str, &str)],
+        t: i64,
+    ) -> sc_dossier::spectrum::Message {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "lobby_id": "38230",
+            "member": {"id": member.0, "nickname": member.1, "displayname": member.1, "is_gm": false, "roles": {}},
+            "text": text,
+            "mentions": mentions.iter().map(|(mid, nick)| serde_json::json!({"member_id": mid, "nickname": nick})).collect::<Vec<_>>(),
+            "highlight_role_id": null,
+            "time_created": t,
+        }))
+        .expect("message json")
+    }
+
+    #[test]
+    fn mention_quotes_the_mentioned_members_newest_earlier_message() {
+        let mut staff = crate::feed::tests::post(1_000_000);
+        staff.id = "m9".into();
+        // Newest first, as the history page serves it; m9 is the staff post.
+        let history = vec![
+            message(
+                "m9",
+                ("1", "Dev-CIG"),
+                "@Player1 looks like a known issue",
+                &[("p1", "Player1")],
+                1000,
+            ),
+            message(
+                "m8",
+                ("p1", "Player1"),
+                "elevators are broken again",
+                &[],
+                990,
+            ),
+            message("m7", ("p2", "Player2"), "same here", &[], 985),
+            message("m6", ("p1", "Player1"), "hello", &[], 900),
+        ];
+        let q = mention_quote(&staff, &history).expect("quote");
+        assert_eq!(q.kind, QuoteKind::Mention);
+        assert_eq!(q.author, "Player1");
+        assert_eq!(q.text, "elevators are broken again");
+    }
+
+    #[test]
+    fn no_mention_or_no_earlier_message_quotes_nothing() {
+        let mut staff = crate::feed::tests::post(1_000_000);
+        staff.id = "m9".into();
+        let unmentioned = vec![message("m9", ("1", "Dev-CIG"), "hi all", &[], 1000)];
+        assert!(mention_quote(&staff, &unmentioned).is_none());
+        let silent = vec![
+            message(
+                "m9",
+                ("1", "Dev-CIG"),
+                "@Player3 welcome",
+                &[("p3", "Player3")],
+                1000,
+            ),
+            message("m8", ("p1", "Player1"), "hi", &[], 990),
+        ];
+        assert!(mention_quote(&staff, &silent).is_none());
     }
 }

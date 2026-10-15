@@ -21,5 +21,6 @@ tokio.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+serde_json.workspace = true
 # Paused clock: pacing/backoff tests run in virtual time.
 tokio = { workspace = true, features = ["test-util"] }

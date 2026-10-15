@@ -80,6 +80,39 @@ pub struct FeedPost {
     pub thread: Option<ThreadRef>,
     /// Link to the post on the website.
     pub url: String,
+    /// What the post answers, quoted — resolved after the fetch by
+    /// `SpectrumService::fill_context` (separate requests), `None` until
+    /// then or when there is nothing to quote.
+    #[serde(default)]
+    pub context: Option<Quote>,
+    /// Context resolution ran for this post (whatever it found).
+    #[serde(default)]
+    pub context_checked: bool,
+}
+
+/// What a staff post answers, quoted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Quote {
+    pub kind: QuoteKind,
+    /// The quoted author's handle.
+    pub author: String,
+    /// Plain text; empty when the quoted post was erased.
+    pub text: String,
+    /// The quoted post was erased.
+    #[serde(default)]
+    pub erased: bool,
+}
+
+/// Where a quote comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QuoteKind {
+    /// The forum reply a staff reply answers.
+    Reply,
+    /// The thread opener a top-level staff reply answers.
+    Opener,
+    /// The mentioned member's latest earlier chat message in the lobby.
+    Mention,
 }
 
 /// A post's author.
@@ -159,6 +192,8 @@ impl From<&sc_dossier::spectrum::Post> for FeedPost {
                 content_reply_id: t.content_reply_id.clone(),
             }),
             url: p.url.clone(),
+            context: None,
+            context_checked: false,
         }
     }
 }
@@ -354,8 +389,11 @@ impl Run {
             let key = owned_key(&post);
             match index.get(&key) {
                 Some(&i) => {
-                    // Fetched again: the fresh copy wins (edits).
-                    feed.posts[i] = post;
+                    // Fetched again: the fresh copy wins (edits), the
+                    // resolved context stays.
+                    let old = std::mem::replace(&mut feed.posts[i], post);
+                    feed.posts[i].context = old.context;
+                    feed.posts[i].context_checked = old.context_checked;
                     self.updated += 1;
                 }
                 None => {
@@ -448,7 +486,30 @@ pub(crate) mod tests {
             channel: None,
             thread: None,
             url: String::new(),
+            context: None,
+            context_checked: false,
         }
+    }
+
+    #[test]
+    fn a_refetch_keeps_the_resolved_context() {
+        let mut feed = Feed::default();
+        let mut run = Run::new(&feed, Mode::Newest);
+        run.absorb(&mut feed, page([10]));
+        feed.posts[0].context_checked = true;
+        feed.posts[0].context = Some(Quote {
+            kind: QuoteKind::Mention,
+            author: "Player".into(),
+            text: "is the server down?".into(),
+            erased: false,
+        });
+        let mut edited = page([10]);
+        edited[0].body = "edited".into();
+        let mut run = Run::new(&feed, Mode::Newest);
+        run.absorb(&mut feed, edited);
+        assert_eq!(feed.posts[0].body, "edited");
+        assert!(feed.posts[0].context_checked);
+        assert_eq!(feed.posts[0].context.as_ref().unwrap().author, "Player");
     }
 
     /// A page of posts at the given times (newest first, as served).

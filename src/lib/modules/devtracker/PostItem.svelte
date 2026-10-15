@@ -1,7 +1,9 @@
 <script lang="ts">
   // One staff post. Long bodies clamp; expanding one marks it read, and so
   // does opening it on Spectrum. Filtered-out posts (with the page toggle)
-  // render dimmed with the filter's reason.
+  // render dimmed with the filter's reason. Above the text, a short quote
+  // of what the post answers, once resolved: the forum reply (or thread
+  // opener) it replies to, or the mentioned member's last chat message.
   import { ExternalLink } from "lucide-svelte";
   import type { DevPostView } from "$lib/bindings";
   import { markRead, openPost } from "$lib/state/devtracker.svelte";
@@ -10,6 +12,16 @@
   let { post }: { post: DevPostView } = $props();
 
   let expanded = $state(false);
+  let quoteOpen = $state(false);
+  const quoteLabel = $derived(
+    post.quote?.kind === "opener"
+      ? `${post.quote.author}, opening the thread`
+      : post.quote?.kind === "mention"
+        ? `${post.quote.author}, before`
+        : post.quote
+          ? `${post.quote.author} wrote`
+          : "",
+  );
   const long = $derived(post.body.length > 320 || post.body.split("\n").length > 4);
 
   function toggle() {
@@ -32,6 +44,17 @@
     </button>
   </header>
   {#if post.subject}<div class="subject">{post.subject}</div>{/if}
+  {#if post.quote}
+    <button
+      class="quote"
+      class:open={quoteOpen}
+      title={quoteOpen ? "Collapse" : "Show all"}
+      onclick={() => (quoteOpen = !quoteOpen)}
+    >
+      <span class="quote-who">{quoteLabel}</span>
+      <span class="quote-text">{post.quote.erased || !post.quote.text ? "(deleted)" : post.quote.text}</span>
+    </button>
+  {/if}
   {#if long}
     <button class="body clamp" class:expanded onclick={toggle} title={expanded ? "Collapse" : "Show all"}
       >{post.body}</button
@@ -42,6 +65,35 @@
 </article>
 
 <style>
+  .quote {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 6px 0 0 14px;
+    padding: 4px 10px;
+    border-left: 2px solid var(--border);
+    text-align: left;
+    color: var(--text-dim);
+    font-size: var(--text-small);
+    max-width: 100%;
+  }
+  .quote:hover {
+    border-left-color: var(--accent-border);
+  }
+  .quote-who {
+    color: var(--text-faint);
+  }
+  .quote-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .quote:not(.open) .quote-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .post {
     padding: 10px 0 12px;
     border-bottom: 1px solid var(--border-soft);

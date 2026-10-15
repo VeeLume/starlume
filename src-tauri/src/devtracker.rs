@@ -16,7 +16,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use mod_devtracker::{AuthorMode, DevtrackerConfig, ReadState};
-use svc_spectrum::{FeedPost, PostKind};
+use svc_spectrum::{FeedPost, PostKind, QuoteKind};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Notify;
 
@@ -38,6 +38,8 @@ const FIRST_BACKFILL_DAYS: i64 = 14;
 /// Posts on the first fill older than this count as read — a fresh tracker
 /// starts with the last day unread, not two weeks of backlog.
 const FIRST_UNREAD_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
+/// Posts whose context (what they answer) one poll resolves at most.
+const CONTEXT_PER_POLL: usize = 12;
 /// How far back the page's feed reaches.
 const VIEW_DAYS: i64 = 30;
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -119,6 +121,20 @@ pub struct DevPostView {
     /// A strong game-ops signal (maintenance, PTU, hotfix, known issue).
     pub ops: bool,
     pub unread: bool,
+    /// What the post answers, quoted (forum parent / thread opener / the
+    /// mentioned member's latest chat message). `null` until resolved or when
+    /// there is nothing to quote.
+    pub quote: Option<QuoteView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct QuoteView {
+    /// `"reply"` | `"opener"` | `"mention"`.
+    pub kind: String,
+    pub author: String,
+    /// Plain text, line breaks kept; empty when erased.
+    pub text: String,
+    pub erased: bool,
 }
 
 /// Whether the tracker can fetch right now, and if not, why.
@@ -221,6 +237,17 @@ fn post_view(post: &FeedPost, config: &DevtrackerConfig, read: &ReadState) -> De
         reason,
         ops: d.ops,
         unread: d.shown && !read.is_read(post),
+        quote: post.context.as_ref().map(|q| QuoteView {
+            kind: match q.kind {
+                QuoteKind::Reply => "reply",
+                QuoteKind::Opener => "opener",
+                QuoteKind::Mention => "mention",
+            }
+            .into(),
+            author: q.author.clone(),
+            text: q.text.clone(),
+            erased: q.erased,
+        }),
     }
 }
 
@@ -556,7 +583,37 @@ async fn poll(app: &AppHandle) -> Result<(), AppError> {
         notify_ops(app, &report.added);
     }
     let _ = app.emit(DEVTRACKER_CHANGED_EVENT, ());
+    fill_context(app, &spectrum).await;
     Ok(())
+}
+
+/// Resolve what the newest shown posts answer, a few per poll (each costs
+/// one or two paced requests), so quotes fill in over a few polls after a
+/// backfill. Best effort: a failure waits for the next poll.
+async fn fill_context(app: &AppHandle, spectrum: &svc_spectrum::SpectrumService) {
+    let Some(feed) = spectrum.cached_feed() else {
+        return;
+    };
+    let config = load_config();
+    let keys: Vec<(PostKind, String)> = feed
+        .posts
+        .iter()
+        .filter(|p| !p.context_checked && mod_devtracker::decide(p, &config).shown)
+        .take(CONTEXT_PER_POLL)
+        .map(|p| (p.kind, p.id.clone()))
+        .collect();
+    drop(feed);
+    match spectrum
+        .fill_context(crate::dossier::GRPC_USER_AGENT, &keys)
+        .await
+    {
+        Ok(0) => {}
+        Ok(n) => {
+            tracing::info!(posts = n, "dev tracker context resolved");
+            let _ = app.emit(DEVTRACKER_CHANGED_EVENT, ());
+        }
+        Err(e) => tracing::info!("dev tracker context: {e}"),
+    }
 }
 
 /// Raise one notification for the new posts with a strong ops signal.

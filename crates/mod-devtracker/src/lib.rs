@@ -300,6 +300,8 @@ mod tests {
                 content_reply_id: None,
             }),
             url: String::new(),
+            context: None,
+            context_checked: false,
         }
     }
 

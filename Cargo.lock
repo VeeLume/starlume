@@ -4435,8 +4435,8 @@ dependencies = [
 
 [[package]]
 name = "sc-dossier"
-version = "0.7.0"
-source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.7.0#0755787eb3793b37cf260e08d3d2044cc6971018"
+version = "0.8.0"
+source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.8.0#56b849c0edb32f7f451fa63958bf7ce64797295c"
 dependencies = [
  "aes",
  "cbc",
@@ -5706,6 +5706,7 @@ dependencies = [
  "chrono",
  "sc-dossier",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
