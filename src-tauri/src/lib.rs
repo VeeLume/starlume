@@ -24,6 +24,7 @@ mod activity;
 mod auth;
 mod bus;
 mod data;
+mod devtracker;
 mod dossier;
 mod error;
 mod friends;

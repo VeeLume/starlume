@@ -22,7 +22,8 @@ async updateSettings(settings: AppSettings) : Promise<Result<AppSettings, AppErr
 }
 },
 /**
- * List the gRPC sub-features this build knows — drives the Settings toggles.
+ * List the unofficial-API features this build knows — drives the Settings
+ * toggles.
  */
 async listGrpcFeatures() : Promise<GrpcFeatureInfo[]> {
     return await TAURI_INVOKE("list_grpc_features");
@@ -54,9 +55,10 @@ async blueprintsOwned() : Promise<OwnedBlueprintsView> {
 /**
  * Fetch the owned-blueprint set live from CIG's backend and cache it.
  * 
- * **Gated** by `require_grpc("blueprints")` — the master online switch, the
- * gRPC master, and the per-feature allow-list must all be on. A stale/absent
- * launcher session surfaces as an error the UI renders as a sign-in hint.
+ * **Gated** by `require_unofficial("blueprints")` — the master online
+ * switch, the unofficial-API master, and the per-feature allow-list must all
+ * be on. A stale/absent launcher session surfaces as an error the UI renders
+ * as a sign-in hint.
  */
 async blueprintsRefresh() : Promise<Result<OwnedBlueprintsView, AppError>> {
     try {
@@ -317,9 +319,9 @@ async itemsSummary() : Promise<InventorySummaryView> {
  * previous fetch and the last fetch per game build (the archive a future
  * "what changed" compares against).
  * 
- * **Gated** by `require_grpc("items")`; the loadouts ride along only when
- * `require_grpc("loadouts")` passes too. A stale launcher session surfaces
- * as an error the page shows as a sign-in hint.
+ * **Gated** by `require_unofficial("items")`; the loadouts ride along only
+ * when `require_unofficial("loadouts")` passes too. A stale launcher session
+ * surfaces as an error the page shows as a sign-in hint.
  */
 async itemsRefresh() : Promise<Result<InventorySummaryView, AppError>> {
     try {
@@ -337,6 +339,96 @@ async itemsRefresh() : Promise<Result<InventorySummaryView, AppError>> {
 async itemsFinder(channel: string) : Promise<Result<FinderView | null, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("items_finder", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The feed and the module's state. **No network, no gate.**
+ */
+async devtrackerOverview() : Promise<DevtrackerOverview> {
+    return await TAURI_INVOKE("devtracker_overview");
+},
+/**
+ * The follow list: the known staff plus every author in the cached feed,
+ * most active first. **No network, no gate.**
+ */
+async devtrackerAuthors() : Promise<DevAuthorView[]> {
+    return await TAURI_INVOKE("devtracker_authors");
+},
+/**
+ * Set one author's mode (`"always"` | `"filter"` | `"mute"`).
+ */
+async devtrackerSetAuthorMode(authorId: string, mode: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_set_author_mode", { authorId, mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Back to the defaults: every author filtered by content.
+ */
+async devtrackerResetAuthors() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_reset_authors") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async devtrackerSetNotifyOps(on: boolean) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_set_notify_ops", { on }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Mark posts read by key.
+ */
+async devtrackerMarkRead(keys: string[]) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_mark_read", { keys }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Mark everything up to now read.
+ */
+async devtrackerMarkAllRead() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_mark_all_read") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open a post on Spectrum in the user's browser and mark it read. The URL
+ * comes from the cached feed, never from the caller — the frontend cannot
+ * open arbitrary links through this.
+ */
+async devtrackerOpenPost(key: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_open_post", { key }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Fetch now. **Gated** by `require_unofficial("devtracker")`; errors
+ * (launcher session, throttle) come back to the caller.
+ */
+async devtrackerRefresh() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("devtracker_refresh") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -498,7 +590,11 @@ export type ActivityKind =
 /**
  * svc-dossier inventory fetch (stashes, entitlements, loadouts).
  */
-"inventory"
+"inventory" | 
+/**
+ * mod-devtracker: the first fill of the staff feed (svc-spectrum).
+ */
+"devtracker"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -572,27 +668,33 @@ server_url: string | null;
 enabled_modules: string[]; 
 /**
  * Master online switch (default ON). Off → no Discord auth, no RSI
- * fetch, no gRPC — no network calls except **update checks** (the one
- * documented exception; see CLAUDE.md). Enforced via
+ * fetch, no unofficial API — no network calls except **update checks**
+ * (the one documented exception; see CLAUDE.md). Enforced via
  * [`AppState::require_online`](crate::AppState).
  */
 online_enabled: boolean; 
 /**
- * Master switch for CIG game-services (gRPC) calls — the ToS-grey
- * surface (default OFF, opt-in). Preserved but inert while
- * `online_enabled` is off. Enforced via `AppState::require_grpc`.
+ * Master switch for **unofficial API** calls — the ToS-grey surface
+ * (default OFF, opt-in): CIG's game-services gRPC backend and RSI's
+ * Spectrum REST API, any RSI/CIG API Starlume is not an official client
+ * of. Named for gRPC, its first member; the meaning widened when
+ * Spectrum joined (2026-10), the name stays (settings rule: never
+ * rename). Preserved but inert while `online_enabled` is off. Enforced
+ * via `AppState::require_unofficial`.
  */
 grpc_enabled: boolean; 
 /**
  * One-time ToS acknowledgement — set automatically the first time
  * `grpc_enabled` flips on (the UI shows the consent dialog before that).
+ * Covers every unofficial API, like `grpc_enabled`.
  */
 grpc_consented: boolean; 
 /**
- * Per-sub-feature allow-list for gRPC calls (ids from
- * [`GRPC_FEATURES`]), so users can enable e.g. blueprints but not
- * missions. A feature is live only when `online_enabled` +
- * `grpc_enabled` + membership here all hold.
+ * Per-feature allow-list for unofficial API calls (ids from
+ * [`GRPC_FEATURES`] — gRPC and Spectrum features alike, despite the
+ * name), so users can enable e.g. blueprints but not the dev tracker. A
+ * feature is live only when `online_enabled` + `grpc_enabled` +
+ * membership here all hold.
  */
 grpc_features: string[]; 
 /**
@@ -762,6 +864,92 @@ export type DataTierView =
  * Nothing cached — full `Data.p4k` parse, ~30s+.
  */
 "live"
+/**
+ * One staff account in the follow list.
+ */
+export type DevAuthorView = { id: string; nickname: string; 
+/**
+ * `"always"` | `"filter"` | `"mute"`.
+ */
+mode: string; 
+/**
+ * Posts in the cached feed over the last [`VIEW_DAYS`] days.
+ */
+posts: number; 
+/**
+ * Of those, how many the content filter keeps.
+ */
+kept: number }
+/**
+ * One post as the page shows it (specta mirror; module crates stay
+ * specta-free).
+ */
+export type DevPostView = { 
+/**
+ * Read key (`kind:id`).
+ */
+key: string; 
+/**
+ * `"chat"` | `"thread"` | `"reply"`.
+ */
+kind: string; author_id: string; author: string; 
+/**
+ * The chat lobby or forum channel.
+ */
+place: string | null; 
+/**
+ * The forum thread's title, for threads and replies.
+ */
+subject: string | null; 
+/**
+ * Plain text, entities decoded, line breaks kept.
+ */
+body: string; 
+/**
+ * Epoch milliseconds.
+ */
+time_ms: number; url: string; 
+/**
+ * On the feed; `false` = filtered out (shown only with the toggle).
+ */
+shown: boolean; 
+/**
+ * Why — the filter's reason, or the author override.
+ */
+reason: string; 
+/**
+ * A strong game-ops signal (maintenance, PTU, hotfix, known issue).
+ */
+ops: boolean; unread: boolean }
+/**
+ * Whether the tracker can fetch right now, and if not, why.
+ */
+export type DevtrackerGate = { state: "open" } | 
+/**
+ * The online master or the unofficial-API opt-in is off.
+ */
+{ state: "closed"; reason: string }
+export type DevtrackerOverview = { gate: DevtrackerGate; 
+/**
+ * When the feed was last fetched, epoch seconds; `null` = never.
+ */
+fetched_at: number | null; 
+/**
+ * Spectrum is rate-limiting: paused until (epoch seconds).
+ */
+throttled_until: number | null; 
+/**
+ * The last poll's error, if it failed.
+ */
+last_error: string | null; 
+/**
+ * The last [`VIEW_DAYS`] days, newest first, filtered-out posts included.
+ */
+posts: DevPostView[]; 
+/**
+ * Unread posts on the feed.
+ */
+unread: number; notify_ops: boolean }
 export type EventLadderView = { 
 /**
  * Category label; `null` for the overall ladder.
@@ -801,10 +989,11 @@ export type FriendGroup = { id: string; name: string; is_owner: boolean; members
 export type FriendUser = { user_id: string; username: string }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
- * A gRPC sub-feature users can individually allow. The registry grows as
- * dossier-backed features land (blueprints, missions, inventory,
- * reputation, entitlements/ships…) — each new gRPC call site names its
- * feature id here and gates through `AppState::require_grpc(id)`.
+ * An unofficial-API feature users can individually allow (named for gRPC,
+ * its first member; Spectrum features are listed too). The registry grows
+ * as features land (blueprints, missions, inventory, reputation, the dev
+ * tracker…) — each new unofficial-API call site names its feature id here
+ * and gates through `AppState::require_unofficial(id)`.
  */
 export type GrpcFeatureInfo = { id: string; name: string; description: string }
 export type HolderView = { geid: string; name: string; item_type: string }

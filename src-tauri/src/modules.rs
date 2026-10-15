@@ -69,12 +69,28 @@ impl Module for Items {
     }
 }
 
+/// Dev tracker — CIG staff posts from Spectrum, chat included, filtered by
+/// content (judgement in `crates/mod-devtracker`, poll in `devtracker.rs`).
+struct Devtracker;
+
+impl Module for Devtracker {
+    fn id(&self) -> &'static str {
+        crate::devtracker::MODULE_ID
+    }
+    fn name(&self) -> &'static str {
+        "Dev Tracker"
+    }
+    fn description(&self) -> &'static str {
+        "CIG staff posts from Spectrum, chat included, filtered down to game news: patches, PTU waves, maintenance, known issues"
+    }
+}
+
 /// All modules offered by this build, enabled or not. Unreleased modules
-/// (Contracts) exist only in debug builds — the Rust half of the
+/// (Contracts, Dev Tracker) exist only in debug builds — the Rust half of the
 /// frontend's `$lib/unreleased` gate (v0.1.0 scope decision).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
-        &[&Langpatch, &Items, &Contracts]
+        &[&Langpatch, &Items, &Devtracker, &Contracts]
     } else {
         &[&Langpatch, &Items]
     }

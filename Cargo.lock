@@ -2754,6 +2754,16 @@ name = "mod-contracts"
 version = "0.1.0"
 
 [[package]]
+name = "mod-devtracker"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "svc-spectrum",
+]
+
+[[package]]
 name = "mod-items"
 version = "0.1.0"
 dependencies = [
@@ -5423,6 +5433,7 @@ dependencies = [
  "app-kit",
  "chrono",
  "keyring",
+ "mod-devtracker",
  "mod-items",
  "mod-langpatch",
  "reqwest 0.12.28",

@@ -40,10 +40,7 @@ pub struct AppState {
     pub dossier: Arc<svc_dossier::DossierService>,
     /// Spectrum (the staff feed) service + disk cache + the app-wide request
     /// pace. Reads are ToS-grey — every network method is gated by
-    /// `require_unofficial("devtracker")` at the call site. Its consumer
-    /// (mod-devtracker) lands next; until then nothing reads it — drop the
-    /// allow with the first real caller.
-    #[allow(dead_code)]
+    /// `require_unofficial("devtracker")` at the call site (`devtracker.rs`).
     pub spectrum: Arc<svc_spectrum::SpectrumService>,
 }
 
