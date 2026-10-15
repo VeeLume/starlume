@@ -65,15 +65,15 @@ impl crate::Patcher for ComponentGrades {
                 choices: vec![
                     ChoiceOption {
                         value: "name_class_grade".into(),
-                        label: "Name Class Grade (Bracer Military C)".into(),
+                        label: "Bracer Military C".into(),
                     },
                     ChoiceOption {
                         value: "compact_prefix".into(),
-                        label: "Compact prefix (M1C Bracer)".into(),
+                        label: "M1C Bracer".into(),
                     },
                     ChoiceOption {
                         value: "short_prefix".into(),
-                        label: "Short prefix (MIL1C Bracer)".into(),
+                        label: "MIL1C Bracer".into(),
                     },
                 ],
             },

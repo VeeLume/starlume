@@ -1,16 +1,18 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
-  import {
-    Button,
-    RadioGroup,
-    Settings,
-    StatusBadge,
-    Surface,
-    Switch,
-    storedValue,
-    type StatusMap,
-  } from "@veelume/ui";
+  // Layout (design pass, 2026-10-15): calm on purpose — the install as a
+  // channel card (its hue, the state in one sentence, the actions under
+  // it), the patchers as a one-column list with their options indented
+  // under them, the language pack on one line. Neutral surfaces; violet
+  // only on controls.
+  import { Button, Segmented, Surface, Switch, storedValue } from "@veelume/ui";
+  import { AlertTriangle, Cpu, Crosshair, Puzzle, Ruler, Target } from "lucide-svelte";
+  import type { LangpatchInstallView } from "$lib/bindings";
+  import { channelHue } from "$lib/channels";
+  import { installChangelist, installVersion } from "$lib/home/version";
+  import { postAge } from "$lib/modules/devtracker/time";
+  import { gameTag } from "$lib/components/langpatch/preview";
   import {
     langpatchStore,
     loadLangpatch,
@@ -22,7 +24,6 @@
   } from "$lib/state/langpatch.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
   import MissionSamplePanel from "$lib/components/langpatch/MissionSamplePanel.svelte";
-  import { installStateMap } from "$lib/modules/langpatch/status";
 
   const overview = $derived(langpatchStore.overview);
 
@@ -85,9 +86,34 @@
     });
   }
 
-  const packBadgeMap: StatusMap = {
-    replaces: { label: () => "overwrites pack text", tone: "warning" },
+  const PATCHER_ICONS: Record<string, typeof Target> = {
+    mission_enhancer: Target,
+    component_grades: Cpu,
+    illegal_goods: AlertTriangle,
+    weapon_enhancer: Crosshair,
+    label_fixes: Ruler,
   };
+
+  /** The install's state in one sentence (the card's text). */
+  function stateText(install: LangpatchInstallView): { lead: string; rest: string } {
+    if (!install.selected) return { lead: "", rest: "Starlume doesn't patch this install." };
+    switch (install.state) {
+      case "up-to-date":
+        return {
+          lead: "",
+          rest: `Patched with your settings${install.patched_at ? `, ${postAge(Date.parse(install.patched_at))}` : ""}.`,
+        };
+      case "stale":
+        return { lead: "Re-patch pending.", rest: "The game or your settings changed since the last patch." };
+      case "foreign":
+        return {
+          lead: "Paused.",
+          rest: "Another tool changed global.ini, so Starlume left it alone. Take over to patch it with your settings again.",
+        };
+      default:
+        return { lead: "", rest: "Not patched yet." };
+    }
+  }
 </script>
 
 <!-- The kit's supporting-pane layout: settings in the main pane, the
@@ -112,139 +138,155 @@
 {/if}
 
 {#if overview}
-  <!-- Cards group what belongs together; inside them Settings.Row puts the
-       label + hint left and the control right, so every switch on the page
-       hangs from one edge (the Settings pages' idiom). -->
-  <section class="group">
-    <h2>Installs</h2>
-    <div class="card rows">
-      {#each overview.installs as install (install.channel_key)}
-        <!-- Live work beats the stored state: a re-patch in flight (or held
-             back — SC running, pack downloading, the cook it waits on) says
-             what is happening instead of a bare "Stale". -->
-        {@const work =
-          activityFor("langpatch", install.channel_key) ??
-          (install.state === "stale" ? activityFor("data-load", install.channel_key) : undefined)}
-        <Settings.Row label={install.channel} hint={install.version}>
-          <span class="flex flex-wrap items-center justify-end gap-2">
-            {#if install.selected}
-              {#if work}
-                <span class="activity-note">⟳ {activityLabel(work)}</span>
-              {:else}
-                <StatusBadge status={install.state} map={installStateMap} />
-              {/if}
-              <Button
-                variant="outline"
-                disabled={langpatchStore.busy}
-                onclick={() => applyLangpatch(install.channel_key)}
-              >
-                {install.state === "foreign" ? "Take over" : "Re-apply now"}
-              </Button>
-              {#if install.state !== "unpatched"}
-                <Button
-                  variant="ghost"
-                  disabled={langpatchStore.busy}
-                  onclick={() => removeLangpatch(install.channel_key)}
-                >
-                  Remove
-                </Button>
-              {/if}
-            {/if}
+  <div class="top">
+    <label class="switch-row">
+      Keep patches up to date
+      <Switch
+        label="Keep patches up to date"
+        checked={overview.auto_patch}
+        onchange={(v) => mutate((u) => (u.auto_patch = v))}
+      />
+    </label>
+  </div>
+
+  <section class="installs">
+    {#each overview.installs as install (install.channel_key)}
+      <!-- Live work beats the stored state: a re-patch in flight (or held
+           back — SC running, pack downloading, the cook it waits on) says
+           what is happening instead of a bare "Stale". -->
+      {@const work =
+        install.selected
+          ? (activityFor("langpatch", install.channel_key) ??
+            (install.state === "stale" ? activityFor("data-load", install.channel_key) : undefined))
+          : undefined}
+      {@const text = stateText(install)}
+      {@const build = installChangelist(install.version)}
+      <article class="install" class:off={!install.selected} style:--hue={channelHue(install.channel_key)}>
+        <div class="install-top">
+          <span class="hue-chip">{install.channel.toUpperCase()}</span>
+          <span class="version">{installVersion(install.version)}</span>
+          {#if build}<span class="build">build {build}</span>{/if}
+          <span class="grow"></span>
+          <label class="switch-row">
+            Patch {install.channel}
             <Switch
-              label={install.channel}
+              label="Patch {install.channel}"
               checked={install.selected}
               onchange={(v) => toggleChannel(install.channel_key, v)}
             />
-          </span>
-        </Settings.Row>
-      {:else}
-        <p class="muted">No Star Citizen installation found.</p>
-      {/each}
-      <Settings.Row
-        label="Keep patches up to date"
-        hint="Re-patch automatically after game updates."
-      >
-        <Switch
-          label="Keep patches up to date"
-          checked={overview.auto_patch}
-          onchange={(v) => mutate((u) => (u.auto_patch = v))}
-        />
-      </Settings.Row>
-    </div>
-  </section>
-
-  <section class="group">
-    <h2>Patchers</h2>
-    {#each overview.patchers as patcher (patcher.id)}
-      <div class="card">
-        <Settings.Row label={patcher.name} hint={patcher.description}>
-          <span class="flex items-center gap-2">
-            {#if patcher.uses_replace_ops && overview.language_pack}
-              <span title="Replaces whole values — overwrites language-pack text for its keys">
-                <StatusBadge status="replaces" map={packBadgeMap} />
-              </span>
+          </label>
+        </div>
+        <p class="why">
+          {#if work}
+            <span class="activity-note">⟳ {activityLabel(work)}</span>
+          {:else}
+            {#if text.lead}<b class:warn={install.state === "foreign"}>{text.lead}</b>{/if}
+            {text.rest}
+          {/if}
+        </p>
+        {#if install.selected}
+          <div class="acts">
+            <Button
+              variant={install.state === "foreign" ? "primary" : "outline"}
+              disabled={langpatchStore.busy}
+              onclick={() => applyLangpatch(install.channel_key)}
+            >
+              {install.state === "foreign" ? "Take over" : "Re-apply now"}
+            </Button>
+            {#if install.state !== "unpatched"}
+              <Button
+                variant="ghost"
+                disabled={langpatchStore.busy}
+                onclick={() => removeLangpatch(install.channel_key)}
+              >
+                Remove patch
+              </Button>
             {/if}
-            <Switch
-              label={patcher.name}
-              checked={patcher.enabled}
-              onchange={(v) => togglePatcher(patcher.id, v)}
-            />
-          </span>
-        </Settings.Row>
-        {#if patcher.enabled && patcher.options.length > 0}
-          <div class="options rows">
-            {#each patcher.options as option (option.id)}
-              {#if option.kind.type === "Bool"}
-                <Settings.Row label={option.label}>
-                  <Switch
-                    label={option.label}
-                    checked={(patcher.values[option.id] ?? option.default) === "true"}
-                    onchange={(v) => setOption(patcher.id, option.id, v ? "true" : "false")}
-                  />
-                </Settings.Row>
-              {:else if option.kind.type === "Choice"}
-                <!-- Radios, not Segmented: these choices carry long
-                     descriptive labels, which a segmented bar squeezes into
-                     one hard-to-scan line. -->
-                <div class="choice">
-                  <span class="text-sm font-medium">{option.label}</span>
-                  <RadioGroup
-                    options={option.kind.choices}
-                    value={patcher.values[option.id] ?? option.default}
-                    onchange={(v) => setOption(patcher.id, option.id, v)}
-                  />
-                </div>
-              {/if}
-            {/each}
           </div>
         {/if}
-      </div>
+      </article>
+    {:else}
+      <p class="muted">No Star Citizen installation found.</p>
     {/each}
   </section>
 
-  <section class="group">
-    <h2>Language pack</h2>
-    <div class="card rows">
-      <p class="muted">
-        Optional community translation (file path or URL, e.g. a German global.ini). It
-        overlays the base text before enrichment; enrichment rides on top. URLs are cached,
-        so offline re-patches keep working.
-      </p>
-      <div class="flex w-full flex-wrap items-center gap-2">
-        <input
-          class="input pack-input"
-          type="text"
-          placeholder="C:\path\to\global.ini or https://github.com/…/global.ini"
-          bind:value={packInput}
-        />
-        <Button
-          variant="outline"
-          disabled={langpatchStore.busy}
-          onclick={() => mutate((u) => (u.language_pack = packInput.trim() || null))}
-        >
-          Save
-        </Button>
-      </div>
+  <section>
+    <h2 class="label">Patchers</h2>
+    <div class="plist">
+      {#each overview.patchers as patcher (patcher.id)}
+        {@const Icon = PATCHER_ICONS[patcher.id] ?? Puzzle}
+        {@const toggles = patcher.options.filter((o) => o.kind.type === "Bool")}
+        {@const choices = patcher.options.filter((o) => o.kind.type === "Choice")}
+        <div class="prow">
+          <div class="prow-head">
+            <Icon size={18} />
+            <div class="prow-text">
+              <h3>
+                {patcher.name}
+                {#if patcher.uses_replace_ops && overview.language_pack}
+                  <span class="replaces" title="Replaces whole values — overwrites language-pack text for its keys">
+                    overwrites pack text
+                  </span>
+                {/if}
+              </h3>
+              <p class="desc">{patcher.description}</p>
+            </div>
+            <Switch label={patcher.name} checked={patcher.enabled} onchange={(v) => togglePatcher(patcher.id, v)} />
+          </div>
+          {#if patcher.enabled && patcher.options.length > 0}
+            <div class="opts">
+              {#if toggles.length}
+                <div class="checks">
+                  {#each toggles as option (option.id)}
+                    {@const tag = gameTag(option.description)}
+                    <label class="check opt-check" title={option.description}>
+                      <input
+                        type="checkbox"
+                        checked={(patcher.values[option.id] ?? option.default) === "true"}
+                        onchange={(e) => setOption(patcher.id, option.id, e.currentTarget.checked ? "true" : "false")}
+                      />
+                      {option.label}
+                      {#if tag}<span class="eg">{tag}</span>{/if}
+                    </label>
+                  {/each}
+                </div>
+              {/if}
+              {#each choices as option (option.id)}
+                {#if option.kind.type === "Choice"}
+                  <div class="choice-row">
+                    <span title={option.description}>{option.label}</span>
+                    <Segmented
+                      options={option.kind.choices}
+                      value={patcher.values[option.id] ?? option.default}
+                      onchange={(v) => setOption(patcher.id, option.id, v)}
+                    />
+                  </div>
+                {/if}
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  </section>
+
+  <section>
+    <h2 class="label">Language pack</h2>
+    <div class="pack">
+      <input
+        class="input"
+        type="text"
+        placeholder="Path or URL of a community global.ini (optional)"
+        title="A community translation, e.g. a German global.ini. It overlays the base text before enrichment; URLs are cached, so offline re-patches keep working."
+        bind:value={packInput}
+      />
+      <Button
+        variant="outline"
+        disabled={langpatchStore.busy}
+        onclick={() => mutate((u) => (u.language_pack = packInput.trim() || null))}
+      >
+        Use
+      </Button>
     </div>
   </section>
 {:else if !langpatchStore.error}
@@ -263,42 +305,199 @@
   :global(main:has(> .langpatch-panes)) {
     padding: 0;
   }
-  /* Centred in the main pane: the preview takes a share of the width, so the
-   * capped column would otherwise hang left of a wide empty band. */
+  /* Centred in the main pane, capped: the preview takes a share of the
+   * width, and long rows strand controls far from their labels. */
   .settings {
-    max-width: calc(52rem + 2 * var(--content-pad));
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+    max-width: calc(46rem + 2 * var(--content-pad));
     margin-inline: auto;
     padding: var(--content-pad);
   }
-  /* Cap the width: Settings.Row pushes controls to the right edge, which on a
-   * wide window strands them far from their labels. */
-  .group {
-    max-width: 52rem;
-    margin-bottom: var(--space-8);
+  .top {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
+    justify-content: flex-end;
+    margin-bottom: calc(-1 * var(--space-5));
   }
-  .rows {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
+  .switch-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--text-control);
+    color: var(--text-dim);
   }
-  /* A patcher's options sit under a hairline inside its card. */
-  .options {
-    margin-top: var(--space-3);
-    padding-top: var(--space-3);
-    border-top: 1px solid var(--border-soft);
-  }
-  /* A choice: its label on the row's left edge, the radios stacked under it. */
-  .choice {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    padding: var(--space-2) 0;
-  }
-  .pack-input {
+  .grow {
     flex: 1;
-    min-width: 280px;
+  }
+  .label {
+    margin: 0 0 8px;
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    font-weight: var(--weight-normal);
+    color: var(--text-faint);
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
+  }
+
+  /* The install: a channel card like Home's. */
+  .installs {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .install {
+    --hue: var(--text-dim);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 18px;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--hue) 10%, var(--bg-raised)),
+      var(--bg-raised) 55%
+    );
+    border: 1px solid color-mix(in srgb, var(--hue) 24%, var(--border));
+  }
+  .install.off {
+    background: var(--bg-raised);
+    border-color: var(--border);
+  }
+  .install-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .version {
+    font-family: var(--font-display);
+    font-weight: var(--weight-bold);
+    font-size: 1.6rem;
+    line-height: 1;
+    color: color-mix(in srgb, var(--hue) 55%, var(--text-strong));
+  }
+  .build {
+    font-family: var(--font-mono);
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .why {
+    margin: 0;
+    max-width: 62ch;
+    color: var(--text-dim);
+  }
+  .why b {
+    font-weight: var(--weight-semibold);
+    color: var(--text-strong);
+  }
+  .why b.warn {
+    color: var(--warn);
+  }
+  .acts {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* Patchers: one quiet column. */
+  .plist {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+  }
+  .prow {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+  .prow-head {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: start;
+  }
+  .prow-head :global(svg) {
+    margin-top: 2px;
+    color: var(--text-faint);
+  }
+  .prow-text {
+    min-width: 0;
+  }
+  h3 {
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    font-weight: var(--weight-semibold);
+    color: var(--text-strong);
+  }
+  .replaces {
+    margin-left: 8px;
+    font-size: var(--text-small);
+    font-weight: var(--weight-normal);
+    color: var(--warn);
+  }
+  .desc {
+    margin: 2px 0 0;
+    font-size: var(--text-control);
+    color: var(--text-dim);
+  }
+  .opts {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-left: 32px;
+  }
+  .checks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 24px;
+  }
+  .opt-check {
+    gap: 9px;
+    color: var(--text);
+    white-space: normal;
+  }
+  .eg {
+    font-family: var(--font-mono);
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .choice-row {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 14px;
+    align-items: center;
+  }
+  .choice-row > span {
+    font-size: var(--text-control);
+    color: var(--text-dim);
+  }
+  .choice-row :global([role="group"]) {
+    justify-self: start;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .pack {
+    display: flex;
+    gap: 8px;
+  }
+  .pack input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  @container (width < 560px) {
+    .checks,
+    .choice-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .opts {
+      margin-left: 0;
+    }
   }
 </style>

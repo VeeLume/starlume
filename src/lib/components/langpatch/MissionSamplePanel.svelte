@@ -12,6 +12,7 @@
   import RichText from "$lib/components/catalog/RichText.svelte";
   import { ensureChannel } from "$lib/state/data.svelte";
   import { langpatchStore, loadPreviewSample } from "$lib/state/langpatch.svelte";
+  import { splitAdded } from "./preview";
 
   /** The patcher whose options the picks showcase. */
   const PATCHER = "mission_enhancer";
@@ -22,6 +23,10 @@
 
   const sample = $derived(langpatchStore.sample);
   const current = $derived(sample && sample.length > 0 ? sample[index % sample.length] : null);
+  // The game's own text, shortened unless opened; what the patch appended
+  // set off below it (design pass).
+  const split = $derived(current ? splitAdded(current.description.original, current.description.patched) : null);
+  let baseOpen = $state(false);
 
   // Option id → label, and whether it is on right now (an off option still
   // names itself, dimmed — the mission is where it would show).
@@ -107,7 +112,23 @@
     <!-- The contracts screen's Details column: its width in characters, so
          wrapping looks like the game's. -->
     <div class="panel">
-      <RichText text={current.description.patched} />
+      {#if split?.added}
+        <button
+          type="button"
+          class="base"
+          class:open={baseOpen}
+          title={baseOpen ? "Shorten" : "Show the whole description"}
+          onclick={() => (baseOpen = !baseOpen)}
+        >
+          <RichText text={split.base} />
+        </button>
+        <div class="added">
+          <span class="added-by">Added by the patch</span>
+          <RichText text={split.added} />
+        </div>
+      {:else}
+        <RichText text={current.description.patched} />
+      {/if}
     </div>
   {/if}
 </aside>
@@ -148,7 +169,33 @@
   .panel {
     max-width: 62ch;
     padding: var(--space-3);
-    border: 1px solid var(--border-soft);
-    border-radius: var(--radius-md);
+    font-size: var(--text-control);
+    background: var(--bg-sunk);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+  .base {
+    display: block;
+    width: 100%;
+    text-align: left;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .base:not(.open) {
+    max-height: 6.5em;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, #000 50%, transparent);
+    mask-image: linear-gradient(180deg, #000 50%, transparent);
+  }
+  .added {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px dashed var(--border);
+  }
+  .added-by {
+    display: block;
+    margin-bottom: var(--space-1);
+    font-size: var(--text-small);
+    color: var(--text-faint);
   }
 </style>
