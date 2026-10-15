@@ -174,9 +174,11 @@
   }
 
   /* Featured */
+  /* The image is capped so a wide window doesn't push the cards below
+   * out of view. */
   .featured {
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
     border-radius: var(--radius-lg);
     overflow: hidden;
     background: var(--bg-raised);

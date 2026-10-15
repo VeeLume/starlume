@@ -96,7 +96,7 @@
     color: var(--text-dim);
   }
   .now.with-image {
-    grid-template-columns: minmax(140px, 36%) minmax(0, 1fr);
+    grid-template-columns: minmax(140px, 30%) minmax(0, 1fr);
   }
   .now.muted {
     opacity: 0.7;

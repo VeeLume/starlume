@@ -18,8 +18,9 @@
   import GateNotice from "./GateNotice.svelte";
   import { STAGES, devCycle, type CycleEvent, type CycleStage } from "./cycle";
 
-  /** Timeline rows shown. */
-  const MAX_EVENTS = 7;
+  /** Timeline rows shown — the card sits in the News page's top row, so it
+   *  stays short enough for the comm-links to show on a 1080p screen. */
+  const MAX_EVENTS = 5;
 
   const STAGE: Record<CycleStage, { step: string; name: string; channel: string; hue: string }> = {
     ptu: { step: "PTU", name: "On PTU", channel: "PTU", hue: "var(--hue-ptu)" },
@@ -184,10 +185,10 @@
     background: var(--border);
   }
   .timeline li:first-child::before {
-    top: 12px;
+    top: 10px;
   }
   .timeline li:last-child::before {
-    bottom: calc(100% - 12px);
+    bottom: calc(100% - 10px);
   }
   .timeline button {
     all: unset;
@@ -198,7 +199,7 @@
     align-items: start;
     gap: 0 12px;
     width: 100%;
-    padding: 5px 4px 5px 0;
+    padding: 3px 4px 3px 0;
     border-radius: var(--radius);
     cursor: pointer;
   }
@@ -218,25 +219,33 @@
   .dot {
     width: 9px;
     height: 9px;
-    margin-top: 4px;
+    margin-top: 5px;
     border-radius: 50%;
     background: var(--hue);
     box-shadow: 0 0 0 3px var(--bg-raised);
   }
+  /* One line per event: the title, then the detail dimmed, cut to fit. */
   .txt {
     display: flex;
-    flex-direction: column;
+    align-items: baseline;
+    gap: 8px;
     min-width: 0;
+    white-space: nowrap;
   }
   .title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 0.9rem;
     font-weight: var(--weight-medium);
     color: color-mix(in srgb, var(--hue) 45%, var(--text-strong));
   }
   .detail {
+    flex: 1 1 0;
+    min-width: 0;
     font-size: var(--text-small);
     color: var(--text-faint);
-    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
