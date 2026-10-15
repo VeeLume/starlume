@@ -52,6 +52,11 @@ pub struct CommLinkView {
     /// When it appeared, epoch ms: first seen by Starlume, or estimated from
     /// its age on the first fill.
     pub published_ms: Option<f64>,
+    /// The downloaded card image for this position on the page (wide for
+    /// the newest, card for the next few, thumbnail after), as a local path
+    /// for `convertFileSrc` — or a smaller size while the right one is
+    /// missing. `null` = none on disk.
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -90,7 +95,8 @@ pub(crate) fn comm_links_overview(state: tauri::State<'_, AppState>) -> CommLink
             .map(|c| {
                 c.items
                     .iter()
-                    .map(|i| CommLinkView {
+                    .enumerate()
+                    .map(|(position, i)| CommLinkView {
                         id: i.id.to_string(),
                         url: i.url.clone(),
                         title: i.title.clone(),
@@ -99,6 +105,10 @@ pub(crate) fn comm_links_overview(state: tauri::State<'_, AppState>) -> CommLink
                         summary: i.summary.clone(),
                         comments: i.comments,
                         published_ms: c.published(i).map(|t| (t * 1000) as f64),
+                        image: state
+                            .commlinks
+                            .image_path(i, position)
+                            .map(|p| p.to_string_lossy().into_owned()),
                     })
                     .collect()
             })
@@ -191,7 +201,15 @@ fn stale(app: &AppHandle) -> bool {
 }
 
 /// The background refresher. Silent when offline.
+///
+/// Also lets the webview read the downloaded images: the asset protocol's
+/// scope is empty in tauri.conf.json and gets exactly this one directory.
 pub fn spawn_refresher(app: &AppHandle) {
+    let images = app.state::<AppState>().commlinks.images_dir();
+    let _ = std::fs::create_dir_all(&images);
+    if let Err(e) = app.asset_protocol_scope().allow_directory(&images, false) {
+        tracing::warn!("comm-link images not readable by the page: {e}");
+    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(STARTUP_DELAY).await;

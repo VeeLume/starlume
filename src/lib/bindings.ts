@@ -911,7 +911,14 @@ summary: string; comments: number | null;
  * When it appeared, epoch ms: first seen by Starlume, or estimated from
  * its age on the first fill.
  */
-published_ms: number | null }
+published_ms: number | null; 
+/**
+ * The downloaded card image for this position on the page (wide for
+ * the newest, card for the next few, thumbnail after), as a local path
+ * for `convertFileSrc` — or a smaller size while the right one is
+ * missing. `null` = none on disk.
+ */
+image: string | null }
 export type CommLinksOverview = { 
 /**
  * The online switch — off means no refreshes (the cache still shows).
