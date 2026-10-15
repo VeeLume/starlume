@@ -2,9 +2,10 @@
   // The newest comm-links, one line each: type, title, when. A line expands
   // to its summary; the link opens it on RSI. Times are when Starlume first
   // saw the item (estimated from its age on the first fill).
+  import { onDestroy, onMount } from "svelte";
   import { Button, Expand, createExpansion } from "@veelume/ui";
   import { ExternalLink } from "lucide-svelte";
-  import { commLinksStore, openCommLink } from "$lib/state/commlinks.svelte";
+  import { commLinksStore, openCommLink, watchCommLinks } from "$lib/state/commlinks.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
   import { postAge } from "$lib/modules/devtracker/time";
 
@@ -14,6 +15,11 @@
 
   const channelName = (slug: string | null) =>
     slug ? slug.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()) : null;
+
+  // Subscribe itself (ref-counted), like every store surface.
+  let stop: (() => void) | undefined;
+  onMount(() => (stop = watchCommLinks()));
+  onDestroy(() => stop?.());
 </script>
 
 {#if commLinksStore.error}<p class="error">{commLinksStore.error}</p>{/if}

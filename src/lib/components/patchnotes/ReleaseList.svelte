@@ -3,9 +3,10 @@
   // release expands to its highlights and counts; older articles (not
   // parsed) are lines with only the link. Expansion is page-local
   // (frontend rule 7), never the URL.
+  import { onDestroy, onMount } from "svelte";
   import { Button, Expand, createExpansion } from "@veelume/ui";
   import { ExternalLink } from "lucide-svelte";
-  import { openPatchNote, patchNotesStore } from "$lib/state/patchnotes.svelte";
+  import { openPatchNote, patchNotesStore, watchPatchNotes } from "$lib/state/patchnotes.svelte";
   import Highlights from "./Highlights.svelte";
   import { shortDate } from "./format";
 
@@ -18,6 +19,11 @@
     [fixes != null ? `${fixes} fixes` : null, known != null ? `${known} known issues` : null]
       .filter(Boolean)
       .join(" · ");
+
+  // Subscribe itself (ref-counted), like every store surface.
+  let stop: (() => void) | undefined;
+  onMount(() => (stop = watchPatchNotes()));
+  onDestroy(() => stop?.());
 </script>
 
 {#if releases.length || overview?.older.length}

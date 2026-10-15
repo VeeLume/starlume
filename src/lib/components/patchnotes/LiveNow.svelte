@@ -1,9 +1,10 @@
 <script lang="ts">
   // The LIVE card: the newest release from RSI's patch notes — name,
   // highlights, build info and fix count, and the link to the article.
+  import { onDestroy, onMount } from "svelte";
   import { Button } from "@veelume/ui";
   import { ExternalLink } from "lucide-svelte";
-  import { openPatchNote, patchNotesStore } from "$lib/state/patchnotes.svelte";
+  import { openPatchNote, patchNotesStore, watchPatchNotes } from "$lib/state/patchnotes.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
   import NowCard from "./NowCard.svelte";
   import Highlights from "./Highlights.svelte";
@@ -21,6 +22,12 @@
         ]
       : [],
   );
+
+  // Subscribe itself (ref-counted), like every store surface: the card must
+  // not depend on its page having loaded the store.
+  let stop: (() => void) | undefined;
+  onMount(() => (stop = watchPatchNotes()));
+  onDestroy(() => stop?.());
 </script>
 
 {#if live}
