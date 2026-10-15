@@ -1,102 +1,72 @@
 <script lang="ts">
-  // One staff post. Long bodies clamp; expanding one marks it read, and so
-  // does opening it on Spectrum. Filtered-out posts (with the page toggle)
-  // render dimmed with the filter's reason. Above the text, a short quote
-  // of what the post answers, once resolved: the forum reply (or thread
-  // opener) it replies to, or the mentioned member's last chat message.
+  // One forum post as a card: a new thread (sand tint, the subject as the
+  // headline, the opening text clamped) or a reply (the quote of what it
+  // answers above the answer). Chat goes through ChatRun instead. Unread
+  // posts carry a dot; filtered-out ones (with the page toggle) render
+  // dimmed with the filter's reason.
   import { ExternalLink } from "lucide-svelte";
   import type { DevPostView } from "$lib/bindings";
-  import { markRead, openPost } from "$lib/state/devtracker.svelte";
-  import { postAge } from "./time";
+  import { openPost } from "$lib/state/devtracker.svelte";
+  import Monogram from "./Monogram.svelte";
+  import PostBody from "./PostBody.svelte";
+  import PostQuote from "./PostQuote.svelte";
+  import { clock, postAge } from "./time";
 
   let { post }: { post: DevPostView } = $props();
-
-  let expanded = $state(false);
-  let quoteOpen = $state(false);
-  const quoteLabel = $derived(
-    post.quote?.kind === "opener"
-      ? `${post.quote.author}, opening the thread`
-      : post.quote?.kind === "mention"
-        ? `${post.quote.author}, before`
-        : post.quote
-          ? `${post.quote.author} wrote`
-          : "",
-  );
-  const long = $derived(post.body.length > 320 || post.body.split("\n").length > 4);
-
-  function toggle() {
-    expanded = !expanded;
-    if (expanded && post.unread) void markRead([post.key]);
-  }
+  const thread = $derived(post.kind === "thread");
 </script>
 
-<article class="post" class:filtered={!post.shown} class:unread={post.unread}>
+<article class="post" class:thread class:filtered={!post.shown}>
   <header>
-    <span class="dot" aria-hidden="true"></span>
-    <span class="author">{post.author}</span>
-    {#if post.place}<span class="dim">in {post.place}</span>{/if}
-    {#if post.ops}<span class="badge accent" title="Game-ops signal">ops</span>{/if}
-    {#if !post.shown}<span class="badge" title="Why it is filtered out">{post.reason}</span>{/if}
-    <span class="grow"></span>
-    <time class="dim" datetime={new Date(post.time_ms).toISOString()}>{postAge(post.time_ms)}</time>
-    <button class="open" title="Open on Spectrum" onclick={() => void openPost(post.key)}>
-      <ExternalLink size={14} />
-    </button>
+    <Monogram name={post.author} />
+    <div class="who">
+      <span class="author">
+        {#if post.unread}<span class="dot" title="Unread"></span>{/if}{post.author}
+      </span>
+      <span class="where">
+        {#if thread}
+          new thread{#if post.place}&nbsp;in <em>{post.place}</em>{/if}
+        {:else}
+          replied in <em>{post.subject ?? post.place ?? "a thread"}</em>
+        {/if}
+      </span>
+    </div>
+    <div class="right">
+      {#if post.ops}<span class="badge accent" title="Game-ops signal">ops</span>{/if}
+      {#if !post.shown}<span class="badge" title="Why it is filtered out">{post.reason}</span>{/if}
+      <span class="hue-chip" style:--hue={thread ? "var(--hue-thread)" : "var(--hue-reply)"}>
+        {thread ? "Thread" : "Reply"}
+      </span>
+      <time datetime={new Date(post.time_ms).toISOString()} title={postAge(post.time_ms)}>{clock(post.time_ms)}</time>
+      <button type="button" class="open" title="Open on Spectrum" onclick={() => void openPost(post.key)}>
+        <ExternalLink size={14} />
+      </button>
+    </div>
   </header>
-  {#if post.subject}<div class="subject">{post.subject}</div>{/if}
-  {#if post.quote}
-    <button
-      class="quote"
-      class:open={quoteOpen}
-      title={quoteOpen ? "Collapse" : "Show all"}
-      onclick={() => (quoteOpen = !quoteOpen)}
-    >
-      <span class="quote-who">{quoteLabel}</span>
-      <span class="quote-text">{post.quote.erased || !post.quote.text ? "(deleted)" : post.quote.text}</span>
-    </button>
-  {/if}
-  {#if long}
-    <button class="body clamp" class:expanded onclick={toggle} title={expanded ? "Collapse" : "Show all"}
-      >{post.body}</button
-    >
-  {:else}
-    <p class="body">{post.body}</p>
-  {/if}
+  {#if thread && post.subject}<h3>{post.subject}</h3>{/if}
+  {#if post.quote}<PostQuote quote={post.quote} />{/if}
+  <PostBody {post} lines={thread ? 5 : 6} />
 </article>
 
 <style>
-  .quote {
+  .post {
+    --hue: var(--hue-reply);
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    margin: 6px 0 0 14px;
-    padding: 4px 10px;
-    border-left: 2px solid var(--border);
-    text-align: left;
-    color: var(--text-dim);
-    font-size: var(--text-small);
-    max-width: 100%;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: var(--radius-lg);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
   }
-  .quote:hover {
-    border-left-color: var(--accent-border);
-  }
-  .quote-who {
-    color: var(--text-faint);
-  }
-  .quote-text {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  .quote:not(.open) .quote-text {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .post {
-    padding: 10px 0 12px;
-    border-bottom: 1px solid var(--border-soft);
+  .post.thread {
+    --hue: var(--hue-thread);
+    background: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--hue) 9%, var(--bg-raised)),
+      var(--bg-raised) 50%
+    );
+    border-color: color-mix(in srgb, var(--hue) 25%, var(--border));
   }
   .post.filtered {
     opacity: 0.55;
@@ -104,26 +74,51 @@
   header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: var(--text-small);
+    gap: 10px;
     min-width: 0;
+  }
+  .who {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+  }
+  .author {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: var(--weight-semibold);
+    color: var(--text-strong);
   }
   .dot {
     width: 6px;
     height: 6px;
-    flex-shrink: 0;
+    flex: none;
     border-radius: var(--radius-pill);
-    background: transparent;
-  }
-  .unread .dot {
     background: var(--accent);
   }
-  .author {
-    font-weight: var(--weight-semibold);
-    color: var(--text-strong);
+  .where {
+    font-size: var(--text-small);
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .grow {
-    flex: 1;
+  .where em {
+    font-style: normal;
+    color: var(--text-dim);
+  }
+  .right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+  time {
+    font-size: var(--text-small);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
   }
   .open {
     display: inline-flex;
@@ -134,26 +129,12 @@
   .open:hover {
     color: var(--accent);
   }
-  .subject {
-    margin: 4px 0 0 14px;
-    font-weight: var(--weight-medium);
-  }
-  .body {
-    display: block;
-    margin: 4px 0 0 14px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    text-align: left;
-    color: var(--text-body);
-  }
-  .clamp:not(.expanded) {
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .clamp {
-    cursor: pointer;
+  h3 {
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: 1.1rem;
+    line-height: 1.3;
+    color: var(--text-strong);
+    text-wrap: balance;
   }
 </style>

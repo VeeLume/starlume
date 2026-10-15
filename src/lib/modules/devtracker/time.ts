@@ -14,6 +14,12 @@ export function postAge(ms: number, now = Date.now()): string {
   return new Date(ms).toLocaleDateString([], { dateStyle: "medium" });
 }
 
+/** The time of day ("14:23"), in the user's formatting locale — for posts
+ *  under a day header. */
+export function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 /** The day a post belongs to, for the feed's group headers. */
 export function dayLabel(ms: number, now = new Date()): string {
   const day = new Date(ms);

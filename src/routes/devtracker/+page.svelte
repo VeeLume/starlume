@@ -18,6 +18,8 @@
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
   import GateNotice from "$lib/modules/devtracker/GateNotice.svelte";
   import PostItem from "$lib/modules/devtracker/PostItem.svelte";
+  import ChatRun from "$lib/modules/devtracker/ChatRun.svelte";
+  import { groupFeed } from "$lib/modules/devtracker/feed";
   import FollowList from "$lib/modules/devtracker/FollowList.svelte";
   import { dayLabel, postAge } from "$lib/modules/devtracker/time";
 
@@ -42,7 +44,8 @@
   const hiddenCount = $derived((overview?.posts ?? []).filter((p) => !p.shown).length);
   const filling = $derived(activityFor("devtracker", ""));
 
-  // Day groups, newest first (posts arrive sorted).
+  // Day groups, newest first (posts arrive sorted); within a day, chat
+  // runs collapse under one header and forum posts stay cards.
   const days = $derived.by(() => {
     const out: { label: string; posts: typeof posts }[] = [];
     for (const p of posts) {
@@ -50,7 +53,7 @@
       if (out.at(-1)?.label !== label) out.push({ label, posts: [] });
       out.at(-1)!.posts.push(p);
     }
-    return out;
+    return out.map((d) => ({ label: d.label, items: groupFeed(d.posts) }));
   });
 
   let stop: (() => void) | undefined;
@@ -157,8 +160,12 @@
     {/if}
     {#each days as day (day.label)}
       <h3 class="day">{day.label}</h3>
-      {#each day.posts as post (post.key)}
-        <PostItem {post} />
+      {#each day.items as item (item.key)}
+        {#if item.kind === "run"}
+          <ChatRun run={item} />
+        {:else}
+          <PostItem post={item.post} />
+        {/if}
       {/each}
     {/each}
   {/if}
@@ -213,13 +220,29 @@
     gap: 8px;
     font-size: var(--text-small);
   }
+  /* Sticky while its day scrolls by. */
   .day {
-    margin: 14px 0 0;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    padding: 14px 0 6px;
+    background: var(--bg);
     font-family: var(--font-display);
     font-size: var(--text-small);
-    color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-weight: var(--weight-bold);
+    color: var(--text-dim);
+    text-transform: var(--label-transform);
+    letter-spacing: 0.1em;
+  }
+  .day::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
   }
   .settings .row {
     display: flex;
