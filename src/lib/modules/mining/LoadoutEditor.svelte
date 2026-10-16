@@ -2,9 +2,11 @@
   // The ship(s) on the rock: lasers with their module slots, which ship each
   // is on (lasers on one ship split the instability wave — a MOLE is one
   // ship), and the gadget. Any laser can be picked: which lasers fit which
-  // ship is not in the game data model yet.
+  // ship is not in the game data model yet. A crew mate's lasers (brought along
+  // from their loadout) carry their name and come off with the ×.
   import { Plus, X } from "lucide-svelte";
   import type { LaserInputView, LoadoutView, MiningCatalogView } from "$lib/bindings";
+  import Monogram from "$lib/components/Monogram.svelte";
 
   let {
     catalog,
@@ -17,7 +19,7 @@
   } = $props();
 
   const laserById = $derived(new Map(catalog.lasers.map((l) => [l.id, l])));
-  const ships = $derived(Math.max(1, ...loadout.lasers.map((l) => l.owner + 2)));
+  const ships = $derived(Math.max(1, ...loadout.lasers.filter((l) => !l.who).map((l) => l.owner + 2)));
 
   function setLaser(i: number, patch: Partial<LaserInputView>) {
     const lasers = loadout.lasers.map((l, j) => (j === i ? { ...l, ...patch } : l));
@@ -40,7 +42,10 @@
     const last = loadout.lasers.at(-1);
     onchange({
       ...loadout,
-      lasers: [...loadout.lasers, { laser: last?.laser ?? catalog.lasers[0]?.id ?? "", modules: [], owner: last?.owner ?? 0 }],
+      lasers: [
+        ...loadout.lasers,
+        { laser: last?.laser ?? catalog.lasers[0]?.id ?? "", modules: [], owner: last?.owner ?? 0, who: null },
+      ],
     });
   }
 
@@ -54,13 +59,14 @@
     {@const laser = laserById.get(l.laser)}
     <div class="laser">
       <div class="head">
+        {#if l.who}<span class="who"><Monogram name={l.who} size={22} />{l.who}</span>{/if}
         <select class="select grow" value={l.laser} onchange={(e) => pickLaser(i, e.currentTarget.value)} aria-label="Laser">
           {#if !laser}<option value={l.laser}>Unknown laser</option>{/if}
           {#each catalog.lasers as opt (opt.id)}
             <option value={opt.id}>{opt.name}</option>
           {/each}
         </select>
-        {#if loadout.lasers.length > 1}
+        {#if loadout.lasers.length > 1 && !l.who}
           <select
             class="select"
             value={String(l.owner)}
@@ -142,6 +148,13 @@
   .grow {
     flex: 1;
     max-width: none;
+  }
+  .who {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-small);
+    font-weight: var(--weight-semibold);
   }
   .slots .select {
     flex: 1 1 140px;

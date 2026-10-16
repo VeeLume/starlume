@@ -37,9 +37,23 @@ pub enum Category {
     Okay,
     /// Average peaks already jump the window and can overcharge hard.
     Dangerous,
-    /// The laser is too strong for the rock: even at its minimum throttle
+    /// Too much power for the rock: even at the laser's minimum throttle
     /// the charge keeps climbing, so it cannot be held, only pulsed.
-    TooStrong,
+    TooMuchPower,
+}
+
+/// One row of the wave-lift table: at this throttle, how far one big wave
+/// (full height, longest period) and one usual wave (half height, mean
+/// period) lift the charge, as shares of the bar.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct JumpRow {
+    pub throttle: f32,
+    /// What the throttle is: `"hold"`, `"climb limit"`, `"balance"`,
+    /// `"minimum"`; `None` for the throttle where a usual wave starts to
+    /// jump out of the window.
+    pub label: Option<String>,
+    pub big: f32,
+    pub usual: f32,
 }
 
 /// One step of the climb: this throttle is safe up to this charge (a
@@ -148,7 +162,7 @@ pub struct ThrottleGuide {
     pub riding: bool,
     /// The charge rises on average even at the minimum throttle (the
     /// balance lies below the laser's minimum): it cannot be held.
-    pub too_strong: bool,
+    pub too_much_power: bool,
     /// How fast it climbs there, share of the bar per second.
     pub climb_at_minimum: Option<f32>,
     /// Pulsing the beam to hold it: about this share of the time on at the
@@ -161,6 +175,8 @@ pub struct ThrottleGuide {
     /// throttle below `keep_on_below`, beam cut above) still fills the
     /// danger meter. `None` when every height can be saved.
     pub lost_from: Option<f32>,
+    /// The wave-lift table: the throttles that matter, lowest first.
+    pub jumps: Vec<JumpRow>,
     /// A beam off longer than this drops the laser's and modules' modifiers
     /// from the rock (resistance, instability and window change back).
     pub modifier_persistence_s: f32,
@@ -227,7 +243,7 @@ impl<'a> Peaks<'a> {
         let b = balance?;
         let window = self.rock.window.size();
         Some(if self.rock.net_rate(self.ruleset, 0.0) > 0.0 {
-            Category::TooStrong
+            Category::TooMuchPower
         } else if self.jump(b) <= window {
             Category::Safe
         } else if self.jump_avg(b) <= window {
@@ -414,8 +430,48 @@ pub fn throttle_guide_with(
     // The throttle cannot go below the lasers' minimum: when the charge
     // still rises there, there is no hold, only pulsing the beam.
     let climb_min = rock.net_rate(ruleset, 0.0);
-    let too_strong = balance.is_some() && climb_min > 0.0;
-    let hold_throttle = balance.filter(|_| !too_strong).map(|b| b.min(ride));
+    let too_much_power = balance.is_some() && climb_min > 0.0;
+    let hold_throttle = balance.filter(|_| !too_much_power).map(|b| b.min(ride));
+    // The throttles that matter for the waves: hold (or the minimum, when
+    // the laser has too much power), the climb limit, where a usual wave
+    // starts to jump out, and balance.
+    let usual_out = balance.and_then(|b| {
+        (jump_avg(1.0) > window).then(|| solve(&jump_avg, window, b / hit_drain, 1.0))
+    });
+    let mut jumps: Vec<JumpRow> = Vec::new();
+    if balance.is_some() {
+        let first = if too_much_power {
+            Some((
+                rock.lasers
+                    .iter()
+                    .map(|l| l.throttle_minimum)
+                    .fold(0.0, f32::max),
+                "minimum",
+            ))
+        } else {
+            hold_throttle.map(|t| (t, "hold"))
+        };
+        let candidates = [
+            first.map(|(t, l)| (t, Some(l))),
+            safe_climb
+                .filter(|t| *t < 1.0)
+                .map(|t| (t, Some("climb limit"))),
+            usual_out.map(|t| (t, None)),
+            balance.filter(|b| *b <= 1.0).map(|t| (t, Some("balance"))),
+        ];
+        for (t, label) in candidates.into_iter().flatten() {
+            if jumps.iter().any(|j| (j.throttle - t).abs() < 0.005) {
+                continue;
+            }
+            jumps.push(JumpRow {
+                throttle: t,
+                label: label.map(str::to_string),
+                big: jump(t),
+                usual: jump_avg(t),
+            });
+        }
+        jumps.sort_by(|a, b| a.throttle.total_cmp(&b.throttle));
+    }
     // Above the window: which way down is better, and where both fail.
     let lost_from = {
         const STEPS: usize = 400;
@@ -471,12 +527,13 @@ pub fn throttle_guide_with(
         full_until,
         climb,
         hold_throttle,
-        riding: !too_strong && balance.is_some_and(|b| ride < b),
-        too_strong,
+        riding: !too_much_power && balance.is_some_and(|b| ride < b),
+        too_much_power,
         climb_at_minimum: (climb_min > 0.0).then_some(climb_min),
-        pulse_on_share: (too_strong && gain(0.0) > 0.0).then(|| decay / gain(0.0)),
+        pulse_on_share: (too_much_power && gain(0.0) > 0.0).then(|| decay / gain(0.0)),
         window_cross_s: (climb_min > 0.0).then(|| window / climb_min),
         lost_from,
+        jumps,
         modifier_persistence_s: ruleset.modifier_persistence_time,
     }
 }

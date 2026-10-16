@@ -7,11 +7,14 @@
 //! the snapshot as they are; only the record name (for search keys and the
 //! junk filter) and the raw locale keys are added beside them.
 //!
-//! The rock spawn side (rock types, compositions, and the rock meshes'
-//! fracture trees) feeds the rock generator. The meshes need the live p4k:
-//! the cook passes it when it can open it (a live parse has it open; a
-//! recook from the extract snapshot opens it for this pass), and leaves
-//! [`MiningIndex::shapes`] empty when it cannot.
+//! The rock spawn side (rock types, compositions, the rock meshes' fracture
+//! trees, and which places each provider applies to) feeds the rock
+//! generator. The meshes and the places need the live p4k: the cook passes
+//! it when it can open it (a live parse has it open; a recook from the
+//! extract snapshot opens it for this pass), and leaves [`MiningIndex::shapes`]
+//! and [`MiningIndex::places`] empty when it cannot. The places walk reads
+//! only the solar systems' object containers (sc-holotable v0.23: ~10 s,
+//! under 1 GB on top of the parse).
 //!
 //! Everything named is kept; which entries a picker offers (test records,
 //! FPS lasers, base records) is the consumer's choice.
@@ -23,6 +26,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use sc_holotable::asset::{AssetSource, Datacore, Guid};
+use sc_holotable::gathering::ProviderLocations;
 use sc_holotable::items::Items;
 use sc_holotable::resources::{Quality, Resources};
 use sc_holotable::ship_weapons::ShipWeapons;
@@ -72,6 +76,10 @@ pub struct MiningIndex {
     /// quantization) a rock's quality roll reads beside `Resources`.
     #[serde(default)]
     pub quality: Quality,
+    /// Provider ↔ place (`StarMapObject`). `None` when the cook could not
+    /// open the p4k or the walk failed.
+    #[serde(default)]
+    pub places: Option<ProviderLocations>,
 }
 
 /// A record's name beside its GUID (rock types, providers).
@@ -252,12 +260,17 @@ pub(crate) fn build_mining(
         })
         .collect();
     provider_names.sort_by(|a, b| a.record_name.cmp(&b.record_name));
-    // A dozen meshes, about half a second.
-    let shapes = match assets {
-        Some(assets) => Shapes::build(assets, &rock_types),
+    // A dozen meshes, about half a second; the places walk about ten.
+    let (shapes, places) = match assets {
+        Some(assets) => (
+            Shapes::build(assets, &rock_types),
+            ProviderLocations::cook(assets, datacore.records())
+                .inspect_err(|e| tracing::warn!("mining places: {e}"))
+                .ok(),
+        ),
         None => {
-            tracing::warn!("no p4k for the rock meshes; the rock generator stays empty");
-            Shapes::new()
+            tracing::warn!("no p4k for the rock meshes and places; the rock generator stays empty");
+            (Shapes::new(), None)
         }
     };
 
@@ -274,5 +287,6 @@ pub(crate) fn build_mining(
         compositions,
         shapes,
         quality: Quality::build(datacore.records()),
+        places,
     }
 }

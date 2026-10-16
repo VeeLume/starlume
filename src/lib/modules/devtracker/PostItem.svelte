@@ -7,7 +7,7 @@
   import { ExternalLink } from "lucide-svelte";
   import type { DevPostView } from "$lib/bindings";
   import { openPost } from "$lib/state/devtracker.svelte";
-  import Monogram from "./Monogram.svelte";
+  import Monogram from "$lib/components/Monogram.svelte";
   import PostBody from "./PostBody.svelte";
   import PostQuote from "./PostQuote.svelte";
   import { clock, postAge } from "./time";

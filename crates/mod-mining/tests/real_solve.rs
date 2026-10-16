@@ -65,6 +65,7 @@ fn bexalite_scan_from_a_golem() {
                 id(&catalog.modules, "module", "Rieger-C3"),
             ],
             owner: 0,
+            who: None,
         }],
         gadget: Some(id(&catalog.gadgets, "gadget", "Sabir")),
     };
@@ -84,7 +85,30 @@ fn bexalite_scan_from_a_golem() {
     };
 
     let start = Instant::now();
-    let report = solve(&catalog, &loadout, &rock).expect("solve");
+    // A crew mate's Prospector (Arbor MH1, no modules) as support.
+    let crew = [mod_mining::CrewShip {
+        id: "juno".into(),
+        owner: "Juno".into(),
+        name: "Prospector".into(),
+        loadout: LoadoutInput {
+            lasers: vec![LaserInput {
+                laser: id(&catalog.lasers, "laser", "Arbor MH1"),
+                modules: vec![],
+                owner: 0,
+                who: None,
+            }],
+            gadget: None,
+        },
+    }];
+    let report = solve(&catalog, &loadout, &rock, &crew).expect("solve");
+    let juno = report.crew.first().expect("the crew ship is offered");
+    eprintln!(
+        "crew: {} {} margin {:.0} %",
+        juno.owner,
+        juno.name,
+        juno.eval.margin * 100.0
+    );
+    assert!(juno.eval.margin > report.yours.as_ref().unwrap().eval.margin);
     eprintln!("solve: {} ms", start.elapsed().as_millis());
 
     let yours = report.yours.as_ref().expect("a laser was given");
@@ -150,14 +174,17 @@ fn bexalite_scan_from_a_golem() {
         }],
         gadget: loadout.gadget.clone(),
     };
-    let g = solve(&catalog, &golem, &small)
+    let g = solve(&catalog, &golem, &small, &[])
         .unwrap()
         .yours
         .unwrap()
         .guide;
     eprintln!("small rock: {g:#?}");
-    assert!(g.too_strong, "the Pitman should be too strong for 2,000 t");
-    assert_eq!(g.category, Some(mod_mining::Category::TooStrong));
+    assert!(
+        g.too_much_power,
+        "the Pitman should be too strong for 2,000 t"
+    );
+    assert_eq!(g.category, Some(mod_mining::Category::TooMuchPower));
     assert!(g.hold_throttle.is_none());
 }
 

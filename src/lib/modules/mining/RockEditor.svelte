@@ -2,10 +2,10 @@
   // The scan, as the scanner panel lists it: mass, then one row per
   // composition line (element, percent, quality). Inert is the remainder and
   // is left out. The draft lives in the mining store, so it survives a
-  // navigation.
+  // navigation; editing a rolled rock makes it a typed one.
   import { Plus, X } from "lucide-svelte";
   import type { MiningCatalogView } from "$lib/bindings";
-  import { addRockRow, clearRock, miningStore, parseNumber, removeRockRow } from "$lib/state/mining.svelte";
+  import { addRockRow, clearRock, markTyped, miningStore, parseNumber, removeRockRow } from "$lib/state/mining.svelte";
 
   let { catalog }: { catalog: MiningCatalogView } = $props();
 
@@ -13,6 +13,7 @@
   const total = $derived(rock.rows.reduce((sum, r) => sum + (parseNumber(r.percent) ?? 0), 0));
 </script>
 
+<div class="editor" oninput={markTyped}>
 <label class="mass">
   <span class="label">Mass</span>
   <input class="input" inputmode="numeric" placeholder="20998" bind:value={rock.mass} aria-label="Mass in tonnes" />
@@ -25,7 +26,7 @@
   </div>
   {#each rock.rows as row, i (i)}
     <div class="row">
-      <select class="select" bind:value={row.element} aria-label="Element">
+      <select class="select" bind:value={row.element} onchange={markTyped} aria-label="Element">
         <option value="">—</option>
         {#each catalog.elements as e (e.id)}
           <option value={e.id}>{e.name}</option>
@@ -42,10 +43,9 @@
 
 <div class="foot">
   <button class="btn subtle add" onclick={addRockRow}><Plus size={14} /> Add element</button>
-  <span class="dim small" class:error={total > 100.05}>
-    {total.toFixed(2)} % · inert {Math.max(0, 100 - total).toFixed(2)} %
-  </span>
+  <span class="dim small" class:error={total > 100.05}>inert {Math.max(0, 100 - total).toFixed(2)} %</span>
   <button class="btn subtle" onclick={clearRock}>Clear</button>
+</div>
 </div>
 
 <style>

@@ -5,27 +5,14 @@
 //! svc-data's cooked mining index. Nothing here touches the network, so no
 //! online gate applies. A solve runs a few hundred player-model attempts per
 //! candidate setup, so it runs on the blocking pool.
-//!
-//! **Mining places.** The rock generator names areas after their places,
-//! which takes svc-data's heavy once-per-build pass over the game's
-//! placements (minutes, a multi-GB peak). It runs as a background activity
-//! only while the module is enabled, never while Star Citizen runs (the
-//! app must stay light while the game is played) and never beside a
-//! game-data load; the result is a small file per build. Until then areas
-//! carry their record names.
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use mod_mining::{Catalog, MiningState, Named};
-use svc_data::InstallRef;
 use svc_data::mining::{Activation, FloatModifier, MiningModifiers};
 use tauri::AppHandle;
-use tauri::{Emitter, Manager};
 
-use crate::AppState;
-use crate::activity::{Activity, ActivityKind};
-use crate::data::{cooked_for, install_for};
+use crate::data::cooked_for;
 use crate::error::AppError;
 
 /// Module id (Rust registry, settings, frontend descriptor).
@@ -231,6 +218,8 @@ pub struct LaserInputView {
     pub modules: Vec<String>,
     /// Which ship the laser is on; lasers on one ship split the wave.
     pub owner: u32,
+    /// The crew mate flying it, for a laser added from a crew loadout.
+    pub who: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -250,6 +239,7 @@ impl From<LoadoutView> for mod_mining::LoadoutInput {
                     laser: l.laser,
                     modules: l.modules,
                     owner: l.owner,
+                    who: l.who,
                 })
                 .collect(),
             gadget: v.gadget,
@@ -267,6 +257,7 @@ impl From<mod_mining::LoadoutInput> for LoadoutView {
                     laser: l.laser,
                     modules: l.modules,
                     owner: l.owner,
+                    who: l.who,
                 })
                 .collect(),
             gadget: v.gadget,
@@ -386,7 +377,7 @@ pub struct GuideView {
     pub window_high: f32,
     pub window_high_off: f32,
     pub throttle_minimum: f32,
-    /// `"safe"`, `"okay"`, `"dangerous"`, `"tooStrong"`; `null` when it
+    /// `"safe"`, `"okay"`, `"dangerous"`, `"tooMuchPower"`; `null` when it
     /// cannot crack.
     pub category: Option<String>,
     pub decline: Option<f32>,
@@ -396,12 +387,14 @@ pub struct GuideView {
     pub climb: Vec<ClimbStepView>,
     pub hold_throttle: Option<f32>,
     pub riding: bool,
-    pub too_strong: bool,
+    pub too_much_power: bool,
     pub climb_at_minimum: Option<f32>,
     pub pulse_on_share: Option<f32>,
     pub window_cross_s: Option<f32>,
     pub keep_on_below: Option<f32>,
     pub lost_from: Option<f32>,
+    /// The wave-lift table, lowest throttle first.
+    pub jumps: Vec<JumpRowView>,
     pub wave_max: f32,
     pub wave_period_s: f32,
     pub wave_period_max_s: f32,
@@ -435,7 +428,7 @@ impl From<mod_mining::ThrottleGuide> for GuideView {
                     mod_mining::Category::Safe => "safe",
                     mod_mining::Category::Okay => "okay",
                     mod_mining::Category::Dangerous => "dangerous",
-                    mod_mining::Category::TooStrong => "tooStrong",
+                    mod_mining::Category::TooMuchPower => "tooMuchPower",
                 }
                 .into()
             }),
@@ -453,12 +446,22 @@ impl From<mod_mining::ThrottleGuide> for GuideView {
                 .collect(),
             hold_throttle: g.hold_throttle,
             riding: g.riding,
-            too_strong: g.too_strong,
+            too_much_power: g.too_much_power,
             climb_at_minimum: g.climb_at_minimum,
             pulse_on_share: g.pulse_on_share,
             window_cross_s: g.window_cross_s,
             keep_on_below: g.keep_on_below,
             lost_from: g.lost_from,
+            jumps: g
+                .jumps
+                .into_iter()
+                .map(|j| JumpRowView {
+                    throttle: j.throttle,
+                    label: j.label,
+                    big: j.big,
+                    usual: j.usual,
+                })
+                .collect(),
             wave_max: g.wave_max,
             wave_period_s: g.wave_period_s,
             wave_period_max_s: g.wave_period_max_s,
@@ -499,6 +502,30 @@ pub struct KitRowView {
     pub eval: EvalView,
 }
 
+/// At this throttle, how far one big and one usual wave lift the charge
+/// (shares of the bar).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct JumpRowView {
+    pub throttle: f32,
+    /// `"hold"`, `"climb limit"`, `"balance"`, `"minimum"`; `null` where a
+    /// usual wave starts to jump out of the window.
+    pub label: Option<String>,
+    pub big: f32,
+    pub usual: f32,
+}
+
+/// A crew ship beside yours on the rock.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CrewRowView {
+    /// The crew loadout's id.
+    pub id: String,
+    pub owner: String,
+    pub name: String,
+    pub eval: EvalView,
+}
+
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SupportRowView {
@@ -516,6 +543,8 @@ pub struct MiningReportView {
     pub passive_kits: Vec<KitRowView>,
     pub active_kits: Vec<KitRowView>,
     pub support: Vec<SupportRowView>,
+    /// Your crew's ships as support, best first.
+    pub crew: Vec<CrewRowView>,
 }
 
 impl From<mod_mining::Report> for MiningReportView {
@@ -565,6 +594,16 @@ impl From<mod_mining::Report> for MiningReportView {
                     eval: s.eval.into(),
                 })
                 .collect(),
+            crew: r
+                .crew
+                .into_iter()
+                .map(|c| CrewRowView {
+                    id: c.id,
+                    owner: c.owner,
+                    name: c.name,
+                    eval: c.eval.into(),
+                })
+                .collect(),
         }
     }
 }
@@ -593,11 +632,14 @@ pub(crate) async fn mining_solve(
             })
             .collect(),
     };
-    tauri::async_runtime::spawn_blocking(move || mod_mining::solve(&catalog, &loadout, &rock))
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
-        .map(Into::into)
-        .map_err(|e| AppError::Config(e.to_string()))
+    let crew = load_state().crew();
+    tauri::async_runtime::spawn_blocking(move || {
+        mod_mining::solve(&catalog, &loadout, &rock, &crew)
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
+    .map(Into::into)
+    .map_err(|e| AppError::Config(e.to_string()))
 }
 
 // ── Saved loadouts ──────────────────────────────────────────────────────────
@@ -608,6 +650,8 @@ pub struct SavedLoadoutView {
     pub id: String,
     pub name: String,
     pub loadout: LoadoutView,
+    /// The crew mate it belongs to; `null` for yours.
+    pub owner: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -627,6 +671,7 @@ fn state_view(s: MiningState) -> MiningStateView {
                 id: s.id,
                 name: s.name,
                 loadout: s.loadout.into(),
+                owner: s.owner,
             })
             .collect(),
     }
@@ -650,11 +695,15 @@ pub(crate) fn mining_set_current(loadout: LoadoutView) -> Result<MiningStateView
     Ok(state_view(state))
 }
 
-/// Save `loadout` under `name`; a saved loadout of the same name is replaced.
+/// Save `loadout` as `name`, yours or a crew mate's (`owner`). With `id` it
+/// edits that saved loadout; otherwise one of the same name and owner is
+/// replaced.
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn mining_save_loadout(
+    id: Option<String>,
     name: String,
+    owner: Option<String>,
     loadout: LoadoutView,
 ) -> Result<MiningStateView, AppError> {
     if name.trim().is_empty() {
@@ -662,7 +711,13 @@ pub(crate) fn mining_save_loadout(
     }
     let _guard = STATE_LOCK.lock().unwrap();
     let mut state = load_state();
-    state.save(&name, loadout.into(), || uuid::Uuid::new_v4().to_string());
+    state.save(
+        id.as_deref(),
+        &name,
+        owner.as_deref(),
+        loadout.into(),
+        || uuid::Uuid::new_v4().to_string(),
+    );
     save_state(&state)?;
     Ok(state_view(state))
 }
@@ -678,100 +733,6 @@ pub(crate) fn mining_delete_loadout(id: String) -> Result<MiningStateView, AppEr
 }
 
 // ── Rock generator ──────────────────────────────────────────────────────────
-
-/// Fired when the mining places for a build were written. The store reloads
-/// the areas.
-pub const PLACES_EVENT: &str = "mining:places";
-
-/// One places pass at a time, process-wide.
-static PLACES_RUNNING: AtomicBool = AtomicBool::new(false);
-
-fn module_enabled(app: &AppHandle) -> bool {
-    app.state::<AppState>()
-        .settings
-        .lock()
-        .unwrap()
-        .enabled_modules
-        .iter()
-        .any(|m| m == MODULE_ID)
-}
-
-/// Start the mining-places pass for `install` in the background unless it
-/// ran for this build, runs already, or the module is off.
-fn ensure_places(app: &AppHandle, install: InstallRef) {
-    if !module_enabled(app)
-        || app
-            .state::<AppState>()
-            .data
-            .mining_places(&install)
-            .is_some()
-        || PLACES_RUNNING.swap(true, Ordering::SeqCst)
-    {
-        return;
-    }
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut activity = Activity::start(
-            &app,
-            ActivityKind::MiningPlaces,
-            Some(&install.channel_key),
-            "Mining places",
-        );
-        // Wait out the game and any game-data load; 30 s polls, capped at 12 h.
-        for _ in 0..1440 {
-            let reason = if crate::langpatch::sc_running().await {
-                Some("Waiting for Star Citizen to exit")
-            } else if app
-                .state::<AppState>()
-                .activities
-                .lock()
-                .unwrap()
-                .has(ActivityKind::DataLoad)
-            {
-                Some("Waiting for the game data")
-            } else {
-                None
-            };
-            match reason {
-                Some(r) => activity = activity.wait(r),
-                None => break,
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-        }
-        let activity =
-            activity.stage("Reading where rocks spawn (once per game build, a few minutes)");
-        let worker_app = app.clone();
-        let worker_install = install.clone();
-        // Its own thread with the loader's stack: the placement decode is deep.
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            std::thread::Builder::new()
-                .name("mining-places".into())
-                .stack_size(svc_data::LOADER_STACK_SIZE)
-                .spawn(move || {
-                    worker_app
-                        .state::<AppState>()
-                        .data
-                        .build_mining_places(&worker_install)
-                })
-                .map_err(anyhow::Error::from)
-                .and_then(|h| {
-                    h.join()
-                        .map_err(|_| anyhow::anyhow!("mining places thread panicked"))?
-                })
-        })
-        .await;
-        drop(activity);
-        PLACES_RUNNING.store(false, Ordering::SeqCst);
-        match result {
-            Ok(Ok(())) => {
-                tracing::info!(channel = %install.channel_key, "mining places written");
-                let _ = app.emit(PLACES_EVENT, ());
-            }
-            Ok(Err(e)) => tracing::warn!("mining places failed: {e:#}"),
-            Err(e) => tracing::warn!("mining places task failed: {e}"),
-        }
-    });
-}
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -826,34 +787,24 @@ pub struct AreaView {
 #[serde(rename_all = "camelCase")]
 pub struct MiningAreasView {
     pub areas: Vec<AreaView>,
-    /// `"ready"` (places known), `"building"` (the pass runs or waits),
-    /// `"pending"` (not run yet).
-    pub places: String,
+    /// The places are known (the cook could read them); else areas carry
+    /// their record names.
+    pub places: bool,
 }
 
 /// The rock generator's areas: where each ship rock type spawns, how often,
-/// and its ore odds. Starts the mining-places pass in the background when
-/// this build has none yet.
+/// and its ore odds.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn mining_areas(
     app: AppHandle,
     channel: String,
 ) -> Result<MiningAreasView, AppError> {
-    let install = install_for(&app, &channel).await?;
     let cooked = cooked_for(&app, &channel).await?;
-    ensure_places(&app, install.clone());
-    let places = app.state::<AppState>().data.mining_places(&install);
-    let state = if places.is_some() {
-        "ready"
-    } else if PLACES_RUNNING.load(Ordering::SeqCst) {
-        "building"
-    } else {
-        "pending"
-    };
+    let places = cooked.mining.places.is_some();
     let areas = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<AreaView>, AppError> {
         let catalog = catalog_of(&cooked)?;
-        let src = sources(&cooked, places.as_ref())?;
+        let src = sources(&cooked)?;
         Ok(mod_mining::areas(&src, &catalog)
             .into_iter()
             .map(|a| AreaView {
@@ -886,10 +837,7 @@ pub(crate) async fn mining_areas(
     })
     .await
     .map_err(|e| AppError::Internal(e.to_string()))??;
-    Ok(MiningAreasView {
-        areas,
-        places: state.into(),
-    })
+    Ok(MiningAreasView { areas, places })
 }
 
 fn catalog_of(cooked: &svc_data::CookedData) -> Result<Catalog, AppError> {
@@ -900,10 +848,7 @@ fn catalog_of(cooked: &svc_data::CookedData) -> Result<Catalog, AppError> {
     })
 }
 
-fn sources<'a>(
-    cooked: &'a svc_data::CookedData,
-    places: Option<&'a svc_data::ProviderLocations>,
-) -> Result<mod_mining::Sources<'a>, AppError> {
+fn sources(cooked: &svc_data::CookedData) -> Result<mod_mining::Sources<'_>, AppError> {
     let h = &cooked.holotable;
     let missing = || {
         AppError::Config(
@@ -917,7 +862,7 @@ fn sources<'a>(
         resources: h.resources.as_ref().ok_or_else(missing)?,
         locations: h.locations.as_ref().ok_or_else(missing)?,
         locale: &cooked.locale,
-        places,
+        places: cooked.mining.places.as_ref(),
     })
 }
 
@@ -927,7 +872,7 @@ pub enum RockClassView {
     Safe,
     Okay,
     Dangerous,
-    TooStrong,
+    TooMuchPower,
     Impossible,
 }
 
@@ -937,7 +882,7 @@ impl From<RockClassView> for mod_mining::RockClass {
             RockClassView::Safe => Self::Safe,
             RockClassView::Okay => Self::Okay,
             RockClassView::Dangerous => Self::Dangerous,
-            RockClassView::TooStrong => Self::TooStrong,
+            RockClassView::TooMuchPower => Self::TooMuchPower,
             RockClassView::Impossible => Self::Impossible,
         }
     }
@@ -980,7 +925,7 @@ pub struct ClassSharesView {
     pub safe: f32,
     pub okay: f32,
     pub dangerous: f32,
-    pub too_strong: f32,
+    pub too_much_power: f32,
     pub impossible: f32,
 }
 
@@ -1010,9 +955,7 @@ pub(crate) async fn mining_generate(
     request: GenerateRequestView,
     loadout: Option<LoadoutView>,
 ) -> Result<GeneratedView, AppError> {
-    let install = install_for(&app, &channel).await?;
     let cooked = cooked_for(&app, &channel).await?;
-    let places = app.state::<AppState>().data.mining_places(&install);
     let request = mod_mining::GenerateRequest {
         area: request.area,
         rock_type: request.rock_type,
@@ -1032,7 +975,7 @@ pub(crate) async fn mining_generate(
     let loadout: Option<mod_mining::LoadoutInput> = loadout.map(Into::into);
     tauri::async_runtime::spawn_blocking(move || -> Result<GeneratedView, AppError> {
         let catalog = catalog_of(&cooked)?;
-        let src = sources(&cooked, places.as_ref())?;
+        let src = sources(&cooked)?;
         let g = mod_mining::generate(&src, &catalog, &request, loadout.as_ref())
             .map_err(|e| AppError::Config(e.to_string()))?;
         Ok(GeneratedView {
@@ -1055,11 +998,70 @@ pub(crate) async fn mining_generate(
                 safe: c.safe,
                 okay: c.okay,
                 dangerous: c.dangerous,
-                too_strong: c.too_strong,
+                too_much_power: c.too_much_power,
                 impossible: c.impossible,
             }),
             pick_share: g.pick_share,
         })
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
+}
+
+/// A place in the generator's tree, or a field standing for many places.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaceNodeView {
+    /// `StarMapObject` GUID; the provider's GUID for a field.
+    pub id: String,
+    pub name: String,
+    /// `"body"`, `"place"`, `"field"`.
+    pub kind: String,
+    /// Area (provider) ids with ship rocks here; empty for a planet that
+    /// only parents its moons.
+    pub areas: Vec<String>,
+    /// For a field, how many places it stands for.
+    pub count: u32,
+    pub children: Vec<PlaceNodeView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaceSystemView {
+    pub name: String,
+    pub nodes: Vec<PlaceNodeView>,
+}
+
+fn node_view(n: mod_mining::PlaceNode) -> PlaceNodeView {
+    PlaceNodeView {
+        id: n.id,
+        name: n.name,
+        kind: n.kind,
+        areas: n.areas,
+        count: n.count,
+        children: n.children.into_iter().map(node_view).collect(),
+    }
+}
+
+/// The rock finder's place tree: systems, planets with their moons, the
+/// other places and fields.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn mining_places(
+    app: AppHandle,
+    channel: String,
+) -> Result<Vec<PlaceSystemView>, AppError> {
+    let cooked = cooked_for(&app, &channel).await?;
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PlaceSystemView>, AppError> {
+        let catalog = catalog_of(&cooked)?;
+        let src = sources(&cooked)?;
+        Ok(mod_mining::place_tree(&src, &catalog)
+            .into_iter()
+            .map(|s| PlaceSystemView {
+                name: s.name,
+                nodes: s.nodes.into_iter().map(node_view).collect(),
+            })
+            .collect())
     })
     .await
     .map_err(|e| AppError::Internal(e.to_string()))?

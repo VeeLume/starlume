@@ -1,7 +1,8 @@
 <script lang="ts">
-  // A developer's initials in a circle tinted from their name — the feed's
-  // avatar, at no fetch (Spectrum avatars would be lab work first).
-  import { initials, nameHue } from "./feed";
+  // A person's initials in a circle tinted from their name — the dev
+  // tracker's avatar (at no fetch: Spectrum avatars would be lab work
+  // first) and a mining crew mate's.
+  import { initials, nameHue } from "$lib/monogram";
 
   let { name, size = 32 }: { name: string; size?: number } = $props();
 </script>

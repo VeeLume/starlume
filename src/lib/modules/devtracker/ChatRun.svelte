@@ -7,7 +7,7 @@
   import { ExternalLink } from "lucide-svelte";
   import { openPost } from "$lib/state/devtracker.svelte";
   import type { ChatRun } from "./feed";
-  import Monogram from "./Monogram.svelte";
+  import Monogram from "$lib/components/Monogram.svelte";
   import PostBody from "./PostBody.svelte";
   import PostQuote from "./PostQuote.svelte";
   import { clock, postAge } from "./time";

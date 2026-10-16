@@ -1,0 +1,284 @@
+<script lang="ts">
+  // The rock finder: where rocks spawn and how the calculator's ship fares
+  // there, from the game's own spawn rules (mod-mining's generator). By
+  // place: the tree, the place's rock types, the rock type with its picks.
+  // By ore: the ores, the rock types richest in one. The selection is the
+  // store's session state, so a visit to the calculator keeps it.
+  import { Segmented } from "@veelume/ui";
+  import type { LoadoutView, MiningCatalogView, PlaceNodeView } from "$lib/bindings";
+  import { miningStore, miningUi, rollRock, useRolled } from "$lib/state/mining.svelte";
+  import { namesOf, oreName, ownLasers, pickRequest, sameLoadout, type Pick } from "./format";
+  import OreCard from "./OreCard.svelte";
+  import PlaceCard from "./PlaceCard.svelte";
+  import PlaceTree from "./PlaceTree.svelte";
+  import RockTypeCard from "./RockTypeCard.svelte";
+
+  let { catalog, channel, loadout }: { catalog: MiningCatalogView; channel: string; loadout: LoadoutView } = $props();
+
+  /** A pick waits this long so a quick change of mind rolls once. */
+  const ROLL_DEBOUNCE_MS = 150;
+
+  const names = $derived(namesOf(catalog));
+  const name = (id: string) => names.get(id) ?? "Unknown";
+  const areas = $derived(miningStore.areas?.areas ?? []);
+  const areasById = $derived(new Map(areas.map((a) => [a.id, a])));
+  const systems = $derived(miningStore.places ?? []);
+
+  // Every node with its parent, by id.
+  const nodes = $derived.by(() => {
+    const out = new Map<string, { node: PlaceNodeView; parent: PlaceNodeView | null }>();
+    const walk = (list: PlaceNodeView[], parent: PlaceNodeView | null) => {
+      for (const n of list) {
+        out.set(n.id, { node: n, parent });
+        walk(n.children, n);
+      }
+    };
+    for (const s of systems) walk(s.nodes, null);
+    return out;
+  });
+  const firstWithRocks = $derived([...nodes.values()].find((x) => x.node.areas.length)?.node ?? null);
+  const place = $derived(nodes.get(miningUi.place) ?? null);
+
+  const ores = $derived(
+    [...new Set(areas.flatMap((a) => a.rocks.filter((r) => r.rollable).flatMap((r) => r.ores.map((o) => o.element))))]
+      .map((id) => ({ id, name: oreName(name(id)) }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  );
+  let oreQuery = $state("");
+  const shownOres = $derived(ores.filter((o) => o.name.toLowerCase().includes(oreQuery.trim().toLowerCase())));
+
+  const area = $derived(areasById.get(miningUi.area) ?? null);
+  const rock = $derived(area?.rocks.find((r) => r.rockType === miningUi.rockType) ?? null);
+  const pick = $derived(miningUi.pick as Pick);
+
+  /** The most common rollable rock type of an area. */
+  const commonRock = (id: string) =>
+    [...(areasById.get(id)?.rocks ?? [])].filter((r) => r.rollable).sort((a, b) => b.share - a.share)[0]?.rockType ?? "";
+
+  // Keep the selection valid as the data and the picks change.
+  $effect(() => {
+    if (miningUi.mode !== "place") return;
+    if (!place && firstWithRocks) miningUi.place = firstWithRocks.id;
+    const node = place?.node;
+    if (node && node.areas.length && !node.areas.includes(miningUi.area)) {
+      miningUi.area = node.areas[0];
+      miningUi.rockType = commonRock(node.areas[0]);
+    }
+  });
+  $effect(() => {
+    if (area && !rock) miningUi.rockType = commonRock(area.id);
+  });
+  $effect(() => {
+    if (rock && !rock.ores.some((o) => o.element === miningUi.ore)) {
+      miningUi.ore = [...rock.ores].sort((a, b) => b.meanShare * b.chance - a.meanShare * a.chance)[0]?.element ?? "";
+    }
+  });
+
+  const ship = $derived.by(() => {
+    const own = ownLasers(loadout);
+    if (!own.length) return null;
+    const saved = (miningStore.state?.saved ?? []).find(
+      (s) => s.owner === null && sameLoadout(s.loadout, { ...loadout, lasers: own }),
+    );
+    return saved?.name ?? "ship";
+  });
+
+  // The place quality rolls at: the picked place, when the area has it.
+  const qualityAt = $derived(
+    miningUi.mode === "place" && place && place.node.kind !== "field" && area?.places.some((p) => p.id === place.node.id)
+      ? place.node.id
+      : null,
+  );
+  const request = $derived(
+    area && rock?.rollable
+      ? {
+          area: area.id,
+          rockType: rock.rockType,
+          pick: pickRequest(pick, miningUi.ore, oreName(name(miningUi.ore))).view,
+          place: qualityAt,
+        }
+      : null,
+  );
+  // The classes depend on the loadout, so it is part of what a roll is for.
+  const key = $derived(request ? JSON.stringify([request, loadout.lasers, loadout.gadget]) : "");
+  const stale = $derived(miningStore.generating || miningStore.rolledKey !== key);
+
+  $effect(() => {
+    const r = request;
+    const k = key;
+    if (!r || k === miningStore.rolledKey) return;
+    const t = setTimeout(() => void rollRock(channel, r, k), ROLL_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  });
+
+  function selectPlace(n: PlaceNodeView) {
+    miningUi.place = n.id;
+  }
+  function selectRock(areaId: string, rockType: string) {
+    miningUi.area = areaId;
+    miningUi.rockType = rockType;
+  }
+  function selectOre(id: string) {
+    miningUi.ore = id;
+    miningUi.pick = "ore";
+    // The richest rock type for it.
+    const best = areas
+      .flatMap((a) => a.rocks.flatMap((r) => (r.rollable ? (r.ores.find((o) => o.element === id) ? [{ a, r }] : []) : [])))
+      .sort(
+        (x, y) =>
+          (y.r.ores.find((o) => o.element === id)?.meanShare ?? 0) - (x.r.ores.find((o) => o.element === id)?.meanShare ?? 0),
+      )[0];
+    if (best) selectRock(best.a.id, best.r.rockType);
+  }
+  function setMode(mode: "place" | "ore") {
+    miningUi.mode = mode;
+    if (mode === "ore" && !miningUi.ore && ores[0]) selectOre(ores[0].id);
+  }
+
+  function use() {
+    if (!rock || !area) return;
+    useRolled({
+      pick: pickRequest(pick, miningUi.ore, oreName(name(miningUi.ore))).label,
+      rockType: rock.name,
+      place: miningUi.mode === "place" && place ? place.node.name : area.name,
+    });
+  }
+</script>
+
+{#if miningStore.areasError}
+  <p class="error">{miningStore.areasError}</p>
+{:else if !miningStore.areas || !miningStore.places}
+  <p class="dim">Loading spawn tables…</p>
+{:else}
+  <div class="find">
+    <nav class="side">
+      <Segmented
+        class="mode"
+        options={[
+          { value: "place", label: "By place" },
+          { value: "ore", label: "By ore" },
+        ]}
+        value={miningUi.mode}
+        onchange={(v) => setMode(v as "place" | "ore")}
+      />
+      {#if miningUi.mode === "place"}
+        <PlaceTree {systems} selected={miningUi.place} onselect={selectPlace} />
+      {:else}
+        <input class="input" type="search" placeholder="Find an ore" aria-label="Find an ore" bind:value={oreQuery} />
+        <div class="ores">
+          {#each shownOres as o (o.id)}
+            <button class:on={o.id === miningUi.ore} onclick={() => selectOre(o.id)}>{o.name}</button>
+          {/each}
+        </div>
+      {/if}
+      {#if !miningStore.areas.places}
+        <p class="dim note">Places couldn't be read from the game files: areas show their file names.</p>
+      {/if}
+    </nav>
+
+    {#if miningUi.mode === "place"}
+      {#if place}
+        <PlaceCard
+          node={place.node}
+          parent={place.parent}
+          areas={areasById}
+          area={miningUi.area}
+          rockType={miningUi.rockType}
+          onpick={selectRock}
+        />
+      {:else}
+        <p class="dim">No place with ship rocks.</p>
+      {/if}
+    {:else if miningUi.ore}
+      <OreCard
+        ore={miningUi.ore}
+        name={oreName(name(miningUi.ore))}
+        {areas}
+        area={miningUi.area}
+        rockType={miningUi.rockType}
+        onpick={selectRock}
+      />
+    {/if}
+
+    {#if rock}
+      <RockTypeCard
+        {catalog}
+        {rock}
+        rolled={miningStore.rolled}
+        {stale}
+        error={miningStore.generateError}
+        {pick}
+        ore={miningUi.ore}
+        {ship}
+        onpick={(p) => (miningUi.pick = p)}
+        onore={(id) => (miningUi.ore = id)}
+        onuse={use}
+      />
+    {/if}
+  </div>
+{/if}
+
+<style>
+  .find {
+    container-type: inline-size;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: calc(100vh - 160px);
+    overflow: auto;
+    padding-right: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .side :global(.mode) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .ores {
+    display: flex;
+    flex-direction: column;
+  }
+  .ores button {
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    font: inherit;
+    font-size: 0.875rem;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .ores button:hover {
+    background: color-mix(in srgb, var(--text) 4%, transparent);
+  }
+  .ores button.on {
+    background: var(--accent-fill);
+    color: var(--text-strong);
+  }
+  .note {
+    font-size: var(--text-small);
+  }
+  @media (max-width: 1100px) {
+    .find {
+      grid-template-columns: 200px minmax(0, 1fr);
+    }
+    .find > :global(:last-child) {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (max-width: 760px) {
+    .find {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .side {
+      max-height: 240px;
+    }
+  }
+</style>

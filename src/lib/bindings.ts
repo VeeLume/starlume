@@ -444,11 +444,13 @@ async miningSetCurrent(loadout: LoadoutView) : Promise<Result<MiningStateView, A
 }
 },
 /**
- * Save `loadout` under `name`; a saved loadout of the same name is replaced.
+ * Save `loadout` as `name`, yours or a crew mate's (`owner`). With `id` it
+ * edits that saved loadout; otherwise one of the same name and owner is
+ * replaced.
  */
-async miningSaveLoadout(name: string, loadout: LoadoutView) : Promise<Result<MiningStateView, AppError>> {
+async miningSaveLoadout(id: string | null, name: string, owner: string | null, loadout: LoadoutView) : Promise<Result<MiningStateView, AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("mining_save_loadout", { name, loadout }) };
+    return { status: "ok", data: await TAURI_INVOKE("mining_save_loadout", { id, name, owner, loadout }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -464,8 +466,7 @@ async miningDeleteLoadout(id: string) : Promise<Result<MiningStateView, AppError
 },
 /**
  * The rock generator's areas: where each ship rock type spawns, how often,
- * and its ore odds. Starts the mining-places pass in the background when
- * this build has none yet.
+ * and its ore odds.
  */
 async miningAreas(channel: string) : Promise<Result<MiningAreasView, AppError>> {
     try {
@@ -482,6 +483,18 @@ async miningAreas(channel: string) : Promise<Result<MiningAreasView, AppError>> 
 async miningGenerate(channel: string, request: GenerateRequestView, loadout: LoadoutView | null) : Promise<Result<GeneratedView, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("mining_generate", { channel, request, loadout }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The rock finder's place tree: systems, planets with their moons, the
+ * other places and fields.
+ */
+async miningPlaces(channel: string) : Promise<Result<PlaceSystemView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_places", { channel }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -826,11 +839,7 @@ export type ActivityKind =
 /**
  * svc-commlinks: reading RSI's comm-link listing.
  */
-"comm-links" | 
-/**
- * mod-mining: the once-per-build mining-places pass (svc-data).
- */
-"mining-places"
+"comm-links"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -1031,7 +1040,7 @@ export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: 
 export type BuildInfoView = { label: string; value: string }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
-export type ClassSharesView = { safe: number; okay: number; dangerous: number; tooStrong: number; impossible: number }
+export type ClassSharesView = { safe: number; okay: number; dangerous: number; tooMuchPower: number; impossible: number }
 export type ClimbStepView = { untilCharge: number; throttle: number }
 /**
  * One comm-link as the News page shows it.
@@ -1101,6 +1110,14 @@ factor: number;
  */
 factor_up_is_better: boolean | null }
 export type CraftedView = { ingredients: IngredientView[]; properties: CraftedPropertyView[] }
+/**
+ * A crew ship beside yours on the rock.
+ */
+export type CrewRowView = { 
+/**
+ * The crew loadout's id.
+ */
+id: string; owner: string; name: string; eval: EvalView }
 export type DamageBreakdownView = { physical: number; energy: number; distortion: number; thermal: number; biochemical: number; stun: number; 
 /**
  * Scalar total across all damage types (the "alpha" figure).
@@ -1373,10 +1390,14 @@ export type GrpcFeatureInfo = { id: string; name: string; description: string }
  */
 export type GuideView = { windowLow: number; windowHigh: number; windowHighOff: number; throttleMinimum: number; 
 /**
- * `"safe"`, `"okay"`, `"dangerous"`, `"tooStrong"`; `null` when it
+ * `"safe"`, `"okay"`, `"dangerous"`, `"tooMuchPower"`; `null` when it
  * cannot crack.
  */
-category: string | null; decline: number | null; balance: number | null; safeClimb: number | null; fullUntil: number | null; climb: ClimbStepView[]; holdThrottle: number | null; riding: boolean; tooStrong: boolean; climbAtMinimum: number | null; pulseOnShare: number | null; windowCrossS: number | null; keepOnBelow: number | null; lostFrom: number | null; waveMax: number; wavePeriodS: number; wavePeriodMaxS: number; damping: number; peakJumpAtBalance: number | null; peakJumpAvgAtBalance: number | null; peakJumpFull: number; drainAtMinimum: number | null; timeToWindowS: number | null; timeInWindowS: number | null; crackAboveS: number | null; paybackEdge: number | null; paybackTop: number | null; dangerFillEdgeS: number | null; dangerFillTopS: number | null; dangerDrainS: number | null; backFromTopOffS: number | null; backFromTopMinS: number | null; modifierPersistenceS: number }
+category: string | null; decline: number | null; balance: number | null; safeClimb: number | null; fullUntil: number | null; climb: ClimbStepView[]; holdThrottle: number | null; riding: boolean; tooMuchPower: boolean; climbAtMinimum: number | null; pulseOnShare: number | null; windowCrossS: number | null; keepOnBelow: number | null; lostFrom: number | null; 
+/**
+ * The wave-lift table, lowest throttle first.
+ */
+jumps: JumpRowView[]; waveMax: number; wavePeriodS: number; wavePeriodMaxS: number; damping: number; peakJumpAtBalance: number | null; peakJumpAvgAtBalance: number | null; peakJumpFull: number; drainAtMinimum: number | null; timeToWindowS: number | null; timeInWindowS: number | null; crackAboveS: number | null; paybackEdge: number | null; paybackTop: number | null; dangerFillEdgeS: number | null; dangerFillTopS: number | null; dangerDrainS: number | null; backFromTopOffS: number | null; backFromTopMinS: number | null; modifierPersistenceS: number }
 export type HolderView = { geid: string; name: string; item_type: string }
 /**
  * One card's place on Home (see [`AppSettings::home_cards`]).
@@ -1479,6 +1500,16 @@ export type ItemPageView = { total: number; rows: ItemRowView[] }
 export type ItemRewardView = { entity_guid: string; name: string | null; amount: number }
 export type ItemRowView = { guid: string; name: string; item_type: string; item_sub_type: string; size: number; grade: number }
 export type ItemTypeFacetView = { item_type: string; count: number }
+/**
+ * At this throttle, how far one big and one usual wave lift the charge
+ * (shares of the bar).
+ */
+export type JumpRowView = { throttle: number; 
+/**
+ * `"hold"`, `"climb limit"`, `"balance"`, `"minimum"`; `null` where a
+ * usual wave starts to jump out of the window.
+ */
+label: string | null; big: number; usual: number }
 export type KitRowView = { modules: string[]; 
 /**
  * Set when an active module runs out before the median fracture.
@@ -1511,7 +1542,11 @@ export type LaserInputView = { laser: string; modules: string[];
 /**
  * Which ship the laser is on; lasers on one ship split the wave.
  */
-owner: number }
+owner: number; 
+/**
+ * The crew mate flying it, for a laser added from a crew loadout.
+ */
+who: string | null }
 export type LauncherStatusView = { 
 /**
  * The RSI launcher is installed where Starlume looks for it.
@@ -1542,10 +1577,10 @@ export type LoadoutView = { lasers: LaserInputView[]; gadget: string | null }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
 export type MiningAreasView = { areas: AreaView[]; 
 /**
- * `"ready"` (places known), `"building"` (the pass runs or waits),
- * `"pending"` (not run yet).
+ * The places are known (the cook could read them); else areas carry
+ * their record names.
  */
-places: string }
+places: boolean }
 export type MiningCatalogView = { lasers: MiningLaserView[]; modules: MiningModuleView[]; gadgets: MiningGadgetView[]; elements: MiningElementView[] }
 export type MiningElementView = { id: string; name: string }
 export type MiningGadgetView = { id: string; name: string; modifiers: ModifiersView }
@@ -1567,7 +1602,11 @@ export type MiningModuleView = { id: string; name: string;
  * Power multiplier on the fracturing beam (×1.5 for a Surge).
  */
 powerMultiplier: number; active: boolean; durationS: number | null; uses: number | null; modifiers: ModifiersView }
-export type MiningReportView = { rock: RockFactsView; yours: YourSetupView | null; gadgets: GadgetRowView[]; passiveKits: KitRowView[]; activeKits: KitRowView[]; support: SupportRowView[] }
+export type MiningReportView = { rock: RockFactsView; yours: YourSetupView | null; gadgets: GadgetRowView[]; passiveKits: KitRowView[]; activeKits: KitRowView[]; support: SupportRowView[]; 
+/**
+ * Your crew's ships as support, best first.
+ */
+crew: CrewRowView[] }
 export type MiningStateView = { current: LoadoutView; saved: SavedLoadoutView[] }
 export type MissileStatsView = { size: number; is_torpedo: boolean; damage: DamageBreakdownView | null; speed: number | null; arm_time: number; tracking: TrackingView | null }
 export type MissionCategoryView = { name: string | null; icon: string }
@@ -1737,6 +1776,28 @@ export type PatcherOptionView = { id: string; label: string; description: string
  * Which rolled rock to hand out.
  */
 export type PickView = { kind: "average" } | { kind: "mostCommon" } | { kind: "smallest" } | { kind: "largest" } | { kind: "mostOre"; element: string } | { kind: "bestQuality"; element: string } | { kind: "class"; class: RockClassView }
+/**
+ * A place in the generator's tree, or a field standing for many places.
+ */
+export type PlaceNodeView = { 
+/**
+ * `StarMapObject` GUID; the provider's GUID for a field.
+ */
+id: string; name: string; 
+/**
+ * `"body"`, `"place"`, `"field"`.
+ */
+kind: string; 
+/**
+ * Area (provider) ids with ship rocks here; empty for a planet that
+ * only parents its moons.
+ */
+areas: string[]; 
+/**
+ * For a field, how many places it stands for.
+ */
+count: number; children: PlaceNodeView[] }
+export type PlaceSystemView = { name: string; nodes: PlaceNodeView[] }
 export type PlaceView = { name: string; 
 /**
  * Parents, nearest first.
@@ -1832,7 +1893,7 @@ export type ResourceRowView = { guid: string; name: string; description: string 
  */
 legality: ResourceLegalityView | null }
 export type ResourceStackView = { name: string; quality: number; scu: number }
-export type RockClassView = "safe" | "okay" | "dangerous" | "tooStrong" | "impossible"
+export type RockClassView = "safe" | "okay" | "dangerous" | "tooMuchPower" | "impossible"
 export type RockEntryView = { element: string; 
 /**
  * 0..100.
@@ -1866,7 +1927,11 @@ enlisted: string | null; primary_org_sid: string | null;
  * Epoch ms of the last successful profile verification.
  */
 last_verified: number | null }
-export type SavedLoadoutView = { id: string; name: string; loadout: LoadoutView }
+export type SavedLoadoutView = { id: string; name: string; loadout: LoadoutView; 
+/**
+ * The crew mate it belongs to; `null` for yours.
+ */
+owner: string | null }
 export type ScStatus = { installs: InstallView[]; 
 /**
  * Handle the RSI launcher is currently signed in as, if any.

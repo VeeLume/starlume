@@ -102,7 +102,7 @@ fn write_key(dir: &Path, snapshot: &str, key: &str) {
 /// install's staleness key: the version label (whose changelist is the same
 /// key) where `build_manifest.id` was `"None"`, or the real manifest id
 /// where CIG ships one — that one only ever matches its own install.
-pub(crate) fn same_build(stamp: &str, install: &InstallRef) -> bool {
+fn same_build(stamp: &str, install: &InstallRef) -> bool {
     crate::builds::key_of(stamp) == install.build_key() || stamp == install.build_id
 }
 

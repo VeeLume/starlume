@@ -17,11 +17,11 @@ pub mod state;
 pub use catalog::{Catalog, LaserItem, Named, SHIP_RULESET};
 pub use generate::{
     Area, AreaRock, ClassShares, GenerateError, GenerateRequest, Generated, OreOdds, Pick, Place,
-    RockClass, Sources, areas, generate,
+    PlaceNode, PlaceSystem, RockClass, Sources, areas, generate, place_tree,
 };
-pub use guide::{Category, ClimbStep, ThrottleGuide, category, throttle_guide};
+pub use guide::{Category, ClimbStep, JumpRow, ThrottleGuide, category, throttle_guide};
 pub use solve::{
-    EntryInput, Eval, GadgetRow, KitRow, LaserInput, LoadoutInput, Report, RockFacts, RockInput,
-    SolveError, SupportRow, YourSetup, solve,
+    CrewRow, CrewShip, EntryInput, Eval, GadgetRow, KitRow, LaserInput, LoadoutInput, Report,
+    RockFacts, RockInput, SolveError, SupportRow, YourSetup, solve,
 };
 pub use state::{MiningState, SavedLoadout};

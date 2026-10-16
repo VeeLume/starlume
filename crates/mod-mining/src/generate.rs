@@ -4,8 +4,8 @@
 //! quality) through sc-mining's `Spawner`.
 //!
 //! An area is one harvestable provider: a planet or moon, a Lagrange field,
-//! a belt. It is named after its places when the mining-places pass has run
-//! for this build, else after its record name. Rolls are a deterministic
+//! a belt. It is named after its places (cooked with the game data), else
+//! after its record name. Rolls are a deterministic
 //! sample ([`SAMPLE`] draws per rock type and area), so the same pick gives
 //! the same rock; quality rolls at the area's place (its first, unless one
 //! is asked for), falling back to the resource's default distribution
@@ -65,7 +65,7 @@ pub struct Sources<'a> {
     pub resources: &'a Resources,
     pub locations: &'a Locations,
     pub locale: &'a LocaleMap,
-    /// `None` until the mining-places pass ran for this build.
+    /// `None` when the cook could not read the places.
     pub places: Option<&'a ProviderLocations>,
 }
 
@@ -147,7 +147,7 @@ pub enum RockClass {
     Safe,
     Okay,
     Dangerous,
-    TooStrong,
+    TooMuchPower,
     Impossible,
 }
 
@@ -185,7 +185,7 @@ pub struct ClassShares {
     pub safe: f32,
     pub okay: f32,
     pub dangerous: f32,
-    pub too_strong: f32,
+    pub too_much_power: f32,
     pub impossible: f32,
 }
 
@@ -295,22 +295,36 @@ impl Sources<'_> {
             .find(|(guid, _)| *guid == id)
             .and_then(|(_, key)| self.locale.resolve_name(key))
         {
-            let name = match places.as_slice() {
-                [] => name.to_string(),
-                some => format!(
-                    "{name} ({})",
-                    some.iter()
-                        .map(|p| p.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
+            // The bodies it hangs off (Nyx), not every station whose
+            // segments include it (the QV Breaker Stations).
+            let mut bodies: Vec<&str> = places
+                .iter()
+                .filter(|p| {
+                    p.id.parse::<Guid>()
+                        .ok()
+                        .and_then(|g| self.locations.get(&g))
+                        .is_some_and(|l| {
+                            matches!(
+                                l.kind,
+                                LocationKind::Star | LocationKind::Planet | LocationKind::Moon
+                            )
+                        })
+                })
+                .map(|p| p.name.as_str())
+                .collect();
+            bodies.dedup();
+            let name = match (bodies.as_slice(), places.as_slice()) {
+                (_, []) => name.to_string(),
+                ([], [one]) => format!("{name} ({})", one.name),
+                ([], [first, rest @ ..]) => format!("{name} ({} +{})", first.name, rest.len()),
+                (some, _) => format!("{name} ({})", some.join(", ")),
             };
             return (name, false, places);
         }
         let name = match places.as_slice() {
             [] => return (record, true, places),
             [one] => one.name.clone(),
-            many => {
+            _ => {
                 // Many places: the planets and moons among them, else the
                 // record label (mining bases, claims, Lagrange fields).
                 let mut bodies: Vec<String> = self
@@ -327,7 +341,7 @@ impl Sources<'_> {
                 // all of them, nothing typed tells the main one apart.
                 match bodies.len() {
                     1..=3 => bodies.join(" / "),
-                    _ => format!("{record} · {} places", many.len()),
+                    _ => record,
                 }
             }
         };
@@ -428,6 +442,205 @@ fn ship_entries<'a>(src: &'a Sources<'_>, catalog: &Catalog, provider: &Guid) ->
         }
     }
     out
+}
+
+/// A provider with more places than this is one counted node in the place
+/// tree (mining bases, claims, deep-space clusters), not one node a place.
+const FIELD_SPLIT: usize = 12;
+
+/// One system in the place tree.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlaceSystem {
+    pub name: String,
+    /// Planets (with their moons) first, then the other places and fields,
+    /// each by name.
+    pub nodes: Vec<PlaceNode>,
+}
+
+/// A place in the tree, or a field standing for many places.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlaceNode {
+    /// `StarMapObject` GUID; the provider's GUID for a field node.
+    pub id: String,
+    pub name: String,
+    /// `"body"` (planet or moon), `"place"` (any other place), `"field"`
+    /// (a provider's many places, counted).
+    pub kind: String,
+    /// The areas (provider GUIDs) with ship rocks here; empty for a planet
+    /// that only parents its moons.
+    pub areas: Vec<String>,
+    /// For a field node, how many places it stands for.
+    pub count: u32,
+    pub children: Vec<PlaceNode>,
+}
+
+struct Building {
+    name: String,
+    kind: &'static str,
+    areas: Vec<String>,
+    count: u32,
+    parent: Option<Guid>,
+    system: String,
+}
+
+/// The place tree for the generator: systems, their planets with moons
+/// nested by the game's parent links, the other places and fields beside
+/// them. Lagrange points hang off the star in the data (their planet is
+/// only in the name, `HUR L1`), so they stay at the system's level, named
+/// as in game.
+pub fn place_tree(src: &Sources<'_>, catalog: &Catalog) -> Vec<PlaceSystem> {
+    let body = |g: &Guid| {
+        src.locations
+            .get(g)
+            .is_some_and(|l| matches!(l.kind, LocationKind::Planet | LocationKind::Moon))
+    };
+    let star_of = |g: &Guid| -> Option<String> {
+        std::iter::once(src.locations.get(g)?)
+            .chain(src.locations.ancestors(g))
+            .find(|l| matches!(l.kind, LocationKind::Star | LocationKind::SolarSystem))
+            .and_then(|l| l.display_name(src.locale))
+            .map(str::to_string)
+    };
+    let mut nodes: HashMap<String, Building> = HashMap::new();
+    let add_place = |nodes: &mut HashMap<String, Building>, g: &Guid, area: Option<&str>| {
+        let key = g.to_string();
+        if let Some(n) = nodes.get_mut(&key) {
+            if let Some(a) = area
+                && !n.areas.iter().any(|x| x == a)
+            {
+                n.areas.push(a.to_string());
+            }
+            return;
+        }
+        let Some(l) = src.locations.get(g) else {
+            return;
+        };
+        let parent = l.parent.filter(|p| body(p));
+        nodes.insert(
+            key,
+            Building {
+                name: l.display_name(src.locale).unwrap_or("?").to_string(),
+                kind: if body(g) { "body" } else { "place" },
+                areas: area.map(|a| vec![a.to_string()]).unwrap_or_default(),
+                count: 0,
+                parent,
+                system: star_of(g).unwrap_or_else(|| "Other".into()),
+            },
+        );
+    };
+
+    for (guid, _) in src.providers.iter() {
+        if LEFTOVERS.contains(&guid.to_string().as_str())
+            || ship_entries(src, catalog, guid).is_empty()
+        {
+            continue;
+        }
+        let area = guid.to_string();
+        let places: Vec<Guid> = src
+            .places
+            .map(|p| p.locations_of(guid).to_vec())
+            .unwrap_or_default();
+        let on_star = places.iter().any(|g| {
+            src.locations
+                .get(g)
+                .is_some_and(|l| matches!(l.kind, LocationKind::Star | LocationKind::SolarSystem))
+        });
+        if places.is_empty() || places.len() > FIELD_SPLIT || on_star {
+            let system = places
+                .iter()
+                .find_map(star_of)
+                .unwrap_or_else(|| "Other".into());
+            // Under its system the field needs no "(Nyx)".
+            let (name, _, _) = src.area_places(guid);
+            let name = name
+                .strip_suffix(&format!(" ({system})"))
+                .map(str::to_string)
+                .unwrap_or(name);
+            nodes.insert(
+                area.clone(),
+                Building {
+                    name,
+                    kind: "field",
+                    areas: vec![area],
+                    count: places.len() as u32,
+                    parent: None,
+                    system,
+                },
+            );
+            continue;
+        }
+        for g in &places {
+            add_place(&mut nodes, g, Some(&area));
+            // The planet a moon orbits shows even without rocks of its own.
+            let mut up = src.locations.get(g).and_then(|l| l.parent);
+            while let Some(pg) = up.filter(|pg| body(pg)) {
+                add_place(&mut nodes, &pg, None);
+                up = src.locations.get(&pg).and_then(|l| l.parent);
+            }
+        }
+    }
+
+    // Children under their planet, the rest at their system's level.
+    fn build(
+        key: &str,
+        nodes: &HashMap<String, Building>,
+        kids: &HashMap<String, Vec<String>>,
+    ) -> PlaceNode {
+        let b = &nodes[key];
+        let mut children: Vec<PlaceNode> = kids
+            .get(key)
+            .map(|k| k.iter().map(|c| build(c, nodes, kids)).collect())
+            .unwrap_or_default();
+        children.sort_by(|a, b| a.name.cmp(&b.name));
+        PlaceNode {
+            id: key.to_string(),
+            name: b.name.clone(),
+            kind: b.kind.to_string(),
+            areas: b.areas.clone(),
+            count: b.count,
+            children,
+        }
+    }
+    let mut kids: HashMap<String, Vec<String>> = HashMap::new();
+    let mut roots: Vec<String> = Vec::new();
+    for (key, b) in &nodes {
+        match b
+            .parent
+            .map(|p| p.to_string())
+            .filter(|p| nodes.contains_key(p))
+        {
+            Some(p) => kids.entry(p).or_default().push(key.clone()),
+            None => roots.push(key.clone()),
+        }
+    }
+    let mut systems: Vec<PlaceSystem> = Vec::new();
+    for key in roots {
+        let node = build(&key, &nodes, &kids);
+        let system = nodes[&key].system.clone();
+        match systems.iter_mut().find(|s| s.name == system) {
+            Some(s) => s.nodes.push(node),
+            None => systems.push(PlaceSystem {
+                name: system,
+                nodes: vec![node],
+            }),
+        }
+    }
+    for s in &mut systems {
+        s.nodes.sort_by(|a, b| {
+            (a.kind != "body")
+                .cmp(&(b.kind != "body"))
+                .then(a.name.cmp(&b.name))
+        });
+    }
+    // Stanton, Pyro, Nyx as the game lists them; unknown ones after.
+    let rank = |n: &str| {
+        ["Stanton", "Pyro", "Nyx"]
+            .iter()
+            .position(|x| *x == n)
+            .unwrap_or(9)
+    };
+    systems.sort_by(|a, b| rank(&a.name).cmp(&rank(&b.name)).then(a.name.cmp(&b.name)));
+    systems
 }
 
 /// Every area with ship-mineable rocks, by name.
@@ -654,7 +867,7 @@ pub fn generate(
             Some(Category::Safe) => RockClass::Safe,
             Some(Category::Okay) => RockClass::Okay,
             Some(Category::Dangerous) => RockClass::Dangerous,
-            Some(Category::TooStrong) => RockClass::TooStrong,
+            Some(Category::TooMuchPower) => RockClass::TooMuchPower,
             None => RockClass::Impossible,
         }
     };
@@ -668,7 +881,7 @@ pub fn generate(
             safe: share(RockClass::Safe),
             okay: share(RockClass::Okay),
             dangerous: share(RockClass::Dangerous),
-            too_strong: share(RockClass::TooStrong),
+            too_much_power: share(RockClass::TooMuchPower),
             impossible: share(RockClass::Impossible),
         }
     });

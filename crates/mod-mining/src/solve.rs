@@ -41,6 +41,22 @@ pub struct LaserInput {
     pub modules: Vec<String>,
     #[serde(default)]
     pub owner: u32,
+    /// The crew mate flying it, for a laser added from a crew loadout.
+    #[serde(default)]
+    pub who: Option<String>,
+}
+
+/// A crew mate's saved loadout, offered as support: their ship beside
+/// yours on the rock.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CrewShip {
+    /// The saved loadout's id.
+    pub id: String,
+    /// The crew mate's name.
+    pub owner: String,
+    /// The loadout's name ("Prospector").
+    pub name: String,
+    pub loadout: LoadoutInput,
 }
 
 /// What the scanner shows: the mass and the composition rows.
@@ -114,6 +130,8 @@ pub struct Report {
     pub active_kits: Vec<KitRow>,
     /// One Prospector beside the loadout and gadget as they are.
     pub support: Vec<SupportRow>,
+    /// Each crew ship beside the loadout and gadget as they are, best first.
+    pub crew: Vec<CrewRow>,
 }
 
 /// The rock on its own.
@@ -223,6 +241,15 @@ pub struct SupportRow {
     pub eval: Eval,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CrewRow {
+    /// The crew loadout's id.
+    pub id: String,
+    pub owner: String,
+    pub name: String,
+    pub eval: Eval,
+}
+
 /// Every multiset of up to `k` indices below `n`.
 fn kits(n: usize, k: usize) -> Vec<Vec<usize>> {
     let mut out = vec![vec![]];
@@ -327,6 +354,7 @@ pub fn solve(
     catalog: &Catalog,
     loadout: &LoadoutInput,
     rock: &RockInput,
+    crew: &[CrewShip],
 ) -> Result<Report, SolveError> {
     let rs = &catalog.ruleset;
     let rock = rock_of(catalog, rock)?;
@@ -352,6 +380,7 @@ pub fn solve(
             passive_kits: vec![],
             active_kits: vec![],
             support: vec![],
+            crew: vec![],
         });
     }
 
@@ -489,6 +518,27 @@ pub fn solve(
     support.sort_by(|a, b| better(&a.eval, &b.eval));
     support.truncate(SUPPORT_ROWS);
 
+    // Crew: each crew ship (all its lasers on one more ship) beside yours.
+    // A crew loadout naming parts this build lacks is left out.
+    let mut crew_rows: Vec<CrewRow> = crew
+        .iter()
+        .filter_map(|c| {
+            let theirs = lasers_of(catalog, &c.loadout).ok()?;
+            let mut all = lasers.clone();
+            all.extend(theirs.into_iter().map(|mut l| {
+                l.owner += support_owner;
+                l
+            }));
+            Some(CrewRow {
+                id: c.id.clone(),
+                owner: c.owner.clone(),
+                name: c.name.clone(),
+                eval: Eval::of(rs, &rock, &on(all, gadgets.clone()), true),
+            })
+        })
+        .collect();
+    crew_rows.sort_by(|a, b| better(&a.eval, &b.eval));
+
     Ok(Report {
         rock: facts,
         yours: Some(yours),
@@ -496,6 +546,7 @@ pub fn solve(
         passive_kits,
         active_kits,
         support,
+        crew: crew_rows,
     })
 }
 

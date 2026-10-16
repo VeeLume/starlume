@@ -34,7 +34,6 @@ const SOURCE: Record<ActivityKind, string> = {
   devtracker: "devtracker",
   "patch-notes": "patchnotes",
   "comm-links": "commlinks",
-  "mining-places": "mining",
 };
 
 function apply(records: ActivityRecord[]) {

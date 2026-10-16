@@ -60,6 +60,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         mining::mining_delete_loadout,
         mining::mining_areas,
         mining::mining_generate,
+        mining::mining_places,
         devtracker::devtracker_overview,
         devtracker::devtracker_authors,
         devtracker::devtracker_set_author_mode,

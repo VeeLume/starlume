@@ -47,7 +47,6 @@ pub mod crafting;
 pub mod legality;
 pub mod mining;
 pub mod missions;
-pub mod places;
 pub mod weapons;
 
 mod cache;
@@ -315,26 +314,6 @@ impl DataService {
         let cooked = Arc::new(result?);
         self.loaded.lock().unwrap().insert(key, Arc::clone(&cooked));
         Ok(cooked)
-    }
-
-    /// The mining places (provider ↔ place) for this install's build, read
-    /// from disk per call (~48 KB; nothing stays resident). `None` until
-    /// [`Self::build_mining_places`] ran for this build.
-    pub fn mining_places(&self, install: &InstallRef) -> Option<ProviderLocations> {
-        places::load(&self.build_dir(install), install)
-    }
-
-    /// Build and persist the mining places from the live p4k (see
-    /// [`places`]). Blocking and heavy — minutes, a multi-GB peak: run it on
-    /// its own thread, once per build, never alongside a parse. The build
-    /// counts as loading meanwhile, so [`Self::prune`] leaves it alone.
-    pub fn build_mining_places(&self, install: &InstallRef) -> anyhow::Result<()> {
-        let key = install.build_key();
-        self.loading.lock().unwrap().insert(key.clone());
-        let dir = self.build_dir(install);
-        let result = places::build(&install.p4k_path).and_then(|p| places::save(&dir, install, p));
-        self.loading.lock().unwrap().remove(&key);
-        result
     }
 
     /// Drop every in-memory bundle (window hidden — the tray-idle path; an

@@ -1,10 +1,9 @@
 //! Ignored-by-default check of the rock generator against real game data:
 //! the areas with their rock types and ore odds, and real rolls of one rock
 //! type (average, smallest, largest, most ore, best quality, a class for the
-//! Golem). Shares svc-data's real-data cache. With `STARLUME_BUILD_PLACES=1`
-//! it first runs the heavy mining-places pass (minutes) so areas get names.
+//! Golem). Shares svc-data's real-data cache.
 //! ```text
-//! STARLUME_REAL_P4K="C:\Games\StarCitizen\LIVE\Data.p4k" [STARLUME_BUILD_PLACES=1] \
+//! STARLUME_REAL_P4K="C:\Games\StarCitizen\LIVE\Data.p4k" \
 //!   cargo test -p mod-mining --release --test real_generate -- --ignored --nocapture
 //! ```
 
@@ -38,14 +37,7 @@ fn generator_rolls_real_rocks() {
     );
     assert!(!cooked.mining.shapes.is_empty(), "no rock meshes cooked");
 
-    if std::env::var("STARLUME_BUILD_PLACES").is_ok() {
-        let start = Instant::now();
-        service
-            .build_mining_places(&install)
-            .expect("mining places");
-        eprintln!("mining places built in {} s", start.elapsed().as_secs());
-    }
-    let places = service.mining_places(&install);
+    let places = cooked.mining.places.as_ref();
     eprintln!("places known: {}", places.is_some());
 
     let catalog = Catalog::build(&cooked.mining, &cooked.locale).unwrap();
@@ -57,7 +49,7 @@ fn generator_rolls_real_rocks() {
         resources: h.resources.as_ref().unwrap(),
         locations: h.locations.as_ref().unwrap(),
         locale: &cooked.locale,
-        places: places.as_ref(),
+        places,
     };
     let start = Instant::now();
     let all = areas(&src, &catalog);
@@ -87,6 +79,52 @@ fn generator_rolls_real_rocks() {
                 .join(", ")
         );
     }
+    // The place tree: systems, planets with moons, places and fields.
+    let tree = mod_mining::place_tree(&src, &catalog);
+    fn show(n: &mod_mining::PlaceNode, depth: usize) {
+        eprintln!(
+            "TREE {}{} [{}]{}{}",
+            "  ".repeat(depth),
+            n.name,
+            n.kind,
+            if n.areas.len() > 1 {
+                format!(" {} areas", n.areas.len())
+            } else {
+                String::new()
+            },
+            if n.count > 0 {
+                format!(" ({} places)", n.count)
+            } else {
+                String::new()
+            }
+        );
+        for c in &n.children {
+            show(c, depth + 1);
+        }
+    }
+    for sys in &tree {
+        eprintln!("TREE {}", sys.name);
+        for n in &sys.nodes {
+            show(n, 1);
+        }
+    }
+    let stanton = tree.iter().find(|s| s.name == "Stanton").expect("Stanton");
+    let hurston = stanton
+        .nodes
+        .iter()
+        .find(|n| n.name == "Hurston")
+        .expect("Hurston");
+    assert!(
+        hurston.children.iter().any(|c| c.name == "Aberdeen"),
+        "moons nest under their planet"
+    );
+    assert!(
+        !tree
+            .iter()
+            .flat_map(|s| &s.nodes)
+            .any(|n| n.name.contains("Akiro")),
+        "leftovers stay hidden"
+    );
     // An area of several places named by record: what kinds its places are.
     for a in all
         .iter()
@@ -147,6 +185,7 @@ fn generator_rolls_real_rocks() {
                 .clone(),
             modules: vec![],
             owner: 0,
+            who: None,
         }],
         gadget: None,
     };
@@ -206,7 +245,7 @@ fn generator_rolls_real_rocks() {
                         c.safe * 100.0,
                         c.okay * 100.0,
                         c.dangerous * 100.0,
-                        c.too_strong * 100.0,
+                        c.too_much_power * 100.0,
                         c.impossible * 100.0
                     ))
                 );

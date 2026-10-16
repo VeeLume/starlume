@@ -9,7 +9,7 @@
   import { ExternalLink } from "lucide-svelte";
   import { openPatchNote, patchNotesStore, watchPatchNotes } from "$lib/state/patchnotes.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
-  import NowCard from "./NowCard.svelte";
+  import NowCard from "$lib/components/NowCard.svelte";
   import { highlightGroup, shortDate } from "./format";
 
   const overview = $derived(patchNotesStore.overview);
@@ -75,18 +75,6 @@
 {/if}
 
 <style>
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .tag {
-    font-size: var(--text-small);
-    padding: 1px 8px;
-    border-radius: var(--radius-chip);
-    background: color-mix(in srgb, var(--text) 7%, transparent);
-    color: var(--text-dim);
-  }
   p {
     margin: 0;
   }

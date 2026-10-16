@@ -666,7 +666,7 @@ pub(crate) fn default_install(installs: &[InstallRef]) -> Option<&InstallRef> {
 
 /// Resolve a channel to its `InstallRef` — from the cached scan, or a fresh
 /// one when the cache is cold (first query after startup).
-pub(crate) async fn install_for(app: &AppHandle, channel: &str) -> Result<InstallRef, AppError> {
+async fn install_for(app: &AppHandle, channel: &str) -> Result<InstallRef, AppError> {
     let key = channel.to_ascii_lowercase();
     let cached = {
         let state = app.state::<AppState>();
