@@ -45,6 +45,7 @@ pub mod builds;
 pub mod cooked;
 pub mod crafting;
 pub mod legality;
+pub mod mining;
 pub mod missions;
 pub mod weapons;
 
@@ -67,6 +68,7 @@ pub use cooked::{
 };
 pub use crafting::{CraftingIndex, CraftingProperty};
 pub use legality::{JurisdictionRef, LegalityEntry, LegalityKind};
+pub use mining::{ElementEntry, GadgetEntry, LaserEntry, MiningIndex, ModuleEntry, RulesetEntry};
 pub use missions::{
     BpPoolEntry, BpPoolReward, CargoLeg, CrimestatRisk, EncounterKind, EventLadder, EventReward,
     ItemReward, MissionCategory, MissionDifficulty, MissionEncounter, MissionEntry, MissionFaction,
@@ -635,6 +637,7 @@ fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) ->
     let legality = legality::build_legality(&datacore, &foundations.resources);
     let weapons = weapons::build_weapons(&datacore, &foundations.items);
     let crafting = crafting::build_crafting(&datacore);
+    let mining = mining::build_mining(&datacore, &foundations.items, &foundations.resources);
     let holotable = sc_holotable::HolotableSnapshot::from_foundations(&foundations);
     drop(datacore);
     CookedData {
@@ -644,6 +647,7 @@ fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) ->
         legality,
         weapons,
         crafting,
+        mining,
     }
 }
 
@@ -699,6 +703,7 @@ mod tests {
                 ..Default::default()
             },
             locale,
+            mining: Default::default(),
             missions: vec![fake_mission()],
             legality: vec![legality::LegalityEntry {
                 resource_guid: guid(5).to_string(),

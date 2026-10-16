@@ -404,6 +404,65 @@ async commLinksOpen(url: string) : Promise<Result<null, AppError>> {
 }
 },
 /**
+ * The calculator's pickers: ship lasers, modules, gadgets, ship-rock elements.
+ */
+async miningCatalog(channel: string) : Promise<Result<MiningCatalogView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_catalog", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Solve a scanned rock against a loadout: the verdict, our difficulty, the
+ * charge bar, and the best gadget, module swaps and support.
+ */
+async miningSolve(channel: string, loadout: LoadoutView, rock: RockView) : Promise<Result<MiningReportView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_solve", { channel, loadout, rock }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The calculator's loadout and the saved ones.
+ */
+async miningState() : Promise<MiningStateView> {
+    return await TAURI_INVOKE("mining_state");
+},
+/**
+ * Remember the calculator's loadout (it opens with it next time).
+ */
+async miningSetCurrent(loadout: LoadoutView) : Promise<Result<MiningStateView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_set_current", { loadout }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Save `loadout` under `name`; a saved loadout of the same name is replaced.
+ */
+async miningSaveLoadout(name: string, loadout: LoadoutView) : Promise<Result<MiningStateView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_save_loadout", { name, loadout }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async miningDeleteLoadout(id: string) : Promise<Result<MiningStateView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_delete_loadout", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The feed and the module's state. **No network, no gate.**
  */
 async devtrackerOverview() : Promise<DevtrackerOverview> {
@@ -933,6 +992,7 @@ export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: 
 export type BuildInfoView = { label: string; value: string }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
+export type ClimbStepView = { untilCharge: number; throttle: number }
 /**
  * One comm-link as the News page shows it.
  */
@@ -1175,6 +1235,28 @@ patch_notes: PatchNoteView[];
  * Hotfix Central, once read; `null` = never read, or none pinned.
  */
 hotfix: HotfixView | null }
+export type DifficultyView = { runs: number; 
+/**
+ * Share of attempts that cracked cleanly (controlled pool first).
+ */
+controlled: number; 
+/**
+ * Share that overcharged.
+ */
+overcharged: number; timedOut: number; medianTimeS: number | null; 
+/**
+ * Mean danger pool at fracture: 0 is clean.
+ */
+meanDanger: number; 
+/**
+ * Mean share of the attempt spent inside the window.
+ */
+inWindow: number }
+export type EvalView = { 
+/**
+ * Heaviest breakable mass over the rock's mass: ≥ 1 cracks.
+ */
+margin: number; power: number; need: number; resistance: number; instability: number; windowLow: number; windowHigh: number; balanceThrottle: number | null; difficulty: DifficultyView | null }
 export type EventLadderView = { 
 /**
  * Category label; `null` for the overall ladder.
@@ -1212,6 +1294,11 @@ fetched_at: number }
 export type FittedPartView = { geid: string; port: string | null; depth: number; kind: ItemKindView }
 export type FriendGroup = { id: string; name: string; is_owner: boolean; members: GroupMember[] }
 export type FriendUser = { user_id: string; username: string }
+export type GadgetRowView = { 
+/**
+ * `null` for "no gadget".
+ */
+gadget: string | null; eval: EvalView }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
  * An unofficial-API feature users can individually allow (named for gRPC,
@@ -1221,6 +1308,15 @@ export type GroupMember = { username: string; is_owner: boolean }
  * and gates through `AppState::require_unofficial(id)`.
  */
 export type GrpcFeatureInfo = { id: string; name: string; description: string }
+/**
+ * What to do at each charge level (`mod_mining::ThrottleGuide`). Charges
+ * and throttles are 0..1; jumps are shares of the bar.
+ */
+export type GuideView = { windowLow: number; windowHigh: number; windowHighOff: number; throttleMinimum: number; 
+/**
+ * `"safe"`, `"okay"`, `"dangerous"`; `null` when it cannot crack.
+ */
+category: string | null; decline: number | null; balance: number | null; safeClimb: number | null; fullUntil: number | null; climb: ClimbStepView[]; holdThrottle: number | null; riding: boolean; keepOnBelow: number | null; lostFrom: number | null; waveMax: number; wavePeriodS: number; wavePeriodMaxS: number; damping: number; peakJumpAtBalance: number | null; peakJumpAvgAtBalance: number | null; peakJumpFull: number; drainAtMinimum: number | null; timeToWindowS: number | null; timeInWindowS: number | null; crackAboveS: number | null; paybackEdge: number | null; paybackTop: number | null; dangerFillEdgeS: number | null; dangerFillTopS: number | null; dangerDrainS: number | null; backFromTopOffS: number | null; backFromTopMinS: number | null; modifierPersistenceS: number }
 export type HolderView = { geid: string; name: string; item_type: string }
 /**
  * One card's place on Home (see [`AppSettings::home_cards`]).
@@ -1323,6 +1419,11 @@ export type ItemPageView = { total: number; rows: ItemRowView[] }
 export type ItemRewardView = { entity_guid: string; name: string | null; amount: number }
 export type ItemRowView = { guid: string; name: string; item_type: string; item_sub_type: string; size: number; grade: number }
 export type ItemTypeFacetView = { item_type: string; count: number }
+export type KitRowView = { modules: string[]; 
+/**
+ * Set when an active module runs out before the median fracture.
+ */
+runsOutS: number | null; eval: EvalView }
 export type LangpatchConfigUpdate = { auto_patch: boolean; channels: string[]; language_pack: string | null; 
 /**
  * patcher id → (enabled, option values).
@@ -1346,6 +1447,11 @@ selected: boolean;
  */
 state: string; patched_at: string | null }
 export type LangpatchOverview = { auto_patch: boolean; channels: string[]; language_pack: string | null; patchers: PatcherInfoView[]; installs: LangpatchInstallView[] }
+export type LaserInputView = { laser: string; modules: string[]; 
+/**
+ * Which ship the laser is on; lasers on one ship split the wave.
+ */
+owner: number }
 export type LauncherStatusView = { 
 /**
  * The RSI launcher is installed where Starlume looks for it.
@@ -1372,7 +1478,31 @@ export type LoadoutSlotView = { path: string[];
  * `null` = an emptied port.
  */
 item: ItemKindView | null }
+export type LoadoutView = { lasers: LaserInputView[]; gadget: string | null }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
+export type MiningCatalogView = { lasers: MiningLaserView[]; modules: MiningModuleView[]; gadgets: MiningGadgetView[]; elements: MiningElementView[] }
+export type MiningElementView = { id: string; name: string }
+export type MiningGadgetView = { id: string; name: string; modifiers: ModifiersView }
+export type MiningLaserView = { id: string; name: string; size: number; moduleSlots: number; 
+/**
+ * Fracturing energy per second ("Laser Power").
+ */
+power: number; extractionPower: number; 
+/**
+ * Full power up to here, m.
+ */
+optimalRangeM: number | null; 
+/**
+ * No power beyond here, m.
+ */
+maxRangeM: number | null; throttleMinimum: number; modifiers: ModifiersView }
+export type MiningModuleView = { id: string; name: string; 
+/**
+ * Power multiplier on the fracturing beam (×1.5 for a Surge).
+ */
+powerMultiplier: number; active: boolean; durationS: number | null; uses: number | null; modifiers: ModifiersView }
+export type MiningReportView = { rock: RockFactsView; yours: YourSetupView | null; gadgets: GadgetRowView[]; passiveKits: KitRowView[]; activeKits: KitRowView[]; support: SupportRowView[] }
+export type MiningStateView = { current: LoadoutView; saved: SavedLoadoutView[] }
 export type MissileStatsView = { size: number; is_torpedo: boolean; damage: DamageBreakdownView | null; speed: number | null; arm_time: number; tracking: TrackingView | null }
 export type MissionCategoryView = { name: string | null; icon: string }
 export type MissionDifficultyView = { mechanical_skill: number; mental_load: number; risk_of_loss: number; game_knowledge: number }
@@ -1413,6 +1543,11 @@ showcases: string[] }
 export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean }
 export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
 export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[]; spawns: SpawnSlotView[] }
+/**
+ * A laser's, module's or gadget's mining modifiers, in percent. `null`
+ * when the item does not change that value.
+ */
+export type ModifiersView = { resistance: number | null; instability: number | null; windowSize: number | null; windowRate: number | null; shatterDamage: number | null; clusterFactor: number | null; catastrophicRate: number | null }
 export type ModuleInfo = { id: string; name: string; description: string; enabled: boolean }
 /**
  * An optional action on a notification — a labelled link the frontend turns
@@ -1618,6 +1753,17 @@ export type ResourceRowView = { guid: string; name: string; description: string 
  */
 legality: ResourceLegalityView | null }
 export type ResourceStackView = { name: string; quality: number; scu: number }
+export type RockEntryView = { element: string; 
+/**
+ * 0..100.
+ */
+percent: number; quality: number | null }
+export type RockFactsView = { mass: number; scu: number; resistance: number; instability: number; windowLow: number; windowHigh: number; gadgetResistance: number; gadgetInstability: number }
+export type RockView = { 
+/**
+ * Tonnes, as the scanner shows it.
+ */
+mass: number; entries: RockEntryView[] }
 /**
  * A recognized RSI account. `citizen_record`/`enlisted` are the immutable
  * anchors from the public profile — `None` until verified.
@@ -1640,6 +1786,7 @@ enlisted: string | null; primary_org_sid: string | null;
  * Epoch ms of the last successful profile verification.
  */
 last_verified: number | null }
+export type SavedLoadoutView = { id: string; name: string; loadout: LoadoutView }
 export type ScStatus = { installs: InstallView[]; 
 /**
  * Handle the RSI launcher is currently signed in as, if any.
@@ -1674,7 +1821,9 @@ export type SpawnSlotView = { count_min: number; count_max: number; concurrent: 
  * Raw archetype / class tag names (`PU_Soldier`, `Heavy`).
  */
 kinds: string[]; factions: string[]; allied: boolean; target: boolean }
+export type SupportRowView = { laser: string; modules: string[]; eval: EvalView }
 export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
+export type YourSetupView = { eval: EvalView; scannerResistancePct: number; scannerInstability: number; guide: GuideView }
 
 /** tauri-specta globals **/
 

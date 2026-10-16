@@ -1,0 +1,17 @@
+[package]
+name = "mod-mining"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume mining module — the calculator: a scanned rock against a loadout, with gadget, module and support suggestions"
+
+[dependencies]
+# The mining reference data and sc-mining's maths come from svc-data's
+# cooked index (module rule 1). No sc-holotable pin.
+svc-data.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -35,6 +35,7 @@ mod items;
 mod langpatch;
 mod launcher;
 mod lifecycle;
+mod mining;
 mod modules;
 pub mod notify;
 mod patchnotes;

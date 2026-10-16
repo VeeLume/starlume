@@ -69,6 +69,7 @@ app-kit.workspace = true
 mod-items.workspace = true
 mod-devtracker.workspace = true
 mod-langpatch.workspace = true
+mod-mining.workspace = true
 svc-discovery.workspace = true
 svc-data.workspace = true
 svc-dossier.workspace = true
