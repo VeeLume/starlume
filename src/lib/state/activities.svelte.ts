@@ -11,7 +11,11 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { setActivities } from "@veelume/ui";
-import { commands, type ActivityKind, type ActivityRecord } from "$lib/bindings";
+import {
+  commands,
+  type ActivityKind,
+  type ActivityRecord,
+} from "$lib/bindings";
 
 let _items = $state<ActivityRecord[]>([]);
 
@@ -30,6 +34,7 @@ const SOURCE: Record<ActivityKind, string> = {
   devtracker: "devtracker",
   "patch-notes": "patchnotes",
   "comm-links": "commlinks",
+  "mining-places": "mining",
 };
 
 function apply(records: ActivityRecord[]) {
@@ -51,7 +56,10 @@ function apply(records: ActivityRecord[]) {
  * wait for SC to exit holds back every install). `channel` is compared
  * case-insensitively — pages carry display casing ("Live"), records the key.
  */
-export function activityFor(kind: ActivityKind, channel: string): ActivityRecord | undefined {
+export function activityFor(
+  kind: ActivityKind,
+  channel: string,
+): ActivityRecord | undefined {
   const key = channel.toLowerCase();
   return (
     _items.find((a) => a.kind === kind && a.channel === key) ??
@@ -73,5 +81,7 @@ export async function syncActivities(): Promise<void> {
 
 /** Subscribe to live snapshots. Call once, in the root layout. */
 export function listenForActivities(): Promise<UnlistenFn> {
-  return listen<ActivityRecord[]>("activity:changed", (event) => apply(event.payload));
+  return listen<ActivityRecord[]>("activity:changed", (event) =>
+    apply(event.payload),
+  );
 }

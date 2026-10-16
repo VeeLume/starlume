@@ -273,6 +273,24 @@ fn rock_of(catalog: &Catalog, input: &RockInput) -> Result<Rock, SolveError> {
         .ok_or(SolveError::NoDensity)
 }
 
+/// The loadout's lasers (with modules) and gadgets, from the catalog.
+pub(crate) fn setup_of(
+    catalog: &Catalog,
+    loadout: &LoadoutInput,
+) -> Result<(Vec<Laser>, Vec<MiningGadget>), SolveError> {
+    let gadgets = match &loadout.gadget {
+        None => vec![],
+        Some(id) => vec![
+            catalog
+                .gadget(id)
+                .ok_or_else(|| SolveError::UnknownGadget(id.clone()))?
+                .value
+                .clone(),
+        ],
+    };
+    Ok((lasers_of(catalog, loadout)?, gadgets))
+}
+
 fn lasers_of(catalog: &Catalog, input: &LoadoutInput) -> Result<Vec<Laser>, SolveError> {
     input
         .lasers
@@ -312,17 +330,7 @@ pub fn solve(
 ) -> Result<Report, SolveError> {
     let rs = &catalog.ruleset;
     let rock = rock_of(catalog, rock)?;
-    let lasers = lasers_of(catalog, loadout)?;
-    let gadgets: Vec<MiningGadget> = match &loadout.gadget {
-        None => vec![],
-        Some(id) => vec![
-            catalog
-                .gadget(id)
-                .ok_or_else(|| SolveError::UnknownGadget(id.clone()))?
-                .value
-                .clone(),
-        ],
-    };
+    let (lasers, gadgets) = setup_of(catalog, loadout)?;
     let on = |lasers: Vec<Laser>, gadgets: Vec<MiningGadget>| Setup { lasers, gadgets };
 
     let gadget_only = ModifiedRock::new(rs, &rock, &on(vec![], gadgets.clone()));

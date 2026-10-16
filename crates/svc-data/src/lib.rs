@@ -47,6 +47,7 @@ pub mod crafting;
 pub mod legality;
 pub mod mining;
 pub mod missions;
+pub mod places;
 pub mod weapons;
 
 mod cache;
@@ -82,6 +83,12 @@ pub use weapons::{DamageBreakdown, MissileEntry, ShipWeaponEntry, TrackingEntry,
 // the snapshot is re-exported here rather than pinned again).
 pub use sc_holotable::asset::{Guid, LocaleKey, LocaleMap, RecordCollection, class_crc};
 pub use sc_holotable::locations::{Location, LocationKind, Locations};
+// The rock generator walks providers, their places and geometry tags.
+/// sc-gathering's full surface (provider groups and entries) for the generator.
+pub use sc_holotable::gathering;
+pub use sc_holotable::gathering::{GatheringMode, ProviderLocations, Providers};
+pub use sc_holotable::resources::Resources;
+pub use sc_holotable::tags::Tags;
 
 /// Stack size for the loader thread — see the module docs.
 pub const LOADER_STACK_SIZE: usize = 32 * 1024 * 1024;
@@ -308,6 +315,26 @@ impl DataService {
         let cooked = Arc::new(result?);
         self.loaded.lock().unwrap().insert(key, Arc::clone(&cooked));
         Ok(cooked)
+    }
+
+    /// The mining places (provider ↔ place) for this install's build, read
+    /// from disk per call (~48 KB; nothing stays resident). `None` until
+    /// [`Self::build_mining_places`] ran for this build.
+    pub fn mining_places(&self, install: &InstallRef) -> Option<ProviderLocations> {
+        places::load(&self.build_dir(install), install)
+    }
+
+    /// Build and persist the mining places from the live p4k (see
+    /// [`places`]). Blocking and heavy — minutes, a multi-GB peak: run it on
+    /// its own thread, once per build, never alongside a parse. The build
+    /// counts as loading meanwhile, so [`Self::prune`] leaves it alone.
+    pub fn build_mining_places(&self, install: &InstallRef) -> anyhow::Result<()> {
+        let key = install.build_key();
+        self.loading.lock().unwrap().insert(key.clone());
+        let dir = self.build_dir(install);
+        let result = places::build(&install.p4k_path).and_then(|p| places::save(&dir, install, p));
+        self.loading.lock().unwrap().remove(&key);
+        result
     }
 
     /// Drop every in-memory bundle (window hidden — the tray-idle path; an
@@ -575,7 +602,14 @@ fn load_blocking(
 
     // ── Tier 2: raw extract snapshot (skip p4k reads) ─────────────────
     if let Some((asset_data, datacore)) = cache::try_load_extract(dir, install) {
-        let cooked = cook(datacore, asset_data, progress);
+        // The extract snapshot has no meshes: open the p4k for the rock
+        // meshes alone (non-fatal; the generator stays empty without it).
+        progress(Stage::OpeningP4k);
+        let assets = AssetSource::open(&install.p4k_path)
+            .inspect_err(|e| tracing::warn!("opening the p4k for the rock meshes: {e:#}"))
+            .ok();
+        let cooked = cook(datacore, asset_data, assets.as_ref(), progress);
+        drop(assets);
         progress(Stage::Saving);
         cache::save_processed(dir, install, &cooked);
         tracing::info!(
@@ -602,9 +636,10 @@ fn load_blocking(
     // Capture the raw bytes while `assets` is still open; non-fatal.
     progress(Stage::Saving);
     cache::save_extract(dir, install, &assets);
-    drop(assets);
 
-    let cooked = cook(datacore, asset_data, progress);
+    // The p4k stays open through the cook for the rock meshes.
+    let cooked = cook(datacore, asset_data, Some(&assets), progress);
+    drop(assets);
     progress(Stage::Saving);
     cache::save_processed(dir, install, &cooked);
 
@@ -620,7 +655,15 @@ fn load_blocking(
 /// must not outlive the cook ("no raw DataCore after the cook",
 /// CLAUDE.md; the by-value
 /// signature enforces it).
-fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) -> CookedData {
+///
+/// `assets` is the live p4k when the caller has it open: the rock meshes
+/// (mining) are read from it.
+fn cook(
+    datacore: Datacore,
+    asset_data: AssetData,
+    assets: Option<&AssetSource>,
+    progress: &impl Fn(Stage),
+) -> CookedData {
     progress(Stage::Cooking);
     let foundations = build_foundations(&datacore);
     // Missions cook off the same parse, reusing the foundations' item /
@@ -637,7 +680,12 @@ fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) ->
     let legality = legality::build_legality(&datacore, &foundations.resources);
     let weapons = weapons::build_weapons(&datacore, &foundations.items);
     let crafting = crafting::build_crafting(&datacore);
-    let mining = mining::build_mining(&datacore, &foundations.items, &foundations.resources);
+    let mining = mining::build_mining(
+        &datacore,
+        &foundations.items,
+        &foundations.resources,
+        assets,
+    );
     let holotable = sc_holotable::HolotableSnapshot::from_foundations(&foundations);
     drop(datacore);
     CookedData {

@@ -9,12 +9,17 @@
 //! off the async runtime and mirrors the results into IPC views.
 
 pub mod catalog;
+pub mod generate;
 pub mod guide;
 pub mod solve;
 pub mod state;
 
 pub use catalog::{Catalog, LaserItem, Named, SHIP_RULESET};
-pub use guide::{Category, ClimbStep, ThrottleGuide, throttle_guide};
+pub use generate::{
+    Area, AreaRock, ClassShares, GenerateError, GenerateRequest, Generated, OreOdds, Pick, Place,
+    RockClass, Sources, areas, generate,
+};
+pub use guide::{Category, ClimbStep, ThrottleGuide, category, throttle_guide};
 pub use solve::{
     EntryInput, Eval, GadgetRow, KitRow, LaserInput, LoadoutInput, Report, RockFacts, RockInput,
     SolveError, SupportRow, YourSetup, solve,

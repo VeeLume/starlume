@@ -33,7 +33,8 @@ use serde::{Deserialize, Serialize};
 /// rev 8: crafting gameplay properties ([`CookedData::crafting`]).
 /// rev 9: mining rulesets, elements, lasers, modules, gadgets
 /// ([`CookedData::mining`]).
-pub const STARLUME_COOK_REV: u32 = 9;
+/// rev 10: mining rock types, compositions and rock meshes (the generator).
+pub const STARLUME_COOK_REV: u32 = 10;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

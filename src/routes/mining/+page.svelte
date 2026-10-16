@@ -11,10 +11,12 @@
   import LoadoutEditor from "$lib/modules/mining/LoadoutEditor.svelte";
   import Report from "$lib/modules/mining/Report.svelte";
   import RockEditor from "$lib/modules/mining/RockEditor.svelte";
+  import RockGenerator from "$lib/modules/mining/RockGenerator.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import {
     deleteLoadout,
     listenForMiningChanges,
+    loadMiningAreas,
     loadMiningCatalog,
     loadMiningState,
     miningStore,
@@ -33,7 +35,11 @@
 
   $effect(() => {
     const c = channel;
-    if (c) untrack(() => void loadMiningCatalog(c));
+    if (c)
+      untrack(() => {
+        void loadMiningCatalog(c);
+        void loadMiningAreas(c);
+      });
   });
 
   // Re-solve when the rock, the loadout or the build changes.
@@ -116,6 +122,11 @@
             </form>
             {#if saveError}<p class="error">{saveError}</p>{/if}
           {/if}
+        </section>
+
+        <section class="card">
+          <div class="title"><h2 class="label">Rock generator</h2></div>
+          {#if channel}<RockGenerator {catalog} {channel} />{/if}
         </section>
 
         <section class="card">

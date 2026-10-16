@@ -166,6 +166,84 @@ pub struct ThrottleGuide {
     pub modifier_persistence_s: f32,
 }
 
+/// The wave's reach on one rock: the strongest tick's net gain and how far
+/// one positive half-wave carries it. Shared by the guide and [`category`].
+struct Peaks<'a> {
+    rock: &'a ModifiedRock,
+    ruleset: &'a Ruleset,
+    hit_drain: f32,
+    decay: f32,
+    damping: f32,
+    amplitude: f32,
+    period_max: f32,
+    /// Charge per unit of net gain over one positive half-wave at height 1,
+    /// the longest period.
+    half_wave: f32,
+    /// The same for an average peak: half the height, the mean period.
+    half_wave_avg: f32,
+}
+
+impl<'a> Peaks<'a> {
+    fn new(rock: &'a ModifiedRock, ruleset: &'a Ruleset, hit_drain: f32) -> Self {
+        let decay = rock.gain_rate(ruleset, 1.0) - rock.net_rate(ruleset, 1.0);
+        let hc = &ruleset.hit_consistency;
+        let steady = hit_consistency(hc, hc.history_window, SimConfig::default().aim_scatter_m);
+        let damping = steady.min(hc.max_effect_on_instability);
+        let amplitude = rock.instability * (1.0 - damping);
+        let period_max = ruleset.instability_wave_period + ruleset.instability_wave_variance;
+        let period = ruleset.instability_wave_period;
+        Self {
+            rock,
+            ruleset,
+            hit_drain,
+            decay,
+            damping,
+            amplitude,
+            period_max,
+            half_wave: period_max / 2.0 + amplitude * period_max / std::f32::consts::PI,
+            half_wave_avg: period / 2.0 + amplitude * 0.5 * period / std::f32::consts::PI,
+        }
+    }
+
+    fn gain(&self, t: f32) -> f32 {
+        self.rock.gain_rate(self.ruleset, t)
+    }
+
+    /// The strongest tick's net, per second.
+    fn strong(&self, t: f32) -> f32 {
+        self.hit_drain * self.gain(t) - self.decay
+    }
+
+    fn jump(&self, t: f32) -> f32 {
+        self.strong(t).max(0.0) * self.half_wave
+    }
+
+    fn jump_avg(&self, t: f32) -> f32 {
+        self.strong(t).max(0.0) * self.half_wave_avg
+    }
+
+    /// The category at `balance` (`None`: the rock cannot be cracked).
+    fn category(&self, balance: Option<f32>) -> Option<Category> {
+        let b = balance?;
+        let window = self.rock.window.size();
+        Some(if self.rock.net_rate(self.ruleset, 0.0) > 0.0 {
+            Category::TooStrong
+        } else if self.jump(b) <= window {
+            Category::Safe
+        } else if self.jump_avg(b) <= window {
+            Category::Okay
+        } else {
+            Category::Dangerous
+        })
+    }
+}
+
+/// The category alone, without the rest of the guide: cheap enough to run
+/// over thousands of rolled rocks. `None` when the rock cannot be cracked.
+pub fn category(rock: &ModifiedRock, ruleset: &Ruleset) -> Option<Category> {
+    Peaks::new(rock, ruleset, HIT_DRAIN).category(rock.balance_throttle(ruleset))
+}
+
 /// The guide for `rock` (the setup applied); `beam_off` is the rock with only
 /// the gadgets on (what it is while the beam is off).
 pub fn throttle_guide(
@@ -185,23 +263,13 @@ pub fn throttle_guide_with(
     ruleset: &Ruleset,
     hit_drain: f32,
 ) -> ThrottleGuide {
-    let gain = |t: f32| rock.gain_rate(ruleset, t);
-    let decay = gain(1.0) - rock.net_rate(ruleset, 1.0);
-    // The strongest tick's net, per second.
-    let strong = |t: f32| hit_drain * gain(t) - decay;
-
-    let hc = &ruleset.hit_consistency;
-    let steady = hit_consistency(hc, hc.history_window, SimConfig::default().aim_scatter_m);
-    let damping = steady.min(hc.max_effect_on_instability);
-    let amplitude = rock.instability * (1.0 - damping);
-    let period_max = ruleset.instability_wave_period + ruleset.instability_wave_variance;
-    // Charge per unit of net gain over one positive half-wave at height 1.
-    let half_wave = period_max / 2.0 + amplitude * period_max / std::f32::consts::PI;
-    let jump = |t: f32| strong(t).max(0.0) * half_wave;
-    // An average peak: half the height, the mean period.
-    let period = ruleset.instability_wave_period;
-    let half_wave_avg = period / 2.0 + amplitude * 0.5 * period / std::f32::consts::PI;
-    let jump_avg = |t: f32| strong(t).max(0.0) * half_wave_avg;
+    let peaks = Peaks::new(rock, ruleset, hit_drain);
+    let gain = |t: f32| peaks.gain(t);
+    let decay = peaks.decay;
+    let strong = |t: f32| peaks.strong(t);
+    let (damping, amplitude, period_max) = (peaks.damping, peaks.amplitude, peaks.period_max);
+    let jump = |t: f32| peaks.jump(t);
+    let jump_avg = |t: f32| peaks.jump_avg(t);
 
     // The breaking meters (client code): ship rocks all sit at the 0.1 floor
     // of the mass scale. The catastrophic additive term comes per tick.
@@ -381,17 +449,7 @@ pub fn throttle_guide_with(
         drain_at_minimum: (gain(0.0) < decay).then(|| decay - gain(0.0)),
         time_to_window_s: rock.time_to_window_s(ruleset),
         time_in_window_s: rock.time_in_window_s(ruleset),
-        category: balance.map(|b| {
-            if too_strong {
-                Category::TooStrong
-            } else if jump(b) <= window {
-                Category::Safe
-            } else if jump_avg(b) <= window {
-                Category::Okay
-            } else {
-                Category::Dangerous
-            }
-        }),
+        category: peaks.category(balance),
         peak_jump_avg_at_balance: balance.map(jump_avg),
         danger_fill_edge_s: seconds(danger_rate(0.0, &rock.catastrophic_rate)),
         danger_fill_top_s: seconds(danger_rate(1.0, &rock.catastrophic_rate)),

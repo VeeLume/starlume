@@ -43,6 +43,8 @@ pub enum ActivityKind {
     PatchNotes,
     /// svc-commlinks: reading RSI's comm-link listing.
     CommLinks,
+    /// mod-mining: the once-per-build mining-places pass (svc-data).
+    MiningPlaces,
 }
 
 /// Where an activity is. `stage` is a user-facing label ("Parsing
@@ -77,6 +79,13 @@ pub struct ActivityRecord {
 pub struct ActivityLog {
     items: Vec<ActivityRecord>,
     next_id: u32,
+}
+
+impl ActivityLog {
+    /// Is an activity of `kind` under way (running or waiting)?
+    pub fn has(&self, kind: ActivityKind) -> bool {
+        self.items.iter().any(|a| a.kind == kind)
+    }
 }
 
 /// The current activities, oldest first — the frontend store hydrates from

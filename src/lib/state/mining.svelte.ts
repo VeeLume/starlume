@@ -2,13 +2,18 @@
 // elements) is the build's cooked reference data; the loadout on the
 // calculator and the saved ones are the module's persisted state (Rust-side,
 // frontend rule 6); the scanned rock being typed in is session state that
-// lives here so a navigation keeps it (frontend rule 1). Nothing here
-// touches the network.
+// lives here so a navigation keeps it (frontend rule 1). The rock
+// generator's areas (where each rock type spawns) are cooked reference data
+// too; a generated rock lands in the same draft. Nothing here touches the
+// network.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   commands,
+  type GeneratedView,
+  type GenerateRequestView,
   type LoadoutView,
+  type MiningAreasView,
   type MiningCatalogView,
   type MiningReportView,
   type MiningStateView,
@@ -38,6 +43,15 @@ let _solving = $state(false);
 let _solveError = $state("");
 // Guards against an older solve landing after a newer request.
 let _solveReq = 0;
+let _areas = $state.raw<MiningAreasView | null>(null);
+let _areasChannel: string | null = null;
+let _areasError = $state("");
+/** The last generated rock, with what was asked for (a label). */
+let _generated = $state.raw<{ label: string; rock: GeneratedView } | null>(
+  null,
+);
+let _generating = $state(false);
+let _generateError = $state("");
 
 export const miningStore = {
   get catalog() {
@@ -63,7 +77,69 @@ export const miningStore = {
   get solveError() {
     return _solveError;
   },
+  /** The rock generator's areas; null until loaded. */
+  get areas() {
+    return _areas;
+  },
+  get areasError() {
+    return _areasError;
+  },
+  get generated() {
+    return _generated;
+  },
+  get generating() {
+    return _generating;
+  },
+  get generateError() {
+    return _generateError;
+  },
 };
+
+/** Load the generator's areas for `channel` (cache-first, frontend rule 2).
+ *  The backend starts the once-per-build places pass if it is missing. */
+export async function loadMiningAreas(channel: string): Promise<void> {
+  if (channel !== _areasChannel) {
+    _areas = null;
+    _areasChannel = channel;
+  }
+  const result = await commands.miningAreas(channel);
+  if (channel !== _areasChannel) return;
+  if (result.status === "ok") {
+    _areas = result.data;
+    _areasError = "";
+  } else {
+    _areasError = result.error.message;
+  }
+}
+
+/** Roll a rock and put it in the scan editor (which re-solves). */
+export async function generateRock(
+  channel: string,
+  request: GenerateRequestView,
+  label: string,
+): Promise<void> {
+  _generating = true;
+  _generateError = "";
+  const loadout = _state?.current ?? null;
+  const result = await commands.miningGenerate(
+    channel,
+    request,
+    loadout && loadout.lasers.length ? loadout : null,
+  );
+  _generating = false;
+  if (result.status !== "ok") {
+    _generateError = result.error.message;
+    return;
+  }
+  const g = result.data;
+  _generated = { label, rock: g };
+  _rock.mass = String(Math.round(g.mass));
+  _rock.rows = g.entries.map((e) => ({
+    element: e.element,
+    percent: e.percent.toFixed(2),
+    quality: e.quality === null ? "" : String(e.quality),
+  }));
+}
 
 /** Load `channel`'s catalog. Cache-first: the last one stays on screen while
  *  a reload runs (frontend rule 2). */
@@ -127,6 +203,7 @@ export function clearRock(): void {
   _rock.rows = [emptyRow()];
   _report = null;
   _solveError = "";
+  _generated = null;
 }
 
 /** Locale-tolerant number: "20.998", "20 998" and "20,998" are all fine for
@@ -182,8 +259,20 @@ export async function solveRock(channel: string): Promise<void> {
 export async function listenForMiningChanges(
   channel: () => string | null,
 ): Promise<UnlistenFn> {
-  return listen("data:changed", () => {
+  const offData = await listen("data:changed", () => {
     const c = channel();
-    if (c) void loadMiningCatalog(c);
+    if (c) {
+      void loadMiningCatalog(c);
+      void loadMiningAreas(c);
+    }
   });
+  // The once-per-build places pass finished: areas get their place names.
+  const offPlaces = await listen("mining:places", () => {
+    const c = channel();
+    if (c) void loadMiningAreas(c);
+  });
+  return () => {
+    offData();
+    offPlaces();
+  };
 }

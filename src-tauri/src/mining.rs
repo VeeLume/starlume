@@ -5,14 +5,27 @@
 //! svc-data's cooked mining index. Nothing here touches the network, so no
 //! online gate applies. A solve runs a few hundred player-model attempts per
 //! candidate setup, so it runs on the blocking pool.
+//!
+//! **Mining places.** The rock generator names areas after their places,
+//! which takes svc-data's heavy once-per-build pass over the game's
+//! placements (minutes, a multi-GB peak). It runs as a background activity
+//! only while the module is enabled, never while Star Citizen runs (the
+//! app must stay light while the game is played) and never beside a
+//! game-data load; the result is a small file per build. Until then areas
+//! carry their record names.
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use mod_mining::{Catalog, MiningState, Named};
+use svc_data::InstallRef;
 use svc_data::mining::{Activation, FloatModifier, MiningModifiers};
 use tauri::AppHandle;
+use tauri::{Emitter, Manager};
 
-use crate::data::cooked_for;
+use crate::AppState;
+use crate::activity::{Activity, ActivityKind};
+use crate::data::{cooked_for, install_for};
 use crate::error::AppError;
 
 /// Module id (Rust registry, settings, frontend descriptor).
@@ -662,4 +675,392 @@ pub(crate) fn mining_delete_loadout(id: String) -> Result<MiningStateView, AppEr
     state.delete(&id);
     save_state(&state)?;
     Ok(state_view(state))
+}
+
+// ── Rock generator ──────────────────────────────────────────────────────────
+
+/// Fired when the mining places for a build were written. The store reloads
+/// the areas.
+pub const PLACES_EVENT: &str = "mining:places";
+
+/// One places pass at a time, process-wide.
+static PLACES_RUNNING: AtomicBool = AtomicBool::new(false);
+
+fn module_enabled(app: &AppHandle) -> bool {
+    app.state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .enabled_modules
+        .iter()
+        .any(|m| m == MODULE_ID)
+}
+
+/// Start the mining-places pass for `install` in the background unless it
+/// ran for this build, runs already, or the module is off.
+fn ensure_places(app: &AppHandle, install: InstallRef) {
+    if !module_enabled(app)
+        || app
+            .state::<AppState>()
+            .data
+            .mining_places(&install)
+            .is_some()
+        || PLACES_RUNNING.swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut activity = Activity::start(
+            &app,
+            ActivityKind::MiningPlaces,
+            Some(&install.channel_key),
+            "Mining places",
+        );
+        // Wait out the game and any game-data load; 30 s polls, capped at 12 h.
+        for _ in 0..1440 {
+            let reason = if crate::langpatch::sc_running().await {
+                Some("Waiting for Star Citizen to exit")
+            } else if app
+                .state::<AppState>()
+                .activities
+                .lock()
+                .unwrap()
+                .has(ActivityKind::DataLoad)
+            {
+                Some("Waiting for the game data")
+            } else {
+                None
+            };
+            match reason {
+                Some(r) => activity = activity.wait(r),
+                None => break,
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+        let activity =
+            activity.stage("Reading where rocks spawn (once per game build, a few minutes)");
+        let worker_app = app.clone();
+        let worker_install = install.clone();
+        // Its own thread with the loader's stack: the placement decode is deep.
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            std::thread::Builder::new()
+                .name("mining-places".into())
+                .stack_size(svc_data::LOADER_STACK_SIZE)
+                .spawn(move || {
+                    worker_app
+                        .state::<AppState>()
+                        .data
+                        .build_mining_places(&worker_install)
+                })
+                .map_err(anyhow::Error::from)
+                .and_then(|h| {
+                    h.join()
+                        .map_err(|_| anyhow::anyhow!("mining places thread panicked"))?
+                })
+        })
+        .await;
+        drop(activity);
+        PLACES_RUNNING.store(false, Ordering::SeqCst);
+        match result {
+            Ok(Ok(())) => {
+                tracing::info!(channel = %install.channel_key, "mining places written");
+                let _ = app.emit(PLACES_EVENT, ());
+            }
+            Ok(Err(e)) => tracing::warn!("mining places failed: {e:#}"),
+            Err(e) => tracing::warn!("mining places task failed: {e}"),
+        }
+    });
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnPlaceView {
+    pub id: String,
+    pub name: String,
+}
+
+impl From<mod_mining::Place> for SpawnPlaceView {
+    fn from(p: mod_mining::Place) -> Self {
+        Self {
+            id: p.id,
+            name: p.name,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OreOddsView {
+    pub element: String,
+    /// Share of rocks holding it.
+    pub chance: f32,
+    /// Its share of the rock when present.
+    pub mean_share: f32,
+    pub max_share: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AreaRockView {
+    pub rock_type: String,
+    pub name: String,
+    /// Share of the area's ship-mineable rocks.
+    pub share: f32,
+    pub rollable: bool,
+    pub ores: Vec<OreOddsView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AreaView {
+    pub id: String,
+    pub name: String,
+    /// Named after the provider's record, not a place.
+    pub from_record: bool,
+    pub places: Vec<SpawnPlaceView>,
+    pub rocks: Vec<AreaRockView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MiningAreasView {
+    pub areas: Vec<AreaView>,
+    /// `"ready"` (places known), `"building"` (the pass runs or waits),
+    /// `"pending"` (not run yet).
+    pub places: String,
+}
+
+/// The rock generator's areas: where each ship rock type spawns, how often,
+/// and its ore odds. Starts the mining-places pass in the background when
+/// this build has none yet.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn mining_areas(
+    app: AppHandle,
+    channel: String,
+) -> Result<MiningAreasView, AppError> {
+    let install = install_for(&app, &channel).await?;
+    let cooked = cooked_for(&app, &channel).await?;
+    ensure_places(&app, install.clone());
+    let places = app.state::<AppState>().data.mining_places(&install);
+    let state = if places.is_some() {
+        "ready"
+    } else if PLACES_RUNNING.load(Ordering::SeqCst) {
+        "building"
+    } else {
+        "pending"
+    };
+    let areas = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<AreaView>, AppError> {
+        let catalog = catalog_of(&cooked)?;
+        let src = sources(&cooked, places.as_ref())?;
+        Ok(mod_mining::areas(&src, &catalog)
+            .into_iter()
+            .map(|a| AreaView {
+                id: a.id,
+                name: a.name,
+                from_record: a.from_record,
+                places: a.places.into_iter().map(Into::into).collect(),
+                rocks: a
+                    .rocks
+                    .into_iter()
+                    .map(|r| AreaRockView {
+                        rock_type: r.rock_type,
+                        name: r.name,
+                        share: r.share,
+                        rollable: r.rollable,
+                        ores: r
+                            .ores
+                            .into_iter()
+                            .map(|o| OreOddsView {
+                                element: o.element,
+                                chance: o.chance,
+                                mean_share: o.mean_share,
+                                max_share: o.max_share,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))??;
+    Ok(MiningAreasView {
+        areas,
+        places: state.into(),
+    })
+}
+
+fn catalog_of(cooked: &svc_data::CookedData) -> Result<Catalog, AppError> {
+    Catalog::build(&cooked.mining, &cooked.locale).ok_or_else(|| {
+        AppError::Config(
+            "this build's game data has no mining rules — reload it in Settings → Game data".into(),
+        )
+    })
+}
+
+fn sources<'a>(
+    cooked: &'a svc_data::CookedData,
+    places: Option<&'a svc_data::ProviderLocations>,
+) -> Result<mod_mining::Sources<'a>, AppError> {
+    let h = &cooked.holotable;
+    let missing = || {
+        AppError::Config(
+            "the game data lacks the spawn tables — reload it in Settings → Game data".into(),
+        )
+    };
+    Ok(mod_mining::Sources {
+        index: &cooked.mining,
+        providers: h.gathering.as_ref().ok_or_else(missing)?,
+        tags: h.tags.as_ref().ok_or_else(missing)?,
+        resources: h.resources.as_ref().ok_or_else(missing)?,
+        locations: h.locations.as_ref().ok_or_else(missing)?,
+        locale: &cooked.locale,
+        places,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum RockClassView {
+    Safe,
+    Okay,
+    Dangerous,
+    TooStrong,
+    Impossible,
+}
+
+impl From<RockClassView> for mod_mining::RockClass {
+    fn from(c: RockClassView) -> Self {
+        match c {
+            RockClassView::Safe => Self::Safe,
+            RockClassView::Okay => Self::Okay,
+            RockClassView::Dangerous => Self::Dangerous,
+            RockClassView::TooStrong => Self::TooStrong,
+            RockClassView::Impossible => Self::Impossible,
+        }
+    }
+}
+
+/// Which rolled rock to hand out.
+#[derive(Debug, Clone, serde::Deserialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PickView {
+    Average,
+    MostCommon,
+    Smallest,
+    Largest,
+    MostOre { element: String },
+    BestQuality { element: String },
+    Class { class: RockClassView },
+}
+
+#[derive(Debug, Clone, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateRequestView {
+    pub area: String,
+    pub rock_type: String,
+    pub pick: PickView,
+    pub place: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedEntryView {
+    pub element: String,
+    /// 0..100.
+    pub percent: f32,
+    pub quality: Option<u16>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassSharesView {
+    pub safe: f32,
+    pub okay: f32,
+    pub dangerous: f32,
+    pub too_strong: f32,
+    pub impossible: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedView {
+    /// Tonnes, as the scanner shows it.
+    pub mass: f32,
+    pub entries: Vec<GeneratedEntryView>,
+    pub scu: f32,
+    /// The draw it came from.
+    pub seed: u32,
+    pub place: Option<SpawnPlaceView>,
+    pub rolled: u32,
+    pub classes: Option<ClassSharesView>,
+    /// For a most-common pick: the share of rolls holding its ore mix.
+    pub pick_share: Option<f32>,
+}
+
+/// Roll a rock of a type in an area: average, smallest, largest, most of an
+/// ore, best quality of an ore, or a typical rock of a class for `loadout`.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn mining_generate(
+    app: AppHandle,
+    channel: String,
+    request: GenerateRequestView,
+    loadout: Option<LoadoutView>,
+) -> Result<GeneratedView, AppError> {
+    let install = install_for(&app, &channel).await?;
+    let cooked = cooked_for(&app, &channel).await?;
+    let places = app.state::<AppState>().data.mining_places(&install);
+    let request = mod_mining::GenerateRequest {
+        area: request.area,
+        rock_type: request.rock_type,
+        pick: match request.pick {
+            PickView::Average => mod_mining::Pick::Average,
+            PickView::MostCommon => mod_mining::Pick::MostCommon,
+            PickView::Smallest => mod_mining::Pick::Smallest,
+            PickView::Largest => mod_mining::Pick::Largest,
+            PickView::MostOre { element } => mod_mining::Pick::MostOre { element },
+            PickView::BestQuality { element } => mod_mining::Pick::BestQuality { element },
+            PickView::Class { class } => mod_mining::Pick::Class {
+                class: class.into(),
+            },
+        },
+        place: request.place,
+    };
+    let loadout: Option<mod_mining::LoadoutInput> = loadout.map(Into::into);
+    tauri::async_runtime::spawn_blocking(move || -> Result<GeneratedView, AppError> {
+        let catalog = catalog_of(&cooked)?;
+        let src = sources(&cooked, places.as_ref())?;
+        let g = mod_mining::generate(&src, &catalog, &request, loadout.as_ref())
+            .map_err(|e| AppError::Config(e.to_string()))?;
+        Ok(GeneratedView {
+            mass: g.rock.mass,
+            entries: g
+                .rock
+                .entries
+                .into_iter()
+                .map(|e| GeneratedEntryView {
+                    element: e.element,
+                    percent: e.percent,
+                    quality: e.quality,
+                })
+                .collect(),
+            scu: g.scu,
+            seed: g.seed as u32,
+            place: g.place.map(Into::into),
+            rolled: g.rolled,
+            classes: g.classes.map(|c| ClassSharesView {
+                safe: c.safe,
+                okay: c.okay,
+                dangerous: c.dangerous,
+                too_strong: c.too_strong,
+                impossible: c.impossible,
+            }),
+            pick_share: g.pick_share,
+        })
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
 }

@@ -97,7 +97,7 @@ fn sc_running_blocking() -> bool {
         .any(|p| p.name().eq_ignore_ascii_case("StarCitizen.exe"))
 }
 
-async fn sc_running() -> bool {
+pub(crate) async fn sc_running() -> bool {
     tokio::task::spawn_blocking(sc_running_blocking)
         .await
         .unwrap_or(false)

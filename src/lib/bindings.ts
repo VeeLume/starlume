@@ -463,6 +463,31 @@ async miningDeleteLoadout(id: string) : Promise<Result<MiningStateView, AppError
 }
 },
 /**
+ * The rock generator's areas: where each ship rock type spawns, how often,
+ * and its ore odds. Starts the mining-places pass in the background when
+ * this build has none yet.
+ */
+async miningAreas(channel: string) : Promise<Result<MiningAreasView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_areas", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Roll a rock of a type in an area: average, smallest, largest, most of an
+ * ore, best quality of an ore, or a typical rock of a class for `loadout`.
+ */
+async miningGenerate(channel: string, request: GenerateRequestView, loadout: LoadoutView | null) : Promise<Result<GeneratedView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_generate", { channel, request, loadout }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The feed and the module's state. **No network, no gate.**
  */
 async devtrackerOverview() : Promise<DevtrackerOverview> {
@@ -801,7 +826,11 @@ export type ActivityKind =
 /**
  * svc-commlinks: reading RSI's comm-link listing.
  */
-"comm-links"
+"comm-links" | 
+/**
+ * mod-mining: the once-per-build mining-places pass (svc-data).
+ */
+"mining-places"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -955,6 +984,16 @@ archive_test_channels: boolean;
  * so re-enabling a module restores its placement.
  */
 home_cards: HomeCardPref[] }
+export type AreaRockView = { rockType: string; name: string; 
+/**
+ * Share of the area's ship-mineable rocks.
+ */
+share: number; rollable: boolean; ores: OreOddsView[] }
+export type AreaView = { id: string; name: string; 
+/**
+ * Named after the provider's record, not a place.
+ */
+fromRecord: boolean; places: SpawnPlaceView[]; rocks: AreaRockView[] }
 export type ArmourSetView = { key: string; 
 /**
  * "Sol-III Aviator".
@@ -992,6 +1031,7 @@ export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: 
 export type BuildInfoView = { label: string; value: string }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
+export type ClassSharesView = { safe: number; okay: number; dangerous: number; tooStrong: number; impossible: number }
 export type ClimbStepView = { untilCharge: number; throttle: number }
 /**
  * One comm-link as the News page shows it.
@@ -1299,6 +1339,25 @@ export type GadgetRowView = {
  * `null` for "no gadget".
  */
 gadget: string | null; eval: EvalView }
+export type GenerateRequestView = { area: string; rockType: string; pick: PickView; place: string | null }
+export type GeneratedEntryView = { element: string; 
+/**
+ * 0..100.
+ */
+percent: number; quality: number | null }
+export type GeneratedView = { 
+/**
+ * Tonnes, as the scanner shows it.
+ */
+mass: number; entries: GeneratedEntryView[]; scu: number; 
+/**
+ * The draw it came from.
+ */
+seed: number; place: SpawnPlaceView | null; rolled: number; classes: ClassSharesView | null; 
+/**
+ * For a most-common pick: the share of rolls holding its ore mix.
+ */
+pickShare: number | null }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
  * An unofficial-API feature users can individually allow (named for gRPC,
@@ -1481,6 +1540,12 @@ export type LoadoutSlotView = { path: string[];
 item: ItemKindView | null }
 export type LoadoutView = { lasers: LaserInputView[]; gadget: string | null }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
+export type MiningAreasView = { areas: AreaView[]; 
+/**
+ * `"ready"` (places known), `"building"` (the pass runs or waits),
+ * `"pending"` (not run yet).
+ */
+places: string }
 export type MiningCatalogView = { lasers: MiningLaserView[]; modules: MiningModuleView[]; gadgets: MiningGadgetView[]; elements: MiningElementView[] }
 export type MiningElementView = { id: string; name: string }
 export type MiningGadgetView = { id: string; name: string; modifiers: ModifiersView }
@@ -1579,6 +1644,15 @@ source: string | null;
  */
 quiet: boolean }) & { id: number; ts: number }
 export type OptionKindView = { type: "Bool" } | { type: "Choice"; choices: ChoiceView[] }
+export type OreOddsView = { element: string; 
+/**
+ * Share of rocks holding it.
+ */
+chance: number; 
+/**
+ * Its share of the rock when present.
+ */
+meanShare: number; maxShare: number }
 /**
  * The owned-blueprint set as it crosses IPC (specta mirror of
  * `svc_dossier::OwnedBlueprints`).
@@ -1659,6 +1733,10 @@ uses_replace_ops: boolean; options: PatcherOptionView[];
  */
 values: Partial<{ [key in string]: string }> }
 export type PatcherOptionView = { id: string; label: string; description: string; default: string; kind: OptionKindView }
+/**
+ * Which rolled rock to hand out.
+ */
+export type PickView = { kind: "average" } | { kind: "mostCommon" } | { kind: "smallest" } | { kind: "largest" } | { kind: "mostOre"; element: string } | { kind: "bestQuality"; element: string } | { kind: "class"; class: RockClassView }
 export type PlaceView = { name: string; 
 /**
  * Parents, nearest first.
@@ -1754,6 +1832,7 @@ export type ResourceRowView = { guid: string; name: string; description: string 
  */
 legality: ResourceLegalityView | null }
 export type ResourceStackView = { name: string; quality: number; scu: number }
+export type RockClassView = "safe" | "okay" | "dangerous" | "tooStrong" | "impossible"
 export type RockEntryView = { element: string; 
 /**
  * 0..100.
@@ -1814,6 +1893,7 @@ source: string;
  */
 rental_expiry: number | null; fitted: FittedPartView[]; stock: LoadoutSlotView[] | null; saved: LoadoutSlotView[] | null }
 export type ShipWeaponStatsView = { size: number; item_sub_type: string; damage: DamageBreakdownView | null; penetration_m: number | null; ammo_speed: number | null; ammo_lifetime: number | null; total_ammo: number | null; capacitor: number | null }
+export type SpawnPlaceView = { id: string; name: string }
 /**
  * NPC / entity slot (`svc_data::SpawnSlot`).
  */

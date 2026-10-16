@@ -5,9 +5,13 @@
 //!
 //! The sc-mining and item-crate types are serde already, so they cross into
 //! the snapshot as they are; only the record name (for search keys and the
-//! junk filter) and the raw locale keys are added beside them. No meshes:
-//! `Shapes` needs the p4k, which the tier-2 recook doesn't have, and the
-//! scanned-rock calculator never reads them.
+//! junk filter) and the raw locale keys are added beside them.
+//!
+//! The rock spawn side (rock types, compositions, and the rock meshes'
+//! fracture trees) feeds the rock generator. The meshes need the live p4k:
+//! the cook passes it when it can open it (a live parse has it open; a
+//! recook from the extract snapshot opens it for this pass), and leaves
+//! [`MiningIndex::shapes`] empty when it cannot.
 //!
 //! Everything named is kept; which entries a picker offers (test records,
 //! FPS lasers, base records) is the consumer's choice.
@@ -18,9 +22,9 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use sc_holotable::asset::{Datacore, Guid};
+use sc_holotable::asset::{AssetSource, Datacore, Guid};
 use sc_holotable::items::Items;
-use sc_holotable::resources::Resources;
+use sc_holotable::resources::{Quality, Resources};
 use sc_holotable::ship_weapons::ShipWeapons;
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +50,35 @@ pub struct MiningIndex {
     pub modules: Vec<ModuleEntry>,
     /// Mining gadgets, sorted by record name.
     pub gadgets: Vec<GadgetEntry>,
+    /// Every mineable rock type (`HarvestablePreset`): ruleset, composition,
+    /// scale range, meshes.
+    #[serde(default)]
+    pub rock_types: RockTypes,
+    /// Rock type record names, sorted by record name.
+    #[serde(default)]
+    pub rock_type_names: Vec<RockTypeEntry>,
+    /// `HarvestableProviderPreset` record names (`"HPP_Nyx_KeegerBelt"`),
+    /// sorted: the label for a provider no place is known for.
+    #[serde(default)]
+    pub provider_names: Vec<RockTypeEntry>,
+    /// Every `MineableComposition`: the parts a rock rolls.
+    #[serde(default)]
+    pub compositions: Compositions,
+    /// Each rock mesh's volume and fracture tree. Empty when the cook could
+    /// not open the p4k.
+    #[serde(default)]
+    pub shapes: Shapes,
+    /// The shared quality records (distributions, location overrides,
+    /// quantization) a rock's quality roll reads beside `Resources`.
+    #[serde(default)]
+    pub quality: Quality,
+}
+
+/// A record's name beside its GUID (rock types, providers).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RockTypeEntry {
+    pub guid: Guid,
+    pub record_name: String,
 }
 
 /// One `MiningGlobalParams` record.
@@ -96,11 +129,13 @@ pub struct GadgetEntry {
 }
 
 /// Cook the mining index from one parsed `Datacore`; `items` and
-/// `resources` come from the foundations build the caller already paid for.
+/// `resources` come from the foundations build the caller already paid for,
+/// `assets` (the live p4k, when the cook could open it) feeds the meshes.
 pub(crate) fn build_mining(
     datacore: &Datacore,
     items: &Items,
     resources: &Resources,
+    assets: Option<&AssetSource>,
 ) -> MiningIndex {
     let db = datacore.db();
     let record_name = |guid: &Guid| {
@@ -129,8 +164,9 @@ pub(crate) fn build_mining(
     // Which rulesets' rocks spawn each element: rock type → composition →
     // parts. Typed GUID joins throughout.
     let compositions = Compositions::build(datacore);
+    let rock_types = RockTypes::build(datacore);
     let mut found_by: HashMap<Guid, BTreeSet<String>> = HashMap::new();
-    for rock in RockTypes::build(datacore).values() {
+    for rock in rock_types.values() {
         let (Some(ruleset), Some(composition)) = (
             rock.ruleset.and_then(|g| ruleset_names.get(&g)),
             rock.composition.and_then(|c| compositions.get(&c)),
@@ -196,6 +232,35 @@ pub(crate) fn build_mining(
         .collect();
     gadgets.sort_by(|a, b| a.record_name.cmp(&b.record_name));
 
+    let mut rock_type_names: Vec<RockTypeEntry> = rock_types
+        .iter()
+        .map(|(g, _)| RockTypeEntry {
+            guid: *g,
+            record_name: record_name(g),
+        })
+        .collect();
+    rock_type_names.sort_by(|a, b| a.record_name.cmp(&b.record_name));
+    let mut provider_names: Vec<RockTypeEntry> = datacore
+        .records()
+        .records
+        .harvestable
+        .harvestable_provider_preset
+        .keys()
+        .map(|g| RockTypeEntry {
+            guid: *g,
+            record_name: record_name(g),
+        })
+        .collect();
+    provider_names.sort_by(|a, b| a.record_name.cmp(&b.record_name));
+    // A dozen meshes, about half a second.
+    let shapes = match assets {
+        Some(assets) => Shapes::build(assets, &rock_types),
+        None => {
+            tracing::warn!("no p4k for the rock meshes; the rock generator stays empty");
+            Shapes::new()
+        }
+    };
+
     MiningIndex {
         rulesets,
         elements,
@@ -203,5 +268,11 @@ pub(crate) fn build_mining(
         lasers,
         modules,
         gadgets,
+        rock_types,
+        rock_type_names,
+        provider_names,
+        compositions,
+        shapes,
+        quality: Quality::build(datacore.records()),
     }
 }
