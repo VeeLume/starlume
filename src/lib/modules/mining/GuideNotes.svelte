@@ -18,8 +18,28 @@
         ? { tone: "warn", label: "Okay", text: "Average peaks stay inside the window; the big ones can overshoot." }
         : guide.category === "dangerous"
           ? { tone: "bad", label: "Dangerous", text: "Average peaks already jump the window and can overcharge hard." }
-          : null,
+          : guide.category === "tooStrong"
+            ? {
+                tone: "bad",
+                label: "Too strong",
+                text: "Even at minimum throttle the charge keeps climbing: it can't be held, only pulsed.",
+              }
+            : null,
   );
+
+  // Pulsing at minimum throttle (laser too strong): on-time share, the fall
+  // while off (the decay: share = decay / gain, climb = gain - decay), and
+  // the on-time that pairs with an off-tap short enough to keep the window.
+  const pulse = $derived.by(() => {
+    const share = guide.pulseOnShare;
+    const climb = guide.climbAtMinimum;
+    if (share === null || climb === null || share >= 1) return null;
+    return {
+      share,
+      fall: (share * climb) / (1 - share),
+      onS: (guide.modifierPersistenceS * share) / (1 - share),
+    };
+  });
 
   // Which way down after an overshoot, in one sentence.
   const wayDown = $derived.by(() => {
@@ -27,7 +47,12 @@
     const lost = g.lostFrom ?? 1;
     const minUntil = Math.min(g.keepOnBelow ?? g.windowHigh, lost);
     if (minUntil >= lost) return "Keep the laser on at minimum throttle at any height: cutting it drops the window and costs more.";
-    if (minUntil <= g.windowHigh) return `Cut the beam at once: the window top only drops to ${pct(g.windowHighOff)} and the charge falls fastest.`;
+    if (minUntil <= g.windowHigh) {
+      if (g.drainAtMinimum === null) return "Cut the beam at once: at minimum throttle the charge doesn't come down.";
+      if (g.windowHighOff > g.windowHigh)
+        return `Cut the beam at once: it falls fastest, and without the laser the window even widens (top ${pct(g.windowHighOff)}).`;
+      return `Cut the beam at once: the window top only drops to ${pct(g.windowHighOff)} and the charge falls fastest.`;
+    }
     return `Below ${pct(minUntil)} drop to minimum throttle (the window stays); above it cut the beam (it falls faster).`;
   });
 </script>
@@ -48,7 +73,22 @@
         only acts while the charge rises.
       </dd>
 
-      {#if guide.balance !== null}
+      {#if guide.tooStrong && guide.climbAtMinimum !== null}
+        <dt>At minimum throttle ({pct(guide.throttleMinimum)})</dt>
+        <dd>
+          The charge still climbs {(guide.climbAtMinimum * 100).toFixed(1)} % of the bar per second{guide.windowCrossS !== null
+            ? `, crossing the window in about ${secs(guide.windowCrossS)}`
+            : ""}{guide.timeInWindowS !== null ? ` — a clean crack needs ${secs(guide.timeInWindowS)} inside` : ""}.
+          {#if pulse}
+            Stay at minimum throttle and pulse the beam: on about {pct(pulse.share)} of the time (on it climbs
+            {(guide.climbAtMinimum * 100).toFixed(1)} %/s, off it falls {(pulse.fall * 100).toFixed(1)} %/s). Keep each
+            off-tap under {guide.modifierPersistenceS} s — about {pulse.onS.toFixed(2)} s on, {guide.modifierPersistenceS} s
+            off — and the laser's window stays; a longer cut drops the window top to {pct(guide.windowHighOff)} (instead
+            of {pct(guide.windowHigh)}) while it's off, and the first moments after resuming wobble more.
+          {/if}
+          A weaker laser or fewer power modules fit this rock better.
+        </dd>
+      {:else if guide.balance !== null}
         <dt>At balance ({pct(guide.balance)})</dt>
         <dd>
           One peak adds up to {pct(guide.peakJumpAtBalance ?? 0)} of the bar{guide.peakJumpAvgAtBalance !== null

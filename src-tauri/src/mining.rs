@@ -373,7 +373,8 @@ pub struct GuideView {
     pub window_high: f32,
     pub window_high_off: f32,
     pub throttle_minimum: f32,
-    /// `"safe"`, `"okay"`, `"dangerous"`; `null` when it cannot crack.
+    /// `"safe"`, `"okay"`, `"dangerous"`, `"tooStrong"`; `null` when it
+    /// cannot crack.
     pub category: Option<String>,
     pub decline: Option<f32>,
     pub balance: Option<f32>,
@@ -382,6 +383,10 @@ pub struct GuideView {
     pub climb: Vec<ClimbStepView>,
     pub hold_throttle: Option<f32>,
     pub riding: bool,
+    pub too_strong: bool,
+    pub climb_at_minimum: Option<f32>,
+    pub pulse_on_share: Option<f32>,
+    pub window_cross_s: Option<f32>,
     pub keep_on_below: Option<f32>,
     pub lost_from: Option<f32>,
     pub wave_max: f32,
@@ -417,6 +422,7 @@ impl From<mod_mining::ThrottleGuide> for GuideView {
                     mod_mining::Category::Safe => "safe",
                     mod_mining::Category::Okay => "okay",
                     mod_mining::Category::Dangerous => "dangerous",
+                    mod_mining::Category::TooStrong => "tooStrong",
                 }
                 .into()
             }),
@@ -434,6 +440,10 @@ impl From<mod_mining::ThrottleGuide> for GuideView {
                 .collect(),
             hold_throttle: g.hold_throttle,
             riding: g.riding,
+            too_strong: g.too_strong,
+            climb_at_minimum: g.climb_at_minimum,
+            pulse_on_share: g.pulse_on_share,
+            window_cross_s: g.window_cross_s,
             keep_on_below: g.keep_on_below,
             lost_from: g.lost_from,
             wave_max: g.wave_max,

@@ -1314,9 +1314,10 @@ export type GrpcFeatureInfo = { id: string; name: string; description: string }
  */
 export type GuideView = { windowLow: number; windowHigh: number; windowHighOff: number; throttleMinimum: number; 
 /**
- * `"safe"`, `"okay"`, `"dangerous"`; `null` when it cannot crack.
+ * `"safe"`, `"okay"`, `"dangerous"`, `"tooStrong"`; `null` when it
+ * cannot crack.
  */
-category: string | null; decline: number | null; balance: number | null; safeClimb: number | null; fullUntil: number | null; climb: ClimbStepView[]; holdThrottle: number | null; riding: boolean; keepOnBelow: number | null; lostFrom: number | null; waveMax: number; wavePeriodS: number; wavePeriodMaxS: number; damping: number; peakJumpAtBalance: number | null; peakJumpAvgAtBalance: number | null; peakJumpFull: number; drainAtMinimum: number | null; timeToWindowS: number | null; timeInWindowS: number | null; crackAboveS: number | null; paybackEdge: number | null; paybackTop: number | null; dangerFillEdgeS: number | null; dangerFillTopS: number | null; dangerDrainS: number | null; backFromTopOffS: number | null; backFromTopMinS: number | null; modifierPersistenceS: number }
+category: string | null; decline: number | null; balance: number | null; safeClimb: number | null; fullUntil: number | null; climb: ClimbStepView[]; holdThrottle: number | null; riding: boolean; tooStrong: boolean; climbAtMinimum: number | null; pulseOnShare: number | null; windowCrossS: number | null; keepOnBelow: number | null; lostFrom: number | null; waveMax: number; wavePeriodS: number; wavePeriodMaxS: number; damping: number; peakJumpAtBalance: number | null; peakJumpAvgAtBalance: number | null; peakJumpFull: number; drainAtMinimum: number | null; timeToWindowS: number | null; timeInWindowS: number | null; crackAboveS: number | null; paybackEdge: number | null; paybackTop: number | null; dangerFillEdgeS: number | null; dangerFillTopS: number | null; dangerDrainS: number | null; backFromTopOffS: number | null; backFromTopMinS: number | null; modifierPersistenceS: number }
 export type HolderView = { geid: string; name: string; item_type: string }
 /**
  * One card's place on Home (see [`AppSettings::home_cards`]).

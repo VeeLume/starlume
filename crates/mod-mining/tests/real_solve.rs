@@ -122,6 +122,43 @@ fn bexalite_scan_from_a_golem() {
 
     check_guide_against_simulation(&catalog, &loadout, &rock);
     keep_on_versus_cut(&catalog, &loadout, &rock);
+
+    // A small rock for a Golem: the laser is too strong to hold it even at
+    // its minimum throttle (Valerie's 2,000 t test rock).
+    let small = RockInput {
+        mass: 2000.0,
+        entries: vec![
+            entry(
+                id(&catalog.element_names, "element", "Laranite (Raw)"),
+                51.07,
+                None,
+            ),
+            entry(
+                id(&catalog.element_names, "element", "Tungsten (Ore)"),
+                31.09,
+                None,
+            ),
+        ],
+    };
+    let golem = LoadoutInput {
+        lasers: vec![LaserInput {
+            modules: vec![
+                id(&catalog.modules, "module", "Rieger-C3"),
+                id(&catalog.modules, "module", "Focus III"),
+            ],
+            ..loadout.lasers[0].clone()
+        }],
+        gadget: loadout.gadget.clone(),
+    };
+    let g = solve(&catalog, &golem, &small)
+        .unwrap()
+        .yours
+        .unwrap()
+        .guide;
+    eprintln!("small rock: {g:#?}");
+    assert!(g.too_strong, "the Pitman should be too strong for 2,000 t");
+    assert_eq!(g.category, Some(mod_mining::Category::TooStrong));
+    assert!(g.hold_throttle.is_none());
 }
 
 /// The throttle guide's peak jumps against the tick simulation: with a held

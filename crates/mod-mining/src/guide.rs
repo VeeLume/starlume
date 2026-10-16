@@ -37,6 +37,9 @@ pub enum Category {
     Okay,
     /// Average peaks already jump the window and can overcharge hard.
     Dangerous,
+    /// The laser is too strong for the rock: even at its minimum throttle
+    /// the charge keeps climbing, so it cannot be held, only pulsed.
+    TooStrong,
 }
 
 /// One step of the climb: this throttle is safe up to this charge (a
@@ -143,6 +146,17 @@ pub struct ThrottleGuide {
     /// peaks lift it — riding the waves).
     pub hold_throttle: Option<f32>,
     pub riding: bool,
+    /// The charge rises on average even at the minimum throttle (the
+    /// balance lies below the laser's minimum): it cannot be held.
+    pub too_strong: bool,
+    /// How fast it climbs there, share of the bar per second.
+    pub climb_at_minimum: Option<f32>,
+    /// Pulsing the beam to hold it: about this share of the time on at the
+    /// minimum throttle (the wave makes the real share a little lower).
+    pub pulse_on_share: Option<f32>,
+    /// Seconds the charge takes to cross the window at the minimum throttle,
+    /// wave left out (against `time_in_window_s` for a clean crack).
+    pub window_cross_s: Option<f32>,
     /// From this charge on a jump is lost: the better way down (minimum
     /// throttle below `keep_on_below`, beam cut above) still fills the
     /// danger meter. `None` when every height can be saved.
@@ -329,7 +343,11 @@ pub fn throttle_guide_with(
         vec![]
     };
     let ride = safe_from(rock.window.centre());
-    let hold_throttle = balance.map(|b| b.min(ride));
+    // The throttle cannot go below the lasers' minimum: when the charge
+    // still rises there, there is no hold, only pulsing the beam.
+    let climb_min = rock.net_rate(ruleset, 0.0);
+    let too_strong = balance.is_some() && climb_min > 0.0;
+    let hold_throttle = balance.filter(|_| !too_strong).map(|b| b.min(ride));
     // Above the window: which way down is better, and where both fail.
     let lost_from = {
         const STEPS: usize = 400;
@@ -364,7 +382,9 @@ pub fn throttle_guide_with(
         time_to_window_s: rock.time_to_window_s(ruleset),
         time_in_window_s: rock.time_in_window_s(ruleset),
         category: balance.map(|b| {
-            if jump(b) <= window {
+            if too_strong {
+                Category::TooStrong
+            } else if jump(b) <= window {
                 Category::Safe
             } else if jump_avg(b) <= window {
                 Category::Okay
@@ -393,7 +413,11 @@ pub fn throttle_guide_with(
         full_until,
         climb,
         hold_throttle,
-        riding: balance.is_some_and(|b| ride < b),
+        riding: !too_strong && balance.is_some_and(|b| ride < b),
+        too_strong,
+        climb_at_minimum: (climb_min > 0.0).then_some(climb_min),
+        pulse_on_share: (too_strong && gain(0.0) > 0.0).then(|| decay / gain(0.0)),
+        window_cross_s: (climb_min > 0.0).then(|| window / climb_min),
         lost_from,
         modifier_persistence_s: ruleset.modifier_persistence_time,
     }

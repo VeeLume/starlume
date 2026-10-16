@@ -14,7 +14,7 @@
   const BAR_X = 64;
   const BAR_W = 30;
   const LABEL_X = BAR_X + BAR_W + 38;
-  const W = 330;
+  const W = 360;
   const GAP = 17;
 
   const y = (charge: number) => PAD + (1 - Math.min(1, Math.max(0, charge))) * (H - 2 * PAD);
@@ -50,14 +50,23 @@
       out.push({ from: at, to: top.at, text, tone: "plain" });
       at = top.at;
     }
-    // The window.
-    if (g.holdThrottle !== null) {
-      out.push({
-        from: g.windowLow,
-        to: g.windowHigh,
-        text: g.riding ? `Ride the waves ≤ ${pct(g.holdThrottle)}` : `Hold ${pct(g.holdThrottle)}`,
-        tone: "good",
-      });
+    // The window: hold, ride the waves, or (laser too strong to hold even at
+    // its minimum) pulse the beam.
+    if (g.tooStrong) {
+      // A share of the time, not a throttle: the throttle stays at minimum.
+      const on = g.pulseOnShare === null ? "" : `, ${pct(g.pulseOnShare)} on-time`;
+      out.push({ from: g.windowLow, to: g.windowHigh, text: `Pulse at minimum${on}`, tone: "good" });
+    } else if (g.holdThrottle !== null) {
+      const t = g.holdThrottle;
+      const text =
+        t <= g.throttleMinimum
+          ? g.riding
+            ? "Ride the waves at minimum"
+            : "Hold at minimum"
+          : g.riding
+            ? `Ride the waves ≤ ${pct(t)}`
+            : `Hold ${pct(t)}`;
+      out.push({ from: g.windowLow, to: g.windowHigh, text, tone: "good" });
     }
     // Above: drop to minimum, cut the beam, too late.
     const lost = g.lostFrom ?? 1;
