@@ -270,6 +270,34 @@ pub fn throttle_guide(
     throttle_guide_with(rock, beam_off, ruleset, HIT_DRAIN)
 }
 
+/// The guide for the lead of a crew: `rock` has the supports folded in as
+/// fixed gain (see `solve::plan`), so its throttle is the lead's alone and
+/// the lowest it goes is the lead's `minimum`.
+pub fn throttle_guide_lead(
+    rock: &ModifiedRock,
+    beam_off: &ModifiedRock,
+    ruleset: &Ruleset,
+    minimum: f32,
+) -> ThrottleGuide {
+    guide(rock, beam_off, ruleset, HIT_DRAIN, minimum)
+}
+
+/// How far one big and one usual wave lift the charge at `throttle` (shares
+/// of the bar): the guide's wave-lift arithmetic for any operator's throttle,
+/// the others folded into `rock` as fixed gain.
+pub fn wave_lift(rock: &ModifiedRock, ruleset: &Ruleset, throttle: f32) -> (f32, f32) {
+    let peaks = Peaks::new(rock, ruleset, HIT_DRAIN);
+    (peaks.jump(throttle), peaks.jump_avg(throttle))
+}
+
+/// The highest throttle minimum among `rock`'s lasers.
+fn highest_minimum(rock: &ModifiedRock) -> f32 {
+    rock.lasers
+        .iter()
+        .map(|l| l.throttle_minimum)
+        .fold(0.0, f32::max)
+}
+
 /// [`throttle_guide`] with the strongest tick at `hit_drain` × the mean gain.
 /// `1.0` is sc-mining's even metering, which the tests check the wave
 /// arithmetic against.
@@ -278,6 +306,16 @@ pub fn throttle_guide_with(
     beam_off: &ModifiedRock,
     ruleset: &Ruleset,
     hit_drain: f32,
+) -> ThrottleGuide {
+    guide(rock, beam_off, ruleset, hit_drain, highest_minimum(rock))
+}
+
+fn guide(
+    rock: &ModifiedRock,
+    beam_off: &ModifiedRock,
+    ruleset: &Ruleset,
+    hit_drain: f32,
+    minimum: f32,
 ) -> ThrottleGuide {
     let peaks = Peaks::new(rock, ruleset, hit_drain);
     let gain = |t: f32| peaks.gain(t);
@@ -441,13 +479,7 @@ pub fn throttle_guide_with(
     let mut jumps: Vec<JumpRow> = Vec::new();
     if balance.is_some() {
         let first = if too_much_power {
-            Some((
-                rock.lasers
-                    .iter()
-                    .map(|l| l.throttle_minimum)
-                    .fold(0.0, f32::max),
-                "minimum",
-            ))
+            Some((minimum, "minimum"))
         } else {
             hold_throttle.map(|t| (t, "hold"))
         };
@@ -488,11 +520,7 @@ pub fn throttle_guide_with(
     ThrottleGuide {
         window_low: rock.window.low,
         window_high: rock.window.high,
-        throttle_minimum: rock
-            .lasers
-            .iter()
-            .map(|l| l.throttle_minimum)
-            .fold(0.0, f32::max),
+        throttle_minimum: minimum,
         decline,
         balance,
         safe_climb,

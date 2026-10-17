@@ -1,8 +1,9 @@
 <script lang="ts">
   // Places as a tree: each system's planets with their moons (the game's
-  // parent links), then the other places and the fields, which stand for
-  // many places at once. A planet without ship rocks of its own is a plain
-  // parent. A search shows the matches with their parents, opened.
+  // parent links), the fields, which stand for many places at once, and the
+  // system's other places — its Lagrange points, which hang off the star —
+  // folded into one group. A planet without ship rocks of its own is a
+  // plain parent. A search shows the matches with their parents, opened.
   import { untrack } from "svelte";
   import { createExpansion } from "@veelume/ui";
   import type { PlaceNodeView, PlaceSystemView } from "$lib/bindings";
@@ -30,6 +31,11 @@
       : systems,
   );
 
+  // A system's places outside any planet (no children, not a field) are its
+  // Lagrange points: one group instead of a long flat list.
+  const loose = (n: PlaceNodeView) => n.kind === "place" && n.children.length === 0;
+  const groupKey = (system: string) => `lagrange:${system}`;
+
   // The selected place's parents open, so it shows.
   $effect(() => {
     const path = (nodes: PlaceNodeView[], up: string[]): string[] | null => {
@@ -41,7 +47,8 @@
       return null;
     };
     const ids = systems.flatMap((s) => path(s.nodes, []) ?? []);
-    untrack(() => ids.forEach((id) => open.open(id)));
+    const groups = systems.filter((s) => s.nodes.some((n) => loose(n) && n.id === selected)).map((s) => groupKey(s.name));
+    untrack(() => [...ids, ...groups].forEach((id) => open.open(id)));
   });
 
   function click(n: PlaceNodeView) {
@@ -81,8 +88,27 @@
 <input class="input search" type="search" placeholder="Find a place" aria-label="Find a place" bind:value={q} />
 <div class="tree">
   {#each shown as s (s.name)}
+    {@const points = s.nodes.filter(loose)}
+    {@const grouped = points.length > 1}
+    {@const groupOpen = !!query || open.has(groupKey(s.name))}
     <div class="grp">{s.name}</div>
-    {#each s.nodes as n (n.id)}{@render node(n, 0)}{/each}
+    {#each s.nodes.filter((n) => !grouped || !loose(n)) as n (n.id)}{@render node(n, 0)}{/each}
+    {#if grouped}
+      <div class="node">
+        <button class="car" onclick={() => open.toggle(groupKey(s.name))} aria-label={groupOpen ? "Close" : "Open"}
+          >{groupOpen ? "▾" : "▸"}</button
+        >
+        <button class="pl parent" onclick={() => open.toggle(groupKey(s.name))}>
+          <span class="nm">Lagrange points</span>
+          {#if !groupOpen}<span class="c">{points.length}</span>{/if}
+        </button>
+      </div>
+      {#if groupOpen}
+        <div class="kids">
+          {#each points as n (n.id)}{@render node(n, 1)}{/each}
+        </div>
+      {/if}
+    {/if}
   {/each}
   {#if query && !shown.length}<p class="dim none">No place matches.</p>{/if}
 </div>

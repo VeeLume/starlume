@@ -19,3 +19,17 @@ export function initials(name: string): string {
   if (!letters.length) return "?";
   return letters[0].toUpperCase() + (letters[1] ?? "").toLowerCase();
 }
+
+/** Hues for people shown together (a mining crew): each name's own hue,
+ *  or the next free one, so no two share a colour. */
+export function distinctHues(names: string[]): string[] {
+  const used: number[] = [];
+  return names.map((name) => {
+    let h = 0;
+    for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    let i = h % HUES.length;
+    for (let n = 0; n < HUES.length && used.includes(i); n++) i = (i + 1) % HUES.length;
+    used.push(i);
+    return `var(${HUES[i]})`;
+  });
+}

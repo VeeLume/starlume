@@ -1,7 +1,8 @@
 <script lang="ts">
-  // A loadout in the editor. `live` edits the calculator's (every change
-  // solves at once) and offers to save your part of it; otherwise it edits
-  // a saved loadout, yours or a crew mate's, as a draft until Save.
+  // A loadout in the editor. `live` edits your part of the calculator's
+  // (every change solves at once; crew mates brought along stay as they
+  // are) and offers to save it; otherwise it edits a saved loadout, yours
+  // or a crew mate's, as a draft until Save.
   import { untrack } from "svelte";
   import { Dialog } from "@veelume/ui";
   import type { LoadoutView, MiningCatalogView, SavedLoadoutView } from "$lib/bindings";
@@ -29,21 +30,35 @@
   } = $props();
 
   const empty = (): LoadoutView => ({
-    lasers: catalog.lasers[0] ? [{ laser: catalog.lasers[0].id, modules: [], owner: 0, who: null }] : [],
+    lasers: catalog.lasers[0] ? [{ laser: catalog.lasers[0].id, modules: [], owner: 0, who: null, crew: null }] : [],
     gadget: null,
+    lead: null,
   });
 
-  let draft = $state<LoadoutView>({ lasers: [], gadget: null });
+  let draft = $state<LoadoutView>({ lasers: [], gadget: null, lead: null });
   let name = $state("");
   let owner = $state("");
   let error = $state("");
 
-  const current = $derived(miningStore.state?.current ?? { lasers: [], gadget: null });
+  const current = $derived(miningStore.state?.current ?? { lasers: [], gadget: null, lead: null });
   const own = $derived<LoadoutView>({ ...current, lasers: ownLasers(current) });
   const match = $derived(
     (miningStore.state?.saved ?? []).find((s) => s.owner === null && sameLoadout(s.loadout, own)) ?? null,
   );
   const isCrew = $derived(saved ? saved.owner !== null : crew);
+
+  /** Your edited lasers with the crew mates' kept, on ships after yours. */
+  function withCrew(next: LoadoutView): LoadoutView {
+    const crewLasers = current.lasers.filter((l) => l.crew !== null);
+    const after = Math.max(-1, ...next.lasers.map((l) => l.owner)) + 1;
+    const base = Math.min(...crewLasers.map((l) => l.owner), Infinity);
+    return {
+      ...next,
+      gadget: current.gadget,
+      lead: null,
+      lasers: [...next.lasers, ...crewLasers.map((l) => ({ ...l, owner: after + (l.owner - base) }))],
+    };
+  }
 
   // A fresh draft each time it opens.
   $effect(() => {
@@ -102,7 +117,7 @@
       </label>
     </div>
     {#if live}
-      <LoadoutEditor {catalog} loadout={current} onchange={(next) => void setLoadout(next)} />
+      <LoadoutEditor {catalog} loadout={own} onchange={(next) => void setLoadout(withCrew(next))} />
     {:else}
       <LoadoutEditor {catalog} loadout={draft} onchange={(next) => (draft = next)} />
     {/if}

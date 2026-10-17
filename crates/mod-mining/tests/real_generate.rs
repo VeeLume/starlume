@@ -186,8 +186,10 @@ fn generator_rolls_real_rocks() {
             modules: vec![],
             owner: 0,
             who: None,
+            crew: None,
         }],
         gadget: None,
+        lead: None,
     };
     let picks = [
         ("average", Pick::Average),
@@ -207,9 +209,9 @@ fn generator_rolls_real_rocks() {
             },
         ),
         (
-            "dangerous",
+            "hard",
             Pick::Class {
-                class: RockClass::Dangerous,
+                class: RockClass::Hard,
             },
         ),
     ];
@@ -241,10 +243,10 @@ fn generator_rolls_real_rocks() {
                         .join(", "),
                     start.elapsed().as_millis(),
                     g.classes.map_or(String::new(), |c| format!(
-                        " | safe {:.0} okay {:.0} dangerous {:.0} too strong {:.0} impossible {:.0}",
-                        c.safe * 100.0,
-                        c.okay * 100.0,
-                        c.dangerous * 100.0,
+                        " | easy {:.0} manageable {:.0} hard {:.0} too much power {:.0} impossible {:.0}",
+                        c.easy * 100.0,
+                        c.manageable * 100.0,
+                        c.hard * 100.0,
                         c.too_much_power * 100.0,
                         c.impossible * 100.0
                     ))
@@ -269,4 +271,42 @@ fn generator_rolls_real_rocks() {
             .unwrap()
     };
     assert!(mass("smallest") <= mass("average") && mass("average") <= mass("largest"));
+
+    // A pick by mass lands near it; the histogram covers the sample.
+    let target = mass("average") * 1.5;
+    let g = generate(
+        &src,
+        &catalog,
+        &GenerateRequest {
+            area: area.id.clone(),
+            rock_type: rock.rock_type.clone(),
+            pick: Pick::Mass { mass: target },
+            place: None,
+        },
+        Some(&golem),
+    )
+    .expect("mass pick");
+    assert_eq!(g.masses.len(), 36);
+    assert_eq!(g.masses.iter().map(|b| b.count).sum::<u32>(), g.rolled);
+    assert!(g.masses.iter().any(|b| b.class.is_some()));
+    eprintln!("  by mass     {:>8.0} t (asked {target:.0} t)", g.rock.mass);
+
+    // The finder's class table: every rollable rock type at every area.
+    let start = Instant::now();
+    let table = mod_mining::class_table(&src, &catalog, &golem).expect("class table");
+    eprintln!(
+        "class table: {} rows in {} ms",
+        table.len(),
+        start.elapsed().as_millis()
+    );
+    assert!(!table.is_empty());
+    for r in &table {
+        let c = r.classes;
+        let sum = c.easy + c.manageable + c.hard + c.too_much_power + c.impossible;
+        assert!(
+            (sum - 1.0).abs() < 1e-3,
+            "{} shares sum to {sum}",
+            r.rock_type
+        );
+    }
 }

@@ -5,6 +5,7 @@
 import type {
   EvalView,
   GuideView,
+  LaserInputView,
   LoadoutView,
   MiningCatalogView,
   ModifiersView,
@@ -56,17 +57,27 @@ export const TONE_HUE: Record<Tone, string> = {
   power: "var(--hue-apricot)",
 };
 
-/** The rock classes ordered by power: too much, just right, too little. */
+/** The rock classes ordered by power: too much, then by how cleanly our
+ *  player model cracks it (the difficulty word's thresholds), then too
+ *  little. */
 export const CLASSES: { id: RockClassView; label: string; hue: string }[] = [
   { id: "tooMuchPower", label: "too much power", hue: "var(--hue-apricot)" },
-  { id: "safe", label: "safe", hue: "var(--good)" },
-  { id: "okay", label: "okay", hue: "var(--warn)" },
-  { id: "dangerous", label: "dangerous", hue: "var(--bad)" },
+  { id: "easy", label: "easy", hue: "var(--good)" },
+  { id: "manageable", label: "manageable", hue: "var(--warn)" },
+  { id: "hard", label: "hard", hue: "var(--bad)" },
   { id: "impossible", label: "can't break", hue: "var(--text-faint)" },
 ];
 
 /** The rock finder's picks: which rock of a type to roll. */
-export type Pick = "common" | "small" | "average" | "large" | "ore" | "quality" | `class:${RockClassView}`;
+export type Pick =
+  | "common"
+  | "small"
+  | "average"
+  | "large"
+  | "ore"
+  | "quality"
+  | `class:${RockClassView}`
+  | `mass:${number}`;
 
 /** A pick as the generator's request, and its label. */
 export function pickRequest(pick: Pick, ore: string, oreLabel: string): { view: PickView; label: string } {
@@ -84,6 +95,10 @@ export function pickRequest(pick: Pick, ore: string, oreLabel: string): { view: 
     case "quality":
       return { view: { kind: "bestQuality", element: ore }, label: `Best ${oreLabel}` };
     default: {
+      if (pick.startsWith("mass:")) {
+        const mass = Number(pick.slice("mass:".length));
+        return { view: { kind: "mass", mass }, label: `At ${int(mass)} t` };
+      }
       const id = pick.slice("class:".length) as RockClassView;
       const label = CLASSES.find((c) => c.id === id)?.label ?? id;
       return { view: { kind: "class", class: id }, label: label[0].toUpperCase() + label.slice(1) };
@@ -124,8 +139,7 @@ export function steps(g: GuideView): Step[] {
   if (g.tooMuchPower) hold = "Pulse the beam at minimum";
   else if (g.holdThrottle !== null) {
     const t = g.holdThrottle;
-    const at = t <= g.throttleMinimum ? "at minimum" : `about ${p(t)}`;
-    hold = g.riding ? `Ride the waves ${at}` : `Hold ${at}`;
+    hold = t <= g.throttleMinimum ? "Keep throttle at minimum" : `Keep throttle at ${p(t)}`;
   }
   if (hold) out.push({ from: g.windowLow, to: g.windowHigh, tone: "good", act: hold });
   const lost = g.lostFrom ?? 1;
@@ -154,8 +168,40 @@ export function effects(m: ModifiersView, powerMultiplier = 1): { text: string; 
   return out;
 }
 
-/** Your own lasers (not a crew mate's brought along). */
-export const ownLasers = (l: LoadoutView) => l.lasers.filter((x) => x.who === null);
+/** Your own lasers (not a crew mate's brought along); a MOLE seat's name
+ *  does not make a head someone else's ship. */
+export const ownLasers = (l: LoadoutView) => l.lasers.filter((x) => x.crew === null);
+
+/** A fraction as a signed percent ("+38 %", "−35 %"); "—" for no change. */
+export function signedPct(v: number): string {
+  const r = Math.round(v * 100);
+  return r === 0 ? "—" : `${r > 0 ? "+" : "−"}${Math.abs(r)} %`;
+}
+
+/** Each laser's operator: its seat or crew mate's name, "You" for the first
+ *  one you work, and "Head 2", "Head 3" for a ship's other unnamed lasers. */
+export function operatorNames(lasers: LaserInputView[]): string[] {
+  const first = lasers.findIndex((l) => l.who === null && l.crew === null);
+  return lasers.map((l, i) => {
+    if (l.who) return l.who;
+    if (i === first) return "You";
+    const sameShip = lasers.filter((x) => x.owner === l.owner);
+    return `Head ${sameShip.indexOf(l) + 1}`;
+  });
+}
+
+/** Where an operator's laser sits: "head 2" on a ship with several, the
+ *  crew loadout's name ("Prospector") for a crew mate's ship. */
+export function operatorPlace(
+  lasers: LaserInputView[],
+  i: number,
+  crewName: (id: string) => string | undefined,
+): string {
+  const l = lasers[i];
+  const sameShip = lasers.filter((x) => x.owner === l.owner);
+  if (sameShip.length > 1) return `head ${sameShip.indexOf(l) + 1}`;
+  return l.crew ? (crewName(l.crew) ?? "") : "";
+}
 
 /** Two loadouts with the same lasers, modules and gadget. */
 export const sameLoadout = (a: LoadoutView, b: LoadoutView) =>

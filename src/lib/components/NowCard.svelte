@@ -67,10 +67,12 @@
       <span class="grow"></span>
       {#if top}{@render top()}{:else}<span class="date">{date}</span>{/if}
     </header>
-    <div class="title">
-      <span class="version">{version}</span>
-      {#if name}<span class="name">{name}</span>{/if}
-    </div>
+    {#if version}
+      <div class="title">
+        <span class="version">{version}</span>
+        {#if name}<span class="name">{name}</span>{/if}
+      </div>
+    {/if}
     {#if children}<div class="body">{@render children()}</div>{/if}
     {#if action}<footer>{@render action()}</footer>{/if}
   </div>

@@ -1,9 +1,13 @@
 <script lang="ts">
-  // By ore: the rock types that hold the ore, richest first (its share of
-  // the rock when present), and in how many of them it shows up at all.
-  import type { AreaView } from "$lib/bindings";
+  // By ore: the rock types that hold the ore. With a loadout each row
+  // carries the ship's class split and its good share (easy and
+  // manageable rolls), best for the ship first; Richest sorts by the ore's share of
+  // the rock when present.
+  import { Segmented } from "@veelume/ui";
+  import type { AreaView, ClassSharesView } from "$lib/bindings";
   import NowCard from "$lib/components/NowCard.svelte";
-  import { pct } from "./format";
+  import ClassBar from "./ClassBar.svelte";
+  import { oreName, pct } from "./format";
 
   let {
     ore,
@@ -11,6 +15,8 @@
     areas,
     area,
     rockType,
+    classOf,
+    ship,
     onpick,
   }: {
     ore: string;
@@ -18,47 +24,91 @@
     areas: AreaView[];
     area: string;
     rockType: string;
+    /** The ship's class shares for a rock type at an area, when known. */
+    classOf: (area: string, rockType: string) => ClassSharesView | null;
+    ship: string | null;
     onpick: (area: string, rockType: string) => void;
   } = $props();
 
+  let sort = $state<"good" | "rich">("good");
+
+  const good = (c: ClassSharesView | null) => (c ? c.easy + c.manageable : -1);
   const sources = $derived(
     areas
       .flatMap((a) =>
         a.rocks.flatMap((r) => {
           const o = r.ores.find((x) => x.element === ore);
-          return o && r.rollable ? [{ a, r, o }] : [];
+          return o && r.rollable ? [{ a, r, o, c: classOf(a.id, r.rockType) }] : [];
         }),
       )
-      .sort((x, y) => y.o.meanShare - x.o.meanShare || y.o.chance - x.o.chance)
-      .slice(0, 24),
+      .sort((x, y) =>
+        sort === "good" && ship
+          ? good(y.c) - good(x.c) || y.o.meanShare - x.o.meanShare
+          : y.o.meanShare - x.o.meanShare || y.o.chance - x.o.chance,
+      )
+      .slice(0, 30),
   );
-  const top = $derived(Math.max(0.0001, ...sources.map((s) => s.o.meanShare)));
+  const withClasses = $derived(ship !== null && sources.some((s) => s.c !== null));
 </script>
 
-<NowCard hue="var(--hue-sand)" chip="◆ ORE" version={name} date="{sources.length} rock types">
-  <div class="head label"><span>Rock</span><span></span><span>Share</span><span>In</span></div>
+<NowCard hue="var(--hue-sand)" chip="◆ ORE" version={name}>
+  {#snippet top()}
+    {#if ship}
+      <Segmented
+        class="sort"
+        options={[
+          { value: "good", label: `Best for your ${ship}` },
+          { value: "rich", label: "Richest" },
+        ]}
+        value={sort}
+        onchange={(v) => (sort = v as "good" | "rich")}
+      />
+    {/if}
+  {/snippet}
+  <div class="head label" class:cls={withClasses}>
+    <span>Rock</span><span>{name}</span>{#if withClasses}<span>Your {ship}</span><span>good</span>{/if}
+  </div>
   <div class="rocks">
     {#each sources as s (s.a.id + s.r.rockType)}
-      <button class="rk" class:on={s.a.id === area && s.r.rockType === rockType} onclick={() => onpick(s.a.id, s.r.rockType)}>
-        <span class="nm"><b>{s.r.name}</b><span>{s.a.name}</span></span>
-        <span class="track"><i style:width="{(s.o.meanShare / top) * 100}%"></i></span>
+      <button
+        class="rk"
+        class:cls={withClasses}
+        class:on={s.a.id === area && s.r.rockType === rockType}
+        onclick={() => onpick(s.a.id, s.r.rockType)}
+      >
+        <span class="nm"><b>{oreName(s.r.name)}</b><span>{s.a.name}</span></span>
         <span class="n" title="Its share of the rock when present">~{pct(s.o.meanShare)}</span>
-        <span class="n dim" title="Rocks of this type holding it">{pct(s.o.chance)}</span>
+        {#if withClasses}
+          {#if s.c}<ClassBar shares={s.c} />{:else}<span></span>{/if}
+          <span class="n g">{s.c ? Math.round(good(s.c) * 100) : "—"}</span>
+        {/if}
       </button>
     {/each}
   </div>
 </NowCard>
 
 <style>
-  .head {
+  :global(.sort) {
+    font-size: var(--text-small);
+  }
+  .head,
+  .rk {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(40px, 0.8fr) 44px 44px;
+    grid-template-columns: minmax(0, 1fr) 54px;
     gap: 12px;
+    align-items: center;
+  }
+  .head.cls,
+  .rk.cls {
+    grid-template-columns: minmax(0, 1fr) 54px minmax(70px, 1fr) 30px;
+  }
+  .head {
     margin: 0;
     font-size: 0.66rem;
     color: var(--text-faint);
   }
-  .head span:not(:first-child) {
+  .head span:nth-child(2),
+  .head span:nth-child(4) {
     text-align: right;
   }
   .rocks {
@@ -66,10 +116,6 @@
     flex-direction: column;
   }
   .rk {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(40px, 0.8fr) 44px 44px;
-    gap: 12px;
-    align-items: center;
     padding: 8px;
     margin-inline: -8px;
     border: 0;
@@ -107,21 +153,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .track {
-    display: block;
-    height: 4px;
-    border-radius: 2px;
-    background: color-mix(in srgb, var(--text) 8%, transparent);
-    overflow: hidden;
-  }
-  .track i {
-    display: block;
-    height: 100%;
-    background: color-mix(in srgb, var(--hue-sand) 65%, transparent);
-  }
   .n {
     font-family: var(--font-mono);
     font-size: 0.8rem;
     text-align: right;
+    color: var(--text-dim);
+  }
+  .n.g {
+    color: var(--good);
+    font-weight: var(--weight-semibold);
   }
 </style>

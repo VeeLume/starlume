@@ -106,8 +106,10 @@ mod tests {
                 modules: vec![],
                 owner: 0,
                 who: None,
+                crew: None,
             }],
             gadget: None,
+            lead: None,
         }
     }
 

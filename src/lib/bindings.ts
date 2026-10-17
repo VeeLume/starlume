@@ -501,6 +501,31 @@ async miningPlaces(channel: string) : Promise<Result<PlaceSystemView[], AppError
 }
 },
 /**
+ * Where along the mass axis a rock like this one is too much power, easy,
+ * manageable, hard or out of reach for the loadout: the calculator's
+ * "what if it weighs" band.
+ */
+async miningMassBand(channel: string, loadout: LoadoutView, rock: RockView) : Promise<Result<MassBandView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_mass_band", { channel, loadout, rock }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Every rollable rock type at every area with the loadout's class shares:
+ * the rock finder's lists, so each row shows how the ship fares.
+ */
+async miningClassTable(channel: string, loadout: LoadoutView) : Promise<Result<RockClassesView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_class_table", { channel, loadout }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The feed and the module's state. **No network, no gate.**
  */
 async devtrackerOverview() : Promise<DevtrackerOverview> {
@@ -1035,12 +1060,13 @@ server_configured: boolean;
  * builds only) — the UI shows the manual sign-in URL flow then.
  */
 dev_profile: string | null }
+export type BandSegmentView = { from: number; to: number; class: RockClassView }
 export type BpPoolEntryView = { blueprint_record_guid: string; name: string | null; weight: number }
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
 export type BuildInfoView = { label: string; value: string }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
-export type ClassSharesView = { safe: number; okay: number; dangerous: number; tooMuchPower: number; impossible: number }
+export type ClassSharesView = { easy: number; manageable: number; hard: number; tooMuchPower: number; impossible: number }
 export type ClimbStepView = { untilCharge: number; throttle: number }
 /**
  * One comm-link as the News page shows it.
@@ -1309,6 +1335,11 @@ meanDanger: number;
  * Mean share of the attempt spent inside the window.
  */
 inWindow: number }
+/**
+ * What lasers put on the rock: power, and the change to resistance,
+ * instability and window as fractions (`-0.3`: 30 % less).
+ */
+export type EffectView = { power: number; resistance: number; instability: number; window: number }
 export type EvalView = { 
 /**
  * Heaviest breakable mass over the rock's mass: ≥ 1 cracks.
@@ -1374,7 +1405,11 @@ seed: number; place: SpawnPlaceView | null; rolled: number; classes: ClassShares
 /**
  * For a most-common pick: the share of rolls holding its ore mix.
  */
-pickShare: number | null }
+pickShare: number | null; 
+/**
+ * The sample's masses as bars, lightest first.
+ */
+masses: MassBucketView[] }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
  * An unofficial-API feature users can individually allow (named for gRPC,
@@ -1544,9 +1579,14 @@ export type LaserInputView = { laser: string; modules: string[];
  */
 owner: number; 
 /**
- * The crew mate flying it, for a laser added from a crew loadout.
+ * Who works it: a crew mate (their ship brought along) or a MOLE
+ * seat's name; `null` for you.
  */
-who: string | null }
+who: string | null; 
+/**
+ * The crew loadout (its id) the laser came from.
+ */
+crew: string | null }
 export type LauncherStatusView = { 
 /**
  * The RSI launcher is installed where Starlume looks for it.
@@ -1573,8 +1613,32 @@ export type LoadoutSlotView = { path: string[];
  * `null` = an emptied port.
  */
 item: ItemKindView | null }
-export type LoadoutView = { lasers: LaserInputView[]; gadget: string | null }
+export type LoadoutView = { lasers: LaserInputView[]; gadget: string | null; 
+/**
+ * The laser (index) that leads a crew; `null`: the first one you work.
+ */
+lead: number | null }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
+/**
+ * The loadout's class along the mass axis for this rock's composition.
+ */
+export type MassBandView = { 
+/**
+ * The axis' end, tonnes.
+ */
+top: number; 
+/**
+ * The heaviest breakable mass of this composition.
+ */
+maxMass: number; segments: BandSegmentView[] }
+/**
+ * One bar of a rock type's mass distribution.
+ */
+export type MassBucketView = { from: number; to: number; count: number; 
+/**
+ * With a loadout: the class most of its rolls have.
+ */
+class: RockClassView | null }
 export type MiningAreasView = { areas: AreaView[]; 
 /**
  * The places are known (the cook could read them); else areas carry
@@ -1682,6 +1746,18 @@ source: string | null;
  * would be noise (see `activity.rs`).
  */
 quiet: boolean }) & { id: number; ts: number }
+/**
+ * One laser and whoever works it.
+ */
+export type OperatorView = { index: number; laser: string; owner: number; who: string | null; crew: string | null; 
+/**
+ * The lead follows the steps; the others hold.
+ */
+lead: boolean; 
+/**
+ * A support's throttle through the climb and the window.
+ */
+hold: number | null; effect: EffectView; jumps: JumpRowView[] }
 export type OptionKindView = { type: "Bool" } | { type: "Choice"; choices: ChoiceView[] }
 export type OreOddsView = { element: string; 
 /**
@@ -1775,7 +1851,11 @@ export type PatcherOptionView = { id: string; label: string; description: string
 /**
  * Which rolled rock to hand out.
  */
-export type PickView = { kind: "average" } | { kind: "mostCommon" } | { kind: "smallest" } | { kind: "largest" } | { kind: "mostOre"; element: string } | { kind: "bestQuality"; element: string } | { kind: "class"; class: RockClassView }
+export type PickView = { kind: "average" } | { kind: "mostCommon" } | { kind: "smallest" } | { kind: "largest" } | { kind: "mostOre"; element: string } | { kind: "bestQuality"; element: string } | { kind: "class"; class: RockClassView } | 
+/**
+ * The roll closest to this mass, tonnes.
+ */
+{ kind: "mass"; mass: number }
 /**
  * A place in the generator's tree, or a field standing for many places.
  */
@@ -1893,7 +1973,11 @@ export type ResourceRowView = { guid: string; name: string; description: string 
  */
 legality: ResourceLegalityView | null }
 export type ResourceStackView = { name: string; quality: number; scu: number }
-export type RockClassView = "safe" | "okay" | "dangerous" | "tooMuchPower" | "impossible"
+export type RockClassView = "easy" | "manageable" | "hard" | "tooMuchPower" | "impossible"
+/**
+ * A rock type at an area with its class shares for the loadout.
+ */
+export type RockClassesView = { area: string; rockType: string; classes: ClassSharesView }
 export type RockEntryView = { element: string; 
 /**
  * 0..100.
@@ -1968,8 +2052,32 @@ export type SpawnSlotView = { count_min: number; count_max: number; concurrent: 
  */
 kinds: string[]; factions: string[]; allied: boolean; target: boolean }
 export type SupportRowView = { laser: string; modules: string[]; eval: EvalView }
+/**
+ * One moment of the plan for everyone.
+ */
+export type TotalRowView = { label: string | null; 
+/**
+ * Each operator's throttle.
+ */
+throttles: number[]; big: number; usual: number; 
+/**
+ * Each operator's share of the lift (their share of the gain).
+ */
+shares: number[] }
 export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
-export type YourSetupView = { eval: EvalView; scannerResistancePct: number; scannerInstability: number; guide: GuideView }
+export type YourSetupView = { eval: EvalView; 
+/**
+ * What the lasers (no gadget) put on the rock.
+ */
+effect: EffectView; 
+/**
+ * One per laser, in loadout order.
+ */
+operators: OperatorView[]; 
+/**
+ * The wave for everyone at the plan's moments.
+ */
+total: TotalRowView[]; scannerResistancePct: number; scannerInstability: number; guide: GuideView }
 
 /** tauri-specta globals **/
 

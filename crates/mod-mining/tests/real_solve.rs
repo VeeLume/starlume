@@ -66,8 +66,10 @@ fn bexalite_scan_from_a_golem() {
             ],
             owner: 0,
             who: None,
+            crew: None,
         }],
         gadget: Some(id(&catalog.gadgets, "gadget", "Sabir")),
+        lead: None,
     };
     let entry = |element: String, percent, quality| EntryInput {
         element,
@@ -96,8 +98,10 @@ fn bexalite_scan_from_a_golem() {
                 modules: vec![],
                 owner: 0,
                 who: None,
+                crew: None,
             }],
             gadget: None,
+            lead: None,
         },
     }];
     let report = solve(&catalog, &loadout, &rock, &crew).expect("solve");
@@ -110,6 +114,65 @@ fn bexalite_scan_from_a_golem() {
     );
     assert!(juno.eval.margin > report.yours.as_ref().unwrap().eval.margin);
     eprintln!("solve: {} ms", start.elapsed().as_millis());
+
+    // The same crew on the rock: the Golem leads, Juno holds. The lead's
+    // balance sits inside its range, the support holds within its own, and
+    // every lift row splits into shares summing to one.
+    let mut together = loadout.clone();
+    together.lasers.push(LaserInput {
+        laser: id(&catalog.lasers, "laser", "Arbor MH1"),
+        modules: vec![],
+        owner: 1,
+        who: Some("Juno".into()),
+        crew: Some("juno".into()),
+    });
+    let duo = solve(&catalog, &together, &rock, &[]).expect("crew solve");
+    let duo = duo.yours.as_ref().expect("lasers");
+    assert_eq!(duo.operators.len(), 2);
+    assert!(duo.operators[0].lead && !duo.operators[1].lead);
+    let hold = duo.operators[1].hold.expect("the support holds");
+    assert!((0.0..=1.0).contains(&hold));
+    if let Some(b) = duo.guide.balance {
+        assert!(
+            b >= duo.guide.throttle_minimum - 1e-3 && b <= 1.0 + 1e-3,
+            "lead balance {b}"
+        );
+    }
+    for t in &duo.total {
+        let sum: f32 = t.shares.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-3, "shares {:?}", t.shares);
+    }
+    eprintln!(
+        "crew plan: lead balance {:?}, hold {:?}, Juno holds {:.0} % | lead rows {:?} | Juno rows {:?}",
+        duo.guide.balance,
+        duo.guide.hold_throttle,
+        hold * 100.0,
+        duo.operators[0]
+            .jumps
+            .iter()
+            .map(|j| (j.throttle, j.big))
+            .collect::<Vec<_>>(),
+        duo.operators[1]
+            .jumps
+            .iter()
+            .map(|j| (j.throttle, j.big))
+            .collect::<Vec<_>>(),
+    );
+    eprintln!(
+        "effects: ship {:?} | Golem {:?} | Juno {:?}",
+        duo.effect, duo.operators[0].effect, duo.operators[1].effect
+    );
+    let band = mod_mining::mass_band(&catalog, &loadout, &rock).expect("band");
+    eprintln!(
+        "band to {:.0} t, limit {:.0} t: {:?}",
+        band.top,
+        band.max_mass,
+        band.segments
+            .iter()
+            .map(|s| (s.from.round(), s.class))
+            .collect::<Vec<_>>()
+    );
+    assert!(!band.segments.is_empty());
 
     let yours = report.yours.as_ref().expect("a laser was given");
     eprintln!(
@@ -173,6 +236,7 @@ fn bexalite_scan_from_a_golem() {
             ..loadout.lasers[0].clone()
         }],
         gadget: loadout.gadget.clone(),
+        lead: None,
     };
     let g = solve(&catalog, &golem, &small, &[])
         .unwrap()

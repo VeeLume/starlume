@@ -3,12 +3,15 @@
   // Starlume's difficulty beside it, the figures as tiles, the composition
   // with bars and quality. "Laser on rock" shows what the scanner reads with
   // the beam on (the loadout's modifiers applied), "Bare rock" the rock on
-  // its own. The draft is the store's (frontend rule 1).
+  // its own. "What if it weighs" tries the rock at another mass (the solve
+  // follows) over the loadout's classes along the mass axis. The draft is
+  // the store's (frontend rule 1).
   import { Segmented } from "@veelume/ui";
   import type { MiningCatalogView, MiningReportView } from "$lib/bindings";
   import NowCard from "$lib/components/NowCard.svelte";
-  import { miningStore, parseNumber } from "$lib/state/mining.svelte";
+  import { miningStore, parseNumber, setMassOverride } from "$lib/state/mining.svelte";
   import { TONE_HUE, difficulty, int, namesOf, oreName } from "./format";
+  import MassBand from "./MassBand.svelte";
   import RockArt from "./RockArt.svelte";
 
   let {
@@ -36,10 +39,12 @@
     }),
   );
   const inert = $derived(Math.max(0, 100 - rows.reduce((s, r) => s + r.percent, 0)));
-  const mass = $derived(parseNumber(rock.mass, true));
+  const scanned = $derived(parseNumber(rock.mass, true));
+  const mass = $derived(miningStore.massOverride ?? scanned);
   const source = $derived(miningStore.source);
+  const band = $derived(miningStore.band);
   const title = $derived(
-    source?.rockType ??
+    (source ? oreName(source.rockType) : null) ??
       (rows.length ? oreName([...rows].sort((a, b) => b.percent - a.percent)[0].name) : "No rock yet"),
   );
 
@@ -77,6 +82,17 @@
       <div class="stat-tile"><b class:raised={on}>{resistance}</b><span>resistance</span></div>
       <div class="stat-tile"><b class:raised={on}>{instability}</b><span>instability</span></div>
     </div>
+    {#if band && scanned !== null}
+      <div class="weighs">
+        <div class="h">
+          <span class="label">What if it weighs</span>
+          {#if miningStore.massOverride !== null}
+            <button class="link" onclick={() => setMassOverride(null)}>Back to the scan</button>
+          {/if}
+        </div>
+        <MassBand {band} value={mass ?? scanned} scan={scanned} onchange={(m) => setMassOverride(Math.round(m))} />
+      </div>
+    {/if}
     <div class="comp">
       {#each rows as r, i (i)}
         <span class="p">{r.percent.toFixed(2)}</span>
@@ -107,6 +123,32 @@
   }
   .raised {
     color: var(--warn);
+  }
+  .weighs {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .weighs .h {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .weighs .label {
+    flex: 1;
+    margin: 0;
+  }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: var(--text-small);
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .link:hover {
+    text-decoration: underline;
   }
   .comp {
     display: grid;

@@ -4,10 +4,10 @@
   // first) and a mining crew mate's.
   import { initials, nameHue } from "$lib/monogram";
 
-  let { name, size = 32 }: { name: string; size?: number } = $props();
+  let { name, size = 32, hue = undefined }: { name: string; size?: number; hue?: string } = $props();
 </script>
 
-<span class="monogram" style:--hue={nameHue(name)} style:--size="{size}px" aria-hidden="true">{initials(name)}</span>
+<span class="monogram" style:--hue={hue ?? nameHue(name)} style:--size="{size}px" aria-hidden="true">{initials(name)}</span>
 
 <style>
   .monogram {

@@ -14,6 +14,8 @@
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import {
     listenForMiningChanges,
+    loadClassTable,
+    loadMassBand,
     loadMiningAreas,
     loadMiningCatalog,
     loadMiningState,
@@ -35,7 +37,7 @@
   let ready = $state(false);
   const channel = $derived(dataStore.channel);
   const catalog = $derived(miningStore.catalog);
-  const loadout = $derived<LoadoutView>(miningStore.state?.current ?? { lasers: [], gadget: null });
+  const loadout = $derived<LoadoutView>(miningStore.state?.current ?? { lasers: [], gadget: null, lead: null });
 
   $effect(() => {
     const c = channel;
@@ -46,13 +48,31 @@
       });
   });
 
-  // Re-solve when the rock, the loadout or the build changes.
+  // Re-solve when the rock, the tried mass, the loadout or the build changes.
+  $effect(() => {
+    const c = channel;
+    const key = JSON.stringify([miningStore.rock, miningStore.massOverride, loadout, catalog !== null]);
+    if (!c || !catalog || !key) return;
+    const t = setTimeout(() => void solveRock(c), SOLVE_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  });
+
+  // The mass band follows the scanned composition and the loadout (not the
+  // tried mass: the band is the axis the slider moves along).
   $effect(() => {
     const c = channel;
     const key = JSON.stringify([miningStore.rock, loadout, catalog !== null]);
     if (!c || !catalog || !key) return;
-    const t = setTimeout(() => void solveRock(c), SOLVE_DEBOUNCE_MS);
+    const t = setTimeout(() => void loadMassBand(c), SOLVE_DEBOUNCE_MS);
     return () => clearTimeout(t);
+  });
+
+  // The finder's lists show how the loadout fares on every rock type.
+  $effect(() => {
+    const c = channel;
+    const key = JSON.stringify(loadout);
+    if (!c || !catalog || miningUi.view !== "find" || !key) return;
+    untrack(() => void loadClassTable(c));
   });
 
   let unlisten: UnlistenFn | undefined;

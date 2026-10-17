@@ -79,9 +79,9 @@ export function alternatives(report: MiningReportView, loadout: LoadoutView, cat
       });
     }
   }
-  const aboard = new Set(loadout.lasers.flatMap((l) => (l.who === null ? [] : [l.who])));
+  const aboard = new Set(loadout.lasers.flatMap((l) => (l.crew === null ? [] : [l.crew])));
   for (const c of report.crew) {
-    if (aboard.has(c.owner)) continue;
+    if (aboard.has(c.id)) continue;
     out.push({
       key: `c:${c.id}`,
       group: "Crew",
@@ -106,7 +106,7 @@ export function alternatives(report: MiningReportView, loadout: LoadoutView, cat
       apply: () =>
         setLoadout({
           ...loadout,
-          lasers: [...loadout.lasers, { laser: s.laser, modules: s.modules, owner: ship, who: "Prospector" }],
+          lasers: [...loadout.lasers, { laser: s.laser, modules: s.modules, owner: ship, who: "Prospector", crew: `support:${s.laser}` }],
         }),
     });
   }

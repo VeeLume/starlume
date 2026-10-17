@@ -218,8 +218,11 @@ pub struct LaserInputView {
     pub modules: Vec<String>,
     /// Which ship the laser is on; lasers on one ship split the wave.
     pub owner: u32,
-    /// The crew mate flying it, for a laser added from a crew loadout.
+    /// Who works it: a crew mate (their ship brought along) or a MOLE
+    /// seat's name; `null` for you.
     pub who: Option<String>,
+    /// The crew loadout (its id) the laser came from.
+    pub crew: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -227,6 +230,8 @@ pub struct LaserInputView {
 pub struct LoadoutView {
     pub lasers: Vec<LaserInputView>,
     pub gadget: Option<String>,
+    /// The laser (index) that leads a crew; `null`: the first one you work.
+    pub lead: Option<u32>,
 }
 
 impl From<LoadoutView> for mod_mining::LoadoutInput {
@@ -240,9 +245,11 @@ impl From<LoadoutView> for mod_mining::LoadoutInput {
                     modules: l.modules,
                     owner: l.owner,
                     who: l.who,
+                    crew: l.crew,
                 })
                 .collect(),
             gadget: v.gadget,
+            lead: v.lead,
         }
     }
 }
@@ -258,9 +265,11 @@ impl From<mod_mining::LoadoutInput> for LoadoutView {
                     modules: l.modules,
                     owner: l.owner,
                     who: l.who,
+                    crew: l.crew,
                 })
                 .collect(),
             gadget: v.gadget,
+            lead: v.lead,
         }
     }
 }
@@ -356,6 +365,12 @@ pub struct RockFactsView {
 #[serde(rename_all = "camelCase")]
 pub struct YourSetupView {
     pub eval: EvalView,
+    /// What the lasers (no gadget) put on the rock.
+    pub effect: EffectView,
+    /// One per laser, in loadout order.
+    pub operators: Vec<OperatorView>,
+    /// The wave for everyone at the plan's moments.
+    pub total: Vec<TotalRowView>,
     pub scanner_resistance_pct: f32,
     pub scanner_instability: f32,
     pub guide: GuideView,
@@ -515,6 +530,67 @@ pub struct JumpRowView {
     pub usual: f32,
 }
 
+/// What lasers put on the rock: power, and the change to resistance,
+/// instability and window as fractions (`-0.3`: 30 % less).
+#[derive(Debug, Clone, Copy, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectView {
+    pub power: f32,
+    pub resistance: f32,
+    pub instability: f32,
+    pub window: f32,
+}
+
+impl From<mod_mining::Effect> for EffectView {
+    fn from(e: mod_mining::Effect) -> Self {
+        Self {
+            power: e.power,
+            resistance: e.resistance,
+            instability: e.instability,
+            window: e.window,
+        }
+    }
+}
+
+fn jump_view(j: mod_mining::JumpRow) -> JumpRowView {
+    JumpRowView {
+        throttle: j.throttle,
+        label: j.label,
+        big: j.big,
+        usual: j.usual,
+    }
+}
+
+/// One laser and whoever works it.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OperatorView {
+    pub index: u32,
+    pub laser: String,
+    pub owner: u32,
+    pub who: Option<String>,
+    pub crew: Option<String>,
+    /// The lead follows the steps; the others hold.
+    pub lead: bool,
+    /// A support's throttle through the climb and the window.
+    pub hold: Option<f32>,
+    pub effect: EffectView,
+    pub jumps: Vec<JumpRowView>,
+}
+
+/// One moment of the plan for everyone.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TotalRowView {
+    pub label: Option<String>,
+    /// Each operator's throttle.
+    pub throttles: Vec<f32>,
+    pub big: f32,
+    pub usual: f32,
+    /// Each operator's share of the lift (their share of the gain).
+    pub shares: Vec<f32>,
+}
+
 /// A crew ship beside yours on the rock.
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -571,6 +647,33 @@ impl From<mod_mining::Report> for MiningReportView {
             },
             yours: r.yours.map(|y| YourSetupView {
                 eval: y.eval.into(),
+                effect: y.effect.into(),
+                operators: y
+                    .operators
+                    .into_iter()
+                    .map(|o| OperatorView {
+                        index: o.index,
+                        laser: o.laser,
+                        owner: o.owner,
+                        who: o.who,
+                        crew: o.crew,
+                        lead: o.lead,
+                        hold: o.hold,
+                        effect: o.effect.into(),
+                        jumps: o.jumps.into_iter().map(jump_view).collect(),
+                    })
+                    .collect(),
+                total: y
+                    .total
+                    .into_iter()
+                    .map(|t| TotalRowView {
+                        label: t.label,
+                        throttles: t.throttles,
+                        big: t.big,
+                        usual: t.usual,
+                        shares: t.shares,
+                    })
+                    .collect(),
                 scanner_resistance_pct: y.scanner_resistance_pct,
                 scanner_instability: y.scanner_instability,
                 guide: y.guide.into(),
@@ -620,7 +723,19 @@ pub(crate) async fn mining_solve(
 ) -> Result<MiningReportView, AppError> {
     let catalog = catalog_for(&app, &channel).await?;
     let loadout: mod_mining::LoadoutInput = loadout.into();
-    let rock = mod_mining::RockInput {
+    let rock = rock_input(rock);
+    let crew = load_state().crew();
+    tauri::async_runtime::spawn_blocking(move || {
+        mod_mining::solve(&catalog, &loadout, &rock, &crew)
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
+    .map(Into::into)
+    .map_err(|e| AppError::Config(e.to_string()))
+}
+
+fn rock_input(rock: RockView) -> mod_mining::RockInput {
+    mod_mining::RockInput {
         mass: rock.mass,
         entries: rock
             .entries
@@ -631,15 +746,59 @@ pub(crate) async fn mining_solve(
                 quality: e.quality,
             })
             .collect(),
-    };
-    let crew = load_state().crew();
-    tauri::async_runtime::spawn_blocking(move || {
-        mod_mining::solve(&catalog, &loadout, &rock, &crew)
-    })
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?
-    .map(Into::into)
-    .map_err(|e| AppError::Config(e.to_string()))
+    }
+}
+
+/// The loadout's class along the mass axis for this rock's composition.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MassBandView {
+    /// The axis' end, tonnes.
+    pub top: f32,
+    /// The heaviest breakable mass of this composition.
+    pub max_mass: f32,
+    pub segments: Vec<BandSegmentView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BandSegmentView {
+    pub from: f32,
+    pub to: f32,
+    pub class: RockClassView,
+}
+
+/// Where along the mass axis a rock like this one is too much power, easy,
+/// manageable, hard or out of reach for the loadout: the calculator's
+/// "what if it weighs" band.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn mining_mass_band(
+    app: AppHandle,
+    channel: String,
+    loadout: LoadoutView,
+    rock: RockView,
+) -> Result<MassBandView, AppError> {
+    let catalog = catalog_for(&app, &channel).await?;
+    let loadout: mod_mining::LoadoutInput = loadout.into();
+    let rock = rock_input(rock);
+    tauri::async_runtime::spawn_blocking(move || mod_mining::mass_band(&catalog, &loadout, &rock))
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .map(|b| MassBandView {
+            top: b.top,
+            max_mass: b.max_mass,
+            segments: b
+                .segments
+                .into_iter()
+                .map(|s| BandSegmentView {
+                    from: s.from,
+                    to: s.to,
+                    class: s.class.into(),
+                })
+                .collect(),
+        })
+        .map_err(|e| AppError::Config(e.to_string()))
 }
 
 // ── Saved loadouts ──────────────────────────────────────────────────────────
@@ -869,19 +1028,31 @@ fn sources(cooked: &svc_data::CookedData) -> Result<mod_mining::Sources<'_>, App
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum RockClassView {
-    Safe,
-    Okay,
-    Dangerous,
+    Easy,
+    Manageable,
+    Hard,
     TooMuchPower,
     Impossible,
+}
+
+impl From<mod_mining::RockClass> for RockClassView {
+    fn from(c: mod_mining::RockClass) -> Self {
+        match c {
+            mod_mining::RockClass::Easy => Self::Easy,
+            mod_mining::RockClass::Manageable => Self::Manageable,
+            mod_mining::RockClass::Hard => Self::Hard,
+            mod_mining::RockClass::TooMuchPower => Self::TooMuchPower,
+            mod_mining::RockClass::Impossible => Self::Impossible,
+        }
+    }
 }
 
 impl From<RockClassView> for mod_mining::RockClass {
     fn from(c: RockClassView) -> Self {
         match c {
-            RockClassView::Safe => Self::Safe,
-            RockClassView::Okay => Self::Okay,
-            RockClassView::Dangerous => Self::Dangerous,
+            RockClassView::Easy => Self::Easy,
+            RockClassView::Manageable => Self::Manageable,
+            RockClassView::Hard => Self::Hard,
             RockClassView::TooMuchPower => Self::TooMuchPower,
             RockClassView::Impossible => Self::Impossible,
         }
@@ -896,9 +1067,19 @@ pub enum PickView {
     MostCommon,
     Smallest,
     Largest,
-    MostOre { element: String },
-    BestQuality { element: String },
-    Class { class: RockClassView },
+    MostOre {
+        element: String,
+    },
+    BestQuality {
+        element: String,
+    },
+    Class {
+        class: RockClassView,
+    },
+    /// The roll closest to this mass, tonnes.
+    Mass {
+        mass: f32,
+    },
 }
 
 #[derive(Debug, Clone, serde::Deserialize, specta::Type)]
@@ -922,11 +1103,71 @@ pub struct GeneratedEntryView {
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassSharesView {
-    pub safe: f32,
-    pub okay: f32,
-    pub dangerous: f32,
+    pub easy: f32,
+    pub manageable: f32,
+    pub hard: f32,
     pub too_much_power: f32,
     pub impossible: f32,
+}
+
+impl From<mod_mining::ClassShares> for ClassSharesView {
+    fn from(c: mod_mining::ClassShares) -> Self {
+        Self {
+            easy: c.easy,
+            manageable: c.manageable,
+            hard: c.hard,
+            too_much_power: c.too_much_power,
+            impossible: c.impossible,
+        }
+    }
+}
+
+/// One bar of a rock type's mass distribution.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MassBucketView {
+    pub from: f32,
+    pub to: f32,
+    pub count: u32,
+    /// With a loadout: the class most of its rolls have.
+    pub class: Option<RockClassView>,
+}
+
+/// A rock type at an area with its class shares for the loadout.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RockClassesView {
+    pub area: String,
+    pub rock_type: String,
+    pub classes: ClassSharesView,
+}
+
+/// Every rollable rock type at every area with the loadout's class shares:
+/// the rock finder's lists, so each row shows how the ship fares.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn mining_class_table(
+    app: AppHandle,
+    channel: String,
+    loadout: LoadoutView,
+) -> Result<Vec<RockClassesView>, AppError> {
+    let cooked = cooked_for(&app, &channel).await?;
+    let loadout: mod_mining::LoadoutInput = loadout.into();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<RockClassesView>, AppError> {
+        let catalog = catalog_of(&cooked)?;
+        let src = sources(&cooked)?;
+        Ok(mod_mining::class_table(&src, &catalog, &loadout)
+            .map_err(|e| AppError::Config(e.to_string()))?
+            .into_iter()
+            .map(|r| RockClassesView {
+                area: r.area,
+                rock_type: r.rock_type,
+                classes: r.classes.into(),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -943,6 +1184,8 @@ pub struct GeneratedView {
     pub classes: Option<ClassSharesView>,
     /// For a most-common pick: the share of rolls holding its ore mix.
     pub pick_share: Option<f32>,
+    /// The sample's masses as bars, lightest first.
+    pub masses: Vec<MassBucketView>,
 }
 
 /// Roll a rock of a type in an area: average, smallest, largest, most of an
@@ -969,6 +1212,7 @@ pub(crate) async fn mining_generate(
             PickView::Class { class } => mod_mining::Pick::Class {
                 class: class.into(),
             },
+            PickView::Mass { mass } => mod_mining::Pick::Mass { mass },
         },
         place: request.place,
     };
@@ -994,14 +1238,18 @@ pub(crate) async fn mining_generate(
             seed: g.seed as u32,
             place: g.place.map(Into::into),
             rolled: g.rolled,
-            classes: g.classes.map(|c| ClassSharesView {
-                safe: c.safe,
-                okay: c.okay,
-                dangerous: c.dangerous,
-                too_much_power: c.too_much_power,
-                impossible: c.impossible,
-            }),
+            classes: g.classes.map(Into::into),
             pick_share: g.pick_share,
+            masses: g
+                .masses
+                .into_iter()
+                .map(|b| MassBucketView {
+                    from: b.from,
+                    to: b.to,
+                    count: b.count,
+                    class: b.class.map(Into::into),
+                })
+                .collect(),
         })
     })
     .await

@@ -15,7 +15,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use svc_data::mining::{
-    Composition, Entry, ModifiedRock, QualityRoll, RockType, Setup, Shape, Spawn, Spawner,
+    Composition, Elements, Entry, ModifiedRock, Player, QualityRoll, Rock, RockType, Ruleset,
+    Setup, Shape, SimConfig, Spawn, Spawner, difficulty,
 };
 use svc_data::{
     GatheringMode, Guid, LocaleMap, LocationKind, Locations, MiningIndex, ProviderLocations,
@@ -23,7 +24,6 @@ use svc_data::{
 };
 
 use crate::catalog::Catalog;
-use crate::guide::{Category, category};
 use crate::solve::{EntryInput, LoadoutInput, RockInput, SolveError, setup_of};
 
 /// Rolls per rock type and area: shares to about a percent, and the median,
@@ -31,6 +31,17 @@ use crate::solve::{EntryInput, LoadoutInput, RockInput, SolveError, setup_of};
 pub const SAMPLE: u32 = 2000;
 /// Composition rolls per rock type for its ore odds.
 const ODDS_ROLLS: u64 = 2000;
+/// Rolls per rock type and area for the class table (the finder's lists):
+/// shares to a few percent, over every area at once.
+const TABLE_SAMPLE: u64 = 400;
+/// Player-model tries per graded mass in a band or a list: enough to tell
+/// easy, manageable and hard apart, cheap enough to run many times.
+pub const GRADE_RUNS: u32 = 24;
+/// Masses graded per rock type (quantiles of its rolls): the finder's lists
+/// and a pick's histogram classify every roll by the nearest one.
+const SPREAD_GRADES: usize = 10;
+/// Bars in a rock type's mass distribution.
+const MASS_BUCKETS: usize = 36;
 /// The seed the spawner derives a composition roll from (sc-mining's
 /// `Spawner::spawn`); rolling it again with quality gives the same entries.
 fn composition_seed(seed: u64) -> u64 {
@@ -138,15 +149,23 @@ pub enum Pick {
     Class {
         class: RockClass,
     },
+    /// The roll closest to this mass (tonnes).
+    Mass {
+        mass: f32,
+    },
 }
 
-/// How a rock flies for a loadout: the guide's category, or impossible.
+/// How a rock goes for a loadout, in the calculator's words: can't break,
+/// too much power (the charge climbs even at the lasers' minimum), else our
+/// player model's clean cracks — easy (80 % or more), manageable (50 % or
+/// more), hard. The same thresholds as the calculator's difficulty word, so
+/// a band, a list and the outcome tell one story.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RockClass {
-    Safe,
-    Okay,
-    Dangerous,
+    Easy,
+    Manageable,
+    Hard,
     TooMuchPower,
     Impossible,
 }
@@ -178,13 +197,34 @@ pub struct Generated {
     pub classes: Option<ClassShares>,
     /// For a most-common pick: the share of rolls holding its ore mix.
     pub pick_share: Option<f32>,
+    /// The sample's masses as bars, lightest first, up to the 98th
+    /// percentile (the rest fall in the last bar).
+    pub masses: Vec<MassBucket>,
+}
+
+/// One bar of a rock type's mass distribution.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct MassBucket {
+    pub from: f32,
+    pub to: f32,
+    pub count: u32,
+    /// With a loadout: the class most of its rolls have.
+    pub class: Option<RockClass>,
+}
+
+/// A rock type at an area, with its class shares for the loadout.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RockClasses {
+    pub area: String,
+    pub rock_type: String,
+    pub classes: ClassShares,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct ClassShares {
-    pub safe: f32,
-    pub okay: f32,
-    pub dangerous: f32,
+    pub easy: f32,
+    pub manageable: f32,
+    pub hard: f32,
     pub too_much_power: f32,
     pub impossible: f32,
 }
@@ -776,6 +816,191 @@ fn parse_guid(s: &str) -> Option<Guid> {
     s.parse().ok()
 }
 
+/// The class where breakability or power decide it without a simulation.
+fn decided(ruleset: &Ruleset, m: &ModifiedRock) -> Option<RockClass> {
+    if !m.is_breakable(ruleset) {
+        Some(RockClass::Impossible)
+    } else if m.overcharges_at_minimum(ruleset) {
+        Some(RockClass::TooMuchPower)
+    } else {
+        None
+    }
+}
+
+/// A clean-crack share in the calculator's words.
+pub fn by_share(controlled: f32) -> RockClass {
+    if controlled >= 0.8 {
+        RockClass::Easy
+    } else if controlled >= 0.5 {
+        RockClass::Manageable
+    } else {
+        RockClass::Hard
+    }
+}
+
+/// How a rock goes for a setup: [`RockClass`], our player model over
+/// `runs` tries where breakability and power do not decide it.
+pub fn grade(ruleset: &Ruleset, m: &ModifiedRock, runs: u32) -> RockClass {
+    decided(ruleset, m).unwrap_or_else(|| {
+        let d = difficulty(m, ruleset, &Player::default(), &SimConfig::default(), runs);
+        by_share(d.controlled)
+    })
+}
+
+/// Every rock's class: exact where breakability or power decide it, else
+/// the class our player model gives the nearest of a few graded masses
+/// (quantiles of the rocks, the median rock's composition) — a simulation
+/// per rock would be thousands of them.
+fn classes_of(
+    ruleset: &Ruleset,
+    elements: &Elements,
+    rocks: &[&Rock],
+    setup: &Setup,
+) -> Vec<RockClass> {
+    let mut by_mass: Vec<&Rock> = rocks.to_vec();
+    by_mass.sort_by(|a, b| a.mass.total_cmp(&b.mass));
+    let Some(median) = by_mass.get(by_mass.len() / 2) else {
+        return vec![];
+    };
+    let n = SPREAD_GRADES.min(by_mass.len());
+    let graded: Vec<(f32, RockClass)> = (0..n)
+        .filter_map(|k| {
+            let mass = by_mass[((k as f32 + 0.5) / n as f32 * by_mass.len() as f32) as usize].mass;
+            let rock = Rock::from_mass(ruleset, elements, &median.entries, mass)?;
+            let m = ModifiedRock::new(ruleset, &rock, setup);
+            // Only simulated grades stand in for other rocks.
+            decided(ruleset, &m)
+                .is_none()
+                .then(|| (mass, grade(ruleset, &m, GRADE_RUNS)))
+        })
+        .collect();
+    rocks
+        .iter()
+        .map(|r| {
+            let m = ModifiedRock::new(ruleset, r, setup);
+            decided(ruleset, &m).unwrap_or_else(|| {
+                graded
+                    .iter()
+                    .min_by(|a, b| {
+                        (a.0 / r.mass)
+                            .ln()
+                            .abs()
+                            .total_cmp(&(b.0 / r.mass).ln().abs())
+                    })
+                    .map(|g| g.1)
+                    .unwrap_or_else(|| grade(ruleset, &m, GRADE_RUNS))
+            })
+        })
+        .collect()
+}
+
+fn shares_of(classes: &[RockClass]) -> ClassShares {
+    let n = classes.len().max(1) as f32;
+    let share = |c: RockClass| classes.iter().filter(|x| **x == c).count() as f32 / n;
+    ClassShares {
+        easy: share(RockClass::Easy),
+        manageable: share(RockClass::Manageable),
+        hard: share(RockClass::Hard),
+        too_much_power: share(RockClass::TooMuchPower),
+        impossible: share(RockClass::Impossible),
+    }
+}
+
+/// Every rollable rock type at every area with its class shares for
+/// `loadout`, from a smaller sample than a pick's (spawns only: the class
+/// does not depend on the composition roll).
+pub fn class_table(
+    src: &Sources<'_>,
+    catalog: &Catalog,
+    loadout: &LoadoutInput,
+) -> Result<Vec<RockClasses>, SolveError> {
+    let (lasers, gadgets) = setup_of(catalog, loadout)?;
+    let setup = Setup { lasers, gadgets };
+    let rs = &catalog.ruleset;
+    let mut cache: HashMap<(Guid, Vec<Guid>), ClassShares> = HashMap::new();
+    let mut out = Vec::new();
+    for (guid, _) in src.providers.iter() {
+        if LEFTOVERS.contains(&guid.to_string().as_str()) {
+            continue;
+        }
+        for e in ship_entries(src, catalog, guid) {
+            let key = (e.rock.guid, e.geometry_tags.to_vec());
+            let shares = match cache.get(&key) {
+                Some(s) => *s,
+                None => {
+                    let shapes = src.shapes(e.rock, e.geometry_tags);
+                    if shapes.is_empty() || e.rock.composition.is_none() {
+                        continue;
+                    }
+                    let spawner = Spawner {
+                        rock_type: e.rock,
+                        ruleset: rs,
+                        elements: &catalog.elements,
+                        compositions: &src.index.compositions,
+                        shapes: &shapes,
+                    };
+                    let spawns: Vec<Spawn> = (0..TABLE_SAMPLE)
+                        .filter_map(|seed| spawner.spawn(seed))
+                        .collect();
+                    let rocks: Vec<&Rock> = spawns.iter().map(|sp| &sp.rock).collect();
+                    let classes = classes_of(rs, &catalog.elements, &rocks, &setup);
+                    if classes.is_empty() {
+                        continue;
+                    }
+                    let shares = shares_of(&classes);
+                    cache.insert(key, shares);
+                    shares
+                }
+            };
+            out.push(RockClasses {
+                area: guid.to_string(),
+                rock_type: e.rock.guid.to_string(),
+                classes: shares,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// The sample's masses as bars, each with the class most of its rolls have.
+fn mass_buckets(rolled: &[Rolled], classes: Option<&Vec<RockClass>>) -> Vec<MassBucket> {
+    let mut masses: Vec<f32> = rolled.iter().map(|r| r.spawn.rock.mass).collect();
+    masses.sort_by(f32::total_cmp);
+    let top = masses[((masses.len() as f32 * 0.98) as usize).min(masses.len() - 1)].max(1.0);
+    let width = top / MASS_BUCKETS as f32;
+    let mut counts = vec![[0u32; 6]; MASS_BUCKETS];
+    let order = [
+        RockClass::TooMuchPower,
+        RockClass::Easy,
+        RockClass::Manageable,
+        RockClass::Hard,
+        RockClass::Impossible,
+    ];
+    for (k, r) in rolled.iter().enumerate() {
+        let b = ((r.spawn.rock.mass / width) as usize).min(MASS_BUCKETS - 1);
+        counts[b][5] += 1;
+        if let Some(cs) = classes {
+            let c = order.iter().position(|x| *x == cs[k]).unwrap_or(4);
+            counts[b][c] += 1;
+        }
+    }
+    counts
+        .iter()
+        .enumerate()
+        .map(|(b, c)| MassBucket {
+            from: b as f32 * width,
+            to: (b + 1) as f32 * width,
+            count: c[5],
+            class: classes.and_then(|_| {
+                (0..5)
+                    .filter(|&i| c[i] > 0)
+                    .max_by_key(|&i| c[i])
+                    .map(|i| order[i])
+            }),
+        })
+        .collect()
+}
+
 /// Generate one rock for `request`; `loadout` (with a laser) adds the class
 /// shares and is needed for a class pick.
 pub fn generate(
@@ -858,33 +1083,12 @@ pub fn generate(
         None => None,
     };
     let rs = &catalog.ruleset;
-    let class_of = |r: &Rolled, setup: &Setup| {
-        let m = ModifiedRock::new(rs, &r.spawn.rock, setup);
-        if !m.is_breakable(rs) {
-            return RockClass::Impossible;
-        }
-        match category(&m, rs) {
-            Some(Category::Safe) => RockClass::Safe,
-            Some(Category::Okay) => RockClass::Okay,
-            Some(Category::Dangerous) => RockClass::Dangerous,
-            Some(Category::TooMuchPower) => RockClass::TooMuchPower,
-            None => RockClass::Impossible,
-        }
-    };
-    let classes: Option<Vec<RockClass>> = setup
-        .as_ref()
-        .map(|s| rolled.iter().map(|r| class_of(r, s)).collect());
-    let shares = classes.as_ref().map(|cs| {
-        let n = cs.len() as f32;
-        let share = |c: RockClass| cs.iter().filter(|x| **x == c).count() as f32 / n;
-        ClassShares {
-            safe: share(RockClass::Safe),
-            okay: share(RockClass::Okay),
-            dangerous: share(RockClass::Dangerous),
-            too_much_power: share(RockClass::TooMuchPower),
-            impossible: share(RockClass::Impossible),
-        }
+    let classes: Option<Vec<RockClass>> = setup.as_ref().map(|s| {
+        let rocks: Vec<&Rock> = rolled.iter().map(|r| &r.spawn.rock).collect();
+        classes_of(rs, &catalog.elements, &rocks, s)
     });
+    let shares = classes.as_deref().map(shares_of);
+    let masses = mass_buckets(&rolled, classes.as_ref());
 
     let all: Vec<&Rolled> = rolled.iter().collect();
     let mut pick_share = None;
@@ -935,6 +1139,14 @@ pub fn generate(
             }
             pool[pool.len() / 2]
         }
+        Pick::Mass { mass } => all
+            .into_iter()
+            .min_by(|a, b| {
+                (a.spawn.rock.mass - mass)
+                    .abs()
+                    .total_cmp(&(b.spawn.rock.mass - mass).abs())
+            })
+            .expect("rolled is not empty"),
     };
 
     Ok(Generated {
@@ -956,6 +1168,7 @@ pub fn generate(
         rolled: rolled.len() as u32,
         classes: shares,
         pick_share,
+        masses,
     })
 }
 

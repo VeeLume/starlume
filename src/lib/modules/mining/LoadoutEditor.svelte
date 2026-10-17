@@ -1,12 +1,15 @@
 <script lang="ts">
-  // The ship(s) on the rock: lasers with their module slots, which ship each
-  // is on (lasers on one ship split the instability wave — a MOLE is one
-  // ship), and the gadget. Any laser can be picked: which lasers fit which
-  // ship is not in the game data model yet. A crew mate's lasers (brought along
-  // from their loadout) carry their name and come off with the ×.
+  // The ship(s) of a loadout, in the card language: one block per ship,
+  // each laser as a picker with its figures (power, range, slots — so
+  // choosing compares them) and its module slots as tiles with their
+  // effects. A picker opens its list in place: lasers with their figures,
+  // modules with their effects (active ones tagged), searchable. A ship
+  // with several lasers (a MOLE) names who works each head. Which lasers
+  // fit which ship is not in the game data model yet, so any laser can be
+  // picked. The gadget belongs to the rock (the calculator's gadget card).
   import { Plus, X } from "lucide-svelte";
   import type { LaserInputView, LoadoutView, MiningCatalogView } from "$lib/bindings";
-  import Monogram from "$lib/components/Monogram.svelte";
+  import { effects, laserShort, operatorNames } from "./format";
 
   let {
     catalog,
@@ -18,167 +21,437 @@
     onchange: (next: LoadoutView) => void;
   } = $props();
 
+  /** The open list: a laser picker (`laser:i`) or a slot (`slot:i:s`). */
+  let openList = $state("");
+  let q = $state("");
+
   const laserById = $derived(new Map(catalog.lasers.map((l) => [l.id, l])));
-  const ships = $derived(Math.max(1, ...loadout.lasers.filter((l) => !l.who).map((l) => l.owner + 2)));
+  const moduleById = $derived(new Map(catalog.modules.map((m) => [m.id, m])));
+  const owners = $derived([...new Set(loadout.lasers.map((l) => l.owner))].sort((a, b) => a - b));
+  const seatNames = $derived(operatorNames(loadout.lasers));
+  const query = $derived(q.trim().toLowerCase());
+  const lasersShown = $derived(catalog.lasers.filter((l) => l.name.toLowerCase().includes(query)));
+  const modulesShown = $derived(catalog.modules.filter((m) => m.name.toLowerCase().includes(query)));
+
+  function toggle(key: string) {
+    openList = openList === key ? "" : key;
+    q = "";
+  }
 
   function setLaser(i: number, patch: Partial<LaserInputView>) {
-    const lasers = loadout.lasers.map((l, j) => (j === i ? { ...l, ...patch } : l));
-    onchange({ ...loadout, lasers });
+    onchange({ ...loadout, lasers: loadout.lasers.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
   }
 
   function pickLaser(i: number, id: string) {
     const slots = laserById.get(id)?.moduleSlots ?? 0;
     setLaser(i, { laser: id, modules: loadout.lasers[i].modules.slice(0, slots) });
+    openList = "";
   }
 
-  function pickModule(i: number, slot: number, id: string) {
+  function pickModule(i: number, slot: number, id: string | null) {
     const modules = [...loadout.lasers[i].modules];
     if (id) modules[slot] = id;
     else modules.splice(slot, 1);
     setLaser(i, { modules: modules.filter(Boolean) });
+    openList = "";
   }
 
-  function addLaser() {
-    const last = loadout.lasers.at(-1);
+  function addLaser(owner: number) {
+    const last = [...loadout.lasers].reverse().find((l) => l.owner === owner);
     onchange({
       ...loadout,
       lasers: [
         ...loadout.lasers,
-        { laser: last?.laser ?? catalog.lasers[0]?.id ?? "", modules: [], owner: last?.owner ?? 0, who: null },
+        { laser: last?.laser ?? catalog.lasers[0]?.id ?? "", modules: [], owner, who: null, crew: null },
       ],
     });
   }
 
+  function addShip() {
+    const owner = Math.max(-1, ...loadout.lasers.map((l) => l.owner)) + 1;
+    addLaser(owner);
+  }
+
   function removeLaser(i: number) {
-    onchange({ ...loadout, lasers: loadout.lasers.filter((_, j) => j !== i) });
+    onchange({ ...loadout, lead: null, lasers: loadout.lasers.filter((_, j) => j !== i) });
   }
 </script>
 
-<div class="lasers">
-  {#each loadout.lasers as l, i (i)}
-    {@const laser = laserById.get(l.laser)}
-    <div class="laser">
-      <div class="head">
-        {#if l.who}<span class="who"><Monogram name={l.who} size={22} />{l.who}</span>{/if}
-        <select class="select grow" value={l.laser} onchange={(e) => pickLaser(i, e.currentTarget.value)} aria-label="Laser">
-          {#if !laser}<option value={l.laser}>Unknown laser</option>{/if}
-          {#each catalog.lasers as opt (opt.id)}
-            <option value={opt.id}>{opt.name}</option>
-          {/each}
-        </select>
-        {#if loadout.lasers.length > 1 && !l.who}
-          <select
-            class="select"
-            value={String(l.owner)}
-            onchange={(e) => setLaser(i, { owner: Number(e.currentTarget.value) })}
-            aria-label="Ship"
-            title="Lasers on one ship split the instability wave; a MOLE is one ship"
-          >
-            {#each Array.from({ length: ships }, (_, n) => n) as n (n)}
-              <option value={String(n)}>Ship {n + 1}</option>
-            {/each}
-          </select>
-        {/if}
-        <button class="btn subtle icon" onclick={() => removeLaser(i)} title="Remove laser" aria-label="Remove laser">
-          <X size={14} />
-        </button>
+<div class="ships">
+  {#each owners as owner, n (owner)}
+    {@const onShip = loadout.lasers.map((l, i) => ({ l, i })).filter((x) => x.l.owner === owner)}
+    <section class="ship">
+      <div class="sh">
+        <span class="label">{owners.length > 1 ? `Ship ${n + 1}` : "Ship"}</span>
+        <span class="grow"></span>
+        <button class="link" onclick={() => addLaser(owner)}><Plus size={13} /> Laser on this ship</button>
       </div>
-      {#if laser}
-        <div class="slots">
-          {#each Array.from({ length: laser.moduleSlots }, (_, s) => s) as s (s)}
-            <select
-              class="select"
-              value={l.modules[s] ?? ""}
-              onchange={(e) => pickModule(i, s, e.currentTarget.value)}
-              aria-label="Module slot {s + 1}"
-            >
-              <option value="">— empty slot —</option>
-              {#each catalog.modules as m (m.id)}
-                <option value={m.id}>{m.name}{m.active ? " (active)" : ""}</option>
+      {#each onShip as { l, i } (i)}
+        {@const laser = laserById.get(l.laser)}
+        <div class="head">
+          {#if onShip.length > 1}
+            <label class="seat">
+              <span class="label">Head {onShip.findIndex((x) => x.i === i) + 1}</span>
+              <input
+                class="input"
+                value={l.who ?? ""}
+                placeholder={seatNames[i]}
+                aria-label="Who works this head"
+                onchange={(e) => setLaser(i, { who: e.currentTarget.value.trim() || null })}
+              />
+            </label>
+          {/if}
+          <div class="pickrow">
+            <button class="laserpick" class:open={openList === `laser:${i}`} onclick={() => toggle(`laser:${i}`)}>
+              <span class="ln"
+                ><b>{laser ? laserShort(laser.name) : "Unknown laser"}</b><span
+                  >{laser ? `Mining Laser S${laser.size}` : ""}</span
+                ></span
+              >
+              {#if laser}
+                <span class="lf">
+                  <span><b>{Math.round(laser.power).toLocaleString("en-US")}</b>power</span>
+                  {#if laser.optimalRangeM !== null && laser.maxRangeM !== null}
+                    <span><b>{laser.optimalRangeM.toFixed(0)}–{laser.maxRangeM.toFixed(0)} m</b>range</span>
+                  {/if}
+                  <span><b>{laser.moduleSlots}</b>slots</span>
+                </span>
+              {/if}
+              <span class="car">▾</span>
+            </button>
+            {#if loadout.lasers.length > 1}
+              <button class="x" onclick={() => removeLaser(i)} title="Remove this laser" aria-label="Remove laser"
+                ><X size={14} /></button
+              >
+            {/if}
+          </div>
+          {#if openList === `laser:${i}`}
+            <div class="list">
+              <input class="input" bind:value={q} placeholder="Find a laser" aria-label="Find a laser" />
+              {#each lasersShown as opt (opt.id)}
+                <button class="lr" class:cur={opt.id === l.laser} onclick={() => pickLaser(i, opt.id)}>
+                  <b>{laserShort(opt.name)}</b>
+                  <span class="faint">S{opt.size}</span>
+                  <span class="mono">{Math.round(opt.power).toLocaleString("en-US")}</span>
+                  <span class="faint"
+                    >{opt.optimalRangeM !== null && opt.maxRangeM !== null
+                      ? `${opt.optimalRangeM.toFixed(0)}–${opt.maxRangeM.toFixed(0)} m`
+                      : ""}</span
+                  >
+                  <span class="faint">{opt.moduleSlots} slots</span>
+                </button>
               {/each}
-            </select>
-          {/each}
-          {#if laser.moduleSlots === 0}<span class="dim small">no module slots</span>{/if}
+            </div>
+          {/if}
+          {#if laser && laser.moduleSlots > 0}
+            <div class="slots">
+              {#each Array.from({ length: laser.moduleSlots }, (_, s) => s) as s (s)}
+                {@const m = l.modules[s] ? moduleById.get(l.modules[s]) : null}
+                <button class="sl" class:empty={!m} class:on={openList === `slot:${i}:${s}`} onclick={() => toggle(`slot:${i}:${s}`)}>
+                  <span class="sn">Slot {s + 1}</span>
+                  <b>{m?.name ?? "Empty"}</b>
+                  <span class="fx">
+                    {#if m}
+                      {#each effects(m.modifiers, m.powerMultiplier).slice(0, 2) as fx (fx.text)}
+                        <span class="hue-chip" style:--hue={fx.good ? "var(--good)" : "var(--warn)"}>{fx.text}</span>
+                      {/each}
+                    {:else}<span class="faint">pick a module</span>{/if}
+                  </span>
+                </button>
+              {/each}
+            </div>
+            {#each Array.from({ length: laser.moduleSlots }, (_, s) => s) as s (s)}
+              {#if openList === `slot:${i}:${s}`}
+                <div class="list">
+                  <input class="input" bind:value={q} placeholder="Find a module" aria-label="Find a module" />
+                  {#if l.modules[s]}
+                    <button class="mr" onclick={() => pickModule(i, s, null)}><b class="faint">Empty slot</b></button>
+                  {/if}
+                  {#each modulesShown as m (m.id)}
+                    <button class="mr" class:cur={m.id === l.modules[s]} onclick={() => pickModule(i, s, m.id)}>
+                      <b>{m.name}</b>
+                      {#if m.active}<span class="tag">active</span>{:else}<span></span>{/if}
+                      <span class="fx">
+                        {#each effects(m.modifiers, m.powerMultiplier).slice(0, 3) as fx (fx.text)}
+                          <span class="hue-chip" style:--hue={fx.good ? "var(--good)" : "var(--warn)"}>{fx.text}</span>
+                        {/each}
+                      </span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            {/each}
+          {/if}
         </div>
-        <p class="dim small facts">
-          {laser.power.toFixed(0)} power · S{laser.size}
-          {#if laser.optimalRangeM !== null && laser.maxRangeM !== null}
-            · {laser.optimalRangeM.toFixed(0)}–{laser.maxRangeM.toFixed(0)} m{/if}
-        </p>
-      {/if}
-    </div>
+      {/each}
+    </section>
   {/each}
-  <button class="btn subtle add" onclick={addLaser}><Plus size={14} /> Add laser</button>
+  <button class="addship" onclick={addShip}><Plus size={14} /> Another ship</button>
 </div>
 
-<label class="gadget">
-  <span class="label">Gadget</span>
-  <select
-    class="select"
-    value={loadout.gadget ?? ""}
-    onchange={(e) => onchange({ ...loadout, gadget: e.currentTarget.value || null })}
-  >
-    <option value="">No gadget</option>
-    {#each catalog.gadgets as g (g.id)}
-      <option value={g.id}>{g.name}</option>
-    {/each}
-  </select>
-</label>
-
 <style>
-  .lasers {
+  .ships {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: 10px;
   }
-  .laser {
+  .ship {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding-bottom: var(--space-2);
-    border-bottom: 1px solid var(--border-soft);
+    gap: 10px;
+    padding: 12px;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--hue-sky) 9%, var(--bg)), var(--bg) 60%);
+    border: 1px solid color-mix(in srgb, var(--hue-sky) 25%, var(--border));
   }
-  .head,
-  .slots {
+  .sh {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
     align-items: center;
+    gap: 8px;
+  }
+  .sh .label {
+    margin: 0;
   }
   .grow {
     flex: 1;
-    max-width: none;
   }
-  .who {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--text-small);
-    font-weight: var(--weight-semibold);
-  }
-  .slots .select {
-    flex: 1 1 140px;
-  }
-  .icon {
-    padding: 4px 6px;
-    display: inline-flex;
-  }
-  .add {
-    align-self: flex-start;
+  .link {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-  }
-  .small {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
     font-size: var(--text-small);
+    color: var(--accent);
+    cursor: pointer;
   }
-  .facts {
-    margin: 0;
+  .head {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
-  .gadget {
+  .head + .head {
+    padding-top: 10px;
+    border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  }
+  .seat {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
-    margin-top: var(--space-2);
+    gap: 10px;
+  }
+  .seat .label {
+    margin: 0;
+    flex: none;
+  }
+  .seat .input {
+    flex: 1;
+    min-width: 0;
+  }
+  .pickrow {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+  }
+  .laserpick {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto 16px;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .laserpick:hover,
+  .laserpick.open {
+    border-color: var(--accent-border);
+  }
+  .ln {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+  }
+  .ln b {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    color: color-mix(in srgb, var(--hue-sky) 55%, var(--text-strong));
+    white-space: nowrap;
+  }
+  .ln span {
+    font-size: var(--text-small);
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .lf {
+    display: flex;
+    gap: 14px;
+  }
+  .lf span {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.62rem;
+    color: var(--text-faint);
+    text-transform: var(--label-transform);
+    letter-spacing: 0.08em;
+  }
+  .lf b {
+    font-family: var(--font-mono);
+    font-size: 0.86rem;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .car {
+    color: var(--text-faint);
+  }
+  .x {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: none;
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .x:hover {
+    color: var(--bad);
+    border-color: var(--danger-border);
+  }
+  .slots {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+  }
+  .sl {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .sl.on {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .sl.empty {
+    border-style: dashed;
+    background: transparent;
+  }
+  .sl.empty b {
+    color: var(--text-faint);
+    font-weight: var(--weight-medium);
+  }
+  .sn {
+    font-size: 0.62rem;
+    color: var(--text-faint);
+    text-transform: var(--label-transform);
+    letter-spacing: 0.08em;
+  }
+  .fx {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    font-size: 0.72rem;
+  }
+  .fx .hue-chip {
+    font-size: 0.62rem;
+    padding: 0 5px;
+  }
+  .list {
+    display: flex;
+    flex-direction: column;
+    max-height: 300px;
+    overflow: auto;
+    padding: 6px;
+    border-radius: var(--radius);
+    border: 1px solid var(--accent);
+    background: var(--bg-raised);
+  }
+  .list .input {
+    margin-bottom: 4px;
+  }
+  .lr,
+  .mr {
+    display: grid;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    font: inherit;
+    font-size: 0.86rem;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .lr {
+    grid-template-columns: minmax(0, 1fr) 30px 60px 70px 56px;
+  }
+  .mr {
+    grid-template-columns: 120px auto minmax(0, 1fr);
+  }
+  .lr:hover,
+  .mr:hover {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+  }
+  .lr.cur,
+  .mr.cur {
+    background: var(--accent-fill-weak);
+  }
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+  }
+  .faint {
+    color: var(--text-faint);
+    font-size: 0.78rem;
+  }
+  .tag {
+    font-size: 0.62rem;
+  }
+  .addship {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 40px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+    background: transparent;
+    font: inherit;
+    font-size: 0.875rem;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .addship:hover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  @media (max-width: 560px) {
+    .lf {
+      display: none;
+    }
+    .laserpick {
+      grid-template-columns: minmax(0, 1fr) 16px;
+    }
   }
 </style>

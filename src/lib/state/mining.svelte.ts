@@ -10,13 +10,16 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   commands,
   type GeneratedView,
+  type LaserInputView,
   type GenerateRequestView,
   type LoadoutView,
+  type MassBandView,
   type MiningAreasView,
   type MiningCatalogView,
   type MiningReportView,
   type MiningStateView,
   type PlaceSystemView,
+  type RockClassesView,
 } from "$lib/bindings";
 
 /** One composition row as typed: strings, so a half-typed number stays. */
@@ -65,18 +68,30 @@ let _rolledKey = $state("");
 let _generating = $state(false);
 let _rollReq = 0;
 let _generateError = $state("");
+// "What if it weighs": a mass tried instead of the scanned one.
+let _massOverride = $state<number | null>(null);
+let _band = $state.raw<MassBandView | null>(null);
+let _bandReq = 0;
+// The finder's class table, for the loadout it was built for.
+let _classTable = $state.raw<RockClassesView[] | null>(null);
+let _classKey = "";
+let _classReq = 0;
 
 /** What the views have selected (session state). */
 export const miningUi = $state({
   view: "calc" as MiningView,
   /** The finder browses by place or by ore. */
-  mode: "place" as "place" | "ore",
+  mode: "ore" as "place" | "ore",
   ore: "",
   /** The finder's place node and, within it, the area and rock type. */
   place: "",
   area: "",
   rockType: "",
   pick: "common",
+  /** The calculator's gadget and crew row is folded to one line each. */
+  fold: false,
+  /** Whose steps How to crack it shows (an operator index); -1: everyone. */
+  me: -1,
 });
 
 export const miningStore = {
@@ -129,6 +144,18 @@ export const miningStore = {
   get generateError() {
     return _generateError;
   },
+  /** The mass tried on the slider; null: the scanned one. */
+  get massOverride() {
+    return _massOverride;
+  },
+  /** The loadout's class along the mass axis for the scanned composition. */
+  get band() {
+    return _band;
+  },
+  /** Each rock type at each area with the loadout's class shares. */
+  get classTable() {
+    return _classTable;
+  },
 };
 
 /** Load the generator's areas and place tree for `channel` (cache-first,
@@ -174,6 +201,7 @@ export function useRolled(source: RockSource): void {
   const g = _rolled;
   if (!g) return;
   _source = source;
+  _massOverride = null;
   _rock.mass = String(Math.round(g.mass));
   _rock.rows = g.entries.map((e) => ({
     element: e.element,
@@ -202,7 +230,19 @@ export async function loadMiningCatalog(channel: string): Promise<void> {
 }
 
 export async function loadMiningState(): Promise<void> {
-  _state = await commands.miningState();
+  const state = await commands.miningState();
+  _state = state;
+  // Crew mates added before lasers carried their crew loadout's id: match
+  // them by name, so taking them off still works (and a name alone means
+  // a MOLE seat from now on).
+  const stale = state.current.lasers.some((l) => l.who !== null && l.crew === null);
+  if (stale) {
+    const byOwner = new Map(state.saved.filter((s) => s.owner !== null).map((s) => [s.owner, s.id]));
+    const lasers = state.current.lasers.map((l) =>
+      l.who !== null && l.crew === null && byOwner.has(l.who) ? { ...l, crew: byOwner.get(l.who) ?? null } : l,
+    );
+    if (lasers.some((l, i) => l !== state.current.lasers[i])) await setLoadout({ ...state.current, lasers });
+  }
 }
 
 /** Make `loadout` the calculator's (persisted, so it opens with it next time). */
@@ -245,16 +285,65 @@ export async function addSupport(id: string): Promise<void> {
     ...current,
     lasers: [
       ...current.lasers,
-      ...saved.loadout.lasers.map((l) => ({ ...l, owner: ship + (l.owner - base), who: saved.owner })),
+      ...saved.loadout.lasers.map((l) => ({ ...l, owner: ship + (l.owner - base), who: saved.owner, crew: saved.id })),
     ],
   });
 }
 
-/** Take a crew mate's ship off the rock again. */
-export async function removeSupport(who: string): Promise<void> {
+/** Take a crew mate's ship off the rock again: the lasers that came from
+ *  that crew loadout (older loadouts without the id: by the name). */
+export async function removeSupport(crew: string | null, who: string | null): Promise<void> {
   const current = _state?.current;
   if (!current) return;
-  await setLoadout({ ...current, lasers: current.lasers.filter((l) => l.who !== who) });
+  const gone = (l: LaserInputView) => (crew !== null ? l.crew === crew : l.crew === null && l.who === who && who !== null);
+  const kept = current.lasers.filter((l) => !gone(l));
+  const lead = current.lead !== null && current.lead < current.lasers.length && gone(current.lasers[current.lead]) ? null : current.lead;
+  // A lead index past a removed laser shifts with it.
+  const shifted = lead === null ? null : kept.indexOf(current.lasers[lead]);
+  await setLoadout({ ...current, lasers: kept, lead: shifted !== null && shifted >= 0 ? shifted : null });
+}
+
+/** Make the laser at `index` the crew's lead. */
+export async function setLead(index: number): Promise<void> {
+  const current = _state?.current;
+  if (current) await setLoadout({ ...current, lead: index });
+}
+
+/** Try the rock at another mass (null: back to the scanned one). */
+export function setMassOverride(mass: number | null): void {
+  _massOverride = mass;
+}
+
+/** The class band for the drafted rock and the calculator's loadout. */
+export async function loadMassBand(channel: string): Promise<void> {
+  const loadout = _state?.current;
+  const rock = draftRock();
+  const mine = ++_bandReq;
+  if (!loadout || !loadout.lasers.length || !rock) {
+    _band = null;
+    return;
+  }
+  const result = await commands.miningMassBand(channel, loadout, rock);
+  if (mine !== _bandReq) return;
+  _band = result.status === "ok" ? result.data : null;
+}
+
+/** The finder's class table for the calculator's loadout (cached per
+ *  loadout: it rolls every rock type at every area). */
+export async function loadClassTable(channel: string): Promise<void> {
+  const loadout = _state?.current;
+  if (!loadout || !loadout.lasers.length) {
+    _classTable = null;
+    _classKey = "";
+    return;
+  }
+  const key = JSON.stringify([channel, loadout.lasers.map((l) => [l.laser, l.modules, l.owner]), loadout.gadget]);
+  if (key === _classKey) return;
+  _classKey = key;
+  const mine = ++_classReq;
+  const result = await commands.miningClassTable(channel, loadout);
+  if (mine !== _classReq) return;
+  _classTable = result.status === "ok" ? result.data : null;
 }
 
 export function addRockRow(): void {
@@ -269,6 +358,7 @@ export function removeRockRow(i: number): void {
 /** A typed scan replaces a rolled one. */
 export function markTyped(): void {
   _source = null;
+  _massOverride = null;
 }
 
 export function clearRock(): void {
@@ -278,6 +368,7 @@ export function clearRock(): void {
   _report = null;
   _solveError = "";
   _source = null;
+  _massOverride = null;
 }
 
 /** Locale-tolerant number: "20.998", "20 998" and "20,998" are all fine for
@@ -290,10 +381,9 @@ export function parseNumber(s: string, thousands = false): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Solve the drafted rock against the calculator's loadout; a no-op until
- *  the rock has a mass and an element. */
-export async function solveRock(channel: string): Promise<void> {
-  const loadout = _state?.current;
+/** The drafted rock as the solver takes it, at its scanned mass; null
+ *  until it has a mass and an element. */
+function draftRock(): { mass: number; entries: { element: string; percent: number; quality: number | null }[] } | null {
   const mass = parseNumber(_rock.mass, true);
   const entries = _rock.rows.flatMap((r) => {
     const percent = parseNumber(r.percent);
@@ -301,15 +391,26 @@ export async function solveRock(channel: string): Promise<void> {
     const q = parseNumber(r.quality);
     return [{ element: r.element, percent, quality: q === null ? null : Math.round(q) }];
   });
+  return mass === null || mass <= 0 || entries.length === 0 ? null : { mass, entries };
+}
+
+/** Solve the drafted rock (at the tried mass, when one is set) against the
+ *  calculator's loadout; a no-op until the rock has a mass and an element. */
+export async function solveRock(channel: string): Promise<void> {
+  const loadout = _state?.current;
+  const rock = draftRock();
   const mine = ++_solveReq;
-  if (!loadout || mass === null || mass <= 0 || entries.length === 0) {
+  if (!loadout || !rock) {
     _report = null;
     _solveError = "";
     _solving = false;
     return;
   }
   _solving = true;
-  const result = await commands.miningSolve(channel, loadout, { mass, entries });
+  const result = await commands.miningSolve(channel, loadout, {
+    ...rock,
+    mass: _massOverride ?? rock.mass,
+  });
   if (mine !== _solveReq) return;
   _solving = false;
   if (result.status === "ok") {

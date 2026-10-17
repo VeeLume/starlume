@@ -1,12 +1,14 @@
 <script lang="ts">
-  // One rock type at a place: its share and typical ores, how the
-  // calculator's ship fares on a few thousand rolls of it (the classes in
-  // power order, each a pick of its own), and the picks — most common, by
-  // mass, by ore. The roll ends the card; "Use in calculator" takes it over.
+  // One rock type at a place: its share and typical ores, its mass
+  // distribution with the calculator's ship's class at each mass (drag to
+  // roll a rock of that mass; the class keys roll one of that class), and
+  // the picks — most common, by ore. The roll ends the card; "Use in
+  // calculator" takes it over.
   import { Segmented } from "@veelume/ui";
   import type { AreaRockView, GeneratedView, MiningCatalogView } from "$lib/bindings";
   import NowCard from "$lib/components/NowCard.svelte";
   import { CLASSES, int, namesOf, oreName, pct, type Pick } from "./format";
+  import MassHist from "./MassHist.svelte";
 
   let {
     catalog,
@@ -40,9 +42,10 @@
   const name = (id: string) => names.get(id) ?? "Unknown";
   const ores = $derived([...rock.ores].sort((a, b) => b.meanShare * b.chance - a.meanShare * a.chance));
   const classes = $derived(rolled?.classes ?? null);
+  const handle = $derived(pick.startsWith("mass:") ? Number(pick.slice(5)) : (rolled?.mass ?? 0));
 </script>
 
-<NowCard hue="var(--hue-sky)" chip="● ROCK TYPE" version={rock.name}>
+<NowCard hue="var(--hue-sky)" chip="● ROCK TYPE" version={oreName(rock.name)}>
   <div class="stat-tiles">
     <div class="stat-tile"><b>{pct(rock.share)}</b><span>of rocks here</span></div>
     {#each ores.slice(0, 2) as o (o.element)}
@@ -52,13 +55,16 @@
     {/each}
   </div>
 
+  {#if rolled && rolled.masses.length}
+    <p class="label">{ship && classes ? `Your ${ship} on ${int(rolled.rolled)} of them, by mass` : "By mass"}</p>
+    <MassHist
+      buckets={rolled.masses}
+      value={handle}
+      onmass={(m) => onpick(`mass:${Math.round(m)}`)}
+      onsnap={(p) => onpick(p)}
+    />
+  {/if}
   {#if ship && classes && rolled}
-    <p class="label">Your {ship} on {int(rolled.rolled)} of them</p>
-    <span class="bar">
-      {#each CLASSES as c (c.id)}
-        {#if classes[c.id] > 0}<i style:width="{classes[c.id] * 100}%" style:--hue={c.hue}></i>{/if}
-      {/each}
-    </span>
     <div class="keys">
       {#each CLASSES as c (c.id)}
         <button
@@ -74,18 +80,6 @@
 
   <div class="picks">
     <button class="common" class:on={pick === "common"} onclick={() => onpick("common")}>Most common</button>
-    <div class="grp">
-      <span class="k">Mass</span>
-      <Segmented
-        options={[
-          { value: "small", label: "Lightest" },
-          { value: "average", label: "Median" },
-          { value: "large", label: "Heaviest" },
-        ]}
-        value={pick}
-        onchange={(v) => onpick(v as Pick)}
-      />
-    </div>
     {#if ores.length}
       <div class="grp">
         {#if ores.length > 1}
@@ -139,18 +133,6 @@
 <style>
   .label {
     margin: 0;
-  }
-  .bar {
-    display: flex;
-    height: 10px;
-    gap: 2px;
-    border-radius: 5px;
-    overflow: hidden;
-  }
-  .bar i {
-    display: block;
-    height: 100%;
-    background: color-mix(in srgb, var(--hue) 70%, transparent);
   }
   .keys {
     display: flex;

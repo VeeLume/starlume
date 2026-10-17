@@ -16,12 +16,14 @@ pub mod state;
 
 pub use catalog::{Catalog, LaserItem, Named, SHIP_RULESET};
 pub use generate::{
-    Area, AreaRock, ClassShares, GenerateError, GenerateRequest, Generated, OreOdds, Pick, Place,
-    PlaceNode, PlaceSystem, RockClass, Sources, areas, generate, place_tree,
+    Area, AreaRock, ClassShares, GenerateError, GenerateRequest, Generated, MassBucket, OreOdds,
+    Pick, Place, PlaceNode, PlaceSystem, RockClass, RockClasses, Sources, areas, by_share,
+    class_table, generate, grade, place_tree,
 };
 pub use guide::{Category, ClimbStep, JumpRow, ThrottleGuide, category, throttle_guide};
 pub use solve::{
-    CrewRow, CrewShip, EntryInput, Eval, GadgetRow, KitRow, LaserInput, LoadoutInput, Report,
-    RockFacts, RockInput, SolveError, SupportRow, YourSetup, solve,
+    BandSegment, CrewRow, CrewShip, Effect, EntryInput, Eval, GadgetRow, KitRow, LaserInput,
+    LoadoutInput, MassBand, Operator, Report, RockFacts, RockInput, SolveError, SupportRow,
+    TotalRow, YourSetup, mass_band, solve,
 };
 pub use state::{MiningState, SavedLoadout};

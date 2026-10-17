@@ -22,12 +22,12 @@
     saved.filter((s) => s.owner !== null).sort((a, b) => (a.owner ?? "").localeCompare(b.owner ?? "")),
   );
   const own = $derived<LoadoutView>({ ...loadout, lasers: ownLasers(loadout) });
-  const aboard = $derived(new Set(loadout.lasers.flatMap((l) => (l.who === null ? [] : [l.who]))));
+  const aboard = $derived(new Set(loadout.lasers.flatMap((l) => (l.crew === null ? [] : [l.crew]))));
   const modulesOf = (l: LoadoutView) => l.lasers.flatMap((x) => x.modules.map((m) => names.get(m) ?? "Unknown"));
 </script>
 
 {#snippet card(s: SavedLoadoutView)}
-  {@const cur = s.owner === null ? sameLoadout(s.loadout, own) : aboard.has(s.owner)}
+  {@const cur = s.owner === null ? sameLoadout(s.loadout, own) : aboard.has(s.id)}
   {@const mods = modulesOf(s.loadout)}
   <div class="cell" class:cur>
     <NowCard
@@ -42,18 +42,17 @@
       <span class="lasers">{lasersLine(s.loadout, names)}</span>
       <div class="tags">
         {#each mods as m, i (i)}<span class="tag">{m}</span>{/each}
-        {#if s.loadout.gadget}<span class="tag gadget">{names.get(s.loadout.gadget) ?? "Unknown"}</span>{/if}
-        {#if !mods.length && !s.loadout.gadget}<span class="tag faint">no modules</span>{/if}
+        {#if !mods.length}<span class="tag faint">no modules</span>{/if}
       </div>
       {#snippet action()}
         {#if s.owner}
           {#if cur}
-            <button class="btn" onclick={() => void removeSupport(s.owner ?? "")}>Take off the rock</button>
+            <button class="btn" onclick={() => void removeSupport(s.id, s.owner)}>Take off the rock</button>
           {:else}
             <button class="btn" onclick={() => void addSupport(s.id)}>Add as support</button>
           {/if}
         {:else if !cur}
-          <button class="btn" onclick={() => void setLoadout(s.loadout)}>Use</button>
+          <button class="btn" onclick={() => void setLoadout({ ...s.loadout, gadget: loadout.gadget, lead: null })}>Use</button>
         {/if}
         <button class="btn" onclick={() => (editing = s)}>Edit</button>
       {/snippet}
@@ -148,10 +147,6 @@
     font-size: 0.92rem;
     font-weight: var(--weight-medium);
     color: var(--text-dim);
-  }
-  .tag.gadget {
-    border: 1px dashed color-mix(in srgb, var(--text) 25%, transparent);
-    background: transparent;
   }
   .tag.faint {
     color: var(--text-faint);

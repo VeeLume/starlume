@@ -1,11 +1,13 @@
 <script lang="ts">
   // The rock finder: where rocks spawn and how the calculator's ship fares
-  // there, from the game's own spawn rules (mod-mining's generator). By
-  // place: the tree, the place's rock types, the rock type with its picks.
-  // By ore: the ores, the rock types richest in one. The selection is the
-  // store's session state, so a visit to the calculator keeps it.
+  // there, from the game's own spawn rules (mod-mining's generator). By ore
+  // first (the way to find a spot for the ship): the ores with how good
+  // their best spot is, the rock types holding one. By place: the tree, the
+  // place's rock types. Every row carries the ship's class split (the class
+  // table); the rock type card rolls a rock. The selection is the store's
+  // session state, so a visit to the calculator keeps it.
   import { Segmented } from "@veelume/ui";
-  import type { LoadoutView, MiningCatalogView, PlaceNodeView } from "$lib/bindings";
+  import type { ClassSharesView, LoadoutView, MiningCatalogView, PlaceNodeView } from "$lib/bindings";
   import { miningStore, miningUi, rollRock, useRolled } from "$lib/state/mining.svelte";
   import { namesOf, oreName, ownLasers, pickRequest, sameLoadout, type Pick } from "./format";
   import OreCard from "./OreCard.svelte";
@@ -46,6 +48,26 @@
   );
   let oreQuery = $state("");
   const shownOres = $derived(ores.filter((o) => o.name.toLowerCase().includes(oreQuery.trim().toLowerCase())));
+
+  // The ship's class shares per rock type and area (the class table).
+  const classes = $derived(
+    new Map((miningStore.classTable ?? []).map((r) => [`${r.area}|${r.rockType}`, r.classes] as const)),
+  );
+  const classOf = (areaId: string, rockType: string): ClassSharesView | null =>
+    classes.get(`${areaId}|${rockType}`) ?? null;
+  // Per ore, how good its best spot is for the ship (easy and manageable rolls).
+  const oreGood = $derived.by(() => {
+    const out = new Map<string, number>();
+    if (!classes.size) return out;
+    for (const a of areas)
+      for (const r of a.rocks) {
+        const c = classOf(a.id, r.rockType);
+        if (!c || !r.rollable) continue;
+        const g = c.easy + c.manageable;
+        for (const o of r.ores) out.set(o.element, Math.max(out.get(o.element) ?? 0, g));
+      }
+    return out;
+  });
 
   const area = $derived(areasById.get(miningUi.area) ?? null);
   const rock = $derived(area?.rocks.find((r) => r.rockType === miningUi.rockType) ?? null);
@@ -120,7 +142,6 @@
   }
   function selectOre(id: string) {
     miningUi.ore = id;
-    miningUi.pick = "ore";
     // The richest rock type for it.
     const best = areas
       .flatMap((a) => a.rocks.flatMap((r) => (r.rollable ? (r.ores.find((o) => o.element === id) ? [{ a, r }] : []) : [])))
@@ -130,6 +151,10 @@
       )[0];
     if (best) selectRock(best.a.id, best.r.rockType);
   }
+  $effect(() => {
+    if (miningUi.mode === "ore" && !miningUi.ore && ores[0]) selectOre(ores[0].id);
+  });
+
   function setMode(mode: "place" | "ore") {
     miningUi.mode = mode;
     if (mode === "ore" && !miningUi.ore && ores[0]) selectOre(ores[0].id);
@@ -152,22 +177,38 @@
 {:else}
   <div class="find">
     <nav class="side">
-      <Segmented
-        class="mode"
-        options={[
-          { value: "place", label: "By place" },
-          { value: "ore", label: "By ore" },
-        ]}
-        value={miningUi.mode}
-        onchange={(v) => setMode(v as "place" | "ore")}
-      />
+      <div class="sticky">
+        <Segmented
+          class="mode"
+          options={[
+            { value: "ore", label: "By ore" },
+            { value: "place", label: "By place" },
+          ]}
+          value={miningUi.mode}
+          onchange={(v) => setMode(v as "place" | "ore")}
+        />
+      </div>
       {#if miningUi.mode === "place"}
         <PlaceTree {systems} selected={miningUi.place} onselect={selectPlace} />
       {:else}
-        <input class="input" type="search" placeholder="Find an ore" aria-label="Find an ore" bind:value={oreQuery} />
+        <input
+          class="input search"
+          type="search"
+          placeholder="Find an ore"
+          aria-label="Find an ore"
+          bind:value={oreQuery}
+        />
         <div class="ores">
+          {#if oreGood.size}<span class="oh"><span>Ore</span><span>good</span></span>{/if}
           {#each shownOres as o (o.id)}
-            <button class:on={o.id === miningUi.ore} onclick={() => selectOre(o.id)}>{o.name}</button>
+            {@const g = oreGood.get(o.id)}
+            <button class:on={o.id === miningUi.ore} onclick={() => selectOre(o.id)}>
+              <span class="on-nm">{o.name}</span>
+              {#if oreGood.size}
+                <span class="g"><i style:width="{(g ?? 0) * 100}%"></i></span>
+                <b>{g === undefined ? "—" : Math.round(g * 100)}</b>
+              {/if}
+            </button>
           {/each}
         </div>
       {/if}
@@ -184,6 +225,8 @@
           areas={areasById}
           area={miningUi.area}
           rockType={miningUi.rockType}
+          {classOf}
+          {ship}
           onpick={selectRock}
         />
       {:else}
@@ -196,6 +239,8 @@
         {areas}
         area={miningUi.area}
         rockType={miningUi.rockType}
+        {classOf}
+        {ship}
         onpick={selectRock}
       />
     {/if}
@@ -235,6 +280,58 @@
     padding-right: 4px;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
+  }
+  .sticky {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding-bottom: 4px;
+    background: var(--bg);
+  }
+  .search {
+    position: sticky;
+    top: 40px;
+    z-index: 2;
+  }
+  .oh {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 8px;
+    font-size: 0.66rem;
+    color: var(--text-faint);
+    text-transform: var(--label-transform);
+    letter-spacing: 0.08em;
+  }
+  .ores button {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: center;
+  }
+  .ores .g {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    overflow: hidden;
+  }
+  .ores .g i {
+    display: block;
+    height: 100%;
+    background: color-mix(in srgb, var(--good) 70%, transparent);
+  }
+  .ores b {
+    width: 24px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: var(--weight-medium);
+    color: var(--text-dim);
+    text-align: right;
+  }
+  .on-nm {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .side :global(.mode) {
     display: grid;
