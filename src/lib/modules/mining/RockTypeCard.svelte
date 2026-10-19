@@ -1,18 +1,24 @@
 <script lang="ts">
-  // One rock type at a place: its share and typical ores, its mass
-  // distribution with the calculator's ship's class at each mass (drag to
-  // roll a rock of that mass; the class keys roll one of that class), and
-  // the picks — most common, by ore. The roll ends the card; "Use in
-  // calculator" takes it over.
-  import { Segmented } from "@veelume/ui";
-  import type { AreaRockView, GeneratedView, MiningCatalogView } from "$lib/bindings";
+  // One rock type at a place: its share there, lightest, most common and
+  // heaviest, its mass distribution with the calculator's ship's class at
+  // each mass (drag to roll a rock of that mass), and what to roll as one
+  // choice (style guide: one state, one control) — most common, a typical
+  // one of a class, the richest or best quality of an ore. A row standing
+  // for several places rolls quality at the one picked under Roll at
+  // (quality depends on the place; masses and classes don't). The roll ends
+  // the card; "Use in calculator" takes it over.
+  import { Select } from "@veelume/ui";
+  import type { AreaRockView, GeneratedView, MiningCatalogView, SpawnPlaceView } from "$lib/bindings";
   import NowCard from "$lib/components/NowCard.svelte";
-  import { CLASSES, int, namesOf, oreName, pct, type Pick } from "./format";
+  import { CLASSES, int, kt, namesOf, oreName, pct, type Pick } from "./format";
   import MassHist from "./MassHist.svelte";
 
   let {
     catalog,
     rock,
+    where,
+    places,
+    at,
     rolled,
     stale,
     error,
@@ -21,10 +27,17 @@
     ship,
     onpick,
     onore,
+    onat,
     onuse,
   }: {
     catalog: MiningCatalogView;
     rock: AreaRockView;
+    /** Where the row is (the area's name). */
+    where: string;
+    /** The places it spawns at, for Roll at. */
+    places: SpawnPlaceView[];
+    /** The place quality rolls at. */
+    at: string;
     rolled: GeneratedView | null;
     /** The roll on show is for an earlier pick. */
     stale: boolean;
@@ -35,6 +48,7 @@
     ship: string | null;
     onpick: (pick: Pick) => void;
     onore: (element: string) => void;
+    onat: (place: string) => void;
     onuse: () => void;
   } = $props();
 
@@ -43,16 +57,50 @@
   const ores = $derived([...rock.ores].sort((a, b) => b.meanShare * b.chance - a.meanShare * a.chance));
   const classes = $derived(rolled?.classes ?? null);
   const handle = $derived(pick.startsWith("mass:") ? Number(pick.slice(5)) : (rolled?.mass ?? 0));
+  const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+
+  // What to roll, as one select: the pick and, for an ore pick, its ore.
+  const rollValue = $derived(pick === "ore" || pick === "quality" ? `${pick}|${ore}` : pick);
+  const rollOptions = $derived([
+    { value: "common", label: "Most common" },
+    ...(pick.startsWith("mass:") ? [{ value: pick, label: `At ${int(Number(pick.slice(5)))} t (the slider)` }] : []),
+    ...(ship && classes
+      ? CLASSES.filter((c) => classes[c.id] > 0).map((c) => ({
+          value: `class:${c.id}`,
+          label: cap(c.label),
+          group: "A typical one that is",
+        }))
+      : []),
+    ...ores.slice(0, 4).flatMap((o) => {
+      const n = oreName(name(o.element));
+      return [
+        { value: `ore|${o.element}`, label: `Richest in ${n}`, group: "By ore" },
+        { value: `quality|${o.element}`, label: `Best ${n} quality`, group: "By ore" },
+      ];
+    }),
+  ]);
+  function roll(v: string) {
+    const [p, element] = v.split("|");
+    if (element) onore(element);
+    onpick(p as Pick);
+  }
 </script>
 
-<NowCard hue="var(--hue-sky)" chip="● ROCK TYPE" version={oreName(rock.name)}>
+<NowCard hue="var(--hue-sky)" chip="● ROCK TYPE" version={oreName(rock.name)} date={where}>
+  {#if places.length > 1}
+    <div class="row">
+      <span class="label">Roll at</span>
+      <Select label="Roll at" options={places.map((p) => ({ value: p.id, label: p.name }))} value={at} onchange={onat} />
+      <span class="faint small">quality is per place</span>
+    </div>
+  {/if}
   <div class="stat-tiles">
-    <div class="stat-tile"><b>{pct(rock.share)}</b><span>of rocks here</span></div>
-    {#each ores.slice(0, 2) as o (o.element)}
-      <div class="stat-tile" title="In {pct(o.chance)} of these rocks">
-        <b>~{pct(o.meanShare)}</b><span>{oreName(name(o.element))}</span>
-      </div>
-    {/each}
+    <div class="stat-tile"><b>{pct(rock.share)}</b><span>of rocks there</span></div>
+    {#if rock.mass}
+      <div class="stat-tile"><b>{kt(rock.mass.min)} t</b><span>lightest</span></div>
+      <div class="stat-tile"><b>{kt(rock.mass.mode)} t</b><span>most common</span></div>
+      <div class="stat-tile"><b>{kt(rock.mass.max)} t</b><span>heaviest</span></div>
+    {/if}
   </div>
 
   {#if rolled && rolled.masses.length}
@@ -67,44 +115,20 @@
   {#if ship && classes && rolled}
     <div class="keys">
       {#each CLASSES as c (c.id)}
-        <button
-          class:on={pick === `class:${c.id}`}
-          disabled={classes[c.id] <= 0}
-          style:--hue={c.hue}
-          title="Roll a {c.label} one"
-          onclick={() => onpick(`class:${c.id}`)}><i></i><b>{Math.round(classes[c.id] * 100)}</b>{c.label}</button
-        >
+        <span style:--hue={c.hue}><i></i><b>{Math.round(classes[c.id] * 100)}</b>{c.label}</span>
       {/each}
     </div>
   {/if}
 
-  <div class="picks">
-    <button class="common" class:on={pick === "common"} onclick={() => onpick("common")}>Most common</button>
-    {#if ores.length}
-      <div class="grp">
-        {#if ores.length > 1}
-          <select class="select k-ore" value={ore} onchange={(e) => onore(e.currentTarget.value)} aria-label="Ore">
-            {#each ores as o (o.element)}<option value={o.element}>{oreName(name(o.element))}</option>{/each}
-          </select>
-        {:else}
-          <span class="k">{oreName(name(ores[0].element))}</span>
-        {/if}
-        <Segmented
-          options={[
-            { value: "ore", label: "Richest" },
-            { value: "quality", label: "Best quality" },
-          ]}
-          value={pick}
-          onchange={(v) => onpick(v as Pick)}
-        />
-      </div>
-    {/if}
+  <div class="row roll">
+    <span class="label">Roll</span>
+    <Select label="Roll" options={rollOptions} value={rollValue} onchange={roll} />
   </div>
 
   {#if error}
     <p class="error">{error}</p>
   {:else if rolled}
-    <div class="roll" class:stale>
+    <div class="rolled" class:stale>
       <div class="stat-tiles">
         <div class="stat-tile"><b>{int(rolled.mass)} t</b><span>mass</span></div>
         <div class="stat-tile"><b>{rolled.scu.toFixed(1)}</b><span>SCU</span></div>
@@ -124,6 +148,7 @@
     {#if rolled && !stale}
       <span class="from">
         {rolled.pickShare !== null ? `its ore mix in ${pct(rolled.pickShare)} of rolls` : `one of ${int(rolled.rolled)} rolls`}
+        {#if rolled.place}· rolled at {rolled.place.name}{/if}
       </span>
     {/if}
     <button class="btn primary" disabled={!rolled || stale} onclick={onuse}>Use in calculator</button>
@@ -134,36 +159,26 @@
   .label {
     margin: 0;
   }
+  .row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+  .small {
+    font-size: var(--text-small);
+  }
   .keys {
     display: flex;
     flex-wrap: wrap;
-    gap: 2px 6px;
-    margin-inline: -6px;
+    gap: 2px 14px;
   }
-  .keys button {
+  .keys span {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 2px 6px;
-    border: 1px solid transparent;
-    border-radius: var(--radius);
-    background: none;
-    font: inherit;
     font-size: var(--text-small);
     color: var(--text-dim);
-    cursor: pointer;
-  }
-  .keys button:hover:not(:disabled) {
-    color: var(--text);
-    background: color-mix(in srgb, var(--text) 5%, transparent);
-  }
-  .keys button.on {
-    border-color: var(--accent);
-    color: var(--text);
-  }
-  .keys button:disabled {
-    cursor: default;
-    opacity: 0.6;
   }
   .keys i {
     width: 8px;
@@ -176,52 +191,14 @@
     color: var(--text);
     font-weight: var(--weight-semibold);
   }
-  .picks {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding-top: 10px;
-    border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
-  }
-  .common {
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--bg) 70%, transparent);
-    font: inherit;
-    font-size: 0.9rem;
-    font-weight: var(--weight-semibold);
-    color: var(--text);
-    text-align: left;
-    cursor: pointer;
-  }
-  .common.on {
-    border-color: var(--accent);
-    background: var(--accent-fill);
-  }
-  .grp {
-    display: grid;
-    grid-template-columns: 96px minmax(0, 1fr);
-    gap: 10px;
-    align-items: center;
-    justify-items: start;
-  }
-  .k {
-    font-size: 0.72rem;
-    color: var(--text-faint);
-    text-transform: var(--label-transform);
-    letter-spacing: 0.08em;
-  }
-  .k-ore {
-    width: 100%;
-    font-size: var(--text-small);
-  }
   .roll {
+    padding-top: 10px;
+    border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  }
+  .rolled {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding-top: 10px;
-    border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   }
   .stale {
     opacity: 0.6;

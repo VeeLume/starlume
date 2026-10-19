@@ -1048,7 +1048,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1273,7 +1273,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2261,6 +2261,8 @@ dependencies = [
  "moxcms",
  "num-traits",
  "png 0.18.1",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2805,6 +2807,7 @@ version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
+ "svc-capture",
  "svc-data",
 ]
 
@@ -2904,7 +2907,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2921,6 +2924,15 @@ dependencies = [
  "rand 0.8.6",
  "smallvec",
  "zeroize",
+]
+
+[[package]]
+name = "num-complex"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -3655,6 +3667,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "primal-check"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc0d895b311e3af9902528fbb8f928688abbd95872819320517cc24ca6b2bd08"
+dependencies = [
+ "num-integer",
+]
+
+[[package]]
 name = "proc-macro-crate"
 version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3930,7 +3951,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4308,6 +4329,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustfft"
+version = "6.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21db5f9893e91f41798c88680037dba611ca6674703c1a18601b01a72c8adb89"
+dependencies = [
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "primal-check",
+ "strength_reduce",
+ "transpose",
+]
+
+[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4317,7 +4352,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4375,7 +4410,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4419,7 +4454,7 @@ dependencies = [
 [[package]]
 name = "sc-crafting"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "sc-items",
@@ -4435,7 +4470,7 @@ dependencies = [
 [[package]]
 name = "sc-discovery"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "aes",
  "cbc",
@@ -4475,7 +4510,7 @@ dependencies = [
 [[package]]
 name = "sc-extract"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "chrono",
  "encoding_rs",
@@ -4498,7 +4533,7 @@ dependencies = [
 [[package]]
 name = "sc-extract-generated"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "serde",
  "svarog-common",
@@ -4508,7 +4543,7 @@ dependencies = [
 [[package]]
 name = "sc-gathering"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "sc-locations",
@@ -4519,7 +4554,7 @@ dependencies = [
 [[package]]
 name = "sc-holotable"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-crafting",
  "sc-discovery",
@@ -4544,7 +4579,7 @@ dependencies = [
 [[package]]
 name = "sc-items"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "serde",
@@ -4554,7 +4589,7 @@ dependencies = [
 [[package]]
 name = "sc-items-armor"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "sc-items",
@@ -4565,7 +4600,7 @@ dependencies = [
 [[package]]
 name = "sc-items-fps-weapons"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "sc-items",
@@ -4576,7 +4611,7 @@ dependencies = [
 [[package]]
 name = "sc-items-mining"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "sc-items",
@@ -4587,7 +4622,7 @@ dependencies = [
 [[package]]
 name = "sc-items-ship-components"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "sc-items",
@@ -4598,7 +4633,7 @@ dependencies = [
 [[package]]
 name = "sc-items-ship-weapons"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "sc-items",
@@ -4610,7 +4645,7 @@ dependencies = [
 [[package]]
 name = "sc-locations"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "serde",
@@ -4620,7 +4655,7 @@ dependencies = [
 [[package]]
 name = "sc-manufacturers"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "serde",
@@ -4630,7 +4665,7 @@ dependencies = [
 [[package]]
 name = "sc-mining"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "sc-items-mining",
@@ -4644,7 +4679,7 @@ dependencies = [
 [[package]]
 name = "sc-missions"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-crafting",
  "sc-extract",
@@ -4661,7 +4696,7 @@ dependencies = [
 [[package]]
 name = "sc-resources"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "serde",
@@ -4671,7 +4706,7 @@ dependencies = [
 [[package]]
 name = "sc-tags"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "serde",
@@ -4681,7 +4716,7 @@ dependencies = [
 [[package]]
 name = "sc-weapons"
 version = "0.0.0"
-source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.23.0#1fdbe7d6df3a93676ad23194144c757e0f59a2d5"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.26.0#824f346e8686fc08acb4eb1405ea8e90d044bb57"
 dependencies = [
  "sc-extract",
  "sc-items",
@@ -5463,6 +5498,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "app-kit",
+ "base64 0.22.1",
  "chrono",
  "keyring",
  "mod-devtracker",
@@ -5472,8 +5508,10 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "specta",
  "specta-typescript",
+ "svc-capture",
  "svc-commlinks",
  "svc-data",
  "svc-discovery",
@@ -5522,6 +5560,12 @@ dependencies = [
  "url",
  "uuid",
 ]
+
+[[package]]
+name = "strength_reduce"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe895eb47f22e2ddd4dabc02bce419d2e643c8e3b585c78158b349195bc24d82"
 
 [[package]]
 name = "string_cache"
@@ -5657,6 +5701,16 @@ dependencies = [
  "thiserror 2.0.18",
  "zerocopy",
  "zstd",
+]
+
+[[package]]
+name = "svc-capture"
+version = "0.2.0"
+dependencies = [
+ "image",
+ "rustfft",
+ "thiserror 2.0.18",
+ "windows 0.61.3",
 ]
 
 [[package]]
@@ -6342,7 +6396,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6840,6 +6894,16 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "transpose"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
+dependencies = [
+ "num-integer",
+ "strength_reduce",
 ]
 
 [[package]]
@@ -7348,7 +7412,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8226,6 +8290,21 @@ checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
 dependencies = [
  "cc",
  "pkg-config",
+]
+
+[[package]]
+name = "zune-core"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d56377fd46368984a170bc5aac5567e52ca5da874caa60bea39fcbca78fb658b"
+
+[[package]]
+name = "zune-jpeg"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
+dependencies = [
+ "zune-core",
 ]
 
 [[package]]

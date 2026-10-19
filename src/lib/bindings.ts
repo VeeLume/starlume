@@ -433,11 +433,12 @@ async miningState() : Promise<MiningStateView> {
     return await TAURI_INVOKE("mining_state");
 },
 /**
- * Remember the calculator's loadout (it opens with it next time).
+ * Remember the calculator's loadout (it opens with it next time) and the
+ * saved loadout your part of it came from (`null`: none).
  */
-async miningSetCurrent(loadout: LoadoutView) : Promise<Result<MiningStateView, AppError>> {
+async miningSetCurrent(loadout: LoadoutView, basedOn: string | null) : Promise<Result<MiningStateView, AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("mining_set_current", { loadout }) };
+    return { status: "ok", data: await TAURI_INVOKE("mining_set_current", { loadout, basedOn }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -503,23 +504,64 @@ async miningPlaces(channel: string) : Promise<Result<PlaceSystemView[], AppError
 /**
  * Where along the mass axis a rock like this one is too much power, easy,
  * manageable, hard or out of reach for the loadout: the calculator's
- * "what if it weighs" band.
+ * "what if it weighs" band. `heaviest`: the rock type's heaviest roll, when
+ * the rock came from the finder (the axis' end; else twice the mass).
  */
-async miningMassBand(channel: string, loadout: LoadoutView, rock: RockView) : Promise<Result<MassBandView, AppError>> {
+async miningMassBand(channel: string, loadout: LoadoutView, rock: RockView, heaviest: number | null) : Promise<Result<MassBandView, AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("mining_mass_band", { channel, loadout, rock }) };
+    return { status: "ok", data: await TAURI_INVOKE("mining_mass_band", { channel, loadout, rock, heaviest }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
 /**
- * Every rollable rock type at every area with the loadout's class shares:
- * the rock finder's lists, so each row shows how the ship fares.
+ * Every distribution that spawns, with the loadout: class shares and mass
+ * bars by class. A solve takes a few seconds, so results are kept on disk
+ * per build and loadout (the disk is the product: a list of saved
+ * loadouts opens with its scores at once); a newer build drops the older
+ * build's. Not superseded: the Loadouts tab queues several (the list, a
+ * sweep) and every result is worth keeping.
  */
-async miningClassTable(channel: string, loadout: LoadoutView) : Promise<Result<RockClassesView[], AppError>> {
+async miningComfort(channel: string, loadout: LoadoutView) : Promise<Result<ComfortView[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("mining_class_table", { channel, loadout }) };
+    return { status: "ok", data: await TAURI_INVOKE("mining_comfort", { channel, loadout }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * How each loadout does on the rock (each with its own gadget): the
+ * picker's options for a slot, the loadout list, a try-out against the
+ * saved loadout. `null` for a loadout without lasers or with parts this
+ * build lacks.
+ */
+async miningCompare(channel: string, rock: RockView, loadouts: LoadoutView[]) : Promise<Result<(EvalView | null)[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_compare", { channel, rock, loadouts }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Capture the game window now and read it.
+ */
+async miningCapture(channel: string, kind: CaptureKind) : Promise<Result<CaptureView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_capture", { channel, kind }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Read a screenshot file as a capture of `kind` (it stays where it is).
+ */
+async miningReadScreenshot(channel: string, kind: CaptureKind, path: string) : Promise<Result<CaptureView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_read_screenshot", { channel, kind, path }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1022,7 +1064,16 @@ export type AreaRockView = { rockType: string; name: string;
 /**
  * Share of the area's ship-mineable rocks.
  */
-share: number; rollable: boolean; ores: OreOddsView[] }
+share: number; rollable: boolean; ores: OreOddsView[]; 
+/**
+ * Its distribution: rows with the same key roll the same rocks, so the
+ * finder shows them once with their places.
+ */
+dist: string; 
+/**
+ * Lightest, most common and heaviest roll; `null` when not rollable.
+ */
+mass: MassRangeView | null }
 export type AreaView = { id: string; name: string; 
 /**
  * Named after the provider's record, not a place.
@@ -1060,14 +1111,87 @@ server_configured: boolean;
  * builds only) — the UI shows the manual sign-in URL flow then.
  */
 dev_profile: string | null }
-export type BandSegmentView = { from: number; to: number; class: RockClassView }
+export type BackOffView = { fromM: number; toM: number; 
+/**
+ * Where to sit: `marginM` either way stays in the band.
+ */
+bestM: number; 
+/**
+ * The band is narrower than the margin: the distance needs watching.
+ */
+tight: boolean; 
+/**
+ * The margin the advice keeps for the distance wandering (ship drift,
+ * a turning rock), m.
+ */
+marginM: number }
+export type BandSegmentView = { from: number; to: number; class: RockClassView; 
+/**
+ * Loss-free share of the simulated tries; `null` where breakability or
+ * power decide the class.
+ */
+share: number | null }
+/**
+ * The explosion when the rock cracks (every crack blasts; an overcharge
+ * grows it). Radii from the rock's centre; `*ClearM` from its surface,
+ * as the HUD's distance gauge measures. The hull takes the full damage
+ * anywhere inside the radius.
+ */
+export type BlastView = { cleanMinM: number; cleanMaxM: number; cleanDamage: number; fullMinM: number; fullMaxM: number; fullDamage: number; rockRadiusM: number; cleanClearM: number; fullClearM: number }
 export type BpPoolEntryView = { blueprint_record_guid: string; name: string | null; weight: number }
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
 export type BuildInfoView = { label: string; value: string }
+/**
+ * What a capture is of.
+ */
+export type CaptureKind = 
+/**
+ * Mining mode, the SCAN RESULTS panel in view.
+ */
+"rock" | 
+/**
+ * Scan mode, a signature pinged.
+ */
+"signature"
+export type CaptureView = { kind: CaptureKind; 
+/**
+ * The image read (a kept capture, or the picked file).
+ */
+file: string; 
+/**
+ * The read panel as a PNG data URL, to check the reading against.
+ */
+preview: string | null; 
+/**
+ * A rock scan's reading.
+ */
+rock: ScanReadingView | null; 
+/**
+ * Why there is nothing to read yet (signature reading comes next).
+ */
+note: string | null }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
 export type ChoiceView = { value: string; label: string }
 export type ClassSharesView = { easy: number; manageable: number; hard: number; tooMuchPower: number; impossible: number }
 export type ClimbStepView = { untilCharge: number; throttle: number }
+/**
+ * One bar of a distribution's masses, its rolls counted by class.
+ */
+export type ComfortBarView = { from: number; to: number; 
+/**
+ * Too much power, easy, manageable, hard, can't break.
+ */
+counts: number[] }
+/**
+ * A distribution with a loadout (design pass 5): its class shares and its
+ * masses as bars counted by class — the Loadouts tab's comfort zones and
+ * scores, and the finder's class split.
+ */
+export type ComfortView = { 
+/**
+ * The distribution key ([`AreaRockView::dist`]).
+ */
+dist: string; classes: ClassSharesView; bars: ComfortBarView[] }
 /**
  * One comm-link as the News page shows it.
  */
@@ -1344,7 +1468,17 @@ export type EvalView = {
 /**
  * Heaviest breakable mass over the rock's mass: ≥ 1 cracks.
  */
-margin: number; power: number; need: number; resistance: number; instability: number; windowLow: number; windowHigh: number; balanceThrottle: number | null; difficulty: DifficultyView | null }
+margin: number; power: number; need: number; resistance: number; instability: number; windowLow: number; windowHigh: number; balanceThrottle: number | null; difficulty: DifficultyView | null; 
+/**
+ * The window is narrower than a person misjudges the charge by:
+ * never rated easy.
+ */
+narrowWindow: boolean; 
+/**
+ * The share of the rock's ore the simulated cracks kept on average
+ * (overcharges drop pieces and their ore); `null` without a simulation.
+ */
+oreKept: number | null }
 export type EventLadderView = { 
 /**
  * Category label; `null` for the overall ladder.
@@ -1397,7 +1531,11 @@ export type GeneratedView = {
 /**
  * Tonnes, as the scanner shows it.
  */
-mass: number; entries: GeneratedEntryView[]; scu: number; 
+mass: number; 
+/**
+ * On a planet or moon (the rock's mesh); `null`: not known.
+ */
+surface: boolean | null; entries: GeneratedEntryView[]; scu: number; 
 /**
  * The draw it came from.
  */
@@ -1423,12 +1561,37 @@ export type GrpcFeatureInfo = { id: string; name: string; description: string }
  * What to do at each charge level (`mod_mining::ThrottleGuide`). Charges
  * and throttles are 0..1; jumps are shares of the bar.
  */
-export type GuideView = { windowLow: number; windowHigh: number; windowHighOff: number; throttleMinimum: number; 
+export type GuideView = { windowLow: number; windowHigh: number; windowHighOff: number; 
+/**
+ * The window's bottom with the beam off (a pulse's cut drops the
+ * lasers' window modifiers).
+ */
+windowLowOff: number; throttleMinimum: number; 
 /**
  * `"safe"`, `"okay"`, `"dangerous"`, `"tooMuchPower"`; `null` when it
  * cannot crack.
  */
-category: string | null; decline: number | null; balance: number | null; safeClimb: number | null; fullUntil: number | null; climb: ClimbStepView[]; holdThrottle: number | null; riding: boolean; tooMuchPower: boolean; climbAtMinimum: number | null; pulseOnShare: number | null; windowCrossS: number | null; keepOnBelow: number | null; lostFrom: number | null; 
+category: string | null; decline: number | null; balance: number | null; safeClimb: number | null; fullUntil: number | null; climb: ClimbStepView[]; 
+/**
+ * Keeping the window: the rise setting for its lower half and the fall
+ * setting for its upper half; `keepLow` is `null` when not even the
+ * gentlest rise keeps it (`unholdable`).
+ */
+keepLow: number | null; keepHigh: number | null; 
+/**
+ * Room left at the gentlest rise (share of the bar); negative: the
+ * window can't be kept.
+ */
+keepMargin: number | null; 
+/**
+ * The throttle in the window for one-throttle uses (the rise setting,
+ * else the fall setting).
+ */
+holdThrottle: number | null; 
+/**
+ * The window can't be kept long enough to crack it cleanly.
+ */
+unholdable: boolean; tooMuchPower: boolean; climbAtMinimum: number | null; pulseOnShare: number | null; windowCrossS: number | null; keepOnBelow: number | null; lostFrom: number | null; 
 /**
  * The wave-lift table, lowest throttle first.
  */
@@ -1586,7 +1749,11 @@ who: string | null;
 /**
  * The crew loadout (its id) the laser came from.
  */
-crew: string | null }
+crew: string | null; 
+/**
+ * Beam distance to the rock's surface, m; `null`: within optimal range.
+ */
+distanceM: number | null }
 export type LauncherStatusView = { 
 /**
  * The RSI launcher is installed where Starlume looks for it.
@@ -1639,6 +1806,10 @@ export type MassBucketView = { from: number; to: number; count: number;
  * With a loadout: the class most of its rolls have.
  */
 class: RockClassView | null }
+/**
+ * A distribution's masses in tonnes.
+ */
+export type MassRangeView = { min: number; mode: number; max: number }
 export type MiningAreasView = { areas: AreaView[]; 
 /**
  * The places are known (the cook could read them); else areas carry
@@ -1671,7 +1842,12 @@ export type MiningReportView = { rock: RockFactsView; yours: YourSetupView | nul
  * Your crew's ships as support, best first.
  */
 crew: CrewRowView[] }
-export type MiningStateView = { current: LoadoutView; saved: SavedLoadoutView[] }
+export type MiningStateView = { current: LoadoutView; 
+/**
+ * The saved loadout (its id) your part of `current` came from; the
+ * calculator's edits are a try-out against it until saved.
+ */
+basedOn: string | null; saved: SavedLoadoutView[] }
 export type MissileStatsView = { size: number; is_torpedo: boolean; damage: DamageBreakdownView | null; speed: number | null; arm_time: number; tracking: TrackingView | null }
 export type MissionCategoryView = { name: string | null; icon: string }
 export type MissionDifficultyView = { mechanical_skill: number; mental_load: number; risk_of_loss: number; game_knowledge: number }
@@ -1857,6 +2033,10 @@ export type PickView = { kind: "average" } | { kind: "mostCommon" } | { kind: "s
  */
 { kind: "mass"; mass: number }
 /**
+ * Spawn tables at a Lagrange point, by what they spawn at.
+ */
+export type PlaceGroupView = { title: string | null; detail: string | null; areas: string[] }
+/**
  * A place in the generator's tree, or a field standing for many places.
  */
 export type PlaceNodeView = { 
@@ -1865,7 +2045,8 @@ export type PlaceNodeView = {
  */
 id: string; name: string; 
 /**
- * `"body"`, `"place"`, `"field"`.
+ * `"body"`, `"place"`, `"lpoint"` (a Lagrange point, under its
+ * planet), `"field"`.
  */
 kind: string; 
 /**
@@ -1874,9 +2055,19 @@ kind: string;
  */
 areas: string[]; 
 /**
- * For a field, how many places it stands for.
+ * For a field, how many places it stands for; for a Lagrange point,
+ * its mining claims.
  */
-count: number; children: PlaceNodeView[] }
+count: number; 
+/**
+ * A Lagrange point's rest stop, as the game names it.
+ */
+restStop: string | null; 
+/**
+ * A Lagrange point's tables by what they spawn at: its own (no title),
+ * gas pockets, every claim, yield claims by name.
+ */
+groups: PlaceGroupView[]; children: PlaceNodeView[] }
 export type PlaceSystemView = { name: string; nodes: PlaceNodeView[] }
 export type PlaceView = { name: string; 
 /**
@@ -1906,6 +2097,19 @@ kind: string; author: string;
  * Plain text, line breaks kept; empty when erased.
  */
 text: string; erased: boolean }
+/**
+ * Your lasers' range: full power up to `fullM`, none from `zeroM`.
+ */
+export type RangeAdviceView = { fullM: number; zeroM: number; 
+/**
+ * Power at the given distance, as a share of full power.
+ */
+powerShare: number; 
+/**
+ * For a rock that is too much power: distances past optimal range that
+ * bring the balance throttle back into the lasers' range.
+ */
+backOff: BackOffView | null }
 /**
  * One LIVE release as the page and Home show it (specta mirror of
  * `sc_dossier::patchnotes::Release`, overview fields only).
@@ -1974,10 +2178,6 @@ export type ResourceRowView = { guid: string; name: string; description: string 
 legality: ResourceLegalityView | null }
 export type ResourceStackView = { name: string; quality: number; scu: number }
 export type RockClassView = "easy" | "manageable" | "hard" | "tooMuchPower" | "impossible"
-/**
- * A rock type at an area with its class shares for the loadout.
- */
-export type RockClassesView = { area: string; rockType: string; classes: ClassSharesView }
 export type RockEntryView = { element: string; 
 /**
  * 0..100.
@@ -1988,7 +2188,12 @@ export type RockView = {
 /**
  * Tonnes, as the scanner shows it.
  */
-mass: number; entries: RockEntryView[] }
+mass: number; entries: RockEntryView[]; 
+/**
+ * On a planet or moon (`true`) or in space; `null`: not known (rated
+ * as in space). How the beam's distance drifts depends on it.
+ */
+surface?: boolean | null }
 /**
  * A recognized RSI account. `citizen_record`/`enlisted` are the immutable
  * anchors from the public profile — `None` until verified.
@@ -2026,6 +2231,37 @@ launcher_handle: string | null;
  * unverified on first sight).
  */
 account: RsiAccount | null }
+export type ScanReadingView = { 
+/**
+ * The panel was found (and how well its labels matched, 0..1).
+ */
+found: boolean; matchScore: number; rockName: string | null; mass: number | null; resistance: number | null; instability: number | null; difficulty: string | null; rows: ScanRowView[]; 
+/**
+ * Which values the panel showed, when the model check placed them:
+ * `bare` (no beam on the rock) or `beam` (your loadout's beam).
+ */
+basis: string | null; 
+/**
+ * The panel was read tilted by this much (head tracking), degrees.
+ */
+angle: number; 
+/**
+ * Checks that passed, in words.
+ */
+verified: string[]; 
+/**
+ * Fields no check confirmed ("mass", "row 2 %", …).
+ */
+unsure: string[]; 
+/**
+ * What couldn't be read or was corrected.
+ */
+notes: string[] }
+export type ScanRowView = { percent: number | null; name: string | null; 
+/**
+ * Catalog element id; `null` for inert material or an unknown name.
+ */
+element: string | null; inert: boolean; quality: number | null }
 export type ScripRewardView = { name: string | null; amount: number }
 export type ShipSlotView = { count_min: number; count_max: number; ships: string[]; factions: string[] }
 export type ShipView = { key: string; kind: ItemKindView; geid: string | null; place: PlaceView | null; holders: HolderView[]; 
@@ -2065,7 +2301,16 @@ throttles: number[]; big: number; usual: number;
  */
 shares: number[] }
 export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
-export type YourSetupView = { eval: EvalView; 
+export type YourSetupView = { 
+/**
+ * Your lasers' range and, for a rock that is too much power, how far
+ * to back off.
+ */
+range: RangeAdviceView | null; 
+/**
+ * The crack's explosion.
+ */
+blast: BlastView; eval: EvalView; 
 /**
  * What the lasers (no gadget) put on the rock.
  */

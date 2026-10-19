@@ -11,19 +11,25 @@
 pub mod catalog;
 pub mod generate;
 pub mod guide;
+pub mod hud;
+mod lagrange;
+pub mod player;
 pub mod solve;
 pub mod state;
 
 pub use catalog::{Catalog, LaserItem, Named, SHIP_RULESET};
 pub use generate::{
-    Area, AreaRock, ClassShares, GenerateError, GenerateRequest, Generated, MassBucket, OreOdds,
-    Pick, Place, PlaceNode, PlaceSystem, RockClass, RockClasses, Sources, areas, by_share,
-    class_table, generate, grade, place_tree,
+    Area, AreaRock, ClassShares, Comfort, ComfortBar, GenerateError, GenerateRequest, Generated,
+    MassBucket, MassRange, OreOdds, Pick, Place, PlaceGroup, PlaceNode, PlaceSystem, RockClass,
+    RockClasses, Sources, areas, by_share, class_table, comfort, generate, grade, grade_share,
+    place_tree,
 };
 pub use guide::{Category, ClimbStep, JumpRow, ThrottleGuide, category, throttle_guide};
+pub use hud::{Basis, NameKind, NameSet, PanelSpot, ScanReading, ScanRow, panel_crop, read_scan};
 pub use solve::{
-    BandSegment, CrewRow, CrewShip, Effect, EntryInput, Eval, GadgetRow, KitRow, LaserInput,
-    LoadoutInput, MassBand, Operator, Report, RockFacts, RockInput, SolveError, SupportRow,
-    TotalRow, YourSetup, mass_band, solve,
+    BackOff, BandSegment, Blast, CrewRow, CrewShip, Effect, EntryInput, Eval, GadgetRow, KitRow,
+    LaserInput, LoadoutInput, MassBand, Operator, RangeAdvice, Report, RockFacts, RockInput,
+    ScannerValues, SolveError, Superseded, SupportRow, TotalRow, YourSetup, compare, mass_band,
+    modified_for, scanner_values, solve,
 };
 pub use state::{MiningState, SavedLoadout};

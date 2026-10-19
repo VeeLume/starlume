@@ -2,14 +2,14 @@
   // The rock finder: where rocks spawn and how the calculator's ship fares
   // there, from the game's own spawn rules (mod-mining's generator). By ore
   // first (the way to find a spot for the ship): the ores with how good
-  // their best spot is, the rock types holding one. By place: the tree, the
+  // the ship does on it, the rock types holding one. By place: the tree, the
   // place's rock types. Every row carries the ship's class split (the class
   // table); the rock type card rolls a rock. The selection is the store's
   // session state, so a visit to the calculator keeps it.
   import { Segmented } from "@veelume/ui";
   import type { ClassSharesView, LoadoutView, MiningCatalogView, PlaceNodeView } from "$lib/bindings";
   import { miningStore, miningUi, rollRock, useRolled } from "$lib/state/mining.svelte";
-  import { namesOf, oreName, ownLasers, pickRequest, sameLoadout, type Pick } from "./format";
+  import { namesOf, oreName, ownLasers, pickRequest, type Pick } from "./format";
   import OreCard from "./OreCard.svelte";
   import PlaceCard from "./PlaceCard.svelte";
   import PlaceTree from "./PlaceTree.svelte";
@@ -55,17 +55,25 @@
   );
   const classOf = (areaId: string, rockType: string): ClassSharesView | null =>
     classes.get(`${areaId}|${rockType}`) ?? null;
-  // Per ore, how good its best spot is for the ship (easy and manageable rolls).
+  // Per ore, the ship's Everyday on it (Loadouts' figure): of the ore you'd
+  // find, how much sits in rocks it cracks easy or manageable — each rock
+  // by its share of its table and how much of the ore it holds, so a trace
+  // in another ore's rock barely counts.
   const oreGood = $derived.by(() => {
     const out = new Map<string, number>();
     if (!classes.size) return out;
+    const sums = new Map<string, [number, number]>();
     for (const a of areas)
       for (const r of a.rocks) {
         const c = classOf(a.id, r.rockType);
         if (!c || !r.rollable) continue;
-        const g = c.easy + c.manageable;
-        for (const o of r.ores) out.set(o.element, Math.max(out.get(o.element) ?? 0, g));
+        for (const o of r.ores) {
+          const w = r.share * o.chance * o.meanShare;
+          const s = sums.get(o.element) ?? [0, 0];
+          sums.set(o.element, [s[0] + w * (c.easy + c.manageable), s[1] + w]);
+        }
       }
+    for (const [ore, [g, w]] of sums) if (w > 0) out.set(ore, g / w);
     return out;
   });
 
@@ -99,18 +107,48 @@
   const ship = $derived.by(() => {
     const own = ownLasers(loadout);
     if (!own.length) return null;
-    const saved = (miningStore.state?.saved ?? []).find(
-      (s) => s.owner === null && sameLoadout(s.loadout, { ...loadout, lasers: own }),
-    );
-    return saved?.name ?? "ship";
+    const state = miningStore.state;
+    const name = state?.saved.find((s) => s.id === state.basedOn)?.name ?? "ship";
+    // The classes count the crew aboard too, so the name says so.
+    const crew = [
+      ...new Set(loadout.lasers.flatMap((l) => (l.crew ? [state?.saved.find((s) => s.id === l.crew)?.owner ?? l.who ?? "crew"] : []))),
+    ];
+    return crew.length ? `${name} + ${crew.join(", ")}` : name;
   });
 
-  // The place quality rolls at: the picked place, when the area has it.
-  const qualityAt = $derived(
-    miningUi.mode === "place" && place && place.node.kind !== "field" && area?.places.some((p) => p.id === place.node.id)
-      ? place.node.id
-      : null,
-  );
+  // The place quality rolls at: Roll at's pick, else the picked place when
+  // the area has it, else the area's first place.
+  const qualityAt = $derived.by(() => {
+    if (!area) return null;
+    if (area.places.some((p) => p.id === miningUi.at)) return miningUi.at;
+    if (miningUi.mode === "place" && place && area.places.some((p) => p.id === place.node.id)) return place.node.id;
+    return area.places[0]?.id ?? null;
+  });
+
+  // The ship's score at a place, for the tree: each of its tables' good
+  // share (easy and manageable rolls) by rock share, the tables averaged.
+  function placeScore(n: PlaceNodeView): number | null {
+    if (!ship || !classes.size) return null;
+    let sum = 0;
+    let k = 0;
+    for (const id of n.areas) {
+      const a = areasById.get(id);
+      if (!a) continue;
+      let w = 0;
+      let g = 0;
+      for (const r of a.rocks) {
+        const c = classOf(a.id, r.rockType);
+        if (!c) continue;
+        w += r.share;
+        g += r.share * (c.easy + c.manageable);
+      }
+      if (w > 0) {
+        sum += g / w;
+        k++;
+      }
+    }
+    return k ? Math.round((sum / k) * 100) : null;
+  }
   const request = $derived(
     area && rock?.rollable
       ? {
@@ -165,7 +203,7 @@
     useRolled({
       pick: pickRequest(pick, miningUi.ore, oreName(name(miningUi.ore))).label,
       rockType: rock.name,
-      place: miningUi.mode === "place" && place ? place.node.name : area.name,
+      place: miningStore.rolled?.place?.name ?? (miningUi.mode === "place" && place ? place.node.name : area.name),
     });
   }
 </script>
@@ -175,7 +213,7 @@
 {:else if !miningStore.areas || !miningStore.places}
   <p class="dim">Loading spawn tables…</p>
 {:else}
-  <div class="find">
+  <div class="find" class:classes-stale={miningStore.classTableStale}>
     <nav class="side">
       <div class="sticky">
         <Segmented
@@ -189,7 +227,7 @@
         />
       </div>
       {#if miningUi.mode === "place"}
-        <PlaceTree {systems} selected={miningUi.place} onselect={selectPlace} />
+        <PlaceTree {systems} selected={miningUi.place} score={placeScore} onselect={selectPlace} />
       {:else}
         <input
           class="input search"
@@ -199,7 +237,7 @@
           bind:value={oreQuery}
         />
         <div class="ores">
-          {#if oreGood.size}<span class="oh"><span>Ore</span><span>good</span></span>{/if}
+          {#if oreGood.size}<span class="oh"><span>Ore</span><span title="Of the ore you'd find, how much sits in rocks your {ship ?? 'ship'} cracks easy or manageable">everyday</span></span>{/if}
           {#each shownOres as o (o.id)}
             {@const g = oreGood.get(o.id)}
             <button class:on={o.id === miningUi.ore} onclick={() => selectOre(o.id)}>
@@ -249,6 +287,9 @@
       <RockTypeCard
         {catalog}
         {rock}
+        where={area?.name ?? ""}
+        places={area?.places ?? []}
+        at={qualityAt ?? ""}
         rolled={miningStore.rolled}
         {stale}
         error={miningStore.generateError}
@@ -257,6 +298,7 @@
         {ship}
         onpick={(p) => (miningUi.pick = p)}
         onore={(id) => (miningUi.ore = id)}
+        onat={(id) => (miningUi.at = id)}
         onuse={use}
       />
     {/if}
@@ -264,6 +306,11 @@
 {/if}
 
 <style>
+  /* the class table is still being worked out for the current loadout */
+  .classes-stale :global(.cbar) {
+    opacity: 0.35;
+    transition: opacity 0.15s;
+  }
   .find {
     container-type: inline-size;
     display: grid;

@@ -187,6 +187,7 @@ fn generator_rolls_real_rocks() {
             owner: 0,
             who: None,
             crew: None,
+            distance_m: None,
         }],
         gadget: None,
         lead: None,
@@ -224,7 +225,7 @@ fn generator_rolls_real_rocks() {
             pick,
             place: None,
         };
-        match generate(&src, &catalog, &request, Some(&golem)) {
+        match generate(&src, &catalog, &request, Some(&golem), &|| false) {
             Ok(g) => {
                 eprintln!(
                     "  {label:<12} {:>8.0} t {:>6.2} SCU | {} | {} ms{}",
@@ -284,6 +285,7 @@ fn generator_rolls_real_rocks() {
             place: None,
         },
         Some(&golem),
+        &|| false,
     )
     .expect("mass pick");
     assert_eq!(g.masses.len(), 36);
@@ -293,7 +295,7 @@ fn generator_rolls_real_rocks() {
 
     // The finder's class table: every rollable rock type at every area.
     let start = Instant::now();
-    let table = mod_mining::class_table(&src, &catalog, &golem).expect("class table");
+    let table = mod_mining::class_table(&src, &catalog, &golem, &|| false).expect("class table");
     eprintln!(
         "class table: {} rows in {} ms",
         table.len(),

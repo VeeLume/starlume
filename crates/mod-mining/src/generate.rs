@@ -15,8 +15,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use svc_data::mining::{
-    Composition, Elements, Entry, ModifiedRock, Player, QualityRoll, Rock, RockType, Ruleset,
-    Setup, Shape, SimConfig, Spawn, Spawner, difficulty,
+    Composition, Elements, Entry, ModifiedRock, QualityRoll, Rock, RockType, Ruleset, Setup, Shape,
+    SimConfig, Spawn, Spawner,
 };
 use svc_data::{
     GatheringMode, Guid, LocaleMap, LocationKind, Locations, MiningIndex, ProviderLocations,
@@ -24,7 +24,8 @@ use svc_data::{
 };
 
 use crate::catalog::Catalog;
-use crate::solve::{EntryInput, LoadoutInput, RockInput, SolveError, setup_of};
+use crate::lagrange::{self, Points, Role};
+use crate::solve::{EntryInput, LoadoutInput, RockInput, SolveError, Superseded, setup_of};
 
 /// Rolls per rock type and area: shares to about a percent, and the median,
 /// smallest and largest of a real spread.
@@ -35,8 +36,11 @@ const ODDS_ROLLS: u64 = 2000;
 /// shares to a few percent, over every area at once.
 const TABLE_SAMPLE: u64 = 400;
 /// Player-model tries per graded mass in a band or a list: enough to tell
-/// easy, manageable and hard apart, cheap enough to run many times.
-pub const GRADE_RUNS: u32 = 24;
+/// easy, manageable and hard apart, cheap enough to run many times. At 24
+/// the noise (±10 points) flipped neighbouring slices of the mass band
+/// between classes (band_probe, 2026-10-18); every slice uses the same
+/// seeds, so neighbours differ by the rock, not the draw.
+pub const GRADE_RUNS: u32 = 64;
 /// Masses graded per rock type (quantiles of its rolls): the finder's lists
 /// and a pick's histogram classify every roll by the nearest one.
 const SPREAD_GRADES: usize = 10;
@@ -112,6 +116,23 @@ pub struct AreaRock {
     pub rollable: bool,
     /// The ores its rocks can hold, most likely first.
     pub ores: Vec<OreOdds>,
+    /// Its distribution: the rock type with the meshes this area spawns it
+    /// with. Rows with the same key roll the same rocks (masses, ores,
+    /// classes), so the finder shows them once, listing their places.
+    pub dist: String,
+    /// Lightest, most common and heaviest of its rolls; `None` when it
+    /// cannot be rolled.
+    pub mass: Option<MassRange>,
+}
+
+/// A distribution's masses in tonnes.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct MassRange {
+    pub min: f32,
+    /// The middle of the fullest of [`MASS_BUCKETS`] bars up to the 98th
+    /// percentile.
+    pub mode: f32,
+    pub max: f32,
 }
 
 /// One ore in a rock type: how often a rock holds it and how much.
@@ -212,6 +233,28 @@ pub struct MassBucket {
     pub class: Option<RockClass>,
 }
 
+/// A distribution with a loadout (design pass 5): its class shares and its
+/// masses as bars, each counted by class — what the comfort zone draws and
+/// the two scores sum. One solve per loadout covers every rock that spawns;
+/// the finder's class table reads it too.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Comfort {
+    /// The distribution key ([`AreaRock::dist`]).
+    pub dist: String,
+    pub classes: ClassShares,
+    pub bars: Vec<ComfortBar>,
+}
+
+/// One bar of a distribution's masses, its rolls counted by class.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct ComfortBar {
+    pub from: f32,
+    pub to: f32,
+    /// Rolls that are too much power, easy, manageable, hard, can't break —
+    /// in power order, as a chart stacks them.
+    pub counts: [u32; 5],
+}
+
 /// A rock type at an area, with its class shares for the loadout.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RockClasses {
@@ -242,6 +285,8 @@ pub enum GenerateError {
     /// A class pick without a laser.
     NeedsLoadout,
     Loadout(SolveError),
+    /// A newer request replaced this one ([`crate::Superseded`]).
+    Superseded,
 }
 
 impl std::fmt::Display for GenerateError {
@@ -259,6 +304,7 @@ impl std::fmt::Display for GenerateError {
             }
             Self::NeedsLoadout => write!(f, "add a laser first"),
             Self::Loadout(e) => write!(f, "{e}"),
+            Self::Superseded => write!(f, "a newer request replaced this one"),
         }
     }
 }
@@ -509,9 +555,27 @@ pub struct PlaceNode {
     /// The areas (provider GUIDs) with ship rocks here; empty for a planet
     /// that only parents its moons.
     pub areas: Vec<String>,
-    /// For a field node, how many places it stands for.
+    /// For a field node, how many places it stands for; for a Lagrange
+    /// point, its mining claims.
     pub count: u32,
+    /// A Lagrange point's rest stop, as the game names it.
+    pub rest_stop: Option<String>,
+    /// A Lagrange point's spawn tables by what they are at the point: the
+    /// table on the point itself (Pyro), its gas pockets, the table on every
+    /// claim, the yield tables with the claims carrying them. Empty for any
+    /// other place (its `areas` are its tables).
+    pub groups: Vec<PlaceGroup>,
     pub children: Vec<PlaceNode>,
+}
+
+/// Spawn tables at a Lagrange point, by what they spawn at.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlaceGroup {
+    /// `None` for the point's own table.
+    pub title: Option<String>,
+    /// The pockets or claims, by name, or how many.
+    pub detail: Option<String>,
+    pub areas: Vec<String>,
 }
 
 struct Building {
@@ -521,14 +585,36 @@ struct Building {
     count: u32,
     parent: Option<Guid>,
     system: String,
+    rest_stop: Option<String>,
+    groups: Vec<PlaceGroup>,
+}
+
+/// What a provider spawns at one Lagrange point, by role.
+#[derive(Default)]
+struct AtPoint {
+    direct: Vec<String>,
+    /// Pocket → its providers.
+    pockets: HashMap<Guid, Vec<String>>,
+    /// Claim → its providers.
+    claims: HashMap<Guid, Vec<String>>,
 }
 
 /// The place tree for the generator: systems, their planets with moons
 /// nested by the game's parent links, the other places and fields beside
-/// them. Lagrange points hang off the star in the data (their planet is
-/// only in the name, `HUR L1`), so they stay at the system's level, named
-/// as in game.
+/// them. Lagrange points sit under their planet ([`lagrange`]: the data
+/// parents them to the star) with their rest stop, and what hangs off a
+/// point — gas pockets, mining claims — is the point's, grouped
+/// ([`PlaceGroup`]) instead of fields of its own.
 pub fn place_tree(src: &Sources<'_>, catalog: &Catalog) -> Vec<PlaceSystem> {
+    let points = Points::build(src.locations, src.locale);
+    let record_of = |g: &Guid| {
+        src.index
+            .provider_names
+            .iter()
+            .find(|p| p.guid == *g)
+            .map(|p| p.record_name.clone())
+            .unwrap_or_default()
+    };
     let body = |g: &Guid| {
         src.locations
             .get(g)
@@ -565,9 +651,12 @@ pub fn place_tree(src: &Sources<'_>, catalog: &Catalog) -> Vec<PlaceSystem> {
                 count: 0,
                 parent,
                 system: star_of(g).unwrap_or_else(|| "Other".into()),
+                rest_stop: None,
+                groups: vec![],
             },
         );
     };
+    let mut at_points: HashMap<Guid, AtPoint> = HashMap::new();
 
     for (guid, _) in src.providers.iter() {
         if LEFTOVERS.contains(&guid.to_string().as_str())
@@ -576,10 +665,32 @@ pub fn place_tree(src: &Sources<'_>, catalog: &Catalog) -> Vec<PlaceSystem> {
             continue;
         }
         let area = guid.to_string();
-        let places: Vec<Guid> = src
+        let all: Vec<Guid> = src
             .places
             .map(|p| p.locations_of(guid).to_vec())
             .unwrap_or_default();
+        // What spawns at a Lagrange point (on it, in a pocket, on a claim)
+        // is the point's; only the rest is placed on its own.
+        let mut places: Vec<Guid> = Vec::new();
+        for g in &all {
+            match points.of(src.locations, g) {
+                Some((p, role)) => {
+                    let at = at_points.entry(p).or_default();
+                    let list = match role {
+                        Role::Point => &mut at.direct,
+                        Role::Pocket => at.pockets.entry(*g).or_default(),
+                        Role::Claim => at.claims.entry(*g).or_default(),
+                    };
+                    if !list.contains(&area) {
+                        list.push(area.clone());
+                    }
+                }
+                None => places.push(*g),
+            }
+        }
+        if places.is_empty() && !all.is_empty() {
+            continue;
+        }
         let on_star = places.iter().any(|g| {
             src.locations
                 .get(g)
@@ -605,6 +716,8 @@ pub fn place_tree(src: &Sources<'_>, catalog: &Catalog) -> Vec<PlaceSystem> {
                     count: places.len() as u32,
                     parent: None,
                     system,
+                    rest_stop: None,
+                    groups: vec![],
                 },
             );
             continue;
@@ -620,6 +733,122 @@ pub fn place_tree(src: &Sources<'_>, catalog: &Catalog) -> Vec<PlaceSystem> {
         }
     }
 
+    // The Lagrange points, under their planet.
+    for (p, at) in at_points {
+        let Some(point) = points.get(&p) else {
+            continue;
+        };
+        add_place(&mut nodes, &point.planet, None);
+        let mut groups: Vec<PlaceGroup> = Vec::new();
+        if !at.direct.is_empty() {
+            groups.push(PlaceGroup {
+                title: None,
+                detail: None,
+                areas: at.direct,
+            });
+        }
+        // Pockets spawning the same tables: one group (CRU L2-A, -B, -C).
+        let mut pockets: Vec<(Vec<String>, Vec<String>)> = Vec::new();
+        for (g, mut areas) in at.pockets {
+            areas.sort();
+            let name = src.place_name(&g).unwrap_or_else(|| "?".into());
+            match pockets.iter_mut().find(|(a, _)| *a == areas) {
+                Some((_, names)) => names.push(name),
+                None => pockets.push((areas, vec![name])),
+            }
+        }
+        pockets.sort_by(|a, b| a.1.iter().min().cmp(&b.1.iter().min()));
+        for (areas, mut names) in pockets {
+            names.sort();
+            let title = if names.len() > 1 {
+                "Gas pockets"
+            } else {
+                "Gas pocket"
+            };
+            groups.push(PlaceGroup {
+                title: Some(title.into()),
+                detail: Some(names.join(", ")),
+                areas,
+            });
+        }
+        // Claims: the table every claim carries, then each yield table with
+        // the claims carrying it (claim names repeat across points, so a
+        // claim is always named with its point beside it).
+        let claims = at.claims.len();
+        let mut by_table: HashMap<String, Vec<String>> = HashMap::new();
+        for (g, areas) in &at.claims {
+            let name = src.place_name(g).unwrap_or_else(|| "?".into());
+            for a in areas {
+                by_table.entry(a.clone()).or_default().push(name.clone());
+            }
+        }
+        let record_for = |area: &str| {
+            area.parse::<Guid>()
+                .map(|g| record_of(&g))
+                .unwrap_or_default()
+        };
+        let mut tables: Vec<(String, Vec<String>)> = by_table.into_iter().collect();
+        // The claim table (not a yield table) on every claim reads as such;
+        // a yield table keeps its yield even where every claim carries it
+        // (ARC L1: all eight low-yield).
+        let every = |record: &str, n: usize| {
+            n == claims && lagrange::claim_label(record) == "Mining claims"
+        };
+        tables.sort_by_key(|(a, names)| {
+            let record = record_for(a);
+            let order = if every(&record, names.len()) {
+                0
+            } else if record.contains("High_Yield") {
+                1
+            } else if record.contains("Medium_Yield") {
+                2
+            } else {
+                3
+            };
+            (order, record)
+        });
+        for (area, mut names) in tables {
+            names.sort();
+            let group = if every(&record_for(&area), names.len()) {
+                PlaceGroup {
+                    title: Some("At every mining claim".into()),
+                    detail: Some(format!(
+                        "{claims} claim{}",
+                        if claims == 1 { "" } else { "s" }
+                    )),
+                    areas: vec![area],
+                }
+            } else {
+                PlaceGroup {
+                    title: Some(format!(
+                        "{} · {}",
+                        lagrange::claim_label(&record_for(&area)),
+                        names.len()
+                    )),
+                    detail: Some(names.join(" · ")),
+                    areas: vec![area],
+                }
+            };
+            groups.push(group);
+        }
+        let mut areas: Vec<String> = groups.iter().flat_map(|g| g.areas.clone()).collect();
+        areas.sort();
+        areas.dedup();
+        nodes.insert(
+            p.to_string(),
+            Building {
+                name: point.name.clone(),
+                kind: "lpoint",
+                areas,
+                count: claims as u32,
+                parent: Some(point.planet),
+                system: star_of(&p).unwrap_or_else(|| "Other".into()),
+                rest_stop: point.rest_stop.clone(),
+                groups,
+            },
+        );
+    }
+
     // Children under their planet, the rest at their system's level.
     fn build(
         key: &str,
@@ -631,13 +860,26 @@ pub fn place_tree(src: &Sources<'_>, catalog: &Catalog) -> Vec<PlaceSystem> {
             .get(key)
             .map(|k| k.iter().map(|c| build(c, nodes, kids)).collect())
             .unwrap_or_default();
-        children.sort_by(|a, b| a.name.cmp(&b.name));
+        // Moons, then other places, then the Lagrange points (L1..L5).
+        let order = |k: &str| match k {
+            "body" => 0,
+            "place" => 1,
+            "lpoint" => 2,
+            _ => 3,
+        };
+        children.sort_by(|a, b| {
+            order(&a.kind)
+                .cmp(&order(&b.kind))
+                .then(a.name.cmp(&b.name))
+        });
         PlaceNode {
             id: key.to_string(),
             name: b.name.clone(),
             kind: b.kind.to_string(),
             areas: b.areas.clone(),
             count: b.count,
+            rest_stop: b.rest_stop.clone(),
+            groups: b.groups.clone(),
             children,
         }
     }
@@ -685,7 +927,9 @@ pub fn place_tree(src: &Sources<'_>, catalog: &Catalog) -> Vec<PlaceSystem> {
 
 /// Every area with ship-mineable rocks, by name.
 pub fn areas(src: &Sources<'_>, catalog: &Catalog) -> Vec<Area> {
+    let points = Points::build(src.locations, src.locale);
     let mut odds_cache: HashMap<Guid, Vec<OreOdds>> = HashMap::new();
+    let mut mass_cache: HashMap<String, Option<MassRange>> = HashMap::new();
     let mut out: Vec<Area> = src
         .providers
         .iter()
@@ -709,18 +953,32 @@ pub fn areas(src: &Sources<'_>, catalog: &Catalog) -> Vec<Area> {
                             .clone(),
                         None => vec![],
                     };
+                    let shapes = src.shapes(e.rock, e.geometry_tags);
+                    let rollable = composition.is_some() && !shapes.is_empty();
+                    let dist = dist_key(src, e.rock, e.geometry_tags);
+                    let mass = match rollable {
+                        true => *mass_cache
+                            .entry(dist.clone())
+                            .or_insert_with(|| mass_range(src, catalog, e.rock, &shapes)),
+                        false => None,
+                    };
                     AreaRock {
                         rock_type: e.rock.guid.to_string(),
                         name: src.rock_name(e.rock),
                         share: e.share,
-                        rollable: composition.is_some()
-                            && !src.shapes(e.rock, e.geometry_tags).is_empty(),
+                        rollable,
                         ores,
+                        dist,
+                        mass,
                     }
                 })
                 .collect();
             rocks.sort_by(|a, b| b.share.total_cmp(&a.share));
             let (name, from_record, places) = src.area_places(guid);
+            let (name, from_record) = match point_area_name(src, &points, guid) {
+                Some(n) => (n, false),
+                None => (name, from_record),
+            };
             Some(Area {
                 id: guid.to_string(),
                 name,
@@ -732,6 +990,135 @@ pub fn areas(src: &Sources<'_>, catalog: &Catalog) -> Vec<Area> {
         .collect();
     out.sort_by(|a, b| a.from_record.cmp(&b.from_record).then(a.name.cmp(&b.name)));
     out
+}
+
+/// What decides a rock type's rolls, as a key: its composition, scale range,
+/// filled factor, piece count and meshes. Rock types differ by GUID per
+/// planet group while rolling the same rocks (Quantainium on Aberdeen,
+/// Arial, Cellin, Wala), so the GUID is not part of it.
+fn dist_key(src: &Sources<'_>, rock: &RockType, geometry_tags: &[Guid]) -> String {
+    let mut meshes: Vec<String> = rock
+        .geometries_for(src.tags, geometry_tags)
+        .iter()
+        .map(|g| g.path.to_string())
+        .collect();
+    meshes.sort();
+    meshes.dedup();
+    format!(
+        "{}|{}-{}|{}|{}|{}",
+        rock.composition.map(|c| c.to_string()).unwrap_or_default(),
+        rock.min_scale,
+        rock.max_scale,
+        rock.filled_factor,
+        rock.pieces_override,
+        meshes.join(",")
+    )
+}
+
+/// A distribution's lightest, most common and heaviest rolls, over the
+/// class table's sample (the same seeds, so the finder's rows and lists
+/// describe the same rocks).
+fn mass_range(
+    src: &Sources<'_>,
+    catalog: &Catalog,
+    rock: &RockType,
+    shapes: &[&Shape],
+) -> Option<MassRange> {
+    let spawner = Spawner {
+        rock_type: rock,
+        ruleset: &catalog.ruleset,
+        elements: &catalog.elements,
+        compositions: &src.index.compositions,
+        shapes,
+    };
+    let mut masses: Vec<f32> = (0..TABLE_SAMPLE)
+        .filter_map(|seed| spawner.spawn(seed))
+        .map(|sp| sp.rock.mass)
+        .collect();
+    if masses.is_empty() {
+        return None;
+    }
+    masses.sort_by(f32::total_cmp);
+    let top = masses[((masses.len() as f32 * 0.98) as usize).min(masses.len() - 1)].max(1.0);
+    let width = top / MASS_BUCKETS as f32;
+    let mut counts = [0u32; MASS_BUCKETS];
+    for m in &masses {
+        counts[((m / width) as usize).min(MASS_BUCKETS - 1)] += 1;
+    }
+    // The fullest bar; the lighter one on a tie.
+    let fullest = (0..MASS_BUCKETS)
+        .max_by_key(|&i| (counts[i], std::cmp::Reverse(i)))
+        .unwrap_or(0);
+    Some(MassRange {
+        min: masses[0],
+        mode: (fullest as f32 + 0.5) * width,
+        max: masses[masses.len() - 1],
+    })
+}
+
+/// An area spawning only at Lagrange points, named the way the finder
+/// shows those: `Bloom L1–L5` for the points themselves (Pyro's tables),
+/// `HUR L1-A, HUR L4-A` for gas pockets, `Low-yield claims (124)` for claims.
+fn point_area_name(src: &Sources<'_>, points: &Points, provider: &Guid) -> Option<String> {
+    let all = src.places?.locations_of(provider);
+    if all.is_empty() {
+        return None;
+    }
+    let roles = all
+        .iter()
+        .map(|g| points.of(src.locations, g).map(|(p, r)| (*g, p, r)))
+        .collect::<Option<Vec<_>>>()?;
+    if roles.iter().all(|r| r.2 == Role::Point) {
+        let mut by_planet: Vec<(String, Vec<u8>)> = Vec::new();
+        for (_, p, _) in &roles {
+            let point = points.get(p)?;
+            let planet = src.place_name(&point.planet)?;
+            let n = point
+                .name
+                .rsplit_once('L')
+                .and_then(|(_, n)| n.parse().ok())?;
+            match by_planet.iter_mut().find(|(name, _)| *name == planet) {
+                Some((_, ns)) => ns.push(n),
+                None => by_planet.push((planet, vec![n])),
+            }
+        }
+        by_planet.sort();
+        return Some(
+            by_planet
+                .into_iter()
+                .map(|(planet, ns)| format!("{planet} {}", lagrange::ranges(ns)))
+                .collect::<Vec<_>>()
+                .join(" · "),
+        );
+    }
+    // Claims, with any pockets or points it also spawns at counted on
+    // (Lagrange C: 158 claims and nine pockets and points).
+    let claims = roles.iter().filter(|r| r.2 == Role::Claim).count();
+    if claims > 0 {
+        let record = src
+            .index
+            .provider_names
+            .iter()
+            .find(|p| p.guid == *provider)
+            .map(|p| p.record_name.as_str())
+            .unwrap_or_default();
+        let more = all.len() - claims;
+        let more = if more > 0 {
+            format!(" + {more} more")
+        } else {
+            String::new()
+        };
+        return Some(format!(
+            "{} ({claims}){more}",
+            lagrange::claim_label(record)
+        ));
+    }
+    if roles.iter().all(|r| r.2 == Role::Pocket) {
+        let mut names: Vec<String> = all.iter().filter_map(|g| src.place_name(g)).collect();
+        names.sort();
+        return Some(names.join(", "));
+    }
+    None
 }
 
 /// One rolled rock with its quality, and what the picks rank by.
@@ -840,22 +1227,99 @@ pub fn by_share(controlled: f32) -> RockClass {
 
 /// How a rock goes for a setup: [`RockClass`], our player model over
 /// `runs` tries where breakability and power do not decide it.
-pub fn grade(ruleset: &Ruleset, m: &ModifiedRock, runs: u32) -> RockClass {
-    decided(ruleset, m).unwrap_or_else(|| {
-        let d = difficulty(m, ruleset, &Player::default(), &SimConfig::default(), runs);
-        by_share(d.controlled)
-    })
+pub fn grade(ruleset: &Ruleset, rock: &Rock, setup: &Setup, runs: u32) -> RockClass {
+    grade_share(ruleset, rock, setup, runs).0
+}
+
+/// [`grade`] and, where the player model decided it, the share of tries
+/// that cracked without losing a piece (`None` where breakability or power
+/// decide the class).
+pub fn grade_share(
+    ruleset: &Ruleset,
+    rock: &Rock,
+    setup: &Setup,
+    runs: u32,
+) -> (RockClass, Option<f32>) {
+    let m = ModifiedRock::new(ruleset, rock, setup);
+    if let Some(class) = decided(ruleset, &m) {
+        return (class, None);
+    }
+    let beam_off = crate::player::beam_off(ruleset, rock, setup);
+    let d = crate::player::difficulty(&m, &beam_off, ruleset, &SimConfig::default(), runs);
+    let class = match by_share(d.controlled) {
+        RockClass::Easy if crate::player::narrow_window(&m) => RockClass::Manageable,
+        class => class,
+    };
+    (class, Some(d.controlled))
 }
 
 /// Every rock's class: exact where breakability or power decide it, else
 /// the class our player model gives the nearest of a few graded masses
 /// (quantiles of the rocks, the median rock's composition) — a simulation
-/// per rock would be thousands of them.
+/// per rock would be thousands of them. Empty once `superseded`.
+/// Better first: easy, manageable, hard, too much power, can't break.
+fn rank(c: RockClass) -> u8 {
+    match c {
+        RockClass::Easy => 0,
+        RockClass::Manageable => 1,
+        RockClass::Hard => 2,
+        RockClass::TooMuchPower => 3,
+        RockClass::Impossible => 4,
+    }
+}
+
+/// Each rock's class for the setup. Where every laser at its minimum is
+/// too much power, a crew stops a head (a MOLE operator holds fire) rather
+/// than overcharge a small rock: those rocks take the best class any
+/// smaller set of the lasers gets. Without it a three-head MOLE read as too
+/// much power on most small rocks it cracks fine with one head.
 fn classes_of(
     ruleset: &Ruleset,
     elements: &Elements,
     rocks: &[&Rock],
     setup: &Setup,
+    superseded: Superseded<'_>,
+) -> Vec<RockClass> {
+    let mut best = classes_with(ruleset, elements, rocks, setup, superseded);
+    let n = setup.lasers.len().min(4);
+    if n < 2 || !best.contains(&RockClass::TooMuchPower) {
+        return best;
+    }
+    for mask in 1..(1u32 << n) - 1 {
+        let fewer = Setup {
+            lasers: (0..n)
+                .filter(|i| mask & (1 << i) != 0)
+                .map(|i| setup.lasers[i].clone())
+                .collect(),
+            gadgets: setup.gadgets.clone(),
+            activations: vec![],
+        };
+        let over: Vec<usize> = (0..rocks.len())
+            .filter(|&i| best[i] == RockClass::TooMuchPower)
+            .collect();
+        if over.is_empty() {
+            break;
+        }
+        let subset: Vec<&Rock> = over.iter().map(|&i| rocks[i]).collect();
+        let classes = classes_with(ruleset, elements, &subset, &fewer, superseded);
+        if superseded() {
+            return vec![];
+        }
+        for (k, c) in over.into_iter().zip(classes) {
+            if rank(c) < rank(best[k]) {
+                best[k] = c;
+            }
+        }
+    }
+    best
+}
+
+fn classes_with(
+    ruleset: &Ruleset,
+    elements: &Elements,
+    rocks: &[&Rock],
+    setup: &Setup,
+    superseded: Superseded<'_>,
 ) -> Vec<RockClass> {
     let mut by_mass: Vec<&Rock> = rocks.to_vec();
     by_mass.sort_by(|a, b| a.mass.total_cmp(&b.mass));
@@ -865,15 +1329,21 @@ fn classes_of(
     let n = SPREAD_GRADES.min(by_mass.len());
     let graded: Vec<(f32, RockClass)> = (0..n)
         .filter_map(|k| {
+            if superseded() {
+                return None;
+            }
             let mass = by_mass[((k as f32 + 0.5) / n as f32 * by_mass.len() as f32) as usize].mass;
             let rock = Rock::from_mass(ruleset, elements, &median.entries, mass)?;
             let m = ModifiedRock::new(ruleset, &rock, setup);
             // Only simulated grades stand in for other rocks.
             decided(ruleset, &m)
                 .is_none()
-                .then(|| (mass, grade(ruleset, &m, GRADE_RUNS)))
+                .then(|| (mass, grade(ruleset, &rock, setup, GRADE_RUNS)))
         })
         .collect();
+    if superseded() {
+        return vec![];
+    }
     rocks
         .iter()
         .map(|r| {
@@ -888,7 +1358,7 @@ fn classes_of(
                             .total_cmp(&(b.0 / r.mass).ln().abs())
                     })
                     .map(|g| g.1)
-                    .unwrap_or_else(|| grade(ruleset, &m, GRADE_RUNS))
+                    .unwrap_or_else(|| grade(ruleset, r, setup, GRADE_RUNS))
             })
         })
         .collect()
@@ -913,53 +1383,116 @@ pub fn class_table(
     src: &Sources<'_>,
     catalog: &Catalog,
     loadout: &LoadoutInput,
+    superseded: Superseded<'_>,
 ) -> Result<Vec<RockClasses>, SolveError> {
-    let (lasers, gadgets) = setup_of(catalog, loadout)?;
-    let setup = Setup { lasers, gadgets };
-    let rs = &catalog.ruleset;
-    let mut cache: HashMap<(Guid, Vec<Guid>), ClassShares> = HashMap::new();
+    let by_dist: HashMap<String, ClassShares> = comfort(src, catalog, loadout, superseded)?
+        .into_iter()
+        .map(|c| (c.dist, c.classes))
+        .collect();
     let mut out = Vec::new();
     for (guid, _) in src.providers.iter() {
         if LEFTOVERS.contains(&guid.to_string().as_str()) {
             continue;
         }
         for e in ship_entries(src, catalog, guid) {
-            let key = (e.rock.guid, e.geometry_tags.to_vec());
-            let shares = match cache.get(&key) {
-                Some(s) => *s,
-                None => {
-                    let shapes = src.shapes(e.rock, e.geometry_tags);
-                    if shapes.is_empty() || e.rock.composition.is_none() {
-                        continue;
-                    }
-                    let spawner = Spawner {
-                        rock_type: e.rock,
-                        ruleset: rs,
-                        elements: &catalog.elements,
-                        compositions: &src.index.compositions,
-                        shapes: &shapes,
-                    };
-                    let spawns: Vec<Spawn> = (0..TABLE_SAMPLE)
-                        .filter_map(|seed| spawner.spawn(seed))
-                        .collect();
-                    let rocks: Vec<&Rock> = spawns.iter().map(|sp| &sp.rock).collect();
-                    let classes = classes_of(rs, &catalog.elements, &rocks, &setup);
-                    if classes.is_empty() {
-                        continue;
-                    }
-                    let shares = shares_of(&classes);
-                    cache.insert(key, shares);
-                    shares
-                }
+            if let Some(shares) = by_dist.get(&dist_key(src, e.rock, e.geometry_tags)) {
+                out.push(RockClasses {
+                    area: guid.to_string(),
+                    rock_type: e.rock.guid.to_string(),
+                    classes: *shares,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Every distribution that spawns, with the loadout: class shares and mass
+/// bars counted by class, over the class table's sample (the same seeds the
+/// finder's mass ranges use).
+pub fn comfort(
+    src: &Sources<'_>,
+    catalog: &Catalog,
+    loadout: &LoadoutInput,
+    superseded: Superseded<'_>,
+) -> Result<Vec<Comfort>, SolveError> {
+    let (lasers, gadgets) = setup_of(catalog, loadout)?;
+    let setup = Setup {
+        lasers,
+        gadgets,
+        activations: vec![],
+    };
+    let rs = &catalog.ruleset;
+    let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (guid, _) in src.providers.iter() {
+        if LEFTOVERS.contains(&guid.to_string().as_str()) {
+            continue;
+        }
+        for e in ship_entries(src, catalog, guid) {
+            let dist = dist_key(src, e.rock, e.geometry_tags);
+            if !done.insert(dist.clone()) {
+                continue;
+            }
+            let shapes = src.shapes(e.rock, e.geometry_tags);
+            if shapes.is_empty() || e.rock.composition.is_none() {
+                continue;
+            }
+            let spawner = Spawner {
+                rock_type: e.rock,
+                ruleset: rs,
+                elements: &catalog.elements,
+                compositions: &src.index.compositions,
+                shapes: &shapes,
             };
-            out.push(RockClasses {
-                area: guid.to_string(),
-                rock_type: e.rock.guid.to_string(),
-                classes: shares,
+            let spawns: Vec<Spawn> = (0..TABLE_SAMPLE)
+                .filter_map(|seed| spawner.spawn(seed))
+                .collect();
+            let rocks: Vec<&Rock> = spawns.iter().map(|sp| &sp.rock).collect();
+            let classes = classes_of(rs, &catalog.elements, &rocks, &setup, superseded);
+            if superseded() {
+                return Err(SolveError::Superseded);
+            }
+            if classes.is_empty() {
+                continue;
+            }
+            out.push(Comfort {
+                classes: shares_of(&classes),
+                bars: comfort_bars(&rocks, &classes),
+                dist,
             });
         }
     }
     Ok(out)
+}
+
+/// A sample's masses as [`MASS_BUCKETS`] bars up to the 98th percentile
+/// (heavier rolls in the last), each counting its rolls by class.
+fn comfort_bars(rocks: &[&Rock], classes: &[RockClass]) -> Vec<ComfortBar> {
+    let mut masses: Vec<f32> = rocks.iter().map(|r| r.mass).collect();
+    masses.sort_by(f32::total_cmp);
+    let top = masses[((masses.len() as f32 * 0.98) as usize).min(masses.len() - 1)].max(1.0);
+    let width = top / MASS_BUCKETS as f32;
+    let order = [
+        RockClass::TooMuchPower,
+        RockClass::Easy,
+        RockClass::Manageable,
+        RockClass::Hard,
+        RockClass::Impossible,
+    ];
+    let mut bars: Vec<ComfortBar> = (0..MASS_BUCKETS)
+        .map(|b| ComfortBar {
+            from: b as f32 * width,
+            to: (b + 1) as f32 * width,
+            counts: [0; 5],
+        })
+        .collect();
+    for (r, c) in rocks.iter().zip(classes) {
+        let b = ((r.mass / width) as usize).min(MASS_BUCKETS - 1);
+        let k = order.iter().position(|x| x == c).unwrap_or(4);
+        bars[b].counts[k] += 1;
+    }
+    bars
 }
 
 /// The sample's masses as bars, each with the class most of its rolls have.
@@ -1008,6 +1541,7 @@ pub fn generate(
     catalog: &Catalog,
     request: &GenerateRequest,
     loadout: Option<&LoadoutInput>,
+    superseded: Superseded<'_>,
 ) -> Result<Generated, GenerateError> {
     let provider = parse_guid(&request.area)
         .ok_or_else(|| GenerateError::UnknownArea(request.area.clone()))?;
@@ -1078,15 +1612,22 @@ pub fn generate(
     let setup = match loadout.filter(|l| !l.lasers.is_empty()) {
         Some(l) => {
             let (lasers, gadgets) = setup_of(catalog, l).map_err(GenerateError::Loadout)?;
-            Some(Setup { lasers, gadgets })
+            Some(Setup {
+                lasers,
+                gadgets,
+                activations: vec![],
+            })
         }
         None => None,
     };
     let rs = &catalog.ruleset;
     let classes: Option<Vec<RockClass>> = setup.as_ref().map(|s| {
         let rocks: Vec<&Rock> = rolled.iter().map(|r| &r.spawn.rock).collect();
-        classes_of(rs, &catalog.elements, &rocks, s)
+        classes_of(rs, &catalog.elements, &rocks, s, superseded)
     });
+    if superseded() {
+        return Err(GenerateError::Superseded);
+    }
     let shares = classes.as_deref().map(shares_of);
     let masses = mass_buckets(&rolled, classes.as_ref());
 
@@ -1151,6 +1692,17 @@ pub fn generate(
 
     Ok(Generated {
         rock: RockInput {
+            // Ship rocks in space use the asteroid meshes, on planets and
+            // moons mining_rock_01 (inferred from the meshes; sc-holotable
+            // is tracing what tells them apart).
+            surface: Some(
+                !chosen
+                    .spawn
+                    .shape
+                    .path
+                    .to_ascii_lowercase()
+                    .contains("asteroid"),
+            ),
             mass: chosen.spawn.rock.mass,
             entries: chosen
                 .entries

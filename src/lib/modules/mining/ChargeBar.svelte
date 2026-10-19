@@ -1,22 +1,20 @@
 <script lang="ts">
   // The charge bar in numbered steps in the game's colours (nothing below
   // the window, green inside, red above), matte like every other bar, each
-  // step's instruction beside it with the game's ◀ marker. `acts` replaces
+  // step's instruction beside it with the game's ◀ marker (the window's
+  // size is said once, beside How to crack it's title). `acts` replaces
   // the instructions (a crew support's), `height` lets it grow with its
   // card. The overlay will reuse the steps along the in-game bar.
-  import type { Step } from "./format";
+  import { stepLabel, type Step } from "./format";
 
   let {
     steps,
     acts = null,
-    win,
     height = 320,
   }: {
     steps: Step[];
     /** One instruction per step, in place of the steps' own. */
     acts?: string[] | null;
-    /** The window's size, a share of the bar. */
-    win: number;
     height?: number;
   } = $props();
 
@@ -29,7 +27,6 @@
 
   const H = $derived(Math.max(height, steps.length * GAP + 40));
   const y = (c: number) => PAD + (1 - c) * (H - 2 * PAD);
-  const p = (v: number) => `${Math.round(v * 100)} %`;
 
   const segs = $derived(
     steps.map((s, i) => {
@@ -56,7 +53,11 @@
     for (const c of all) if (!out.length || y(out[out.length - 1]) - y(c) >= 12) out.push(c);
     return out;
   });
-  const windowSeg = $derived(segs.find((g) => g.s.tone === "good") ?? null);
+  // The window's ring: around both halves when it is kept in two settings.
+  const windowSeg = $derived.by(() => {
+    const good = segs.filter((g) => g.s.tone === "good");
+    return good.length ? { top: Math.min(...good.map((g) => g.top)), bot: Math.max(...good.map((g) => g.bot)) } : null;
+  });
 </script>
 
 <svg viewBox="0 0 {W} {H}" style:height="{H}px" role="img" aria-label="Charge bar in {steps.length} steps">
@@ -67,7 +68,7 @@
   {#each segs as g (g.i)}
     <rect class="s-{g.s.tone}" x={X} y={g.top} width={BW} height={Math.max(2, g.bot - g.top)} rx="3" />
     {#if g.bot - g.top > 15}
-      <text class="num" x={X + BW / 2} y={g.mid + 4} text-anchor="middle">{g.i + 1}</text>
+      <text class="num" x={X + BW / 2} y={g.mid + 4} text-anchor="middle">{stepLabel(g.s)}</text>
     {/if}
   {/each}
   {#if windowSeg}
@@ -84,9 +85,6 @@
     <path class="lead" d="M{X + BW + 4},{g.mid} L{X + BW + 14},{g.mid} L{LX - 18},{g.ly}" />
     <path class="tri t-{g.s.tone}" d="M{LX - 6},{g.ly - 5} L{LX - 13},{g.ly} L{LX - 6},{g.ly + 5} Z" />
     <text class="act t-{g.s.tone}" x={LX} y={g.ly + 1}>{g.act}</text>
-    {#if g.s.tone === "good"}
-      <text class="sub" x={LX} y={g.ly + 16}>window, {p(win)} of the bar</text>
-    {/if}
   {/each}
 </svg>
 
@@ -137,11 +135,6 @@
     font-size: 14px;
     font-weight: var(--weight-semibold);
     fill: var(--text);
-  }
-  .sub {
-    font-family: var(--font-body);
-    font-size: 11px;
-    fill: var(--text-faint);
   }
   .tri {
     fill: var(--text-dim);

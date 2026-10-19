@@ -9,20 +9,29 @@
 //! `T` and height `a ∈ 0..1` each cycle. A negative net is never multiplied:
 //! the wave never speeds up the drain.
 //!
-//! The queue is drained at [`HIT_DRAIN`] times the tick time, so one tick
-//! can carry up to 1.2× the mean gain (and others less). That is why the
-//! wave still acts at the throttle where the *mean* gain equals the decay,
-//! and why the charge can be pushed up even a little below it. Which ticks
-//! run strong depends on hit timing that is not traced, so the guide takes
-//! the strong tick as the worst case: its jumps are upper bounds.
+//! The queue is drained at up to [`HIT_DRAIN`] times the tick time, so with
+//! hits arriving unevenly one tick can carry up to 1.2× the mean gain (and
+//! others less), and the wave would act even a little below the balance.
+//! How hits arrive depends on the owner's frame rate and raycast latency,
+//! which are not in the data. The calculator assumes even metering
+//! ([`METERING`], as sc-mining's `simulate` does) so the plan and the
+//! simulated rating are one model; [`throttle_guide_with`] at `HIT_DRAIN`
+//! gives the uneven worst case.
 //!
 //! One positive half-wave at height 1 adds `net * (T/2 + A * T/π)` with
 //! `A = instability * damping`. The guide uses the longest period
 //! (`period + variance`) and the damping steady aim reaches after the
 //! hit-consistency history window; the first seconds of firing wobble more.
 //!
-//! sc-mining's `simulate` meters the gain evenly (no queue), so its
-//! difficulty reads high-instability rocks as calmer at balance than this.
+//! The window is kept the way people keep it (Valerie, 2026-10-18): a slight
+//! rise in its lower half, a slight fall in its upper half. Just below the
+//! balance the net change is negative and the wave never multiplies it, so
+//! the fall is calm; just above, the rise is wave-lifted. The rise setting
+//! is the highest throttle whose big wave, plus the rise until the player
+//! acts, from the switch point at mid-window (read within the player's
+//! misjudgement), stays under the window's top ([`crate::player`] holds the
+//! player's reaction, decision interval and misjudgement, so the plan and
+//! the rating share them).
 
 use serde::Serialize;
 use svc_data::mining::{Combined, ModifiedRock, Ruleset, SimConfig, hit_consistency};
@@ -48,9 +57,10 @@ pub enum Category {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JumpRow {
     pub throttle: f32,
-    /// What the throttle is: `"hold"`, `"climb limit"`, `"balance"`,
-    /// `"minimum"`; `None` for the throttle where a usual wave starts to
-    /// jump out of the window.
+    /// What the throttle is: `"keep low"` (the rise setting, the window's
+    /// lower half), `"keep high"` (the fall setting, its upper half),
+    /// `"climb limit"`, `"minimum"`; `None` for the throttle where a usual
+    /// wave starts to jump out of the window.
     pub label: Option<String>,
     pub big: f32,
     pub usual: f32,
@@ -65,8 +75,13 @@ pub struct ClimbStep {
 }
 
 /// How much faster than real time the rock drains a laser's hit queue
-/// (`DAT_147f070b0` = 1.2, LIVE 4.10.196.36804).
+/// (`DAT_147f070b0` = 1.2, LIVE 4.10.196.36804): the strongest tick with
+/// uneven hit metering.
 pub const HIT_DRAIN: f32 = 1.2;
+
+/// The strongest tick over the mean gain the calculator assumes: even
+/// metering, as sc-mining's simulation does (unsettled; see the module docs).
+pub const METERING: f32 = 1.0;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ThrottleGuide {
@@ -129,6 +144,10 @@ pub struct ThrottleGuide {
     pub crack_above_s: Option<f32>,
     /// The window's top with the beam off (the laser's modifiers dropped).
     pub window_high_off: f32,
+    /// The window's bottom with the beam off: a pulse cuts the beam, and
+    /// 0.25 s later the laser's modifiers (a Focus module's wider window)
+    /// leave the rock.
+    pub window_low_off: f32,
     /// Seconds from the top of the bar back into the window, beam off (the
     /// fastest way down: the wave never speeds up a fall).
     pub back_from_top_off_s: Option<f32>,
@@ -154,12 +173,23 @@ pub struct ThrottleGuide {
     /// From the full-throttle zone to the window: the highest safe throttle
     /// falls as the charge rises, in steps of 10 %.
     pub climb: Vec<ClimbStep>,
-    /// The throttle to run in the window: the balance when a maximum peak
-    /// from the window's middle stays inside, else the highest throttle
-    /// whose peak does (below balance: the charge drains slowly and the
-    /// peaks lift it — riding the waves).
+    /// Keeping the window: the rise setting for its lower half (the grid
+    /// step just over the balance) and the fall setting for its upper half
+    /// (the step just under it), in [`crate::player::STEP`]s.
+    pub keep_low: Option<f32>,
+    pub keep_high: Option<f32>,
+    /// Room left at the rise setting: half the window, less the player's
+    /// misjudgement, less a usual wave and the rise until they act (share
+    /// of the bar). Wave arithmetic for explaining; not a verdict.
+    pub keep_margin: Option<f32>,
+    /// The throttle in the window for one-throttle uses (a crew's lead in
+    /// the wave rows): the rise setting, else the fall setting.
     pub hold_throttle: Option<f32>,
-    pub riding: bool,
+    /// The window can't be kept long enough to crack it cleanly. The
+    /// simulated player decides it (`solve` sets it from the rating; the
+    /// guide alone leaves it false), so the plan and the rating never
+    /// disagree.
+    pub unholdable: bool,
     /// The charge rises on average even at the minimum throttle (the
     /// balance lies below the laser's minimum): it cannot be held.
     pub too_much_power: bool,
@@ -257,7 +287,7 @@ impl<'a> Peaks<'a> {
 /// The category alone, without the rest of the guide: cheap enough to run
 /// over thousands of rolled rocks. `None` when the rock cannot be cracked.
 pub fn category(rock: &ModifiedRock, ruleset: &Ruleset) -> Option<Category> {
-    Peaks::new(rock, ruleset, HIT_DRAIN).category(rock.balance_throttle(ruleset))
+    Peaks::new(rock, ruleset, METERING).category(rock.balance_throttle(ruleset))
 }
 
 /// The guide for `rock` (the setup applied); `beam_off` is the rock with only
@@ -267,7 +297,7 @@ pub fn throttle_guide(
     beam_off: &ModifiedRock,
     ruleset: &Ruleset,
 ) -> ThrottleGuide {
-    throttle_guide_with(rock, beam_off, ruleset, HIT_DRAIN)
+    throttle_guide_with(rock, beam_off, ruleset, METERING)
 }
 
 /// The guide for the lead of a crew: `rock` has the supports folded in as
@@ -279,14 +309,14 @@ pub fn throttle_guide_lead(
     ruleset: &Ruleset,
     minimum: f32,
 ) -> ThrottleGuide {
-    guide(rock, beam_off, ruleset, HIT_DRAIN, minimum)
+    guide(rock, beam_off, ruleset, METERING, minimum)
 }
 
 /// How far one big and one usual wave lift the charge at `throttle` (shares
 /// of the bar): the guide's wave-lift arithmetic for any operator's throttle,
 /// the others folded into `rock` as fixed gain.
 pub fn wave_lift(rock: &ModifiedRock, ruleset: &Ruleset, throttle: f32) -> (f32, f32) {
-    let peaks = Peaks::new(rock, ruleset, HIT_DRAIN);
+    let peaks = Peaks::new(rock, ruleset, METERING);
     (peaks.jump(throttle), peaks.jump_avg(throttle))
 }
 
@@ -464,32 +494,45 @@ fn guide(
     } else {
         vec![]
     };
-    let ride = safe_from(rock.window.centre());
     // The throttle cannot go below the lasers' minimum: when the charge
     // still rises there, there is no hold, only pulsing the beam.
     let climb_min = rock.net_rate(ruleset, 0.0);
     let too_much_power = balance.is_some() && climb_min > 0.0;
-    let hold_throttle = balance.filter(|_| !too_much_power).map(|b| b.min(ride));
-    // The throttles that matter for the waves: hold (or the minimum, when
-    // the laser has too much power), the climb limit, where a usual wave
-    // starts to jump out, and balance.
+    // Keeping the window (see the module docs): the gentlest fall in the
+    // upper half (the grid step just under the balance: calm, the wave
+    // never lifts a falling charge) and the gentlest rise in the lower half
+    // (the grid step just over it). Nearest steps, because a steeper fall
+    // drops the charge out of the window and every second below it cancels
+    // a second of crack progress (band_probe, 2026-10-18: a fall 1.5 points
+    // under the balance cost ~15 points of loss-free cracks against 0.6).
+    // Whether the window can be kept is the simulation's call (the rating
+    // sets `unholdable`); the margin is the wave arithmetic beside it.
+    use crate::player::{CHARGE_UNCERTAINTY, REACTION_S, STEP};
+    const ON_GRID: f32 = 1e-4;
+    let room = window / 2.0 - CHARGE_UNCERTAINTY;
+    let keeping = balance.filter(|_| !too_much_power);
+    let keep_high = keeping.map(|b| (((b - ON_GRID) / STEP).floor() * STEP).max(minimum));
+    let keep_low = keeping.map(|b| (((b + ON_GRID) / STEP).ceil() * STEP).min(1.0));
+    let keep_margin =
+        keep_low.map(|t| room - jump_avg(t) - (gain(t) - decay).max(0.0) * REACTION_S);
+    let unholdable = false;
+    let hold_throttle = keep_low.or(keep_high);
+    // The throttles that matter for the waves: the two keep settings (or
+    // the minimum, when the laser has too much power), the climb limit, and
+    // where a usual wave starts to jump out.
     let usual_out = balance.and_then(|b| {
         (jump_avg(1.0) > window).then(|| solve(&jump_avg, window, b / hit_drain, 1.0))
     });
     let mut jumps: Vec<JumpRow> = Vec::new();
     if balance.is_some() {
-        let first = if too_much_power {
-            Some((minimum, "minimum"))
-        } else {
-            hold_throttle.map(|t| (t, "hold"))
-        };
         let candidates = [
-            first.map(|(t, l)| (t, Some(l))),
+            too_much_power.then_some((minimum, Some("minimum"))),
+            keep_high.map(|t| (t, Some("keep high"))),
+            keep_low.map(|t| (t, Some("keep low"))),
             safe_climb
                 .filter(|t| *t < 1.0)
                 .map(|t| (t, Some("climb limit"))),
             usual_out.map(|t| (t, None)),
-            balance.filter(|b| *b <= 1.0).map(|t| (t, Some("balance"))),
         ];
         for (t, label) in candidates.into_iter().flatten() {
             if jumps.iter().any(|j| (j.throttle - t).abs() < 0.005) {
@@ -547,6 +590,7 @@ fn guide(
                 .apply(scale * ruleset.controlled_breaking_fill_rate_danger),
         ),
         window_high_off: beam_off.window.high,
+        window_low_off: beam_off.window.low,
         back_from_top_off_s: fall(0.0, beam_off.window.high),
         back_from_top_min_s: fall(gain(0.0), rock.window.high),
         no_return_off: no_return(0.0, beam_off.window.high, &beam_off.catastrophic_rate),
@@ -554,8 +598,11 @@ fn guide(
         keep_on_below,
         full_until,
         climb,
+        keep_low,
+        keep_high,
+        keep_margin,
         hold_throttle,
-        riding: !too_much_power && balance.is_some_and(|b| ride < b),
+        unholdable,
         too_much_power,
         climb_at_minimum: (climb_min > 0.0).then_some(climb_min),
         pulse_on_share: (too_much_power && gain(0.0) > 0.0).then(|| decay / gain(0.0)),

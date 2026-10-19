@@ -553,6 +553,78 @@ pub fn read_base_global_ini(p4k_path: &std::path::Path) -> anyhow::Result<Vec<u8
         .ok_or_else(|| anyhow!("global.ini not found in {}", p4k_path.display()))
 }
 
+/// Read one file from an install's `Data.p4k` by its path's ending
+/// (case- and separator-insensitive, e.g. `ui/fonts/shared/fonts_en.gfx`).
+/// A single-file archive read.
+pub fn read_p4k_file(p4k_path: &std::path::Path, suffix: &str) -> anyhow::Result<Vec<u8>> {
+    let want = suffix.to_ascii_lowercase().replace('\\', "/");
+    let assets =
+        AssetSource::open(p4k_path).with_context(|| format!("opening {}", p4k_path.display()))?;
+    assets
+        .find_and_read(|name| {
+            name.to_ascii_lowercase()
+                .replace('\\', "/")
+                .ends_with(&want)
+        })
+        .with_context(|| format!("reading {suffix} from p4k"))?
+        .map(|(_, bytes)| bytes)
+        .ok_or_else(|| anyhow!("{suffix} not found in {}", p4k_path.display()))
+}
+
+/// Where the localisation the game shows came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocaleSource {
+    /// A loose `data/Localization/<language>/global.ini` beside the p4k
+    /// (a language pack, or Starlume's own text patching).
+    Override(std::path::PathBuf),
+    /// The stock file inside `Data.p4k`.
+    Stock,
+}
+
+/// The localisation the game actually shows for an install: the language
+/// `user.cfg` sets (`g_language`, `english` by default), from the loose
+/// override file when one exists (it shadows the p4k copy wholesale),
+/// else the stock file in the p4k. Text the HUD shows (ore names, labels)
+/// comes from here, so readers of the HUD match against it.
+pub fn active_locale(p4k_path: &std::path::Path) -> anyhow::Result<(LocaleMap, LocaleSource)> {
+    let install = p4k_path
+        .parent()
+        .ok_or_else(|| anyhow!("p4k has no folder"))?;
+    let language = std::fs::read_to_string(install.join("user.cfg"))
+        .ok()
+        .and_then(|cfg| {
+            cfg.lines().find_map(|l| {
+                let (k, v) = l.split_once('=')?;
+                (k.trim().eq_ignore_ascii_case("g_language")).then(|| v.trim().to_string())
+            })
+        })
+        .filter(|l| !l.is_empty())
+        .unwrap_or_else(|| "english".into());
+    let loose = install
+        .join("data")
+        .join("Localization")
+        .join(&language)
+        .join("global.ini");
+    if let Ok(bytes) = std::fs::read(&loose) {
+        // Overrides come UTF-8 with BOM (sc-langpatch) or UTF-16 LE (packs).
+        let parsed = if bytes.starts_with(&[0xFF, 0xFE]) {
+            LocaleMap::parse(&bytes)
+        } else {
+            LocaleMap::parse_utf8_bom(&bytes)
+        };
+        if let Ok(map) = parsed {
+            return Ok((map, LocaleSource::Override(loose)));
+        }
+        tracing::warn!(path = %loose.display(), "unreadable localisation override; using the stock file");
+    }
+    let bytes = read_p4k_file(p4k_path, &format!("localization/{language}/global.ini"))
+        .or_else(|_| read_base_global_ini(p4k_path))?;
+    Ok((
+        LocaleMap::parse(&bytes).context("parsing global.ini")?,
+        LocaleSource::Stock,
+    ))
+}
+
 fn remove_dir_if_present(dir: &std::path::Path) -> std::io::Result<()> {
     match std::fs::remove_dir_all(dir) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),

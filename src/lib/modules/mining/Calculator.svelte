@@ -1,103 +1,111 @@
 <script lang="ts">
-  // The calculator, in three bands: the scan beside your ship (or crew) and
-  // the outcome; the gadget beside crew and loadout changes, a row that
-  // folds to one line each; how to crack it across the width. The solve
-  // (mod-mining) runs when the rock, the tried mass or the loadout
-  // changes; the page owns that trigger.
+  // The calculator, in two columns that end level: the scan and the gadget
+  // (what's on the rock) beside your ship, the outcome and the range (how
+  // you fly it); how to crack it across the width. A head or slot on the
+  // ship card opens the part picker over the left column, so the ship and
+  // the outcome stay in view and follow each pick. The solve (mod-mining)
+  // runs when the rock, the tried mass or the loadout changes; the page
+  // owns that trigger.
   import type { LoadoutView, MiningCatalogView } from "$lib/bindings";
-  import { miningStore, miningUi } from "$lib/state/mining.svelte";
-  import ChangesCard from "./ChangesCard.svelte";
+  import { miningStore, miningUi, onCalculator, setOwnLasers } from "$lib/state/mining.svelte";
   import GadgetCard from "./GadgetCard.svelte";
   import HowCard from "./HowCard.svelte";
-  import LoadoutDialog from "./LoadoutDialog.svelte";
   import OutcomeCard from "./OutcomeCard.svelte";
+  import PartPicker from "./PartPicker.svelte";
+  import RangeCard from "./RangeCard.svelte";
   import RockDialog from "./RockDialog.svelte";
   import ScanCard from "./ScanCard.svelte";
   import ShipCard from "./ShipCard.svelte";
+  import { ownLasers } from "./format";
 
-  let { catalog, loadout }: { catalog: MiningCatalogView; loadout: LoadoutView } = $props();
+  let { catalog, channel, loadout }: { catalog: MiningCatalogView; channel: string; loadout: LoadoutView } = $props();
 
   let editRock = $state(false);
-  let editShip = $state(false);
+  /** The open part picker (`L<head>`, `S<head>:<slot>`); page-local. */
+  let open = $state("");
 
   const report = $derived(miningStore.report);
+  const own = $derived(ownLasers(loadout));
+  const distance = $derived(own.find((l) => l.distanceM !== null)?.distanceM ?? null);
 </script>
 
 <div class="calc" class:stale={miningStore.solving}>
-  <div class="scan"><ScanCard {catalog} {report} onedit={() => (editRock = true)} onroll={() => (miningUi.view = "find")} /></div>
-  <div class="right">
-    <ShipCard {catalog} {loadout} {report} onedit={() => (editShip = true)} />
+  <div class="col">
+    {#if open}
+      <div class="over">
+        <PartPicker
+          {catalog}
+          {channel}
+          target={open}
+          lasers={own}
+          build={onCalculator}
+          onpick={(next) => {
+            open = "";
+            void setOwnLasers(next);
+          }}
+          onclose={() => (open = "")}
+        />
+      </div>
+    {/if}
+    <ScanCard {catalog} {report} onedit={() => (editRock = true)} onroll={() => (miningUi.view = "find")} />
+    {#if report?.yours}<GadgetCard {catalog} {report} {loadout} />{/if}
+  </div>
+  <div class="col">
+    <ShipCard {catalog} {channel} {loadout} {report} {open} onopen={(k) => (open = open === k ? "" : k)} />
     {#if report}<OutcomeCard {report} />{/if}
+    {#if report?.yours}<RangeCard yours={report.yours} {distance} />{/if}
   </div>
   {#if miningStore.solveError}
     <p class="error wide">{miningStore.solveError}</p>
   {:else if report?.yours}
-    <div class="gad"><GadgetCard {catalog} {report} {loadout} /></div>
-    <div class="help"><ChangesCard {report} {loadout} {catalog} /></div>
-    <div class="wide"><HowCard {catalog} yours={report.yours} {loadout} /></div>
-  {:else if report}
-    <section class="card empty wide"><p class="dim">Add a laser to see how it flies.</p></section>
+    <div class="wide"><HowCard {catalog} {report} yours={report.yours} {loadout} /></div>
   {/if}
 </div>
 
 <RockDialog open={editRock} onclose={() => (editRock = false)} {catalog} />
-<LoadoutDialog open={editShip} onclose={() => (editShip = false)} {catalog} live />
 
 <style>
   .calc {
     container-type: inline-size;
     display: grid;
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-    grid-template-areas: "scan right" "gad help" "wide wide";
     gap: 16px;
     align-items: stretch;
   }
-  .scan,
-  .gad,
-  .help,
-  .right {
+  .col {
+    position: relative;
     display: flex;
+    flex-direction: column;
+    gap: 16px;
     min-width: 0;
   }
-  .scan {
-    grid-area: scan;
+  /* The cards keep their height; the last one in each column fills it, so
+     both columns end level. */
+  .calc .col > :global(*) {
+    flex: none;
   }
-  .right {
-    grid-area: right;
-    flex-direction: column;
-    gap: 14px;
+  .calc .col > :global(:last-child) {
+    flex: 1 1 auto;
   }
-  .right > :global(:last-child) {
-    flex: 1;
-  }
-  .gad {
-    grid-area: gad;
-  }
-  .help {
-    grid-area: help;
+  .over {
+    position: absolute;
+    inset: 0 0 auto 0;
+    z-index: 4;
+    flex: none;
   }
   .wide {
     grid-column: 1 / -1;
     display: flex;
     min-width: 0;
   }
-  .empty {
-    background: var(--bg-raised);
-  }
-  .empty p {
-    margin: 0;
-  }
-  .stale .gad,
-  .stale .help,
   .stale .wide,
-  .stale .right > :global(:last-child) {
+  .stale :global(.outcome) {
     opacity: 0.6;
     transition: opacity var(--transition-fast);
   }
   @container (width < 900px) {
     .calc {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-areas: "scan" "right" "gad" "help" "wide";
     }
   }
 </style>
