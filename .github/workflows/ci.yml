@@ -5,6 +5,7 @@ on:
   pull_request:
 jobs:
   ci:
-    uses: VeeLume/ci/.github/workflows/rust-ci.yml@main
+    uses: VeeLume/ci/.github/workflows/rust-ci.yml@ci/linux-default
     with:
       frontend: true
+      windows-clippy: true
