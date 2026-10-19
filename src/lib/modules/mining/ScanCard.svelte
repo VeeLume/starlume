@@ -11,6 +11,7 @@
   // wrong value is worse than none); one that didn't shows the panel as
   // read and fills nothing, with the read values one click from the
   // editor. The draft is the store's (frontend rule 1).
+  import { onMount } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { Segmented } from "@veelume/ui";
   import { X } from "lucide-svelte";
@@ -18,9 +19,11 @@
   import type { MiningCatalogView, MiningReportView } from "$lib/bindings";
   import NowCard from "$lib/components/NowCard.svelte";
   import { dataStore } from "$lib/state/data.svelte";
+  import { SHOW_UNRELEASED } from "$lib/unreleased";
   import {
     captureScan,
     dismissCapture,
+    loadScanReady,
     miningStore,
     parseNumber,
     readScreenshot,
@@ -83,6 +86,11 @@
   const fromGame = $derived(source?.pick === "Read from the game");
   let menu = $state(false);
   let asRead = $state(false);
+
+  // Read scan needs the HUD reader's data (scan.bin), which isn't shipped:
+  // release builds offer it only where the file exists, dev builds always.
+  onMount(() => void loadScanReady());
+  const canRead = $derived(SHOW_UNRELEASED || miningStore.scanReady === true);
 
   function readNow() {
     const c = dataStore.channel;
@@ -200,6 +208,9 @@
       {:else if source}{source.pick} at {source.place}{:else if rows.length}typed in{/if}
     </span>
     <button class="btn" onclick={onedit}>{rows.length ? "Edit" : "Type it in"}</button>
+    {#if !canRead}
+      <button type="button" class="btn primary" onclick={onroll}>Roll a rock</button>
+    {:else}
     <span class="splitbtn">
       <button
         type="button"
@@ -222,6 +233,7 @@
         </div>
       {/if}
     </span>
+    {/if}
   {/snippet}
 </NowCard>
 

@@ -80,6 +80,8 @@ let _rolledKey = $state("");
 let _capture = $state.raw<CaptureView | null>(null);
 let _capturing = $state<CaptureKind | null>(null);
 let _captureError = $state("");
+/** The HUD reader has its data (scan.bin); null until checked. */
+let _scanReady = $state<boolean | null>(null);
 let _generating = $state(false);
 let _rollReq = 0;
 let _generateError = $state("");
@@ -242,7 +244,16 @@ export const miningStore = {
   get captureError() {
     return _captureError;
   },
+  /** Read scan works: the HUD reader's data is on this machine. */
+  get scanReady() {
+    return _scanReady;
+  },
 };
+
+/** Check once whether the HUD reader has its data (a stat, no read). */
+export async function loadScanReady(): Promise<void> {
+  _scanReady ??= await commands.miningScanReady();
+}
 
 /** Load the generator's areas and place tree for `channel` (cache-first,
  *  frontend rule 2). */

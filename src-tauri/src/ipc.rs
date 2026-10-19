@@ -67,6 +67,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         mining::mining_compare,
         mining_capture::mining_capture,
         mining_capture::mining_read_screenshot,
+        mining_capture::mining_scan_ready,
         devtracker::devtracker_overview,
         devtracker::devtracker_authors,
         devtracker::devtracker_set_author_mode,

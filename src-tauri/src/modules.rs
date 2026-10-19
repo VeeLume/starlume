@@ -106,14 +106,14 @@ impl Module for Mining {
 }
 
 /// All modules offered by this build, enabled or not. Unreleased modules
-/// (Contracts, Mining) exist only in debug builds — the Rust half of the frontend's
+/// (Contracts) exist only in debug builds — the Rust half of the frontend's
 /// `$lib/unreleased` gate (v0.1.0 scope decision; the Dev Tracker shipped in
-/// v0.2.0).
+/// v0.2.0, Mining in v0.3.0).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
         &[&Devtracker, &Langpatch, &Items, &Mining, &Contracts]
     } else {
-        &[&Devtracker, &Langpatch, &Items]
+        &[&Devtracker, &Langpatch, &Items, &Mining]
     }
 }
 

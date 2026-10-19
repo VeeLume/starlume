@@ -51,6 +51,21 @@ shows what each one changes. After a game update Starlume re-patches on
 its own as soon as it notices the update; if the game is running, it waits
 until you close it.
 
+### Mining
+
+Will it crack? Type in a rock you scanned (or roll one from the Rock finder)
+and see it against your ship:
+
+- how hard it is for a person at the throttle, and how to fly it: where to
+  keep the throttle on the charge bar and how wide the window is
+- the gadget, modules or crew support that would close the gap
+- the **Rock finder**: where each rock spawns, by place or by ore, from the
+  game's own spawn rules, with how your ship fares on each
+- **Loadouts** and **Crew**: your ships' and your crew mates' setups, each
+  measured on every rock you'd meet or on one ore's
+
+Mining reads your game install only; nothing goes online.
+
 ### My Items *(opt-in)*
 
 Finds every item and ship on your account:
