@@ -1,13 +1,20 @@
 <script lang="ts">
-  // By ore: the rock types that hold the ore. With a loadout each row
-  // carries the ship's class split and its good share (easy and
-  // manageable rolls), best for the ship first; Richest sorts by the ore's share of
-  // the rock when present.
+  // By ore: the rocks that hold the ore, one row per distribution (design
+  // pass 4) — tables that roll the same rocks (same rock type, same meshes:
+  // same masses, ores and classes) are one row listing their places, Cellin ·
+  // Yela. Each row carries the ore's share of the rock, with a loadout the
+  // ship's class split and good share (easy and manageable rolls), and the
+  // mass range on the shared scale. Sorted best for the ship (good share by
+  // the ore's share, so a trace of it in another ore's rock sinks), richest,
+  // or heaviest. "Tune a loadout" opens Loadouts measured on this ore's rocks
+  // (design pass 5: question 4, the best loadout for an ore, without a form).
   import { Segmented } from "@veelume/ui";
   import type { AreaView, ClassSharesView } from "$lib/bindings";
   import NowCard from "$lib/components/NowCard.svelte";
-  import ClassBar from "./ClassBar.svelte";
+  import { miningUi } from "$lib/state/mining.svelte";
   import { oreName, pct } from "./format";
+  import MassAxis from "./MassAxis.svelte";
+  import RockRow from "./RockRow.svelte";
 
   let {
     ore,
@@ -30,59 +37,75 @@
     onpick: (area: string, rockType: string) => void;
   } = $props();
 
-  let sort = $state<"good" | "rich">("good");
+  let sort = $state<"good" | "rich" | "heavy">("good");
 
   const good = (c: ClassSharesView | null) => (c ? c.easy + c.manageable : -1);
-  const sources = $derived(
-    areas
-      .flatMap((a) =>
-        a.rocks.flatMap((r) => {
-          const o = r.ores.find((x) => x.element === ore);
-          return o && r.rollable ? [{ a, r, o, c: classOf(a.id, r.rockType) }] : [];
-        }),
-      )
-      .sort((x, y) =>
-        sort === "good" && ship
-          ? good(y.c) - good(x.c) || y.o.meanShare - x.o.meanShare
-          : y.o.meanShare - x.o.meanShare || y.o.chance - x.o.chance,
-      )
-      .slice(0, 30),
+  // One row per distribution, its places in the order the areas come.
+  const rows = $derived.by(() => {
+    const by = new Map<string, { at: { a: AreaView; rockType: string }[]; r: AreaView["rocks"][number]; share: number }>();
+    for (const a of areas)
+      for (const r of a.rocks) {
+        const o = r.ores.find((x) => x.element === ore);
+        if (!o || !r.rollable) continue;
+        const row = by.get(r.dist);
+        if (row) row.at.push({ a, rockType: r.rockType });
+        else by.set(r.dist, { at: [{ a, rockType: r.rockType }], r, share: o.meanShare });
+      }
+    return [...by.values()].map((x) => ({ ...x, c: classOf(x.at[0].a.id, x.at[0].rockType) }));
+  });
+  const sorted = $derived(
+    [...rows].sort((x, y) =>
+      sort === "good" && ship
+        ? good(y.c) * y.share - good(x.c) * x.share || y.share - x.share
+        : sort === "heavy"
+          ? (y.r.mass?.max ?? 0) - (x.r.mass?.max ?? 0)
+          : y.share - x.share,
+    ),
   );
-  const withClasses = $derived(ship !== null && sources.some((s) => s.c !== null));
+  const tables = $derived(new Set(rows.flatMap((x) => x.at.map((t) => t.a.id))).size);
+  const withClasses = $derived(ship !== null && rows.some((s) => s.c !== null));
+  const sorts = $derived([
+    ...(ship ? [{ value: "good", label: `Best for your ${ship}` }] : []),
+    { value: "rich", label: "Richest" },
+    { value: "heavy", label: "Heaviest" },
+  ]);
 </script>
 
 <NowCard hue="var(--hue-sand)" chip="◆ ORE" version={name}>
   {#snippet top()}
-    {#if ship}
-      <Segmented
-        class="sort"
-        options={[
-          { value: "good", label: `Best for your ${ship}` },
-          { value: "rich", label: "Richest" },
-        ]}
-        value={sort}
-        onchange={(v) => (sort = v as "good" | "rich")}
-      />
-    {/if}
+    <Segmented class="sort" options={sorts} value={ship || sort !== "good" ? sort : "rich"} onchange={(v) => (sort = v as typeof sort)} />
   {/snippet}
-  <div class="head label" class:cls={withClasses}>
-    <span>Rock</span><span>{name}</span>{#if withClasses}<span>Your {ship}</span><span>good</span>{/if}
+  <p class="sub">{rows.length} {rows.length === 1 ? "distribution" : "distributions"} in {tables} spawn {tables === 1 ? "table" : "tables"}</p>
+  <div class="tune">
+    <button
+      type="button"
+      class="btn"
+      onclick={() => {
+        miningUi.measure = "all";
+        miningUi.measureOre = ore;
+        miningUi.view = "lo";
+      }}>Tune a loadout for {name} →</button
+    >
+    <small class="faint">opens Loadouts measured on {name}</small>
   </div>
+  <div class="head label" class:cls={withClasses}>
+    <span>Where</span><span title="Its share of the rock when present">share</span>{#if withClasses}<span>Your {ship}</span><span>good</span>{/if}
+  </div>
+  <MassAxis />
   <div class="rocks">
-    {#each sources as s (s.a.id + s.r.rockType)}
-      <button
-        class="rk"
-        class:cls={withClasses}
-        class:on={s.a.id === area && s.r.rockType === rockType}
-        onclick={() => onpick(s.a.id, s.r.rockType)}
-      >
-        <span class="nm"><b>{oreName(s.r.name)}</b><span>{s.a.name}</span></span>
-        <span class="n" title="Its share of the rock when present">~{pct(s.o.meanShare)}</span>
-        {#if withClasses}
-          {#if s.c}<ClassBar shares={s.c} />{:else}<span></span>{/if}
-          <span class="n g">{s.c ? Math.round(good(s.c) * 100) : "—"}</span>
-        {/if}
-      </button>
+    {#each sorted as s (s.r.dist)}
+      {@const on = s.at.some((t) => t.a.id === area && t.rockType === rockType)}
+      <RockRow
+        name={oreName(s.r.name)}
+        where={[...new Set(s.at.map((t) => t.a.name))].join(" · ")}
+        figure="~{pct(s.share)}"
+        figureTitle="Its share of the rock when present"
+        classes={s.c}
+        {withClasses}
+        mass={s.r.mass}
+        {on}
+        onclick={() => onpick(s.at[0].a.id, s.at[0].rockType)}
+      />
     {/each}
   </div>
 </NowCard>
@@ -91,21 +114,32 @@
   :global(.sort) {
     font-size: var(--text-small);
   }
-  .head,
-  .rk {
+  .tune {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+  .tune small {
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .sub {
+    margin: -6px 0 0;
+    font-size: var(--text-small);
+    color: var(--text-dim);
+  }
+  .head {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 54px;
     gap: 12px;
     align-items: center;
-  }
-  .head.cls,
-  .rk.cls {
-    grid-template-columns: minmax(0, 1fr) 54px minmax(70px, 1fr) 30px;
-  }
-  .head {
     margin: 0;
     font-size: 0.66rem;
     color: var(--text-faint);
+  }
+  .head.cls {
+    grid-template-columns: minmax(0, 1fr) 54px minmax(70px, 1fr) 30px;
   }
   .head span:nth-child(2),
   .head span:nth-child(4) {
@@ -114,53 +148,5 @@
   .rocks {
     display: flex;
     flex-direction: column;
-  }
-  .rk {
-    padding: 8px;
-    margin-inline: -8px;
-    border: 0;
-    border-top: 1px solid color-mix(in srgb, var(--text) 7%, transparent);
-    border-radius: 6px;
-    background: none;
-    font: inherit;
-    color: var(--text);
-    text-align: left;
-    cursor: pointer;
-  }
-  .rk:first-child {
-    border-top-color: transparent;
-  }
-  .rk:hover {
-    background: color-mix(in srgb, var(--text) 4%, transparent);
-  }
-  .rk.on {
-    background: var(--accent-fill);
-  }
-  .nm {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    line-height: 1.3;
-  }
-  .nm b {
-    font-size: 0.92rem;
-    font-weight: var(--weight-semibold);
-  }
-  .nm span {
-    font-size: var(--text-small);
-    color: var(--text-faint);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .n {
-    font-family: var(--font-mono);
-    font-size: 0.8rem;
-    text-align: right;
-    color: var(--text-dim);
-  }
-  .n.g {
-    color: var(--good);
-    font-weight: var(--weight-semibold);
   }
 </style>

@@ -11,6 +11,8 @@ description = "Starlume mining module — the calculator: a scanned rock against
 # The mining reference data and sc-mining's maths come from svc-data's
 # cooked index (module rule 1). No sc-holotable pin.
 svc-data.workspace = true
+# Frames and the OCR engine for reading the scan panel (module rule 1).
+svc-capture.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

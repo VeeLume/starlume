@@ -13,6 +13,9 @@ use crate::solve::LoadoutInput;
 pub struct MiningState {
     /// The loadout the calculator opens with.
     pub current: LoadoutInput,
+    /// The saved loadout (its id) your part of `current` came from: edits
+    /// on the calculator are a try-out against it until saved.
+    pub based_on: Option<String>,
     pub saved: Vec<SavedLoadout>,
 }
 
@@ -82,6 +85,9 @@ impl MiningState {
     pub fn delete(&mut self, id: &str) -> bool {
         let before = self.saved.len();
         self.saved.retain(|s| s.id != id);
+        if self.based_on.as_deref() == Some(id) {
+            self.based_on = None;
+        }
         self.saved.len() != before
     }
 
@@ -107,6 +113,7 @@ mod tests {
                 owner: 0,
                 who: None,
                 crew: None,
+                distance_m: None,
             }],
             gadget: None,
             lead: None,

@@ -25,6 +25,9 @@ vite.config.ts.timestamp-*
 .DS_Store
 Thumbs.db
 
+# The HUD reader's learned data: from the game's HUD font, never committed
+scan.bin
+
 # Local cargo path overrides (dev only)
 .cargo/
 src-tauri/.cargo/

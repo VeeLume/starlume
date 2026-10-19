@@ -14,7 +14,7 @@
 
 use serde::Serialize;
 use svc_data::mining::{
-    Activation, Elements, MiningGadget, MiningLaserStats, MiningModule, Ruleset,
+    Activation, Elements, MiningGadget, MiningLaserStats, MiningModule, Ruleset, Shape,
 };
 use svc_data::{Guid, LocaleMap, MiningIndex};
 
@@ -38,9 +38,16 @@ pub struct Catalog {
     pub ruleset: Ruleset,
     pub elements: Elements,
     pub element_names: Vec<Named<Guid>>,
+    /// Each element's localisation key (by id), to resolve its name in the
+    /// localisation the game actually shows (the scan reader).
+    pub element_keys: Vec<(String, Option<String>)>,
     pub lasers: Vec<Named<LaserItem>>,
     pub modules: Vec<Named<MiningModule>>,
     pub gadgets: Vec<Named<MiningGadget>>,
+    /// The meshes ship rocks spawn with (asteroid_01..03, mining_rock_01),
+    /// each with its fracture pieces: what an overcharged crack loses.
+    /// Empty when the cook could not open the p4k.
+    pub rock_shapes: Vec<Shape>,
 }
 
 /// A ship mining laser.
@@ -76,7 +83,7 @@ impl Catalog {
             .ruleset
             .clone();
 
-        let element_names = index
+        let element_names: Vec<Named<Guid>> = index
             .element_names
             .iter()
             .filter(|e| e.rulesets.iter().any(|r| r == SHIP_RULESET))
@@ -93,6 +100,17 @@ impl Catalog {
                 record_name: e.record_name.clone(),
                 value: e.guid,
             })
+            .collect();
+
+        let element_keys = index
+            .element_names
+            .iter()
+            .filter(|e| {
+                element_names
+                    .iter()
+                    .any(|n: &Named<Guid>| n.value == e.guid)
+            })
+            .map(|e| (e.guid.to_string(), e.name_key.clone()))
             .collect();
 
         let lasers = index
@@ -149,13 +167,33 @@ impl Catalog {
             })
             .collect();
 
+        // The meshes ship rocks spawn with, each once.
+        let mut rock_shapes: Vec<Shape> = Vec::new();
+        {
+            use svc_data::RecordCollection;
+            for rock in index
+                .rock_types
+                .values()
+                .filter(|r| r.ruleset == Some(ruleset.guid))
+            {
+                for g in &rock.geometries {
+                    if let Some(shape) = index.shapes.get(&g.path)
+                        && !rock_shapes.iter().any(|s| s.path == shape.path)
+                    {
+                        rock_shapes.push(shape.clone());
+                    }
+                }
+            }
+        }
         Some(Self {
             ruleset,
             elements: index.elements.clone(),
             element_names: by_name(element_names),
+            element_keys,
             lasers: by_name(lasers),
             modules: by_name(modules),
             gadgets: by_name(gadgets),
+            rock_shapes,
         })
     }
 

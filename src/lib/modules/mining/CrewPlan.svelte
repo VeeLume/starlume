@@ -6,7 +6,7 @@
   // hold one throttle and cut the beam with everyone at step 4.
   import type { MiningCatalogView, OperatorView } from "$lib/bindings";
   import Monogram from "$lib/components/Monogram.svelte";
-  import { laserShort, namesOf, type Step } from "./format";
+  import { laserShort, namesOf, stepLabel, type Step } from "./format";
 
   let {
     catalog,
@@ -104,7 +104,7 @@
   </div>
   {#each steps as s, i (i)}
     <div class="r">
-      <span class="sn s-{s.tone}">{i + 1}</span>
+      <span class="sn s-{s.tone}">{stepLabel(s)}</span>
       {#if s.tone === "bad"}
         <span class="c t-bad all">It will overcharge</span>
       {:else}
@@ -255,7 +255,7 @@
     color: var(--good);
   }
   .bad {
-    color: var(--warn);
+    color: var(--bad);
   }
   .zero {
     color: var(--text-faint);

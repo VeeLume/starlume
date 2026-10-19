@@ -106,7 +106,7 @@ export function alternatives(report: MiningReportView, loadout: LoadoutView, cat
       apply: () =>
         setLoadout({
           ...loadout,
-          lasers: [...loadout.lasers, { laser: s.laser, modules: s.modules, owner: ship, who: "Prospector", crew: `support:${s.laser}` }],
+          lasers: [...loadout.lasers, { laser: s.laser, modules: s.modules, owner: ship, who: "Prospector", crew: `support:${s.laser}`, distanceM: null }],
         }),
     });
   }

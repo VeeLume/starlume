@@ -67,6 +67,7 @@ fn bexalite_scan_from_a_golem() {
             owner: 0,
             who: None,
             crew: None,
+            distance_m: None,
         }],
         gadget: Some(id(&catalog.gadgets, "gadget", "Sabir")),
         lead: None,
@@ -77,6 +78,7 @@ fn bexalite_scan_from_a_golem() {
         quality,
     };
     let rock = RockInput {
+        surface: None,
         mass: 20998.0,
         entries: vec![
             entry(bexalite.clone(), 6.22, Some(597)),
@@ -99,6 +101,7 @@ fn bexalite_scan_from_a_golem() {
                 owner: 0,
                 who: None,
                 crew: None,
+                distance_m: None,
             }],
             gadget: None,
             lead: None,
@@ -125,6 +128,7 @@ fn bexalite_scan_from_a_golem() {
         owner: 1,
         who: Some("Juno".into()),
         crew: Some("juno".into()),
+        distance_m: None,
     });
     let duo = solve(&catalog, &together, &rock, &[]).expect("crew solve");
     let duo = duo.yours.as_ref().expect("lasers");
@@ -162,7 +166,7 @@ fn bexalite_scan_from_a_golem() {
         "effects: ship {:?} | Golem {:?} | Juno {:?}",
         duo.effect, duo.operators[0].effect, duo.operators[1].effect
     );
-    let band = mod_mining::mass_band(&catalog, &loadout, &rock).expect("band");
+    let band = mod_mining::mass_band(&catalog, &loadout, &rock, None, &|| false).expect("band");
     eprintln!(
         "band to {:.0} t, limit {:.0} t: {:?}",
         band.top,
@@ -213,6 +217,7 @@ fn bexalite_scan_from_a_golem() {
     // A small rock for a Golem: the laser is too strong to hold it even at
     // its minimum throttle (Valerie's 2,000 t test rock).
     let small = RockInput {
+        surface: None,
         mass: 2000.0,
         entries: vec![
             entry(
@@ -298,6 +303,7 @@ fn check_guide_against_simulation(catalog: &Catalog, loadout: &LoadoutInput, inp
             &Setup {
                 lasers: vec![laser.clone()],
                 gadgets: vec![gadget.clone()],
+                activations: vec![],
             },
         );
         let off = ModifiedRock::new(
@@ -306,6 +312,7 @@ fn check_guide_against_simulation(catalog: &Catalog, loadout: &LoadoutInput, inp
             &Setup {
                 lasers: vec![],
                 gadgets: vec![gadget.clone()],
+                activations: vec![],
             },
         );
         // Even metering, as the simulation does: checks the wave arithmetic.
@@ -316,7 +323,7 @@ fn check_guide_against_simulation(catalog: &Catalog, loadout: &LoadoutInput, inp
             && d > real.throttle_minimum
         {
             assert!(
-                (d - b / mod_mining::guide::HIT_DRAIN).abs() < 0.01,
+                (d - b / mod_mining::guide::METERING).abs() < 0.01,
                 "decline {d} vs balance {b}"
             );
         }
@@ -438,6 +445,7 @@ fn keep_on_versus_cut(catalog: &Catalog, loadout: &LoadoutInput, input: &RockInp
         &Setup {
             lasers: vec![],
             gadgets: vec![gadget.clone()],
+            activations: vec![],
         },
     );
     for l in &catalog.lasers {
@@ -453,6 +461,7 @@ fn keep_on_versus_cut(catalog: &Catalog, loadout: &LoadoutInput, input: &RockInp
             &Setup {
                 lasers: vec![laser],
                 gadgets: vec![gadget.clone()],
+                activations: vec![],
             },
         );
         let g = mod_mining::throttle_guide(&m, &off, rs);

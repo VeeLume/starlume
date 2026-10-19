@@ -48,6 +48,7 @@ tauri-plugin-notification = "2"
 
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
@@ -70,6 +71,7 @@ mod-items.workspace = true
 mod-devtracker.workspace = true
 mod-langpatch.workspace = true
 mod-mining.workspace = true
+svc-capture.workspace = true
 svc-discovery.workspace = true
 svc-data.workspace = true
 svc-dossier.workspace = true
@@ -80,6 +82,8 @@ svc-commlinks.workspace = true
 # Game-running detection (write gate for text patching): a patched
 # global.ini must never be written while StarCitizen.exe is up.
 sysinfo = "0.33"
+# Capture previews as data URLs (mining scan buttons).
+base64 = "0.22"
 
 # WebView2 suspension (tray memory). Versions MUST match wry's own
 # webview2-com — the COM interface types are shared with `with_webview`.

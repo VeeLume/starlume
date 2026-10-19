@@ -9,6 +9,7 @@
   import type { LoadoutView } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import Calculator from "$lib/modules/mining/Calculator.svelte";
+  import Crew from "$lib/modules/mining/Crew.svelte";
   import Loadouts from "$lib/modules/mining/Loadouts.svelte";
   import RockFinder from "$lib/modules/mining/RockFinder.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
@@ -32,6 +33,7 @@
     ["calc", "Calculator"],
     ["find", "Rock finder"],
     ["lo", "Loadouts"],
+    ["crew", "Crew"],
   ];
 
   let ready = $state(false);
@@ -61,7 +63,7 @@
   // tried mass: the band is the axis the slider moves along).
   $effect(() => {
     const c = channel;
-    const key = JSON.stringify([miningStore.rock, loadout, catalog !== null]);
+    const key = JSON.stringify([miningStore.rock, miningStore.source?.heaviest, loadout, catalog !== null]);
     if (!c || !catalog || !key) return;
     const t = setTimeout(() => void loadMassBand(c), SOLVE_DEBOUNCE_MS);
     return () => clearTimeout(t);
@@ -88,16 +90,18 @@
 </script>
 
 <div class="page">
-  <header class="head">
-    <div class="tabs" role="tablist" aria-label="View">
-      {#each VIEWS as [id, label] (id)}
-        <button role="tab" class:on={miningUi.view === id} aria-selected={miningUi.view === id} onclick={() => (miningUi.view = id)}
-          >{label}</button
-        >
-      {/each}
-      <button role="tab" class="later" disabled aria-selected="false">Overlay <span class="soon">later</span></button>
-    </div>
-  </header>
+  <div class="tabs" role="tablist" aria-label="View">
+    {#each VIEWS as [id, label] (id)}
+      <button
+        role="tab"
+        class="tab"
+        class:active={miningUi.view === id}
+        aria-selected={miningUi.view === id}
+        onclick={() => (miningUi.view = id)}>{label}</button
+      >
+    {/each}
+    <button role="tab" class="tab later" disabled aria-selected="false">Overlay <span class="soon">later</span></button>
+  </div>
 
   {#if ready && !channel}
     <NoGameData />
@@ -105,11 +109,13 @@
     <p class="error">{miningStore.catalogError}</p>
   {:else if catalog && miningStore.state && channel}
     {#if miningUi.view === "calc"}
-      <Calculator {catalog} {loadout} />
+      <Calculator {catalog} {channel} {loadout} />
     {:else if miningUi.view === "find"}
       <RockFinder {catalog} {channel} {loadout} />
+    {:else if miningUi.view === "crew"}
+      <Crew {catalog} {channel} {loadout} />
     {:else}
-      <Loadouts {catalog} {loadout} />
+      <Loadouts {catalog} {channel} {loadout} />
     {/if}
   {:else if ready}
     <NoGameData waiting />
@@ -125,34 +131,11 @@
     min-height: 0;
     overflow: auto;
   }
-  .head {
-    display: flex;
-    align-items: flex-end;
-    border-bottom: 1px solid var(--border);
-  }
+  /* The page's gap spaces the tabs; app.css draws them. */
   .tabs {
-    display: flex;
-    gap: 2px;
+    margin-bottom: 0;
   }
-  .tabs button {
-    padding: 8px 12px 10px;
-    border: 0;
-    border-bottom: 2px solid transparent;
-    background: transparent;
-    font: inherit;
-    font-size: 0.9rem;
-    color: var(--text-dim);
-    cursor: pointer;
-  }
-  .tabs button:hover:not(:disabled) {
-    color: var(--text);
-  }
-  .tabs button.on {
-    color: var(--text-strong);
-    border-bottom-color: var(--accent);
-    font-weight: var(--weight-semibold);
-  }
-  .tabs button.later {
+  .tab.later {
     opacity: 0.55;
     cursor: default;
   }
