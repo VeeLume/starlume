@@ -54,14 +54,25 @@ A module lands in two halves sharing one id:
    `src-tauri/src/modules.rs::registry()`; its commands join the list in
    `src-tauri/src/ipc.rs` (then regenerate bindings).
 2. **Frontend** — `src/lib/modules/<id>/` exporting a `ModuleDescriptor`
-   (routes under `src/routes/<id>/`, sidebar `nav` entries, optional
-   `onboardingSteps`, `homeCards` for Home, an `installStatus` column on
-   Home's Game status card, `patchNotes` cards on the News page),
+   (routes under `src/routes/<id>/`, sidebar `nav` entries, a three-point
+   `pitch`, `needsGame` and the `unofficial` features it reads through, an
+   optional `setup` component, `homeCards` for Home, an `installStatus`
+   column on Home's Game status card, `patchNotes` cards on the News page),
    added to `src/lib/modules/registry.ts`.
 
 The onboarding picker, the sidebar, and the Settings module list all derive
-from the registry — no wizard or layout edits needed. Module onboarding steps
-appear automatically when the module is selected during setup.
+from the registry — no wizard or layout edits needed. A module's `setup`
+appears as an onboarding step while it is selected, and on its What's-new
+page. A module users haven't been offered yet (`AppSettings::modules_offered`)
+gets that page after the update that ships it, plus a startup notification
+— so a release that adds a module needs nothing beyond the descriptor.
+
+### Releasing
+
+A release with a change that touches something users use or set (a new
+page, a setting that moved or changed meaning) adds an entry to
+`src/lib/guides.ts`; it becomes the "Also changed" page of the What's-new
+guide. Fixes go to `CHANGELOG.md` only.
 
 Unreleased surfaces stay behind `src/lib/unreleased.ts` (and the debug-only
 half of `modules::registry()`): dev builds show them, release builds don't.

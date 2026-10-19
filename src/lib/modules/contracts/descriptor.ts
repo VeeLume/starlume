@@ -11,6 +11,10 @@ export const contractsModule: ModuleDescriptor = {
   name: "Contract Tracker",
   description:
     "Track active contracts with per-objective progress, plan multi-contract routes — hauling gets cargo packing.",
-  icon: "≣",
+  pitch: [
+    "Active contracts with per-objective progress",
+    "Routes planned across several contracts",
+    "Cargo packing for hauling",
+  ],
   nav: [{ href: "/contracts", label: "Contracts", icon: ScrollText }],
 };

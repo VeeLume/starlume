@@ -1,7 +1,7 @@
 // Settings categories as data (the kit scaffold's contract): adding a
 // setting is one entry here plus one small page under /settings/<id>.
 
-import { Blocks, Database, Globe, SlidersHorizontal, UserRound } from "lucide-svelte";
+import { Blocks, Database, Globe, Info, SlidersHorizontal, UserRound } from "lucide-svelte";
 import type { SettingsCategory } from "@veelume/ui";
 import { SHOW_UNRELEASED } from "$lib/unreleased";
 
@@ -9,7 +9,7 @@ export const settingsCategories: SettingsCategory[] = [
   {
     id: "general",
     label: "General",
-    description: "Tray behavior, startup, updates",
+    description: "Tray behavior, startup",
     icon: SlidersHorizontal,
     path: "/settings/general",
   },
@@ -46,4 +46,11 @@ export const settingsCategories: SettingsCategory[] = [
         },
       ]
     : []),
+  {
+    id: "about",
+    label: "About",
+    description: "Version, updates, what's new, setup",
+    icon: Info,
+    path: "/settings/about",
+  },
 ];

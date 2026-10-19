@@ -13,6 +13,7 @@
   import { prefetchCatalogs, invalidateCatalogs } from "$lib/state/catalog.svelte";
   import { listen } from "@tauri-apps/api/event";
   import { onboarding, maybeStartOnboarding } from "$lib/state/onboarding.svelte";
+  import { maybeOpenGuide } from "$lib/state/guide.svelte";
   import { listenForNotifications, syncNotifications } from "$lib/state/notifications.svelte";
   import { loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
   import { Notify, Shell, setKitContext, type NavGroup } from "@veelume/ui";
@@ -141,6 +142,8 @@
       await loadAuth();
       unlistenAuth = await listenForAuthChanges();
       await maybeStartOnboarding();
+      // A pending What's-new guide opens once per run; never over setup.
+      if (!onboarding.open) await maybeOpenGuide();
       void checkForUpdates();
     })();
     // Game-data hydration runs independently of the auth chain — local only.

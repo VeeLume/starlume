@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+- **Setup, redone** — it runs in the app's own window, its steps listed on
+  the left with Skip setup always in reach. Welcome shows what Starlume found
+  (your installs, your launcher account, the game data being prepared);
+  modules come before privacy, so Online & privacy asks only for the
+  unofficial APIs the modules you picked use, with the consent on the page.
+  Text Patching and the Dev Tracker set themselves up right after you pick
+  them, and a new step covers the tray: starting with Windows, closing to
+  the tray, notifications.
+- **What's new** — after an update that brings a new module or changes
+  something you set, a short guide opens once: turn the new module on where
+  you read about it, allow what it needs, and see what changed. Later keeps
+  it in the bell; Settings → About lists every release's guide and runs the
+  setup again. While Starlume is in the tray, a Windows notification names
+  the new module.
+
 ## [0.2.0] - 2026-10-15
 
 Starlume now keeps you up to date on the game, not only on your own things:

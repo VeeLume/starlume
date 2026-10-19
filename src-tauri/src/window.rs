@@ -14,7 +14,7 @@
 //! (`create: false` in tauri.conf).
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tauri::{
@@ -150,6 +150,18 @@ fn remember_geometry(window: &tauri::Window) {
 #[specta::specta]
 pub fn take_restore_route() -> Option<String> {
     ROUTE.lock().unwrap().take()
+}
+
+/// Whether the What's-new guide already opened by itself in this process.
+static GUIDE_OPENED: AtomicBool = AtomicBool::new(false);
+
+/// Whether a pending What's-new guide may open by itself, and if so, mark
+/// it done: once per run, like the update check. A rebuilt window mounts
+/// the layout again; after Later the guide waits in the bell instead.
+#[tauri::command]
+#[specta::specta]
+pub fn guide_open_due() -> bool {
+    !GUIDE_OPENED.swap(true, Ordering::Relaxed)
 }
 
 /// When the startup update check last ran in this process.

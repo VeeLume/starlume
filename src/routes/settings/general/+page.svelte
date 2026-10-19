@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { Button, Settings, Switch } from "@veelume/ui";
+  import { Settings, Switch } from "@veelume/ui";
   import { settingsStore, applySettings, loadSettings } from "$lib/state/settings.svelte";
-  import { openOnboarding } from "$lib/state/onboarding.svelte";
-  import { checkForUpdates } from "$lib/updater";
   import { onMount } from "svelte";
 
   const settings = $derived(settingsStore.current);
@@ -60,15 +58,6 @@
           checked={settings.native_notifications}
           onchange={(v) => apply({ native_notifications: v })}
         />
-      </Settings.Row>
-    </Settings.Section>
-
-    <Settings.Section title="Maintenance">
-      <Settings.Row label="Updates" hint="Update checks run at startup; check now on demand.">
-        <Button variant="outline" onclick={() => checkForUpdates(true)}>Check for updates</Button>
-      </Settings.Row>
-      <Settings.Row label="Setup" hint="Re-run the first-launch onboarding flow.">
-        <Button variant="outline" onclick={openOnboarding}>Re-run setup</Button>
       </Settings.Row>
     </Settings.Section>
 

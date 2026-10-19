@@ -110,6 +110,10 @@ pub fn run() {
 
             build_tray(app)?;
 
+            // Modules an update brought that the user hasn't been offered:
+            // a Windows notification on a hidden start, a bell entry always.
+            crate::modules::announce_new(app.handle(), start_minimized);
+
             // Warm the game-data cache in the background (default channel,
             // setting-gated), then reconcile text patches — sequenced so one
             // parse serves both the catalogs and the langpatch derive.

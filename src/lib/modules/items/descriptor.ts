@@ -11,7 +11,16 @@ export const itemsModule: ModuleDescriptor = {
   name: "My Items",
   description:
     "Find any item or ship you own: where it is, what it is fitted to, and your saved loadouts.",
-  icon: "▣",
+  pitch: [
+    "Where everything is, by system, planet and station",
+    "Fitted, saved and stock loadouts side by side",
+    "Crafted stats and resources by quality",
+  ],
+  needsGame: true,
+  unofficial: [
+    { feature: "items", required: true },
+    { feature: "loadouts", required: false },
+  ],
   nav: [{ href: "/items", label: "My Items", icon: Package }],
   homeCards: [{ id: "summary", title: "My Items", component: SummaryCard, href: "/items" }],
 };
