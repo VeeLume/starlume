@@ -12,7 +12,8 @@
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { Button, Popup } from "@veelume/ui";
-  import { ChevronDown, Globe, X } from "lucide-svelte";
+  import { Globe, X } from "lucide-svelte";
+  import Chevron from "$lib/components/Chevron.svelte";
   import { categoryOf } from "../model/classify";
   import { materials } from "../model/resources";
   import { stackIdentical } from "../model/stack";
@@ -241,20 +242,27 @@
         {#if k > 0}<span class="sep">›</span>{/if}
         {@const menu = menuOf(k)}
         <span class="anchor crumb-wrap">
-          <button type="button" class="crumb" class:cur={c === at} onclick={() => go(c)}>{c.name}</button>
           {#if menu.length > 1}
+            <!-- The whole crumb opens the places beside it (style guide: the
+                 trigger is the hit area, never a lone chevron); the place
+                 itself is the menu's first row, so going there stays one click. -->
             <button
               type="button"
-              class="chev"
-              title="Other places here"
-              aria-label="Other places beside {c.name}"
+              class="crumb"
+              class:cur={c === at}
+              class:open={menuFor === c.id}
+              aria-haspopup="menu"
+              aria-expanded={menuFor === c.id}
+              title="Places beside {c.name}"
               onclick={() => ((menuFor = menuFor === c.id ? null : c.id), (placesOpen = false))}
             >
-              <ChevronDown size={13} />
+              {c.name}<Chevron open={menuFor === c.id} size={13} />
             </button>
             <Popup open={menuFor === c.id} onclose={() => (menuFor = null)} label="Beside {c.name}" class="menu-pop">
-              {@render placeMenu(menu, `Beside ${c.name}`)}
+              {@render placeMenu([c, ...menu.filter((n) => n !== c)], `Beside ${c.name}`)}
             </Popup>
+          {:else}
+            <button type="button" class="crumb" class:cur={c === at} onclick={() => go(c)}>{c.name}</button>
           {/if}
         </span>
       {/each}
@@ -266,7 +274,7 @@
             class="crumb inside"
             onclick={() => ((menuFor = menuFor === "inside" ? null : "inside"), (placesOpen = false))}
           >
-            Inside <ChevronDown size={13} />
+            Inside <Chevron open={menuFor === "inside"} size={13} />
           </button>
           <Popup open={menuFor === "inside"} onclose={() => (menuFor = null)} label="Inside {at.name}" class="menu-pop">
             {@render placeMenu(inside, `Inside ${at.name}`)}
@@ -425,12 +433,11 @@
     display: inline-flex;
     align-items: center;
   }
-  .crumb,
-  .chev {
+  .crumb {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 6px;
+    gap: 5px;
+    padding: 4px 6px 4px 8px;
     border: 0;
     border-radius: var(--radius);
     background: transparent;
@@ -439,14 +446,16 @@
     font-size: var(--text-control);
     cursor: pointer;
   }
-  .chev {
-    padding: 4px 3px;
+  .crumb :global(.chev) {
     color: var(--text-faint);
   }
   .crumb:hover,
-  .chev:hover {
+  .crumb.open {
     background: color-mix(in srgb, var(--text) 5%, transparent);
     color: var(--text);
+  }
+  .crumb.open :global(.chev) {
+    color: var(--accent);
   }
   .crumb.cur {
     color: var(--text-strong);

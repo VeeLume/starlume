@@ -6,7 +6,7 @@
   let { d }: { d: StatDelta } = $props();
 </script>
 
-<span class="delta" class:good={d.good > 0} class:bad={d.good < 0}>{d.name} {d.pct > 0 ? "+" : ""}{d.pct}%</span>
+<span class="delta" class:good={d.good > 0} class:bad={d.good < 0}>{d.name} {d.pct > 0 ? "+" : d.pct < 0 ? "−" : ""}{Math.abs(d.pct)}%</span>
 
 <style>
   .delta {

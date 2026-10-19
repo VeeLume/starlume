@@ -2,6 +2,7 @@
   // One branch of the place tree. A branch opened stays open: navigating
   // only ever opens the path to the target; only the caret closes.
   import { Clock, TriangleAlert } from "lucide-svelte";
+  import Chevron from "$lib/components/Chevron.svelte";
   import type { SvelteSet } from "svelte/reactivity";
   import { offSaved } from "../model/loadout";
   import type { Node } from "../model/tree";
@@ -58,7 +59,7 @@
   onkeydown={(e) => e.key === "Enter" && ongo(node)}
 >
   <button type="button" class="caret" tabindex="-1" aria-label={expanded ? "Collapse" : "Expand"} onclick={toggle}
-    >{kids.length ? (expanded ? "▾" : "▸") : ""}</button
+    >{#if kids.length}<Chevron dir="right" open={expanded} size={13} />{/if}</button
   >
   <Icon size={13} />
   <span class="name">{node.name}</span>

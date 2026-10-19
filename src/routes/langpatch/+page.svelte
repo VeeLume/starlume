@@ -264,12 +264,14 @@
                 <div class="checks">
                   {#each toggles as option (option.id)}
                     {@const tag = gameTag(option.description)}
+                    <!-- An option is a setting, on or off: a Switch (style guide); the
+                         label's text toggles it too. -->
                     <label class="check opt-check" title={option.description}>
-                      <input
-                        type="checkbox"
+                      <Switch
+                        label={option.label}
                         disabled={!selected.enabled}
                         checked={(selected.values[option.id] ?? option.default) === "true"}
-                        onchange={(e) => setOption(selected.id, option.id, e.currentTarget.checked ? "true" : "false")}
+                        onchange={(v) => setOption(selected.id, option.id, v ? "true" : "false")}
                       />
                       {option.label}
                       {#if tag}<span class="eg">{tag}</span>{/if}
@@ -515,6 +517,8 @@
     gap: 8px 20px;
   }
   .opt-check {
+    display: flex;
+    align-items: center;
     gap: 9px;
     color: var(--text);
     white-space: normal;

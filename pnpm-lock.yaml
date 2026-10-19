@@ -21,8 +21,8 @@ importers:
         specifier: ^2.10.1
         version: 2.10.1
       '@veelume/ui':
-        specifier: github:VeeLume/veelume-ui#v0.1.8&path:packages/ui
-        version: https://codeload.github.com/VeeLume/veelume-ui/tar.gz/8a588608f67e15c006420a9a5c3b4cc5e6eeb5b9#path:packages/ui(@sveltejs/kit@2.69.0(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.4)(vite@6.4.3(@types/node@25.9.4)(jiti@2.7.0)(lightningcss@1.32.0)))(svelte@5.56.4)(typescript@5.6.3)(vite@6.4.3(@types/node@25.9.4)(jiti@2.7.0)(lightningcss@1.32.0)))(svelte@5.56.4)(tailwindcss@4.3.3)
+        specifier: github:VeeLume/veelume-ui#v0.1.11&path:packages/ui
+        version: https://codeload.github.com/VeeLume/veelume-ui/tar.gz/c4cab24d4aa65628a6e996cb839ae09a91bd8c56#path:packages/ui(@sveltejs/kit@2.69.0(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.4)(vite@6.4.3(@types/node@25.9.4)(jiti@2.7.0)(lightningcss@1.32.0)))(svelte@5.56.4)(typescript@5.6.3)(vite@6.4.3(@types/node@25.9.4)(jiti@2.7.0)(lightningcss@1.32.0)))(svelte@5.56.4)(tailwindcss@4.3.3)
       lucide-svelte:
         specifier: ^1.0.1
         version: 1.0.1(svelte@5.56.4)
@@ -642,9 +642,9 @@ packages:
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
 
-  '@veelume/ui@https://codeload.github.com/VeeLume/veelume-ui/tar.gz/8a588608f67e15c006420a9a5c3b4cc5e6eeb5b9#path:packages/ui':
-    resolution: {gitHosted: true, integrity: sha512-vO02hksr8gTPyGiIOgUNSpstefwplxFn3yRfuBJtsOi1URCsCxwkILNmapFOhmL78dVfLh0RbIRS0RgweXuRjw==, path: packages/ui, tarball: https://codeload.github.com/VeeLume/veelume-ui/tar.gz/8a588608f67e15c006420a9a5c3b4cc5e6eeb5b9}
-    version: 0.1.8
+  '@veelume/ui@https://codeload.github.com/VeeLume/veelume-ui/tar.gz/c4cab24d4aa65628a6e996cb839ae09a91bd8c56#path:packages/ui':
+    resolution: {gitHosted: true, integrity: sha512-Gjyyv2vWpr5ul2UfyQcuVMXIkIUGI9VT4Et2XPNiHbXyGI1X0iAJTAj/RIX/OAqVkGhZIICMkhEBFuIzwN6HtQ==, path: packages/ui, tarball: https://codeload.github.com/VeeLume/veelume-ui/tar.gz/c4cab24d4aa65628a6e996cb839ae09a91bd8c56}
+    version: 0.1.11
     peerDependencies:
       svelte: ^5
       tailwindcss: ^4
@@ -1545,7 +1545,7 @@ snapshots:
 
   '@types/trusted-types@2.0.7': {}
 
-  '@veelume/ui@https://codeload.github.com/VeeLume/veelume-ui/tar.gz/8a588608f67e15c006420a9a5c3b4cc5e6eeb5b9#path:packages/ui(@sveltejs/kit@2.69.0(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.4)(vite@6.4.3(@types/node@25.9.4)(jiti@2.7.0)(lightningcss@1.32.0)))(svelte@5.56.4)(typescript@5.6.3)(vite@6.4.3(@types/node@25.9.4)(jiti@2.7.0)(lightningcss@1.32.0)))(svelte@5.56.4)(tailwindcss@4.3.3)':
+  '@veelume/ui@https://codeload.github.com/VeeLume/veelume-ui/tar.gz/c4cab24d4aa65628a6e996cb839ae09a91bd8c56#path:packages/ui(@sveltejs/kit@2.69.0(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.4)(vite@6.4.3(@types/node@25.9.4)(jiti@2.7.0)(lightningcss@1.32.0)))(svelte@5.56.4)(typescript@5.6.3)(vite@6.4.3(@types/node@25.9.4)(jiti@2.7.0)(lightningcss@1.32.0)))(svelte@5.56.4)(tailwindcss@4.3.3)':
     dependencies:
       '@floating-ui/dom': 1.8.0
       '@internationalized/date': 3.12.3

@@ -5,9 +5,12 @@
   import { initials, nameHue } from "$lib/monogram";
 
   let { name, size = 32, hue = undefined }: { name: string; size?: number; hue?: string } = $props();
+  // A missing name must not throw: an error in a render aborts the whole
+  // update, and the page's effects (the next solve) never run.
+  const safe = $derived(name ?? "");
 </script>
 
-<span class="monogram" style:--hue={hue ?? nameHue(name)} style:--size="{size}px" aria-hidden="true">{initials(name)}</span>
+<span class="monogram" style:--hue={hue ?? nameHue(safe)} style:--size="{size}px" aria-hidden="true">{initials(safe)}</span>
 
 <style>
   .monogram {
