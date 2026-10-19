@@ -11,22 +11,34 @@
 import type { Component } from "svelte";
 import type { NavIcon } from "@veelume/ui";
 
-/** Props every module-contributed onboarding step receives. */
+/** Props every onboarding step component receives, a module's setup included. */
 export interface OnboardingStepProps {
   /**
    * Gate the wizard's Next button. Steps start with Next enabled; call
-   * `setCanContinue(false)` while required input is missing.
+   * `setCanContinue(false)` while required input is missing. A no-op on a
+   * What's-new page, which has no gate.
    */
   setCanContinue: (ok: boolean) => void;
 }
 
-/** One wizard step contributed by a module (shown only when it's selected). */
-export interface OnboardingStep {
-  /** Unique within the module. */
-  id: string;
-  /** Step heading shown in the wizard. */
+/** A module's own setup: the settings worth deciding when it is turned on.
+ *  One component, two hosts: an onboarding step while the module is
+ *  selected, and the module's What's-new page once it is turned on there. */
+export interface ModuleSetup {
+  /** Onboarding step heading ("Set up Text Patching"). */
   title: string;
+  /** One line under the heading. */
+  lead: string;
   component: Component<OnboardingStepProps>;
+}
+
+/** An unofficial-API feature the module reads through: an id from
+ *  `settings::GRPC_FEATURES` (name and description come from there). */
+export interface UnofficialUse {
+  feature: string;
+  /** Without it the module has nothing to show (My Items without its
+   *  inventory read), against an extra (owned blueprints in mission text). */
+  required: boolean;
 }
 
 /** A sidebar navigation entry contributed by a module (shown when enabled). */
@@ -114,12 +126,21 @@ export interface ModuleDescriptor {
   id: string;
   name: string;
   description: string;
-  /** Glyph/emoji for the onboarding picker and module lists. */
-  icon: string;
-  /** Sidebar entries, rendered while the module is enabled. */
+  /** What you get, in three short points: the module's row in onboarding
+   *  and its What's-new page. */
+  pitch: string[];
+  /** Reads the game install (text, game data). Onboarding and the guide
+   *  say so, and whether one was found. */
+  needsGame?: boolean;
+  /** The unofficial APIs it reads through. Onboarding asks only for the
+   *  ones the selected modules use; the guide asks for a required one when
+   *  the module is turned on there. */
+  unofficial?: UnofficialUse[];
+  /** Sidebar entries, rendered while the module is enabled. The first
+   *  entry's icon is the module's icon in onboarding and the guide. */
   nav?: NavEntry[];
-  /** Extra wizard steps, rendered while the module is selected in onboarding. */
-  onboardingSteps?: OnboardingStep[];
+  /** Its setup, in onboarding and on its What's-new page. */
+  setup?: ModuleSetup;
   /** Visibility/sharing sections on the Me page, rendered while enabled. */
   meSections?: MeSection[];
   /** Cards on Home, rendered while enabled; the user orders and hides them. */

@@ -45,6 +45,14 @@ async updateCheckDue() : Promise<boolean> {
     return await TAURI_INVOKE("update_check_due");
 },
 /**
+ * Whether a pending What's-new guide may open by itself, and if so, mark
+ * it done: once per run, like the update check. A rebuilt window mounts
+ * the layout again; after Later the guide waits in the bell instead.
+ */
+async guideOpenDue() : Promise<boolean> {
+    return await TAURI_INVOKE("guide_open_due");
+},
+/**
  * The cached owned-blueprint set, or an empty/null one when nothing has been
  * fetched. **No network, no gate** — safe on startup so a decoration renders
  * from the last fetch.
@@ -1059,7 +1067,21 @@ archive_test_channels: boolean;
  * visibility; listed ids no longer available are skipped, not dropped,
  * so re-enabling a module restores its placement.
  */
-home_cards: HomeCardPref[] }
+home_cards: HomeCardPref[]; 
+/**
+ * Modules the user has been offered: shown in onboarding or on a
+ * What's-new page. A module this build offers that is missing here
+ * gets a What's-new page and a startup notification, once
+ * (`modules::not_yet_offered`). `None` = an install from before the
+ * guide existed; [`AppSettings::load`] seeds it.
+ */
+modules_offered: string[] | null; 
+/**
+ * The newest release whose What's-new changes the user has seen (a
+ * version like "0.2.0"; the changes are authored in
+ * `src/lib/guides.ts`). `None` is seeded like `modules_offered`.
+ */
+guide_seen: string | null }
 export type AreaRockView = { rockType: string; name: string; 
 /**
  * Share of the area's ship-mineable rocks.

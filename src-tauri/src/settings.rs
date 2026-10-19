@@ -95,7 +95,22 @@ pub struct AppSettings {
     /// visibility; listed ids no longer available are skipped, not dropped,
     /// so re-enabling a module restores its placement.
     pub home_cards: Vec<HomeCardPref>,
+    /// Modules the user has been offered: shown in onboarding or on a
+    /// What's-new page. A module this build offers that is missing here
+    /// gets a What's-new page and a startup notification, once
+    /// (`modules::not_yet_offered`). `None` = an install from before the
+    /// guide existed; [`AppSettings::load`] seeds it.
+    pub modules_offered: Option<Vec<String>>,
+    /// The newest release whose What's-new changes the user has seen (a
+    /// version like "0.2.0"; the changes are authored in
+    /// `src/lib/guides.ts`). `None` is seeded like `modules_offered`.
+    pub guide_seen: Option<String>,
 }
+
+/// What an install that finished onboarding before the What's-new guide
+/// existed has been offered: the 0.2.0 modules and its changes.
+const GUIDE_BASELINE_MODULES: &[&str] = &["devtracker", "langpatch", "items"];
+const GUIDE_BASELINE_VERSION: &str = "0.2.0";
 
 /// One card's place on Home (see [`AppSettings::home_cards`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -130,6 +145,8 @@ impl Default for AppSettings {
             archive_all_builds: false,
             archive_test_channels: false,
             home_cards: Vec::new(),
+            modules_offered: None,
+            guide_seen: None,
         }
     }
 }
@@ -212,7 +229,26 @@ impl AppSettings {
     }
 
     pub fn load() -> Self {
-        app_kit::load_json(&Self::path())
+        let mut settings: Self = app_kit::load_json(&Self::path());
+        settings.seed_guide();
+        settings
+    }
+
+    /// Fill the guide fields of an install that finished onboarding before
+    /// they existed, so its first guide offers only what is new since.
+    /// Onboarding sets them itself on a fresh install.
+    fn seed_guide(&mut self) {
+        if !self.onboarding_completed {
+            return;
+        }
+        self.modules_offered.get_or_insert_with(|| {
+            GUIDE_BASELINE_MODULES
+                .iter()
+                .map(|m| m.to_string())
+                .collect()
+        });
+        self.guide_seen
+            .get_or_insert_with(|| GUIDE_BASELINE_VERSION.into());
     }
 
     pub fn save(&self) -> Result<(), AppError> {
@@ -283,6 +319,35 @@ fn retention(s: &AppSettings) -> (u32, bool, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guide_fields_are_seeded_only_after_onboarding() {
+        let mut fresh = AppSettings::default();
+        fresh.seed_guide();
+        assert_eq!(fresh.modules_offered, None);
+        assert_eq!(fresh.guide_seen, None);
+
+        let mut old: AppSettings =
+            serde_json::from_str(r#"{"onboarding_completed": true}"#).unwrap();
+        old.seed_guide();
+        assert_eq!(
+            old.modules_offered.as_deref(),
+            Some(&["devtracker".to_string(), "langpatch".into(), "items".into()][..])
+        );
+        assert_eq!(old.guide_seen.as_deref(), Some("0.2.0"));
+
+        // Recorded values are kept.
+        let mut seen: AppSettings = serde_json::from_str(
+            r#"{"onboarding_completed": true, "modules_offered": ["mining"], "guide_seen": "0.3.0"}"#,
+        )
+        .unwrap();
+        seen.seed_guide();
+        assert_eq!(
+            seen.modules_offered.as_deref(),
+            Some(&["mining".to_string()][..])
+        );
+        assert_eq!(seen.guide_seen.as_deref(), Some("0.3.0"));
+    }
 
     #[test]
     fn unreleased_features_are_listed_in_debug_builds_only() {

@@ -19,6 +19,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         settings::list_grpc_features,
         window::take_restore_route,
         window::update_check_due,
+        window::guide_open_due,
         dossier::blueprints_owned,
         dossier::blueprints_refresh,
         modules::list_modules,

@@ -13,6 +13,11 @@ export const miningModule: ModuleDescriptor = {
   name: "Mining",
   description:
     "Will it crack? A scanned or rolled rock against your ship: difficulty, how to fly it, and the gadget, modules or crew that close the gap. Plus where each rock spawns.",
-  icon: "⛏",
+  pitch: [
+    "Breakability, difficulty and how to fly it",
+    "The gadget, modules or crew that close the gap",
+    "Where each rock spawns, from the game's spawn rules",
+  ],
+  needsGame: true,
   nav: [{ href: "/mining", label: "Mining", icon: Pickaxe }],
 };

@@ -909,3 +909,68 @@ table.data tr.selected {
   font-weight: normal;
   color: var(--text-faint);
 }
+
+/* ── Onboarding & What's new ──────────────────────────────────────────── */
+
+/* A step's or a guide page's heading: kicker, title, one lead line. The
+ * onboarding frame's Wizard header and the What's-new pages share it. */
+.guide-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 70ch;
+}
+.guide-head h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: var(--weight-bold);
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  color: var(--text-strong);
+}
+.guide-head p {
+  margin: 2px 0 0;
+  color: var(--text-dim);
+}
+
+/* What a module gives you, in three points (descriptor `pitch`). */
+.pitch {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pitch li {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 8px;
+}
+.pitch li::before {
+  content: "·";
+  color: var(--accent);
+  font-weight: var(--weight-bold);
+  text-align: center;
+}
+
+/* The unofficial-API consent shown in place (onboarding, a What's-new
+ * page): the terms beside the switches, caution-tinted. */
+.consent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--border));
+  background: color-mix(in srgb, var(--warn) 5%, var(--bg-raised));
+}
+.consent > p {
+  margin: 0;
+  color: var(--text-dim);
+  max-width: 68ch;
+}
+.consent > .label {
+  color: color-mix(in srgb, var(--warn) 80%, var(--text));
+}

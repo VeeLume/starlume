@@ -8,7 +8,11 @@
 //! The trait is deliberately minimal — it grows exactly the hooks real
 //! modules need, no speculative lifecycle API.
 
+use tauri::{AppHandle, Manager};
+
 use crate::AppState;
+use crate::notify::{Notification, notify};
+use crate::settings::AppSettings;
 
 /// A Starlume feature module (langpatch, tracker, cargo, fleet, …).
 pub trait Module: Send + Sync {
@@ -113,6 +117,53 @@ pub(crate) fn registry() -> &'static [&'static dyn Module] {
     }
 }
 
+/// Modules this build offers that the user hasn't been offered yet: the
+/// What's-new guide's module pages (the frontend derives the same list from
+/// its registry). Empty until onboarding finished, which offers them all.
+pub(crate) fn not_yet_offered(settings: &AppSettings) -> Vec<&'static dyn Module> {
+    if !settings.onboarding_completed {
+        return Vec::new();
+    }
+    let offered = settings.modules_offered.as_deref().unwrap_or_default();
+    registry()
+        .iter()
+        .copied()
+        .filter(|m| !offered.iter().any(|o| o == m.id()))
+        .collect()
+}
+
+/// At startup, name the modules an update brought until the guide has
+/// offered them. A hidden start (`--minimized`, autostart) gets a Windows
+/// notification, the only way to reach a tray app; a visible start opens
+/// the guide itself, so the entry only waits in the bell.
+pub(crate) fn announce_new(app: &AppHandle, start_minimized: bool) {
+    let names: Vec<&str> = {
+        let state = app.state::<AppState>();
+        let settings = state.settings.lock().unwrap();
+        not_yet_offered(&settings)
+            .iter()
+            .map(|m| m.name())
+            .collect()
+    };
+    let Some((last, rest)) = names.split_last() else {
+        return;
+    };
+    let version = app.package_info().version.to_string();
+    let title = if rest.is_empty() {
+        format!("{last} is new in Starlume {version}")
+    } else {
+        format!(
+            "{} and {last} are new in Starlume {version}",
+            rest.join(", ")
+        )
+    };
+    let n = Notification::info(title)
+        .with_body("Open Starlume to turn it on.")
+        .with_action("What's new", "/whats-new")
+        .with_source("starlume");
+    notify(app, if start_minimized { n } else { n.quiet() });
+}
+
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct ModuleInfo {
     pub id: String,
@@ -136,4 +187,39 @@ pub(crate) fn list_modules(state: tauri::State<'_, AppState>) -> Vec<ModuleInfo>
             enabled: enabled.iter().any(|e| e == m.id()),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ids(settings: &AppSettings) -> Vec<&'static str> {
+        not_yet_offered(settings).iter().map(|m| m.id()).collect()
+    }
+
+    #[test]
+    fn modules_are_offered_once_after_onboarding() {
+        // Onboarding offers everything itself.
+        assert!(ids(&AppSettings::default()).is_empty());
+
+        let mut s = AppSettings {
+            onboarding_completed: true,
+            modules_offered: Some(vec![
+                "devtracker".into(),
+                "langpatch".into(),
+                "items".into(),
+            ]),
+            ..AppSettings::default()
+        };
+        let all: Vec<&str> = registry().iter().map(|m| m.id()).collect();
+        let new: Vec<&str> = all
+            .iter()
+            .copied()
+            .filter(|id| !["devtracker", "langpatch", "items"].contains(id))
+            .collect();
+        assert_eq!(ids(&s), new);
+
+        s.modules_offered = Some(all.iter().map(|id| id.to_string()).collect());
+        assert!(ids(&s).is_empty());
+    }
 }
