@@ -7,9 +7,11 @@ members = [
     "crates/mod-devtracker",
     "crates/mod-items",
     "crates/mod-langpatch",
+    "crates/mod-mining",
     "crates/server",
     "crates/svc-discovery",
     "crates/svc-data",
+    "crates/svc-capture",
     "crates/svc-commlinks",
     "crates/svc-dossier",
     "crates/svc-patchnotes",
@@ -42,7 +44,7 @@ scraper = "0.20"
 # The SC data backbone — ONE pin for the whole app (the whole point of the
 # consolidation). Base features here; svc-data adds `foundations` on the same
 # pin (Cargo unions features across the workspace).
-sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.19.0", features = ["installs"] }
+sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.26.0", features = ["installs"] }
 # The gRPC lab's shipped client: game services, Spectrum, patch notes,
 # comm-links. ONE
 # pin for every service that uses it.
@@ -76,8 +78,10 @@ mod-contracts = { path = "crates/mod-contracts" }
 mod-devtracker = { path = "crates/mod-devtracker" }
 mod-items = { path = "crates/mod-items" }
 mod-langpatch = { path = "crates/mod-langpatch" }
+mod-mining = { path = "crates/mod-mining" }
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
+svc-capture = { path = "crates/svc-capture" }
 svc-commlinks = { path = "crates/svc-commlinks" }
 svc-dossier = { path = "crates/svc-dossier" }
 svc-patchnotes = { path = "crates/svc-patchnotes" }
@@ -89,6 +93,15 @@ svc-sync = { path = "crates/svc-sync" }
 toml = "0.8"
 # The dev tracker's content filter (mod-devtracker).
 regex = "1"
+
+# The mining simulation runs thousands of ticks per try and dozens of tries
+# per rating: unoptimised it turns a recalculation into a long wait under
+# `tauri dev`. Optimise just those crates in dev builds.
+[profile.dev.package.sc-mining]
+opt-level = 3
+
+[profile.dev.package.mod-mining]
+opt-level = 3
 
 [profile.release]
 opt-level = 3

@@ -7,6 +7,7 @@
   // in catalog.svelte.ts; everything below runs client-side (the Hearth
   // model — data_missions ships the whole pooled list).
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
+  import Chevron from "$lib/components/Chevron.svelte";
   import { onMount } from "svelte";
   import {
     Surface,
@@ -535,7 +536,7 @@
             >
               {region.system}{region.name ? ` — ${region.name}` : ""}
               <span class="count">{region.places.length}</span>
-              <span class="region-caret">{isRegionOpen(ri) ? "▾" : "▸"}</span>
+              <span class="region-caret"><Chevron dir="right" open={isRegionOpen(ri)} size={13} /></span>
             </button>
             {#if isRegionOpen(ri)}
               <div class="place-groups">

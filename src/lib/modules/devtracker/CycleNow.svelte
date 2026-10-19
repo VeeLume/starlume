@@ -14,7 +14,7 @@
   } from "$lib/state/devtracker.svelte";
   import { openPatchNote, patchNotesStore, watchPatchNotes } from "$lib/state/patchnotes.svelte";
   import { channelHue } from "$lib/channels";
-  import NowCard from "$lib/components/patchnotes/NowCard.svelte";
+  import NowCard from "$lib/components/NowCard.svelte";
   import GateNotice from "./GateNotice.svelte";
   import { STAGES, devCycle, type CycleEvent, type CycleStage } from "./cycle";
 

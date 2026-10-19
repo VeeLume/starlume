@@ -5,6 +5,7 @@
   // a module (see CONTRIBUTING module rules). Install and cache management lives
   // in Settings → Game data.
   import { page } from "$app/state";
+  import { Select } from "@veelume/ui";
   import { dataStore, setChannel } from "$lib/state/data.svelte";
 
   let { children } = $props();
@@ -26,16 +27,14 @@
   <!-- Which install the catalogs show: a picker only when there is a
        choice (Live + PTU both cooked), a quiet label otherwise. -->
   {#if dataStore.browsable.length > 1 && dataStore.channel}
-    <select
-      class="select tab-channel"
-      aria-label="Channel"
-      value={dataStore.channel}
-      onchange={(e) => setChannel(e.currentTarget.value)}
-    >
-      {#each dataStore.browsable as channel (channel)}
-        <option value={channel}>{channel}</option>
-      {/each}
-    </select>
+    <span class="tab-channel">
+      <Select
+        label="Channel"
+        options={dataStore.browsable.map((c) => ({ value: c, label: c }))}
+        value={dataStore.channel}
+        onchange={(c) => setChannel(c)}
+      />
+    </span>
   {:else if dataStore.channel}
     <span class="tab-channel dim">{dataStore.channel}</span>
   {/if}
@@ -46,6 +45,7 @@
 <style>
   .tab-channel {
     margin-left: auto;
+    align-self: center;
     font-size: 0.78rem;
   }
 </style>

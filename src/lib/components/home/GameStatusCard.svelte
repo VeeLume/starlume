@@ -192,13 +192,9 @@
     max-width: 620px;
     padding: 14px 18px 16px;
   }
+  /* The app's one micro-label (app.css); only the paragraph margin here. */
   .label {
     margin: 0;
-    font-family: var(--font-display);
-    font-size: 0.75rem;
-    color: var(--text-faint);
-    text-transform: var(--label-transform);
-    letter-spacing: var(--label-tracking);
   }
   .install {
     display: flex;

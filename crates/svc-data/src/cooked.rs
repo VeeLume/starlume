@@ -31,7 +31,11 @@ use serde::{Deserialize, Serialize};
 /// rev 7: event points (`MissionEntry::event_rewards`: overall + category
 /// ladders, party split, tiers); event points split pools.
 /// rev 8: crafting gameplay properties ([`CookedData::crafting`]).
-pub const STARLUME_COOK_REV: u32 = 8;
+/// rev 9: mining rulesets, elements, lasers, modules, gadgets
+/// ([`CookedData::mining`]).
+/// rev 10: mining rock types, compositions and rock meshes (the generator).
+/// rev 11: mining places in the cook (sc-holotable v0.23's cheap walk).
+pub const STARLUME_COOK_REV: u32 = 11;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.
@@ -63,6 +67,10 @@ pub struct CookedData {
     /// locale keys — see [`crate::crafting`]).
     #[serde(default)]
     pub crafting: crate::crafting::CraftingIndex,
+    /// Mining rulesets, elements, lasers, modules and gadgets (raw locale
+    /// keys — see [`crate::mining`]).
+    #[serde(default)]
+    pub mining: crate::mining::MiningIndex,
 }
 
 /// One page of item search results.

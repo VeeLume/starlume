@@ -5,6 +5,7 @@
   // column answers it, and the strip fades the bands under it.
   import { materials, fmtAmount, QUALITY_STEPS, STOCK_QUALITY, type Material } from "../model/resources";
   import type { ItemNode, Node } from "../model/tree";
+  import { Select } from "@veelume/ui";
   import ChipButton from "./ChipButton.svelte";
   import Quality from "./Quality.svelte";
   import QualityMix from "./QualityMix.svelte";
@@ -53,11 +54,16 @@
     <ChipButton on={min === v} n={materials(list, v).length} onclick={() => onmin(v)}>{v ? `Q${v}+` : "Any"}</ChipButton>
   {/each}
   <span class="grow"></span>
-  <select class="select" value={sort} onchange={(e) => onsort(e.currentTarget.value)} aria-label="Sort materials">
-    <option value="q">Best quality</option>
-    <option value="amount">Amount</option>
-    <option value="name">Name</option>
-  </select>
+  <Select
+    label="Sort materials"
+    options={[
+      { value: "q", label: "Best quality" },
+      { value: "amount", label: "Amount" },
+      { value: "name", label: "Name" },
+    ]}
+    value={sort}
+    onchange={onsort}
+  />
 </div>
 <p class="legend">
   Quality bands of 100 · brighter = more of that material

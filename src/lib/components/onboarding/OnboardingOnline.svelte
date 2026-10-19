@@ -4,6 +4,7 @@
   // required here, so the wizard's Next stays enabled; we only surface the
   // choice early so the posture is deliberate.
   import { ask } from "@tauri-apps/plugin-dialog";
+  import { Switch } from "@veelume/ui";
   import { commands, type GrpcFeatureInfo } from "$lib/bindings";
   import type { OnboardingStepProps } from "$lib/modules/types";
   import { settingsStore, applySettings } from "$lib/state/settings.svelte";
@@ -45,10 +46,10 @@
   </p>
 
   <label class="row">
-    <input
-      type="checkbox"
+    <Switch
+      label="Enable online features"
       checked={settings.online_enabled}
-      onchange={(e) => applySettings({ online_enabled: e.currentTarget.checked })}
+      onchange={(v) => applySettings({ online_enabled: v })}
     />
     <span>
       <strong>Enable online features</strong>
@@ -57,11 +58,11 @@
   </label>
 
   <label class="row" class:disabled={!settings.online_enabled}>
-    <input
-      type="checkbox"
+    <Switch
+      label="Allow unofficial API calls"
       checked={settings.grpc_enabled}
       disabled={!settings.online_enabled}
-      onchange={(e) => toggleGrpc(e.currentTarget.checked)}
+      onchange={(v) => toggleGrpc(v)}
     />
     <span>
       <strong>Allow unofficial API calls</strong>
@@ -73,11 +74,11 @@
     <div class="features" class:disabled={!settings.online_enabled || !settings.grpc_enabled}>
       {#each grpcFeatures as f (f.id)}
         <label class="feature">
-          <input
-            type="checkbox"
+          <Switch
+            label={f.name}
             checked={settings.grpc_features.includes(f.id)}
             disabled={!settings.online_enabled || !settings.grpc_enabled}
-            onchange={(e) => toggleGrpcFeature(f.id, e.currentTarget.checked)}
+            onchange={(v) => toggleGrpcFeature(f.id, v)}
           />
           {f.name} <span class="dim">— {f.description}</span>
         </label>

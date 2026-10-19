@@ -85,13 +85,29 @@ impl Module for Devtracker {
     }
 }
 
+/// Mining — the calculator: a scanned rock against a loadout (solver in
+/// `crates/mod-mining`, IPC in `mining.rs`).
+struct Mining;
+
+impl Module for Mining {
+    fn id(&self) -> &'static str {
+        crate::mining::MODULE_ID
+    }
+    fn name(&self) -> &'static str {
+        "Mining"
+    }
+    fn description(&self) -> &'static str {
+        "Will it crack? Type in a scanned rock and your loadout: breakability, difficulty, the charge bar, and the gadget, modules or support that close the gap"
+    }
+}
+
 /// All modules offered by this build, enabled or not. Unreleased modules
-/// (Contracts) exist only in debug builds — the Rust half of the frontend's
+/// (Contracts, Mining) exist only in debug builds — the Rust half of the frontend's
 /// `$lib/unreleased` gate (v0.1.0 scope decision; the Dev Tracker shipped in
 /// v0.2.0).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
-        &[&Devtracker, &Langpatch, &Items, &Contracts]
+        &[&Devtracker, &Langpatch, &Items, &Mining, &Contracts]
     } else {
         &[&Devtracker, &Langpatch, &Items]
     }

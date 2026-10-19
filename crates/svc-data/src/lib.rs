@@ -45,6 +45,7 @@ pub mod builds;
 pub mod cooked;
 pub mod crafting;
 pub mod legality;
+pub mod mining;
 pub mod missions;
 pub mod weapons;
 
@@ -67,6 +68,7 @@ pub use cooked::{
 };
 pub use crafting::{CraftingIndex, CraftingProperty};
 pub use legality::{JurisdictionRef, LegalityEntry, LegalityKind};
+pub use mining::{ElementEntry, GadgetEntry, LaserEntry, MiningIndex, ModuleEntry, RulesetEntry};
 pub use missions::{
     BpPoolEntry, BpPoolReward, CargoLeg, CrimestatRisk, EncounterKind, EventLadder, EventReward,
     ItemReward, MissionCategory, MissionDifficulty, MissionEncounter, MissionEntry, MissionFaction,
@@ -80,6 +82,12 @@ pub use weapons::{DamageBreakdown, MissileEntry, ShipWeaponEntry, TrackingEntry,
 // the snapshot is re-exported here rather than pinned again).
 pub use sc_holotable::asset::{Guid, LocaleKey, LocaleMap, RecordCollection, class_crc};
 pub use sc_holotable::locations::{Location, LocationKind, Locations};
+// The rock generator walks providers, their places and geometry tags.
+/// sc-gathering's full surface (provider groups and entries) for the generator.
+pub use sc_holotable::gathering;
+pub use sc_holotable::gathering::{GatheringMode, ProviderLocations, Providers};
+pub use sc_holotable::resources::Resources;
+pub use sc_holotable::tags::Tags;
 
 /// Stack size for the loader thread — see the module docs.
 pub const LOADER_STACK_SIZE: usize = 32 * 1024 * 1024;
@@ -545,6 +553,78 @@ pub fn read_base_global_ini(p4k_path: &std::path::Path) -> anyhow::Result<Vec<u8
         .ok_or_else(|| anyhow!("global.ini not found in {}", p4k_path.display()))
 }
 
+/// Read one file from an install's `Data.p4k` by its path's ending
+/// (case- and separator-insensitive, e.g. `ui/fonts/shared/fonts_en.gfx`).
+/// A single-file archive read.
+pub fn read_p4k_file(p4k_path: &std::path::Path, suffix: &str) -> anyhow::Result<Vec<u8>> {
+    let want = suffix.to_ascii_lowercase().replace('\\', "/");
+    let assets =
+        AssetSource::open(p4k_path).with_context(|| format!("opening {}", p4k_path.display()))?;
+    assets
+        .find_and_read(|name| {
+            name.to_ascii_lowercase()
+                .replace('\\', "/")
+                .ends_with(&want)
+        })
+        .with_context(|| format!("reading {suffix} from p4k"))?
+        .map(|(_, bytes)| bytes)
+        .ok_or_else(|| anyhow!("{suffix} not found in {}", p4k_path.display()))
+}
+
+/// Where the localisation the game shows came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocaleSource {
+    /// A loose `data/Localization/<language>/global.ini` beside the p4k
+    /// (a language pack, or Starlume's own text patching).
+    Override(std::path::PathBuf),
+    /// The stock file inside `Data.p4k`.
+    Stock,
+}
+
+/// The localisation the game actually shows for an install: the language
+/// `user.cfg` sets (`g_language`, `english` by default), from the loose
+/// override file when one exists (it shadows the p4k copy wholesale),
+/// else the stock file in the p4k. Text the HUD shows (ore names, labels)
+/// comes from here, so readers of the HUD match against it.
+pub fn active_locale(p4k_path: &std::path::Path) -> anyhow::Result<(LocaleMap, LocaleSource)> {
+    let install = p4k_path
+        .parent()
+        .ok_or_else(|| anyhow!("p4k has no folder"))?;
+    let language = std::fs::read_to_string(install.join("user.cfg"))
+        .ok()
+        .and_then(|cfg| {
+            cfg.lines().find_map(|l| {
+                let (k, v) = l.split_once('=')?;
+                (k.trim().eq_ignore_ascii_case("g_language")).then(|| v.trim().to_string())
+            })
+        })
+        .filter(|l| !l.is_empty())
+        .unwrap_or_else(|| "english".into());
+    let loose = install
+        .join("data")
+        .join("Localization")
+        .join(&language)
+        .join("global.ini");
+    if let Ok(bytes) = std::fs::read(&loose) {
+        // Overrides come UTF-8 with BOM (sc-langpatch) or UTF-16 LE (packs).
+        let parsed = if bytes.starts_with(&[0xFF, 0xFE]) {
+            LocaleMap::parse(&bytes)
+        } else {
+            LocaleMap::parse_utf8_bom(&bytes)
+        };
+        if let Ok(map) = parsed {
+            return Ok((map, LocaleSource::Override(loose)));
+        }
+        tracing::warn!(path = %loose.display(), "unreadable localisation override; using the stock file");
+    }
+    let bytes = read_p4k_file(p4k_path, &format!("localization/{language}/global.ini"))
+        .or_else(|_| read_base_global_ini(p4k_path))?;
+    Ok((
+        LocaleMap::parse(&bytes).context("parsing global.ini")?,
+        LocaleSource::Stock,
+    ))
+}
+
 fn remove_dir_if_present(dir: &std::path::Path) -> std::io::Result<()> {
     match std::fs::remove_dir_all(dir) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -573,7 +653,14 @@ fn load_blocking(
 
     // ── Tier 2: raw extract snapshot (skip p4k reads) ─────────────────
     if let Some((asset_data, datacore)) = cache::try_load_extract(dir, install) {
-        let cooked = cook(datacore, asset_data, progress);
+        // The extract snapshot has no meshes: open the p4k for the rock
+        // meshes alone (non-fatal; the generator stays empty without it).
+        progress(Stage::OpeningP4k);
+        let assets = AssetSource::open(&install.p4k_path)
+            .inspect_err(|e| tracing::warn!("opening the p4k for the rock meshes: {e:#}"))
+            .ok();
+        let cooked = cook(datacore, asset_data, assets.as_ref(), progress);
+        drop(assets);
         progress(Stage::Saving);
         cache::save_processed(dir, install, &cooked);
         tracing::info!(
@@ -600,9 +687,10 @@ fn load_blocking(
     // Capture the raw bytes while `assets` is still open; non-fatal.
     progress(Stage::Saving);
     cache::save_extract(dir, install, &assets);
-    drop(assets);
 
-    let cooked = cook(datacore, asset_data, progress);
+    // The p4k stays open through the cook for the rock meshes.
+    let cooked = cook(datacore, asset_data, Some(&assets), progress);
+    drop(assets);
     progress(Stage::Saving);
     cache::save_processed(dir, install, &cooked);
 
@@ -618,7 +706,15 @@ fn load_blocking(
 /// must not outlive the cook ("no raw DataCore after the cook",
 /// CLAUDE.md; the by-value
 /// signature enforces it).
-fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) -> CookedData {
+///
+/// `assets` is the live p4k when the caller has it open: the rock meshes
+/// (mining) are read from it.
+fn cook(
+    datacore: Datacore,
+    asset_data: AssetData,
+    assets: Option<&AssetSource>,
+    progress: &impl Fn(Stage),
+) -> CookedData {
     progress(Stage::Cooking);
     let foundations = build_foundations(&datacore);
     // Missions cook off the same parse, reusing the foundations' item /
@@ -635,6 +731,12 @@ fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) ->
     let legality = legality::build_legality(&datacore, &foundations.resources);
     let weapons = weapons::build_weapons(&datacore, &foundations.items);
     let crafting = crafting::build_crafting(&datacore);
+    let mining = mining::build_mining(
+        &datacore,
+        &foundations.items,
+        &foundations.resources,
+        assets,
+    );
     let holotable = sc_holotable::HolotableSnapshot::from_foundations(&foundations);
     drop(datacore);
     CookedData {
@@ -644,6 +746,7 @@ fn cook(datacore: Datacore, asset_data: AssetData, progress: &impl Fn(Stage)) ->
         legality,
         weapons,
         crafting,
+        mining,
     }
 }
 
@@ -699,6 +802,7 @@ mod tests {
                 ..Default::default()
             },
             locale,
+            mining: Default::default(),
             missions: vec![fake_mission()],
             legality: vec![legality::LegalityEntry {
                 resource_guid: guid(5).to_string(),

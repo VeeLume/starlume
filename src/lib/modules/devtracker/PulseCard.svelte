@@ -9,7 +9,7 @@
   import type { DevPostView } from "$lib/bindings";
   import { devtrackerStore, openPost, watchDevtracker } from "$lib/state/devtracker.svelte";
   import GateNotice from "./GateNotice.svelte";
-  import Monogram from "./Monogram.svelte";
+  import Monogram from "$lib/components/Monogram.svelte";
   import { postAge } from "./time";
 
   const OPS_WINDOW_MS = 48 * 3600 * 1000;

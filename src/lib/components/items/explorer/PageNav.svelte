@@ -37,12 +37,13 @@
 
 <header class="pagehead">
   <h1>My Items</h1>
-  <div class="views" role="tablist" aria-label="View">
+  <div class="tabs views" role="tablist" aria-label="View">
     {#each VIEWS as [id, label] (id)}
       <button
         type="button"
         role="tab"
-        class:on={view === id}
+        class="tab"
+        class:active={view === id}
         aria-selected={view === id}
         onclick={() => onview(id)}
         >{label}{#if counts}<span class="n">{fmtN(counts[id])}</span>{/if}</button
@@ -76,34 +77,12 @@
     font-weight: var(--weight-bold);
     color: var(--text-strong);
   }
+  /* The view tabs (app.css), sitting in the header row: underline only
+     under the active one, no rule of their own. */
   .views {
-    display: inline-flex;
-    gap: 3px;
-    padding: 3px;
-    border-radius: var(--radius-lg);
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-  }
-  .views button {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 6px;
-    padding: 5px 12px;
-    border: 0;
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--text-dim);
-    font: inherit;
-    font-size: var(--text-control);
-    cursor: pointer;
-  }
-  .views button:hover {
-    color: var(--text);
-  }
-  .views button.on {
-    background: var(--bg);
-    color: var(--text-strong);
-    box-shadow: inset 0 0 0 1px var(--border);
+    align-self: flex-end;
+    margin-bottom: 0;
+    border-bottom: 0;
   }
   .n {
     font-family: var(--font-mono);
