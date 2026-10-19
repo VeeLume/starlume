@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-19
+
+Starlume gets a mining module, a new setup, and a short guide whenever an
+update brings something new.
+
+- **Mining** — will it crack? Type in a rock you scanned, or roll one from
+  the Rock finder, and see it against your ship: how hard it is for a person
+  at the throttle, how to fly it on a charge bar (where to keep the throttle,
+  how wide the window is), and the gadget, modules or crew that close the
+  gap. Drag the mass to see where your ship's limits are. The **Rock finder**
+  lists where each rock spawns, by place or by ore, from the game's own spawn
+  rules, with how your ship fares on each. **Loadouts** keeps your ships'
+  setups, each measured on every rock you'd meet (an Everyday and a Reach
+  score) or on one ore's, and opens any laser or module to compare the
+  alternatives. **Crew** keeps your crew mates' loadouts to bring along as
+  support. Mining reads your game install only; nothing goes online.
 - **Setup, redone** — it runs in the app's own window, its steps listed on
   the left with Skip setup always in reach. Welcome shows what Starlume found
   (your installs, your launcher account, the game data being prepared);
@@ -16,6 +32,8 @@
   it in the bell; Settings → About lists every release's guide and runs the
   setup again. While Starlume is in the tray, a Windows notification names
   the new module.
+- **Settings → About** — the version, the update check and running setup
+  again moved here from General.
 
 ## [0.2.0] - 2026-10-15
 

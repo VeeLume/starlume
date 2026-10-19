@@ -576,6 +576,13 @@ async miningReadScreenshot(channel: string, kind: CaptureKind, path: string) : P
 }
 },
 /**
+ * Whether the HUD reader has its data. Release builds offer Read scan only
+ * then: without it a reading finds nothing (building it in-app is open).
+ */
+async miningScanReady() : Promise<boolean> {
+    return await TAURI_INVOKE("mining_scan_ready");
+},
+/**
  * The feed and the module's state. **No network, no gate.**
  */
 async devtrackerOverview() : Promise<DevtrackerOverview> {

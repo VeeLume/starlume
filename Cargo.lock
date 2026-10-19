@@ -85,7 +85,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "app-kit"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "dirs 6.0.0",
  "serde",
@@ -2759,11 +2759,11 @@ dependencies = [
 
 [[package]]
 name = "mod-contracts"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "mod-devtracker"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regex",
  "serde",
@@ -2773,7 +2773,7 @@ dependencies = [
 
 [[package]]
 name = "mod-items"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "app-kit",
  "serde",
@@ -2784,7 +2784,7 @@ dependencies = [
 
 [[package]]
 name = "mod-langpatch"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "app-kit",
@@ -2803,7 +2803,7 @@ dependencies = [
 
 [[package]]
 name = "mod-mining"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5494,7 +5494,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "starlume"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "app-kit",
@@ -5543,7 +5543,7 @@ dependencies = [
 
 [[package]]
 name = "starlume-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5705,7 +5705,7 @@ dependencies = [
 
 [[package]]
 name = "svc-capture"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "image",
  "rustfft",
@@ -5715,7 +5715,7 @@ dependencies = [
 
 [[package]]
 name = "svc-commlinks"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "app-kit",
  "chrono",
@@ -5729,7 +5729,7 @@ dependencies = [
 
 [[package]]
 name = "svc-data"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5742,7 +5742,7 @@ dependencies = [
 
 [[package]]
 name = "svc-discovery"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5755,7 +5755,7 @@ dependencies = [
 
 [[package]]
 name = "svc-dossier"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "app-kit",
@@ -5770,11 +5770,11 @@ dependencies = [
 
 [[package]]
 name = "svc-log"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "svc-patchnotes"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "app-kit",
  "chrono",
@@ -5787,7 +5787,7 @@ dependencies = [
 
 [[package]]
 name = "svc-spectrum"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "app-kit",
  "chrono",
@@ -5802,7 +5802,7 @@ dependencies = [
 
 [[package]]
 name = "svc-sync"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "swift-rs"

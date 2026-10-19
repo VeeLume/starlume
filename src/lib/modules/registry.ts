@@ -20,7 +20,8 @@ export const moduleRegistry: ModuleDescriptor[] = [
   devtrackerModule,
   langpatchModule,
   itemsModule,
-  ...(SHOW_UNRELEASED ? [miningModule, contractsModule] : []),
+  miningModule,
+  ...(SHOW_UNRELEASED ? [contractsModule] : []),
 ];
 
 export function moduleById(id: string): ModuleDescriptor | undefined {

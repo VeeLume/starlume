@@ -171,6 +171,14 @@ fn scan_data_path() -> PathBuf {
     app_kit::app_data_root().join("mining").join("scan.bin")
 }
 
+/// Whether the HUD reader has its data. Release builds offer Read scan only
+/// then: without it a reading finds nothing (building it in-app is open).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn mining_scan_ready() -> bool {
+    scan_data_path().is_file()
+}
+
 fn captures_dir(kind: CaptureKind) -> PathBuf {
     app_kit::app_data_root()
         .join("mining")

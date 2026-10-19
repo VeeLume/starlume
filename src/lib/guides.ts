@@ -30,6 +30,18 @@ export interface ReleaseGuide {
 
 export const RELEASE_GUIDES: ReleaseGuide[] = [
   {
+    version: "0.3.0",
+    changes: [
+      {
+        kind: "changed",
+        title: "Settings → About",
+        body: "The version, the update check and running setup again moved here from General. Earlier releases' guides are listed there too.",
+        href: "/settings/about",
+        action: "Open",
+      },
+    ],
+  },
+  {
     version: "0.2.0",
     changes: [
       {
