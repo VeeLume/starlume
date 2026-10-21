@@ -13,6 +13,7 @@ pub mod generate;
 pub mod guide;
 pub mod hud;
 mod lagrange;
+mod par;
 pub mod player;
 pub mod solve;
 pub mod state;
@@ -32,7 +33,7 @@ pub use hud::{
 pub use solve::{
     BackOff, BandSegment, Blast, CrewRow, CrewShip, Effect, EntryInput, Eval, GadgetRow, KitRow,
     LaserInput, LoadoutInput, MassBand, Operator, RangeAdvice, Report, RockFacts, RockInput,
-    ScannerValues, SolveError, Superseded, SupportRow, TotalRow, YourSetup, compare, mass_band,
-    modified_for, scanner_values, solve,
+    SOLVER_VERSION, ScannerValues, SolveError, Superseded, SupportRow, TotalRow, YourSetup,
+    compare, mass_band, modified_for, scanner_values, solve,
 };
 pub use state::{MiningState, SavedLoadout};

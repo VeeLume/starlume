@@ -1782,7 +1782,13 @@ crew: string | null;
 /**
  * Beam distance to the rock's surface, m; `null`: within optimal range.
  */
-distanceM: number | null }
+distanceM: number | null; 
+/**
+ * The head holds fire today (a MOLE seat nobody is in): it stays on
+ * the ship but puts nothing on the rock. The calculator's only; saved
+ * loadouts have every head on.
+ */
+off?: boolean }
 export type LauncherStatusView = { 
 /**
  * The RSI launcher is installed where Starlume looks for it.

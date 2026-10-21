@@ -14,6 +14,12 @@ svc-data.workspace = true
 # Frames and the OCR engine for reading the scan panel (module rule 1).
 svc-capture.workspace = true
 serde.workspace = true
+# The solves' job pool (`par`): built per job, dropped after it.
+rayon = "1.12"
+
+[target.'cfg(windows)'.dependencies]
+# The job pool's threads run below normal priority, beside the game.
+windows = { version = "0.61", features = ["Win32_System_Threading"] }
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -188,6 +188,7 @@ fn generator_rolls_real_rocks() {
             who: None,
             crew: None,
             distance_m: None,
+            off: false,
         }],
         gadget: None,
         lead: None,

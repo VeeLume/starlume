@@ -16,6 +16,11 @@ use svc_data::mining::{
 use crate::catalog::{Catalog, is_active};
 use crate::guide::{JumpRow, ThrottleGuide, throttle_guide, throttle_guide_lead, wave_lift};
 
+/// The solver's results version: bump it with any change that alters what
+/// a solve returns (the simulation, the player model, grading, sampling),
+/// so results cached on disk under the old version are not served.
+pub const SOLVER_VERSION: u32 = 1;
+
 /// Player-model attempts per evaluated setup.
 pub const SIM_RUNS: u32 = 100;
 /// Below this share of loss-free cracks the window counts as one that can't
@@ -60,6 +65,37 @@ pub struct LaserInput {
     /// within optimal range (full power).
     #[serde(default)]
     pub distance_m: Option<f32>,
+    /// Holds fire: the head stays on the ship (a MOLE seat nobody is in
+    /// today) but puts nothing on the rock, its modifiers and its share of
+    /// the instability split included.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub off: bool,
+}
+
+impl LoadoutInput {
+    /// The loadout as it works the rock: heads that hold fire left out, the
+    /// lead following its laser (`None` when the lead holds fire).
+    pub fn firing(&self) -> LoadoutInput {
+        let lead = self.lead.and_then(|i| {
+            let i = i as usize;
+            self.lasers
+                .get(i)
+                .is_some_and(|l| !l.off)
+                .then(|| self.lasers[..i].iter().filter(|l| !l.off).count() as u32)
+        });
+        LoadoutInput {
+            lasers: self.lasers.iter().filter(|l| !l.off).cloned().collect(),
+            gadget: self.gadget.clone(),
+            lead,
+        }
+    }
+
+    /// Each firing laser's index in this loadout, in order.
+    fn firing_indices(&self) -> Vec<u32> {
+        (0..self.lasers.len() as u32)
+            .filter(|&i| !self.lasers[i as usize].off)
+            .collect()
+    }
 }
 
 /// A crew mate's saved loadout, offered as support: their ship beside
@@ -630,10 +666,12 @@ pub(crate) fn setup_of(
     Ok((lasers_of(catalog, loadout)?, gadgets))
 }
 
+/// The lasers that fire (a head holding fire puts nothing on the rock).
 fn lasers_of(catalog: &Catalog, input: &LoadoutInput) -> Result<Vec<Laser>, SolveError> {
     input
         .lasers
         .iter()
+        .filter(|l| !l.off)
         .map(|l| {
             let item = catalog
                 .laser(&l.laser)
@@ -1073,6 +1111,10 @@ pub fn solve(
     rock: &RockInput,
     crew: &[CrewShip],
 ) -> Result<Report, SolveError> {
+    // Operators carry their index in the loadout as given, heads that hold
+    // fire counted.
+    let indices = loadout.firing_indices();
+    let loadout = &loadout.firing();
     let rs = &catalog.ruleset;
     let environment = environment_of(rock);
     let rock = rock_of(catalog, rock)?;
@@ -1116,7 +1158,11 @@ pub fn solve(
     let mine = on(lasers.clone(), gadgets.clone());
     let modified = ModifiedRock::new(rs, &rock, &mine);
     let crew_plan = plan(rs, &modified, &gadget_only, lead_of(loadout));
-    let (operators, total) = operators(rs, &rock, &modified, &lasers, &loadout.lasers, &crew_plan);
+    let (mut operators, total) =
+        operators(rs, &rock, &modified, &lasers, &loadout.lasers, &crew_plan);
+    for o in &mut operators {
+        o.index = indices[o.index as usize];
+    }
     let eval = Eval::of(&rater, &mine, true);
     // Whether the window can be kept is the simulated player's call, so the
     // plan and the rating say the same.
@@ -1306,6 +1352,7 @@ pub fn compare(
     Ok(loadouts
         .iter()
         .map(|l| {
+            let l = &l.firing();
             let (lasers, gadgets) = setup_of(catalog, l).ok()?;
             let rater = Rater {
                 rs,
@@ -1331,7 +1378,7 @@ pub fn compare(
 
 #[cfg(test)]
 mod tests {
-    use super::kits;
+    use super::{LaserInput, LoadoutInput, kits};
 
     #[test]
     fn kits_are_multisets_up_to_k() {
@@ -1340,5 +1387,31 @@ mod tests {
         assert_eq!(all.len(), 10);
         assert!(all.contains(&vec![1, 1]));
         assert!(!all.contains(&vec![2, 1]));
+    }
+
+    /// A MOLE with its second head holding fire: two lasers work the rock,
+    /// the lead follows its laser, and a lead holding fire falls back.
+    #[test]
+    fn heads_holding_fire_leave_the_rock() {
+        let head = |laser: &str, off: bool| LaserInput {
+            laser: laser.into(),
+            off,
+            ..Default::default()
+        };
+        let mole = LoadoutInput {
+            lasers: vec![head("a", false), head("b", true), head("c", false)],
+            gadget: None,
+            lead: Some(2),
+        };
+        let firing = mole.firing();
+        let names: Vec<&str> = firing.lasers.iter().map(|l| l.laser.as_str()).collect();
+        assert_eq!(names, ["a", "c"]);
+        assert_eq!(firing.lead, Some(1));
+        assert_eq!(mole.firing_indices(), [0, 2]);
+        let off_lead = LoadoutInput {
+            lead: Some(1),
+            ..mole
+        };
+        assert_eq!(off_lead.firing().lead, None);
     }
 }

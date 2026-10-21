@@ -79,6 +79,7 @@ fn main() {
             who: None,
             crew: None,
             distance_m: None,
+            off: false,
         }],
         gadget: None,
         lead: None,
