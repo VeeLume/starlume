@@ -35,9 +35,7 @@ use serde::{Deserialize, Serialize};
 /// ([`CookedData::mining`]).
 /// rev 10: mining rock types, compositions and rock meshes (the generator).
 /// rev 11: mining places in the cook (sc-holotable v0.23's cheap walk).
-/// rev 12: sc-holotable v0.27 (sequence weapons' fire rate and heat, items'
-/// tags and mass) without an upstream cook-version bump.
-pub const STARLUME_COOK_REV: u32 = 12;
+pub const STARLUME_COOK_REV: u32 = 11;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.
