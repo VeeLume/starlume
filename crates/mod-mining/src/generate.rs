@@ -1609,7 +1609,7 @@ pub fn generate(
     }
 
     // Classes for the loadout, when it has a laser.
-    let setup = match loadout.filter(|l| !l.lasers.is_empty()) {
+    let setup = match loadout.filter(|l| l.lasers.iter().any(|x| !x.off)) {
         Some(l) => {
             let (lasers, gadgets) = setup_of(catalog, l).map_err(GenerateError::Loadout)?;
             Some(Setup {

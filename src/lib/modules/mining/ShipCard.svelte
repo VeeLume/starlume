@@ -4,7 +4,9 @@
   // and window; the gadget belongs to the rock). The heads are edited in
   // place: a tile opens the part picker over the scan (the calculator
   // places it). A change is a try-out: the saved loadout it came from
-  // changes only on Save (Revert drops it, Save as new keeps both). Crew
+  // changes only on Save (Revert drops it, Save as new keeps both). A head
+  // switched off (a MOLE seat nobody is in) is not a change: it is today's
+  // crew, kept across loadouts with as many heads. Crew
   // mates on the rock are rows with ✕; Bring along offers your crew's saved
   // loadouts, each with what it adds, and only when there are some.
   import { X } from "lucide-svelte";
@@ -22,6 +24,7 @@
     revertTryOut,
     saveTryOut,
     saveTryOutAs,
+    setHeadOff,
     setOwnLasers,
     useLoadout,
   } from "$lib/state/mining.svelte";
@@ -62,17 +65,30 @@
     if (!trying || !lasers || !key) return;
     was = undefined;
     let live = true;
-    void compareOnRock(channel, [onCalculator(lasers)]).then((e) => live && (was = e?.[0] ?? null));
+    void compareOnRock(channel, [onCalculator(lasers, true)]).then((e) => live && (was = e?.[0] ?? null));
     return () => (live = false);
   });
 
   // What the lasers (no gadget) put on the rock.
   const onRock = $derived(report?.yours?.effect ?? null);
+  // Instability is the lasers' modifiers times the wave's split: owners /
+  // Π lasers per owner (three heads on one ship: a third). Tools that
+  // stack only the modifiers show the first part, so the tile says both.
+  const split = $derived.by(() => {
+    const per = new Map<number, number>();
+    for (const l of loadout.lasers) if (!l.off) per.set(l.owner, (per.get(l.owner) ?? 0) + 1);
+    return per.size ? per.size / [...per.values()].reduce((a, n) => a * n, 1) : 1;
+  });
+  const instabilityNote = $derived(
+    onRock && split !== 1
+      ? `The lasers' modifiers ${signedPct((1 + onRock.instability) / split - 1)}, then the wave split between the heads (${split < 1 ? `÷ ${+(1 / split).toFixed(2)}` : `× ${+split.toFixed(2)}`})`
+      : undefined,
+  );
   const tiles = $derived([
-    { v: onRock ? Math.round(onRock.power).toLocaleString("en-US") : "—", k: "power", good: false },
-    { v: onRock ? signedPct(onRock.resistance) : "—", k: "resistance", good: (onRock?.resistance ?? 0) < -0.005 },
-    { v: onRock ? signedPct(onRock.instability) : "—", k: "instability", good: (onRock?.instability ?? 0) < -0.005 },
-    { v: onRock ? signedPct(onRock.window) : "—", k: "window", good: (onRock?.window ?? 0) > 0.005 },
+    { v: onRock ? Math.round(onRock.power).toLocaleString("en-US") : "—", k: "power", good: false, note: undefined },
+    { v: onRock ? signedPct(onRock.resistance) : "—", k: "resistance", good: (onRock?.resistance ?? 0) < -0.005, note: undefined },
+    { v: onRock ? signedPct(onRock.instability) : "—", k: "instability", good: (onRock?.instability ?? 0) < -0.005, note: instabilityNote },
+    { v: onRock ? signedPct(onRock.window) : "—", k: "window", good: (onRock?.window ?? 0) > 0.005, note: undefined },
   ]);
 
   // Crew mates on the rock, one row per crew loadout; the rest on the bench.
@@ -102,7 +118,9 @@
       : "",
   );
   const title = $derived(based?.name ?? (first ? laserShort(first.name) : "No ship yet"));
-  const sub = $derived(own.length > 1 ? `${own.length} heads${range ? `, ${range}` : ""}` : first ? `${laserShort(first.name)}${range ? `, ${range}` : ""}` : "");
+  const on = $derived(own.filter((l) => !l.off).length);
+  const heads = $derived(on < own.length ? `${on} of ${own.length} heads` : `${own.length} heads`);
+  const sub = $derived(own.length > 1 ? `${heads}${range ? `, ${range}` : ""}` : first ? `${laserShort(first.name)}${range ? `, ${range}` : ""}` : "");
 </script>
 
 <NowCard hue="var(--hue-sky)" chip={aboard.length ? "● ON THE ROCK" : "● YOUR SHIP"} version={title} name={trying && based ? "" : sub}>
@@ -133,10 +151,12 @@
   {/if}
   {#if own.length}
     <div class="stat-tiles">
-      {#each tiles as t (t.k)}<div class="stat-tile"><b class:good={t.good}>{t.v}</b><span>{t.k}</span></div>{/each}
+      {#each tiles as t (t.k)}<div class="stat-tile" title={t.note}><b class:good={t.good}>{t.v}</b><span>{t.k}</span></div>{/each}
     </div>
   {/if}
-  <HeadsEditor {catalog} lasers={own} base={based?.loadout.lasers ?? null} {open} {onopen} onchange={(next) => void setOwnLasers(next)} />
+  <HeadsEditor {catalog} lasers={own} base={based?.loadout.lasers ?? null} {open} {onopen} onchange={(next) => void setOwnLasers(next)}
+    ontoggle={(i, off) => void setHeadOff(i, off)}
+  />
   {#each crewRows as c (c.id)}
     <div class="crew">
       <Monogram name={c.who} size={22} />

@@ -23,7 +23,7 @@ export function withPart(
   if (t.laser) {
     const slots = catalog.lasers.find((l) => l.id === id)?.moduleSlots ?? 0;
     const next = {
-      ...(current ?? { modules: [], owner: lasers[0]?.owner ?? 0, who: null, crew: null, distanceM: null }),
+      ...(current ?? { modules: [], owner: lasers[0]?.owner ?? 0, who: null, crew: null, distanceM: null, off: false }),
       laser: id ?? "",
     };
     next.modules = next.modules.slice(0, slots);

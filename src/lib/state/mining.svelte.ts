@@ -437,35 +437,44 @@ export function sameLasers(a: LaserInputView[], b: LaserInputView[]): boolean {
   return key(a) === key(b);
 }
 
-/** Lasers as they are saved: no distance, no crew. */
+/** Lasers as they are saved: no distance, no crew, every head on (who is
+ *  in the seats is the moment's, like the distance). */
 const asSaved = (ls: LaserInputView[]): LoadoutView => ({
-  lasers: ls.map((l) => ({ ...l, distanceM: null, crew: null })),
+  lasers: ls.map((l) => ({ ...l, distanceM: null, crew: null, off: false })),
   gadget: null,
   lead: null,
 });
 
 /** `own` as your part of the calculator's loadout: the crew mates kept on
- *  ships after yours, the gadget and your beam distance kept. */
-function withCrew(own: LaserInputView[], current: LoadoutView): LoadoutView {
-  const distance = ownLasers(current).find((l) => l.distanceM !== null)?.distanceM ?? null;
+ *  ships after yours, the gadget and your beam distance kept. `keepOff`
+ *  carries the heads holding fire over by position (a saved loadout coming
+ *  in has every head on), when the ship has as many heads. At least one of
+ *  your heads fires. */
+function withCrew(own: LaserInputView[], current: LoadoutView, keepOff = false): LoadoutView {
+  const now = ownLasers(current);
+  const distance = now.find((l) => l.distanceM !== null)?.distanceM ?? null;
   const crewLasers = current.lasers.filter((l) => l.crew !== null);
   const after = Math.max(-1, ...own.map((l) => l.owner)) + 1;
   const base = Math.min(...crewLasers.map((l) => l.owner), Infinity);
+  const carry = keepOff && now.length === own.length;
+  let off = own.map((l, i) => (carry ? now[i].off : l.off));
+  if (off.every(Boolean)) off = off.map(() => false);
   return {
     gadget: current.gadget,
     lead: null,
     lasers: [
-      ...own.map((l) => ({ ...l, crew: null, distanceM: distance })),
+      ...own.map((l, i) => ({ ...l, crew: null, distanceM: distance, off: off[i] })),
       ...crewLasers.map((l) => ({ ...l, owner: after + (l.owner - base) })),
     ],
   };
 }
 
 /** `own` as your part of the calculator's loadout, to compare on the rock
- *  (a picker option, the saved loadout behind a try-out). */
-export function onCalculator(own: LaserInputView[]): LoadoutView {
+ *  (a picker option; with `keepOff`, the saved loadout behind a try-out,
+ *  with today's heads holding fire). */
+export function onCalculator(own: LaserInputView[], keepOff = false): LoadoutView {
   const current = _state?.current ?? { lasers: [], gadget: null, lead: null };
-  return withCrew(own, current);
+  return withCrew(own, current, keepOff);
 }
 
 /** How many heads and slots of `now` differ from `saved`. */
@@ -490,12 +499,21 @@ export function setOwnLasers(own: LaserInputView[]): Promise<void> {
   return current ? setLoadout(withCrew(own, current)) : Promise.resolve();
 }
 
-/** Put a saved loadout of yours on the calculator, crew mates kept. */
+/** Put a saved loadout of yours on the calculator, crew mates and the
+ *  heads holding fire kept. */
 export function useLoadout(id: string): Promise<void> {
   const saved = _state?.saved.find((s) => s.id === id);
   const current = _state?.current;
   if (!saved || !current) return Promise.resolve();
-  return setLoadout(withCrew(saved.loadout.lasers, current), id);
+  return setLoadout(withCrew(saved.loadout.lasers, current, true), id);
+}
+
+/** Switch your head at `index` (among your own lasers) on or off: a seat
+ *  nobody is in today. Not a change to the loadout, so no try-out. */
+export function setHeadOff(index: number, off: boolean): Promise<void> {
+  const current = _state?.current;
+  if (!current) return Promise.resolve();
+  return setOwnLasers(ownLasers(current).map((l, i) => (i === index ? { ...l, off } : l)));
 }
 
 /** Drop the try-out: back to the saved loadout. */
@@ -538,7 +556,7 @@ export function compareOnRock(channel: string, loadouts: LoadoutView[]): Promise
   const rock = draftRock();
   if (!rock || !loadouts.length) return Promise.resolve(null);
   const at = { ...rock, mass: _massOverride ?? rock.mass };
-  const key = JSON.stringify([channel, at, loadouts.map((l) => [l.lasers.map((x) => [x.laser, x.modules, x.owner, x.distanceM]), l.gadget])]);
+  const key = JSON.stringify([channel, at, loadouts.map((l) => [l.lasers.map((x) => [x.laser, x.modules, x.owner, x.distanceM, x.off]), l.gadget])]);
   const hit = _compared.get(key);
   if (hit) return hit;
   const run = commands.miningCompare(channel, at, loadouts).then((r) => (r.status === "ok" ? r.data : null));
@@ -620,7 +638,7 @@ export function setMassOverride(mass: number | null): void {
 }
 
 const bandInputs = () => JSON.stringify([_state?.current ?? null, draftRock(), _source?.heaviest ?? null]);
-const classInputs = (l: LoadoutView) => JSON.stringify([l.lasers.map((x) => [x.laser, x.modules, x.owner]), l.gadget]);
+const classInputs = (l: LoadoutView) => JSON.stringify([l.lasers.map((x) => [x.laser, x.modules, x.owner, x.off]), l.gadget]);
 
 /** The class band for the drafted rock and the calculator's loadout. */
 export async function loadMassBand(channel: string): Promise<void> {
@@ -661,7 +679,7 @@ export async function loadClassTable(channel: string): Promise<void> {
 /** The loadout as a comfort solve sees it: its lasers' parts, crew and
  *  range, and the gadget. */
 export const comfortKey = (channel: string, l: LoadoutView) =>
-  JSON.stringify([channel, l.lasers.map((x) => [x.laser, x.modules, x.owner, x.crew !== null, x.distanceM]), l.gadget]);
+  JSON.stringify([channel, l.lasers.map((x) => [x.laser, x.modules, x.owner, x.crew !== null, x.distanceM, x.off]), l.gadget]);
 
 /** The loadout's comfort solve, when done (reactive); null while it runs or
  *  when it failed. */

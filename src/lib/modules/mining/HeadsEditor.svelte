@@ -6,9 +6,11 @@
   // `S<head>:<slot>`); the parent places the picker. On a ship with several
   // heads (a MOLE) each head names who works it. A head or slot that differs
   // from `base` (the saved loadout) carries an amber dot. `structure` adds a
-  // head and removes one (the Loadouts sheet).
+  // head and removes one (the Loadouts sheet). `ontoggle` switches a head
+  // on and off (the ship card: a MOLE seat nobody is in today); one stays on.
   import { Plus, X } from "lucide-svelte";
   import type { Snippet } from "svelte";
+  import { Switch } from "@veelume/ui";
   import type { LaserInputView, MiningCatalogView } from "$lib/bindings";
   import Chevron from "$lib/components/Chevron.svelte";
   import FxLines from "./FxLines.svelte";
@@ -23,6 +25,7 @@
     onchange = undefined,
     structure = false,
     slotNote = undefined,
+    ontoggle = undefined,
   }: {
     catalog: MiningCatalogView;
     lasers: LaserInputView[];
@@ -37,6 +40,8 @@
     /** Under a saved module's tile (head, slot): what it adds, on Loadouts
      *  measured on every rock. */
     slotNote?: Snippet<[number, number]>;
+    /** Switch head `i` off (true) or on. */
+    ontoggle?: (i: number, off: boolean) => void;
   } = $props();
 
   const laserById = $derived(new Map(catalog.lasers.map((l) => [l.id, l])));
@@ -44,6 +49,7 @@
   /** Several heads on one ship: each names who works it. */
   const seated = $derived(lasers.length > 1);
   const seat = (l: LaserInputView, i: number) => l.who ?? (i === 0 ? "You" : `Head ${i + 1}`);
+  const firing = $derived(lasers.filter((l) => !l.off).length);
   const laserChanged = (i: number) => base !== null && base[i]?.laser !== lasers[i].laser;
   const slotChanged = (i: number, s: number) => base !== null && (base[i]?.modules[s] ?? null) !== (lasers[i].modules[s] ?? null);
 
@@ -52,7 +58,7 @@
   }
   function addHead() {
     const last = lasers.at(-1);
-    onchange?.([...lasers, { laser: last?.laser ?? "", modules: [], owner: last?.owner ?? 0, who: null, crew: null, distanceM: null }]);
+    onchange?.([...lasers, { laser: last?.laser ?? "", modules: [], owner: last?.owner ?? 0, who: null, crew: null, distanceM: null, off: false }]);
   }
   function removeHead(i: number) {
     onchange?.(lasers.filter((_, j) => j !== i));
@@ -62,12 +68,27 @@
 <div class="heads">
   {#each lasers as l, i (i)}
     {@const laser = laserById.get(l.laser)}
-    <div class="head">
+    <div class="head" class:off={l.off}>
       {#if seated}
         <div class="seat">
           {#if onchange}
             <input value={l.who ?? ""} placeholder={seat(l, i)} aria-label="Who works this head" onchange={(e) => rename(i, e.currentTarget.value)} />
           {:else}<span>{seat(l, i)}</span>{/if}
+          {#if ontoggle}
+            <span class="fire" title={!l.off && firing === 1
+                ? "One head stays on"
+                : l.off
+                  ? "Not on the rock: nobody in the seat, no power, or the beam off"
+                  : "On the rock: its beam hits"}>
+              <span class="faint">{l.off ? "off" : "on"}</span>
+              <Switch
+                checked={!l.off}
+                disabled={!l.off && firing === 1}
+                label="{seat(l, i)} fires"
+                onchange={(on) => ontoggle(i, !on)}
+              />
+            </span>
+          {/if}
           {#if structure}
             <button type="button" class="rm" onclick={() => removeHead(i)} title="Remove this head" aria-label="Remove head"><X size={13} /></button>
           {/if}
@@ -139,6 +160,25 @@
     gap: 6px;
     font-size: 0.82rem;
     font-weight: var(--weight-semibold);
+  }
+  .fire {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .fire + .rm {
+    margin-left: 0;
+  }
+  /* A head holding fire: still editable, dimmed out of the stats. */
+  .head.off .laser,
+  .head.off .slots {
+    opacity: 0.45;
   }
   .seat input {
     font: inherit;

@@ -52,6 +52,7 @@ fn main() {
         who: who.map(str::to_string),
         crew: None,
         distance_m: None,
+        off: false,
     };
     // A MOLE-like three-head ship (one owner), as in the screenshot.
     let laranite = std::env::var("LARANITE").is_ok();
@@ -78,6 +79,7 @@ fn main() {
         who: None,
         crew: None,
         distance_m: None,
+        off: false,
     };
     let loadout = if laranite {
         LoadoutInput {

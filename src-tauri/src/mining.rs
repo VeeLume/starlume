@@ -243,6 +243,11 @@ pub struct LaserInputView {
     pub crew: Option<String>,
     /// Beam distance to the rock's surface, m; `null`: within optimal range.
     pub distance_m: Option<f32>,
+    /// The head holds fire today (a MOLE seat nobody is in): it stays on
+    /// the ship but puts nothing on the rock. The calculator's only; saved
+    /// loadouts have every head on.
+    #[serde(default)]
+    pub off: bool,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -267,6 +272,7 @@ impl From<LoadoutView> for mod_mining::LoadoutInput {
                     who: l.who,
                     crew: l.crew,
                     distance_m: l.distance_m,
+                    off: l.off,
                 })
                 .collect(),
             gadget: v.gadget,
@@ -288,6 +294,7 @@ impl From<mod_mining::LoadoutInput> for LoadoutView {
                     who: l.who,
                     crew: l.crew,
                     distance_m: l.distance_m,
+                    off: l.off,
                 })
                 .collect(),
             gadget: v.gadget,

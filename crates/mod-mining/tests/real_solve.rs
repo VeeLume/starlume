@@ -68,6 +68,7 @@ fn bexalite_scan_from_a_golem() {
             who: None,
             crew: None,
             distance_m: None,
+            off: false,
         }],
         gadget: Some(id(&catalog.gadgets, "gadget", "Sabir")),
         lead: None,
@@ -102,6 +103,7 @@ fn bexalite_scan_from_a_golem() {
                 who: None,
                 crew: None,
                 distance_m: None,
+                off: false,
             }],
             gadget: None,
             lead: None,
@@ -129,6 +131,7 @@ fn bexalite_scan_from_a_golem() {
         who: Some("Juno".into()),
         crew: Some("juno".into()),
         distance_m: None,
+        off: false,
     });
     let duo = solve(&catalog, &together, &rock, &[]).expect("crew solve");
     let duo = duo.yours.as_ref().expect("lasers");

@@ -55,7 +55,9 @@ export function alternatives(report: MiningReportView, loadout: LoadoutView, cat
       apply: () => setLoadout({ ...loadout, gadget: g.gadget }),
     });
   }
-  const first = loadout.lasers[0];
+  // The kits are for the one laser that fires (a MOLE with one head on).
+  const at = loadout.lasers.findIndex((l) => !l.off);
+  const first = loadout.lasers[at];
   for (const [rows, active] of [
     [report.passiveKits, false],
     [report.activeKits, true],
@@ -75,7 +77,7 @@ export function alternatives(report: MiningReportView, loadout: LoadoutView, cat
         eval: k.eval,
         verb: "Use",
         apply: () =>
-          setLoadout({ ...loadout, lasers: loadout.lasers.map((l, i) => (i === 0 ? { ...l, modules: k.modules } : l)) }),
+          setLoadout({ ...loadout, lasers: loadout.lasers.map((l, i) => (i === at ? { ...l, modules: k.modules } : l)) }),
       });
     }
   }
@@ -106,7 +108,7 @@ export function alternatives(report: MiningReportView, loadout: LoadoutView, cat
       apply: () =>
         setLoadout({
           ...loadout,
-          lasers: [...loadout.lasers, { laser: s.laser, modules: s.modules, owner: ship, who: "Prospector", crew: `support:${s.laser}`, distanceM: null }],
+          lasers: [...loadout.lasers, { laser: s.laser, modules: s.modules, owner: ship, who: "Prospector", crew: `support:${s.laser}`, distanceM: null, off: false }],
         }),
     });
   }
