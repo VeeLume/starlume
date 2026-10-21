@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use svc_data::mining::{
     Composition, Elements, Entry, ModifiedRock, QualityRoll, Rock, RockType, Ruleset, Setup, Shape,
@@ -1424,46 +1425,51 @@ pub fn comfort(
     };
     let rs = &catalog.ruleset;
     let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut out = Vec::new();
+    let mut work = Vec::new();
     for (guid, _) in src.providers.iter() {
         if LEFTOVERS.contains(&guid.to_string().as_str()) {
             continue;
         }
         for e in ship_entries(src, catalog, guid) {
             let dist = dist_key(src, e.rock, e.geometry_tags);
-            if !done.insert(dist.clone()) {
-                continue;
+            if done.insert(dist.clone()) {
+                work.push((dist, e));
             }
-            let shapes = src.shapes(e.rock, e.geometry_tags);
-            if shapes.is_empty() || e.rock.composition.is_none() {
-                continue;
-            }
-            let spawner = Spawner {
-                rock_type: e.rock,
-                ruleset: rs,
-                elements: &catalog.elements,
-                compositions: &src.index.compositions,
-                shapes: &shapes,
-            };
-            let spawns: Vec<Spawn> = (0..TABLE_SAMPLE)
-                .filter_map(|seed| spawner.spawn(seed))
-                .collect();
-            let rocks: Vec<&Rock> = spawns.iter().map(|sp| &sp.rock).collect();
-            let classes = classes_of(rs, &catalog.elements, &rocks, &setup, superseded);
-            if superseded() {
-                return Err(SolveError::Superseded);
-            }
-            if classes.is_empty() {
-                continue;
-            }
-            out.push(Comfort {
-                classes: shares_of(&classes),
-                bars: comfort_bars(&rocks, &classes),
-                dist,
-            });
         }
     }
-    Ok(out)
+    // Distributions are independent: side by side on the job's pool, kept in
+    // the order above.
+    let out: Vec<Option<Comfort>> = crate::par::job(|| {
+        work.into_par_iter()
+            .map(|(dist, e)| {
+                let shapes = src.shapes(e.rock, e.geometry_tags);
+                if superseded() || shapes.is_empty() || e.rock.composition.is_none() {
+                    return None;
+                }
+                let spawner = Spawner {
+                    rock_type: e.rock,
+                    ruleset: rs,
+                    elements: &catalog.elements,
+                    compositions: &src.index.compositions,
+                    shapes: &shapes,
+                };
+                let spawns: Vec<Spawn> = (0..TABLE_SAMPLE)
+                    .filter_map(|seed| spawner.spawn(seed))
+                    .collect();
+                let rocks: Vec<&Rock> = spawns.iter().map(|sp| &sp.rock).collect();
+                let classes = classes_of(rs, &catalog.elements, &rocks, &setup, superseded);
+                (!classes.is_empty()).then(|| Comfort {
+                    classes: shares_of(&classes),
+                    bars: comfort_bars(&rocks, &classes),
+                    dist,
+                })
+            })
+            .collect()
+    });
+    if superseded() {
+        return Err(SolveError::Superseded);
+    }
+    Ok(out.into_iter().flatten().collect())
 }
 
 /// A sample's masses as [`MASS_BUCKETS`] bars up to the 98th percentile

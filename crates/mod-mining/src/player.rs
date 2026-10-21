@@ -36,6 +36,8 @@
 
 use std::collections::VecDeque;
 
+use rayon::prelude::*;
+
 use svc_data::mining::{
     Difficulty, LaserControl, ModifiedRock, Outcome, Pool, Rock, Ruleset, Setup, Shape, SimConfig,
     Throttle, Timeline, View, simulate_timeline,
@@ -465,28 +467,10 @@ pub fn rate(
         let trace = simulate_timeline(timeline, ruleset, &mut player, &config);
         (trace.outcome, trace.time_in_window_s)
     };
-    // The tries run side by side on scoped threads (gone when they're done:
-    // a tray app keeps no idle pool), summed in seed order as before.
-    let threads = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .min(runs.max(1) as usize);
-    let chunk = (runs as usize).div_ceil(threads.max(1)).max(1) as u32;
-    let attempts: Vec<(Outcome, f32)> = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..runs)
-            .step_by(chunk as usize)
-            .map(|from| {
-                s.spawn(move || {
-                    (from..(from + chunk).min(runs))
-                        .map(attempt)
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|w| w.join().expect("simulation thread"))
-            .collect()
-    });
+    // The tries run side by side on the job's pool (`crate::par`: a grade
+    // inside a comfort solve shares its threads), summed in seed order.
+    let attempts: Vec<(Outcome, f32)> =
+        crate::par::job(|| (0..runs).into_par_iter().map(attempt).collect());
     for (outcome, time_in_window_s) in attempts {
         let duration = match outcome {
             Outcome::Fractured {

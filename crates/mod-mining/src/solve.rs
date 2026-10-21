@@ -16,6 +16,11 @@ use svc_data::mining::{
 use crate::catalog::{Catalog, is_active};
 use crate::guide::{JumpRow, ThrottleGuide, throttle_guide, throttle_guide_lead, wave_lift};
 
+/// The solver's results version: bump it with any change that alters what
+/// a solve returns (the simulation, the player model, grading, sampling),
+/// so results cached on disk under the old version are not served.
+pub const SOLVER_VERSION: u32 = 1;
+
 /// Player-model attempts per evaluated setup.
 pub const SIM_RUNS: u32 = 100;
 /// Below this share of loss-free cracks the window counts as one that can't

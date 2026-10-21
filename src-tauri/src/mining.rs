@@ -1370,17 +1370,10 @@ pub(crate) async fn mining_comfort(
 ) -> Result<Vec<ComfortView>, AppError> {
     use sha2::{Digest, Sha256};
     let install = crate::data::install_for(&app, &channel).await?;
-    let build: String = install
-        .build_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
+    // The build's changelist (a bare build_id can be "None" on every patch)
+    // and the solver's version: a solver change leaves results for its own
+    // version, never the old ones.
+    let build = format!("{}-s{}", install.build_key(), mod_mining::SOLVER_VERSION);
     let root = app_kit::app_data_root().join("mining-comfort");
     let dir = root.join(&build);
     let json = serde_json::to_vec(&loadout).map_err(|e| AppError::Internal(e.to_string()))?;
