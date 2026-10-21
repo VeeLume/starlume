@@ -770,6 +770,9 @@ mod tests {
             item_sub_type: EItemSubType::from_dcb_str("UNDEFINED"),
             size: 2,
             grade: 1,
+            tags: vec![],
+            required_tags: vec![],
+            mass: None,
         }
     }
 
