@@ -1,0 +1,10 @@
+# Workspace-level Cargo configuration.
+#
+# CPU baseline: x86-64-v3 (AVX, AVX2, FMA, BMI1/2, F16C, LZCNT, MOVBE).
+# Star Citizen itself requires AVX, AVX2 and FMA3, and Starlume runs beside
+# the game on the same machine, so this excludes no one who can play while
+# letting LLVM use FMA and 256-bit vectors in the hot loops (the mining
+# simulation, the DCB parse). A RUSTFLAGS environment variable replaces this
+# list entirely: CI must not set one without repeating the flag.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=x86-64-v3"]
