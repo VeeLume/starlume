@@ -108,3 +108,10 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+# Release speed with line tables, so a profiler can name functions:
+# `cargo test --profile profiling …`, `samply record …`.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = false
