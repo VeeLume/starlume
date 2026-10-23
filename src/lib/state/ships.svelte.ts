@@ -14,6 +14,7 @@ import {
   type EditView,
   type LevelView,
   type ShipLoadoutsView,
+  type ShipMarketView,
   type ShipPricesView,
   type ShipSavedLoadoutView,
   type QtPlacesView,
@@ -135,6 +136,23 @@ export async function loadImages(channel: string): Promise<void> {
 
 export function refreshImages(): void {
   void commands.shipsImagesRefresh(false);
+}
+
+let _market = $state.raw<Map<string, ShipMarketView>>(new Map());
+
+/** Every ship's prices for the catalogue's cards: in game (UEX) and on
+ *  the pledge store. */
+export const shipsMarket = {
+  of(ship: string): ShipMarketView | null {
+    return _market.get(ship) ?? null;
+  },
+};
+
+/** The catalogue's prices from the cached UEX and store lists (no
+ *  network). Cache-first: the last ones stay while these load. */
+export async function loadMarket(channel: string): Promise<void> {
+  const result = await commands.shipsMarket(channel);
+  if (result.status === "ok") _market = new Map(result.data.map((m) => [m.ship, m]));
 }
 
 let _prices = $state.raw<Record<string, ShipPricesView>>({});
@@ -446,15 +464,20 @@ export async function listenForShipChanges(channel: () => string | null): Promis
       void loadPlaces(c, true);
     }
   });
+  // A store refresh: new pictures, and the store prices with them.
   const images = await listen("ships:images", () => {
     const c = channel();
-    if (c) void loadImages(c);
+    if (c) {
+      void loadImages(c);
+      void loadMarket(c);
+    }
   });
   // New UEX prices: the open ship's, and the open picker's list.
   const prices = await listen("uex:changed", () => {
     const c = channel();
     if (!c) return;
     for (const ship of Object.keys(_prices)) void loadShipPrices(c, ship);
+    void loadMarket(c);
     if (shipsPicker.open) void openPicker(c, shipsPicker.open.targets);
   });
   return () => {

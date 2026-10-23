@@ -38,7 +38,9 @@
 {/snippet}
 
 <div class="prices">
-  {#if !prices || prices.fetchedAt === null}
+  {#if !prices}
+    <p class="none">Reading prices…</p>
+  {:else if prices.fetchedAt === null}
     <p class="none">No prices yet: they come from UEX once online mode is on.</p>
   {:else}
     {@render list("Buy", prices.buy, "aUEC")}

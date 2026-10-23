@@ -40,6 +40,11 @@ pub const BASE: &str = "https://api.uexcorp.uk/2.0/";
 /// Never refetch a list sooner than this, whatever the header says.
 const MIN_AGE: i64 = 15 * 60;
 
+/// The rows' shape in the cache. A change (a field added) bumps it, and a
+/// cache of another shape counts as never fetched.
+/// 2: vehicles' `pad_type`.
+pub const SCHEMA: u32 = 2;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("UEX request failed: {0}")]
@@ -67,7 +72,19 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Meta {
+    /// [`SCHEMA`] the cached rows were written with; 0: before it existed.
+    pub schema: u32,
     pub feeds: BTreeMap<String, FeedMeta>,
+}
+
+impl Meta {
+    /// When `feed` was fetched and how long it stays fresh; `None` when it
+    /// never was, or the cache is of another [`SCHEMA`].
+    pub fn feed(&self, feed: Feed) -> Option<&FeedMeta> {
+        (self.schema == SCHEMA)
+            .then(|| self.feeds.get(feed.endpoint()))
+            .flatten()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -122,14 +139,13 @@ impl UexService {
         let meta = self.meta();
         Feed::ALL
             .iter()
-            .any(|f| meta.feeds.get(f.endpoint()).is_none_or(|m| m.stale(now)))
+            .any(|f| meta.feed(*f).is_none_or(|m| m.stale(now)))
     }
 
     /// When the item prices were last fetched; `None`: never.
     pub fn fetched_at(&self) -> Option<i64> {
         self.meta()
-            .feeds
-            .get(Feed::ItemPrices.endpoint())
+            .feed(Feed::ItemPrices)
             .map(|m| m.fetched_at)
             .filter(|&t| t > 0)
     }
@@ -160,13 +176,20 @@ impl UexService {
             .timeout(Duration::from_secs(60))
             .build()?;
         let mut meta = self.meta();
+        if meta.schema != SCHEMA {
+            // Rows of another shape: fetch every list again.
+            meta = Meta {
+                schema: SCHEMA,
+                feeds: BTreeMap::new(),
+            };
+        }
         let mut report = RefreshReport {
             first: meta.feeds.is_empty(),
             ..RefreshReport::default()
         };
         let mut first_error = None;
         for feed in Feed::ALL {
-            if !meta.feeds.get(feed.endpoint()).is_none_or(|m| m.stale(now)) {
+            if !meta.feed(feed).is_none_or(|m| m.stale(now)) {
                 continue;
             }
             let fetched = match feed {

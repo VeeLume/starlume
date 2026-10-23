@@ -9,6 +9,7 @@ use mod_ships::{
     Typed,
 };
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex, Weak};
 use svc_data::Guid;
 use svc_data::ships::{Accelerations, Loadout};
 use tauri::AppHandle;
@@ -1086,6 +1087,78 @@ pub(crate) async fn ships_candidates(
     .map_err(|e| AppError::Config(e.to_string()))
 }
 
+/// One ship's prices as the catalogue's card shows them.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ShipMarketView {
+    pub ship: String,
+    /// The cheapest shop selling it in game (UEX), and how many do.
+    pub buy: Option<OfferView>,
+    pub buy_shops: u32,
+    /// The cheapest rental per day (UEX), and how many shops rent it.
+    pub rent: Option<OfferView>,
+    pub rent_shops: u32,
+    /// The landing pad it needs, "XS" to "XL" (UEX).
+    pub pad: Option<String>,
+    /// The pledge store's standalone price in US dollars (RSI's ship list);
+    /// null when the store doesn't list it.
+    pub store_usd: Option<f64>,
+}
+
+/// Every ship's prices for the catalogue: in game from the cached UEX
+/// lists, on the pledge store from the cached store list. No network.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn ships_market(
+    app: AppHandle,
+    channel: String,
+) -> Result<Vec<ShipMarketView>, AppError> {
+    use tauri::Manager;
+    let cooked = cooked_for(&app, &channel).await?;
+    let uex = app.state::<crate::AppState>().uex.clone();
+    let store = app.state::<crate::AppState>().shipstore.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let rows = ship_rows(&cooked);
+        let snap = uex.snapshot();
+        let ix = svc_uex::Index::new(&snap);
+        let cache = store.cached();
+        let usd: HashMap<String, f64> = cache
+            .as_ref()
+            .map(|c| {
+                let names: Vec<(u32, &str)> =
+                    c.ships.iter().map(|s| (s.id, s.name.as_str())).collect();
+                let cents: HashMap<u32, u32> = c
+                    .ships
+                    .iter()
+                    .filter_map(|s| Some((s.id, s.msrp_cents?)))
+                    .collect();
+                mod_ships::match_store(&rows, &names)
+                    .into_iter()
+                    .filter_map(|(guid, id)| Some((guid, f64::from(*cents.get(&id)?) / 100.0)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        rows.iter()
+            .map(|r| {
+                let names = r.names();
+                let names: Vec<&str> = names.iter().map(String::as_str).collect();
+                let o = ix.vehicle(&r.guid, &names);
+                ShipMarketView {
+                    ship: r.guid.clone(),
+                    buy_shops: o.buy.len() as u32,
+                    rent_shops: o.rent.len() as u32,
+                    buy: o.buy.into_iter().next().map(Into::into),
+                    rent: o.rent.into_iter().next().map(Into::into),
+                    pad: o.pad,
+                    store_usd: usd.get(&r.guid).copied(),
+                }
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))
+}
+
 /// Where a ship is sold and rented (UEX's community prices).
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -1112,8 +1185,8 @@ pub(crate) async fn ships_prices(
     let cooked = cooked_for(&app, &channel).await?;
     let uex = app.state::<crate::AppState>().uex.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let names = mod_ships::ships(&cooked)
-            .into_iter()
+        let names = ship_rows(&cooked)
+            .iter()
             .find(|r| r.guid.eq_ignore_ascii_case(&ship))
             .map(|r| r.names())
             .unwrap_or_default();
@@ -1218,7 +1291,7 @@ pub(crate) async fn ships_images(
         let Some(cache) = service.cached() else {
             return Ok(Vec::new());
         };
-        let rows = mod_ships::ships(&cooked);
+        let rows = ship_rows(&cooked);
         let store: Vec<(u32, &str)> = cache
             .ships
             .iter()
@@ -1286,10 +1359,11 @@ pub(crate) async fn ships_list(
     channel: String,
 ) -> Result<Vec<ShipRowView>, AppError> {
     let cooked = cooked_for(&app, &channel).await?;
-    Ok(mod_ships::ships(&cooked)
-        .into_iter()
-        .map(Into::into)
-        .collect())
+    tauri::async_runtime::spawn_blocking(move || {
+        ship_rows(&cooked).iter().cloned().map(Into::into).collect()
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))
 }
 
 /// A ship's stock loadout as slots.
@@ -1310,6 +1384,33 @@ pub(crate) async fn ships_stock(
         .into_iter()
         .map(Into::into)
         .collect())
+}
+
+// ── The ship list ───────────────────────────────────────────────────────────
+
+/// The ship list of the loaded snapshot. Building it resolves every ship's
+/// stock loadout (seats, cargo, armour): 11 s in a debug build, so the list,
+/// the pictures, the home page and the prices each building their own was
+/// what made the page slow to fill. Built once per snapshot; the weak link
+/// lets an evicted snapshot go (memory rule "Cooked data is evictable"),
+/// and the next snapshot builds afresh.
+static SHIP_ROWS: Mutex<Option<RowsOf>> = Mutex::new(None);
+
+/// The snapshot a list was built from, and the list.
+type RowsOf = (Weak<svc_data::CookedData>, Arc<Vec<ShipRow>>);
+
+/// [`mod_ships::ships`] of `cooked`, shared. Blocking: call it off the
+/// async runtime. Callers asking at once wait for the one build.
+fn ship_rows(cooked: &Arc<svc_data::CookedData>) -> Arc<Vec<ShipRow>> {
+    let mut held = SHIP_ROWS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((of, rows)) = held.as_ref()
+        && of.upgrade().is_some_and(|c| Arc::ptr_eq(&c, cooked))
+    {
+        return rows.clone();
+    }
+    let rows = Arc::new(mod_ships::ships(cooked));
+    *held = Some((Arc::downgrade(cooked), rows.clone()));
+    rows
 }
 
 // ── Home and module state ───────────────────────────────────────────────────
@@ -1365,7 +1466,7 @@ pub(crate) async fn ships_home(app: AppHandle, channel: String) -> Result<ShipsH
     let install = crate::data::install_for(&app, &channel).await?;
     let inventory = app.state::<crate::AppState>().dossier.cached_inventory();
     tauri::async_runtime::spawn_blocking(move || {
-        let rows = mod_ships::ships(&cooked);
+        let rows = ship_rows(&cooked);
         let state = {
             let _lock = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let mut state: mod_ships::ShipsState = app_kit::load_json(&state_path());

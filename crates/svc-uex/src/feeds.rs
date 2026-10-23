@@ -113,6 +113,10 @@ pub struct Vehicle {
     /// "Crusader Mercury Star Runner".
     #[serde(default)]
     pub name_full: String,
+    /// The landing pad it needs: "XS", "S", "M", "L", "XL"; `None` for
+    /// ground vehicles and ships UEX hasn't sized.
+    #[serde(default, deserialize_with = "text")]
+    pub pad_type: Option<String>,
 }
 
 /// Where a terminal is.

@@ -759,6 +759,18 @@ async shipsPrices(channel: string, ship: string) : Promise<Result<ShipPricesView
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Every ship's prices for the catalogue: in game from the cached UEX
+ * lists, on the pledge store from the cached store list. No network.
+ */
+async shipsMarket(channel: string) : Promise<Result<ShipMarketView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_market", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async uexStatus() : Promise<UexStatusView> {
     return await TAURI_INVOKE("uex_status");
 },
@@ -2820,6 +2832,27 @@ export type ShipLoadoutsView = { saved: ShipSavedLoadoutView[];
  * Null: stock, nothing changed.
  */
 draft: ShipDraftView | null }
+/**
+ * One ship's prices as the catalogue's card shows them.
+ */
+export type ShipMarketView = { ship: string; 
+/**
+ * The cheapest shop selling it in game (UEX), and how many do.
+ */
+buy: OfferView | null; buyShops: number; 
+/**
+ * The cheapest rental per day (UEX), and how many shops rent it.
+ */
+rent: OfferView | null; rentShops: number; 
+/**
+ * The landing pad it needs, "XS" to "XL" (UEX).
+ */
+pad: string | null; 
+/**
+ * The pledge store's standalone price in US dollars (RSI's ship list);
+ * null when the store doesn't list it.
+ */
+storeUsd: number | null }
 /**
  * What the page shows for one loadout.
  */

@@ -7,7 +7,7 @@
   // flight, logistics, charts. Reads the cooked game data only: no network.
   import { onDestroy, onMount, untrack } from "svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
-  import { Segmented, Select, createBrowseState, type SelectOption } from "@veelume/ui";
+  import { Select, createBrowseState, type SelectOption } from "@veelume/ui";
   import type { SystemView } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import PowerPanel from "$lib/modules/ships/PowerPanel.svelte";
@@ -23,13 +23,12 @@
   import ShipPrices from "$lib/modules/ships/ShipPrices.svelte";
   import ShipsHome from "$lib/modules/ships/ShipsHome.svelte";
   import { crewParts, crewTitle } from "$lib/modules/ships/seats";
-  import { ArrowLeft } from "lucide-svelte";
   import type { SlotView } from "$lib/bindings";
   import {
     closePicker,
-    closeShip,
     listenForShipChanges,
     loadImages,
+    loadMarket,
     loadPlaces,
     refreshImages,
     shipsImages,
@@ -75,12 +74,25 @@
   }
 
   let ready = $state(false);
-  /** Build or Ship, in the URL like any view mode (frontend rule 7). */
-  const browse = createBrowseState({ tab: { kind: "one", default: "build" }, layout: { kind: "one", default: "grid" } });
-  const tab = $derived(browse.values.tab === "ship" ? "ship" : "build");
-  /** Layout trial: Build as the grid, or the holo in the middle with the
-   *  fighting parts left of it and the running parts right. */
-  const layout = $derived(browse.values.layout === "holo" ? "holo" : "grid");
+  /** The view, in the URL like any view mode (frontend rule 7): every ship,
+   *  or the open ship's Build or Ship page. The two need a ship open; the
+   *  list keeps it open, so Build goes back to it. */
+  const VIEWS = [
+    ["ships", "Ships"],
+    ["ship", "Ship"],
+    ["build", "Build"],
+  ] as const;
+  type View = (typeof VIEWS)[number][0];
+  const browse = createBrowseState({ tab: { kind: "one", default: "build" } });
+  const view = $derived<View>(!shipsUi.ship ? "ships" : browse.values.tab === "ship" || browse.values.tab === "ships" ? browse.values.tab : "build");
+  /** A ship picked from the list or the picker opens on its Build page
+   *  (from Ship it stays on Ship: switching hulls to compare them). */
+  function openFromList(guid: string) {
+    openShip(guid);
+    if (view !== "ship") browse.set("tab", "build");
+  }
+  /** Build: the holo in the middle with the fighting parts left of it and
+   *  the running parts right. */
   const FIGHT: Entry[][] = [[["weapons", "turrets"], "missiles", "countermeasures", "shields"]];
   const RUN: SystemView[][] = [["powerPlants", "coolers", "quantum", "radar", "lifeSupport", "fuel", "docked"]];
   let hover = $state<SystemView | null>(null);
@@ -105,16 +117,19 @@
     const c = channel;
     if (c)
       untrack(() => {
-        void loadShips(c).then(() => loadImages(c));
+        void loadShips(c).then(() => {
+          void loadImages(c);
+          void loadMarket(c);
+        });
         void loadPlaces(c);
         refreshImages();
       });
   });
 
-  // The home page refreshes whenever it shows (recently opened moves).
+  // The list refreshes whenever it shows (recently opened moves).
   $effect(() => {
     const c = channel;
-    if (c && !shipsUi.ship) untrack(() => void loadHome(c));
+    if (c && view === "ships") untrack(() => void loadHome(c));
   });
 
   // Recompute when the ship, its edits or the power settings change.
@@ -125,11 +140,13 @@
     untrack(() => void loadPage(c));
   });
 
-  // Where the open ship is sold and rented (cached UEX prices, no network).
+  // Where the open ship is sold and rented (cached UEX prices, no network),
+  // once its page is in: then the game data the names come from is loaded
+  // (asked any sooner after a start, the command failed and never retried).
   $effect(() => {
     const c = channel;
     const ship = shipsUi.ship;
-    if (c && ship) untrack(() => void loadShipPrices(c, ship));
+    if (c && ship && page?.ship === ship) untrack(() => void loadShipPrices(c, ship));
   });
 
   const powered = $derived(
@@ -197,39 +214,36 @@
   {:else if shipsStore.shipsError}
     <p class="error">{shipsStore.shipsError}</p>
   {:else if ships && channel}
-    <!-- With no ship open the start page searches and filters every ship
-         itself; the picker is for switching once one is open. -->
-    {#if shipsUi.ship}
-      <div class="bar">
-        <button type="button" class="btn subtle" onclick={closeShip} title="Back to your ships and new ones"><ArrowLeft size={14} /> Ships</button>
-        <ShipMenu ships={spaceships.filter((s) => !s.base)} value={baseOf} onpick={openShip} />
-        {#if editions.length > 1}
-          <Select label="Edition" options={editionOptions} value={shipsUi.ship} onchange={openShip} />
-        {/if}
-        <LoadoutBar {channel} {shipName} />
-        <Segmented
-          options={[
-            { value: "build", label: "Build" },
-            { value: "ship", label: "Ship" },
-          ]}
-          value={tab}
-          onchange={(v) => browse.set("tab", v)}
-        />
-        <span class="grow"></span>
-        {#if tab === "build"}
-          <Segmented
-            options={[
-              { value: "grid", label: "Grid" },
-              { value: "holo", label: "Holo" },
-            ]}
-            value={layout}
-            onchange={(v) => browse.set("layout", v)}
-          />
+    <!-- Mining's tab row: the views on the left; the open ship, its
+         edition and its loadout on the right. The list searches and
+         filters every ship itself; the ship select switches once one is
+         open. -->
+    <div class="tabs" role="tablist" aria-label="View">
+      {#each VIEWS as [id, label] (id)}
+        <button
+          role="tab"
+          class="tab"
+          class:active={view === id}
+          aria-selected={view === id}
+          disabled={id !== "ships" && !shipsUi.ship}
+          title={id !== "ships" && !shipsUi.ship ? "Pick a ship first" : undefined}
+          onclick={() => browse.set("tab", id)}>{label}</button
+        >
+      {/each}
+      <!-- The picker shows on every tab ("Pick a ship" with none open), so
+           the greyed Build and Ship tabs have their way in beside them. -->
+      <div class="open">
+        <ShipMenu ships={spaceships.filter((s) => !s.base)} value={baseOf} onpick={openFromList} />
+        {#if shipsUi.ship}
+          {#if editions.length > 1}
+            <Select label="Edition" options={editionOptions} value={shipsUi.ship} onchange={openShip} />
+          {/if}
+          <LoadoutBar {channel} {shipName} />
         {/if}
       </div>
-    {/if}
-    {#if !shipsUi.ship}
-      <ShipsHome ships={ships} home={shipsHome.view} onopen={openShip} />
+    </div>
+    {#if view === "ships"}
+      <ShipsHome ships={ships} home={shipsHome.view} onopen={openFromList} />
     {:else if shipsStore.pageError}
       <p class="error">{shipsStore.pageError}</p>
     {:else if page && page.ship === shipsUi.ship}
@@ -249,15 +263,15 @@
           />
         {/if}
       {/snippet}
-      {#snippet cards(columns?: Entry[][], withLines = false)}
+      {#snippet cards(columns: Entry[][])}
         <SlotCards
           slots={page.slots}
           off={shipsUi.off[shipsUi.ship] ?? []}
           {powered}
           {guns}
           {columns}
-          lines={withLines ? lines : null}
-          stock={withLines ? stock : null}
+          {lines}
+          {stock}
           selected={shipsPicker.open?.targets[0].join("/") ?? null}
           onpick={(ss) => channel && void openPicker(channel, ss.map((s) => s.path))}
           ontoggle={toggleOff}
@@ -265,7 +279,7 @@
           weaponPool={page.power?.columns.find((c) => c.itemType === "WeaponGun") ?? null}
         />
       {/snippet}
-      {#if tab === "build" && shipsPicker.open}
+      {#if view === "build" && shipsPicker.open}
         {@const targets = shipsPicker.open.targets}
         {@const at = findSlot(page.slots, targets[0])}
         <div class="over">
@@ -282,32 +296,19 @@
           />
         </div>
       {/if}
-      {#if tab === "build" && layout === "holo"}
+      {#if view === "build"}
         <!-- The ship in the middle over its power screen; the parts that
              fight on its left, the parts that run it on its right. -->
         {@const glow = SYSTEMS.find((x) => x.id === hover)?.hue ?? null}
         <div class="around">
-          <div class="side left">{@render cards(FIGHT, true)}</div>
+          <div class="side left">{@render cards(FIGHT)}</div>
           <div class="core">
             <div class="holo framed" class:lit={glow} style:--glow={glow ?? "var(--hue-sky)"}>
               {#if picture}<img class="shot" src={picture} alt="" />{/if}
             </div>
             {@render power()}
           </div>
-          <div class="side right">{@render cards(RUN, true)}</div>
-        </div>
-      {:else if tab === "build"}
-        <!-- Power and the figures it changes first, then the parts. -->
-        <div class="ship build">
-          <aside class="numbers" aria-label="Power and figures">
-            {@render power()}
-            <div class="figures">
-              <ShipFigures {page} view="build" />
-            </div>
-          </aside>
-          <div class="list">
-            {@render cards()}
-          </div>
+          <div class="side right">{@render cards(RUN)}</div>
         </div>
       {:else}
         <div class="ship">
@@ -346,7 +347,7 @@
           </div>
           <aside class="numbers" aria-label="Figures">
             <div class="figures">
-              <ShipFigures {page} view="ship" />
+              <ShipFigures {page} />
             </div>
           </aside>
         </div>
@@ -368,31 +369,31 @@
     min-height: 0;
     overflow: auto;
   }
-  /* On a narrow window the bar wraps rather than scrolling the page
-   * sideways. */
-  .bar {
+  /* The page's gap spaces the tabs (app.css draws them, as on Mining). */
+  .tabs {
+    margin-bottom: 0;
+    flex-wrap: wrap;
+  }
+  /* The open ship, its edition and loadout at the tab row's end, on the
+   * tabs' line; on a narrow window they wrap under the tabs rather than
+   * scrolling the page sideways. */
+  .open {
+    margin-left: auto;
+    align-self: center;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-end;
     gap: 8px 10px;
+    padding-bottom: 6px;
   }
-  /* Icon and label on one line (preflight makes the svg a block). */
-  .bar .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-  }
-  /* Two columns in the one page scroll: the parts (holo, then cards) and
-   * the numbers (power, then figures). */
+  /* Ship: two columns in the one page scroll, the parts (head, charts)
+   * and the numbers (figures). */
   .ship {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 470px;
     gap: 16px;
     align-items: start;
-  }
-  .ship.build {
-    grid-template-columns: 360px minmax(0, 1fr);
   }
   .parts,
   .numbers {
@@ -433,9 +434,6 @@
     flex-direction: column;
     gap: 4px;
     min-height: 64px;
-  }
-  .grow {
-    flex: 1;
   }
   .meta {
     display: flex;
@@ -483,8 +481,8 @@
     opacity: 0.92;
     pointer-events: none;
   }
-  /* Holo layout: the ship and its power screen in the middle, the parts
-   * around it. The middle column is capped so the parts keep their room. */
+  /* Build: the ship and its power screen in the middle, the parts around
+   * it. The middle column is capped so the parts keep their room. */
   .page {
     container-type: inline-size;
   }
@@ -579,10 +577,6 @@
   }
   .panel h3 {
     margin: 0;
-  }
-  /* The picker lies over the cards (the mining picker's pattern). */
-  .list {
-    position: relative;
   }
   /* Over the window, not the page: wherever the card sits, the picker
    * opens in view, its list scrolling inside it; a light veil keeps the

@@ -135,11 +135,13 @@
     color: var(--text-strong);
     font-weight: var(--weight-medium);
   }
+  /* The picker sits at the tab row's right end: the panel opens leftwards
+   * from it, so it stays in the window. */
   .pop {
     position: absolute;
     z-index: 20;
     top: calc(100% + 6px);
-    left: 0;
+    right: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;

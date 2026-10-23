@@ -1,15 +1,17 @@
 <script lang="ts">
-  // The Ships page with no ship open: every ship of the build, as spviewer
-  // and erkul open on their whole list. Search, career and sort sit on top
-  // (URL-backed, frontend rule 7). Untouched, yours, the new ones and the
-  // recently opened lead, then every hull by maker; searching or filtering
-  // shows only the matches. Your ships come from the inventory My Items
-  // last read (no fetch here); "new" counts from the first build Starlume
-  // saw.
-  import { Segmented, createBrowseState } from "@veelume/ui";
+  // The Ships list: every ship of the build, as spviewer and erkul open on
+  // their whole list. One filter row, every control the same dropdown:
+  // where you can get it, maker, landing pad, crew, and the order (all
+  // URL-backed, frontend rule 7). CIG's careers and roles stay on the cards
+  // and in the search, not as a filter: they are sometimes senseless.
+  // Untouched, yours, the new ones and the recently opened lead, then every
+  // hull; any search or filter shows only the matches. Your ships come from
+  // the inventory My Items last read (no fetch here); "new" counts from the
+  // first build Starlume saw; prices are UEX's and the pledge store's.
+  import { Select, createBrowseState, type SelectOption } from "@veelume/ui";
   import { Search } from "lucide-svelte";
   import type { ShipRowView, ShipsHomeView } from "$lib/bindings";
-  import { careerLook } from "./careers";
+  import { shipsMarket } from "$lib/state/ships.svelte";
   import ShipTile from "./ShipTile.svelte";
 
   let {
@@ -25,35 +27,86 @@
 
   const browse = createBrowseState({
     q: { kind: "text" },
-    career: { kind: "one", default: "" },
+    get: { kind: "one", default: "" },
+    maker: { kind: "one", default: "" },
+    pad: { kind: "one", default: "" },
+    crew: { kind: "one", default: "" },
     sort: { kind: "one", default: "maker", narrows: false },
   });
 
   const byGuid = $derived(new Map(ships.map((s) => [s.guid, s])));
   const bases = $derived(ships.filter((s) => !s.base && !s.ground));
   const owned = $derived((home?.owned ?? []).map((o) => ({ ...o, row: byGuid.get(o.ship) })).filter((o) => o.row));
+  const ownedSet = $derived(new Set(owned.map((o) => o.ship)));
   const arrivals = $derived((home?.arrivals ?? []).map((a) => ({ ...a, row: byGuid.get(a.ship) })).filter((a) => a.row));
   const recent = $derived((home?.recent ?? []).map((g) => byGuid.get(g)).filter((r): r is ShipRowView => !!r));
 
-  const careers = $derived.by(() => {
-    const by = new Map<string, number>();
-    for (const s of bases) by.set(s.career ?? "Other", (by.get(s.career ?? "Other") ?? 0) + 1);
-    return [...by.entries()].sort((a, b) => b[1] - a[1]);
-  });
+  /** Where you can get a ship. "store" is the pledge store and nowhere in
+   *  game; "none" is neither shop nor rental in game (rewards, loot, store
+   *  ships never sold in game). */
+  const GET: [string, string, (s: ShipRowView) => boolean][] = [
+    ["owned", "Owned", (s) => ownedSet.has(s.guid)],
+    ["buy", "Buy in game", (s) => (shipsMarket.of(s.guid)?.buyShops ?? 0) > 0],
+    ["rent", "Rent in game", (s) => (shipsMarket.of(s.guid)?.rentShops ?? 0) > 0],
+    ["store", "Store only", (s) => inGame(s) === false && shipsMarket.of(s.guid)?.storeUsd != null],
+    ["none", "Not sold in game", (s) => inGame(s) === false],
+  ];
+  const inGame = (s: ShipRowView) => {
+    const m = shipsMarket.of(s.guid);
+    return m ? m.buyShops + m.rentShops > 0 : null;
+  };
+  const PADS = ["XS", "S", "M", "L", "XL"];
+  const CREW: [string, string, (n: number) => boolean][] = [
+    ["1", "Solo", (n) => n <= 1],
+    ["2-4", "2 to 4 crew", (n) => n >= 2 && n <= 4],
+    ["5+", "5 crew or more", (n) => n >= 5],
+  ];
+  /** The order: by name or maker A to Z, by price cheapest first (no price
+   *  last), by cargo and crew most first. */
+  const SORTS: [string, string][] = [
+    ["maker", "By maker"],
+    ["name", "Name"],
+    ["buy", "In-game price"],
+    ["store", "Store price"],
+    ["cargo", "Cargo"],
+    ["crew", "Crew"],
+  ];
+
+  const makers = $derived([...new Set(bases.map((s) => s.manufacturer ?? "Other"))].sort((a, b) => a.localeCompare(b)));
+  const opts = (all: string, rows: [string, string][]): SelectOption[] => [{ value: "", label: all }, ...rows.map(([value, label]) => ({ value, label }))];
+  const getOptions = $derived(opts("Anywhere", GET.map(([v, l]) => [v, l])));
+  const makerOptions = $derived(opts("Every maker", makers.map((m) => [m, m])));
+  const padOptions = opts("Any pad", PADS.map((p) => [p, `${p} pad`]));
+  const crewOptions = opts("Any crew", CREW.map(([v, l]) => [v, l]));
+  const sortOptions = SORTS.map(([value, label]) => ({ value, label }));
 
   const q = $derived(browse.values.q.trim().toLowerCase());
-  const career = $derived(browse.values.career);
+  const get = $derived(GET.find(([v]) => v === browse.values.get));
+  const maker = $derived(browse.values.maker);
+  const pad = $derived(browse.values.pad);
+  const crew = $derived(CREW.find(([v]) => v === browse.values.crew));
   const sort = $derived(browse.values.sort);
-  const narrowed = $derived(!!q || !!career);
+  const narrowed = $derived(!!q || !!get || !!maker || !!pad || !!crew);
   const list = $derived.by(() => {
     const rows = bases.filter(
       (s) =>
-        (!career || (s.career ?? "Other") === career) &&
+        (!get || get[2](s)) &&
+        (!maker || (s.manufacturer ?? "Other") === maker) &&
+        (!pad || shipsMarket.of(s.guid)?.pad === pad) &&
+        (!crew || crew[2](s.seats.crew)) &&
         (!q || `${s.name} ${s.role ?? ""} ${s.career ?? ""} ${s.manufacturer ?? ""}`.toLowerCase().includes(q)),
     );
     const byName = (a: ShipRowView, b: ShipRowView) => a.name.localeCompare(b.name);
+    /** Cheapest first; a ship without the price goes last. */
+    const price = (f: (s: ShipRowView) => number | null | undefined) => (a: ShipRowView, b: ShipRowView) => {
+      const x = f(a) ?? Infinity;
+      const y = f(b) ?? Infinity;
+      return x === y ? byName(a, b) : x - y;
+    };
     if (sort === "cargo") rows.sort((a, b) => (b.cargo ?? 0) - (a.cargo ?? 0) || byName(a, b));
     else if (sort === "crew") rows.sort((a, b) => b.seats.crew - a.seats.crew || byName(a, b));
+    else if (sort === "buy") rows.sort(price((s) => shipsMarket.of(s.guid)?.buy?.price));
+    else if (sort === "store") rows.sort(price((s) => shipsMarket.of(s.guid)?.storeUsd));
     else if (sort === "maker") rows.sort((a, b) => (a.manufacturer ?? "").localeCompare(b.manufacturer ?? "") || byName(a, b));
     else rows.sort(byName);
     return rows;
@@ -88,28 +141,12 @@
         aria-label="Find a ship"
       />
     </label>
-    <Segmented
-      options={[
-        { value: "maker", label: "By maker" },
-        { value: "name", label: "Name" },
-        { value: "cargo", label: "Cargo" },
-        { value: "crew", label: "Crew" },
-      ]}
-      value={sort}
-      onchange={(v) => browse.set("sort", v)}
-    />
-  </div>
-  <div class="careers" role="group" aria-label="Career">
-    <button type="button" class="career" class:on={!career} onclick={() => browse.set("career", "")}>
-      <span>All</span><b>{bases.length}</b>
-    </button>
-    {#each careers as [c, n] (c)}
-      {@const look = careerLook(c)}
-      {@const Icon = look.icon}
-      <button type="button" class="career" class:on={career === c} style:--hue={look.hue} onclick={() => browse.set("career", career === c ? "" : c)}>
-        <Icon size={15} /><span>{c}</span><b>{n}</b>
-      </button>
-    {/each}
+    <Select label="Where to get it" options={getOptions} value={browse.values.get} onchange={(v) => browse.set("get", v)} />
+    <Select label="Maker" options={makerOptions} value={maker} onchange={(v) => browse.set("maker", v)} />
+    <Select label="Landing pad" options={padOptions} value={pad} onchange={(v) => browse.set("pad", v)} />
+    <Select label="Crew" options={crewOptions} value={browse.values.crew} onchange={(v) => browse.set("crew", v)} />
+    <span class="grow"></span>
+    <Select label="Order" options={sortOptions} value={sort} onchange={(v) => browse.set("sort", v)} />
   </div>
 
   {#if !narrowed}
@@ -163,18 +200,24 @@
     flex-direction: column;
     gap: 18px;
   }
+  /* One row of the same controls; on a narrow window they wrap. */
   .tools {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+  }
+  .grow {
+    flex: 1;
   }
   .find {
     display: flex;
-    flex: 1;
+    flex: 0 1 360px;
     align-items: center;
     gap: 8px;
-    max-width: 560px;
-    padding: 7px 12px;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 0 12px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg-raised);
@@ -235,35 +278,5 @@
     margin: 0;
     font-size: var(--text-small);
     color: var(--text-faint);
-  }
-  .careers {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .career {
-    all: unset;
-    --hue: var(--accent);
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 12px;
-    border-radius: var(--radius-pill);
-    border: 1px solid color-mix(in srgb, var(--hue) 30%, var(--border));
-    background: color-mix(in srgb, var(--hue) 8%, transparent);
-    color: color-mix(in srgb, var(--hue) 70%, var(--text));
-    cursor: pointer;
-  }
-  .career span {
-    color: var(--text);
-  }
-  .career b {
-    font: 600 0.74rem var(--font-mono);
-    color: var(--text-faint);
-  }
-  .career:hover,
-  .career.on {
-    border-color: color-mix(in srgb, var(--hue) 65%, var(--border));
-    background: color-mix(in srgb, var(--hue) 18%, transparent);
   }
 </style>

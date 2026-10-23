@@ -47,6 +47,8 @@ pub struct VehicleOffers {
     pub buy: Vec<Offer>,
     /// Price per rental (UEX: one day).
     pub rent: Vec<Offer>,
+    /// The landing pad it needs ("XS" to "XL"), as UEX lists it.
+    pub pad: Option<String>,
 }
 
 /// Lowercase letters and digits only: "Helios IP-20" and "helios ip20"
@@ -304,6 +306,12 @@ impl<'a> Index<'a> {
         VehicleOffers {
             buy: offers(&self.snap.purchases),
             rent: offers(&self.snap.rentals),
+            pad: self
+                .snap
+                .vehicles
+                .iter()
+                .find(|v| v.id == id)
+                .and_then(|v| v.pad_type.clone()),
         }
     }
 }
@@ -400,12 +408,14 @@ mod tests {
                     uuid: None,
                     name: "Mercury Star Runner".into(),
                     name_full: "Crusader Mercury Star Runner".into(),
+                    pad_type: Some("M".into()),
                 },
                 Vehicle {
                     id: 8,
                     uuid: Some("abc".into()),
                     name: "M50".into(),
                     name_full: "Origin M50".into(),
+                    pad_type: None,
                 },
             ],
             purchases: vec![VehiclePrice {
@@ -440,5 +450,9 @@ mod tests {
             1
         );
         assert_eq!(ix.vehicle("ABC", &[]).rent[0].price, 37_485.0);
+        assert_eq!(
+            ix.vehicle("nope", &["Mercury Star Runner"]).pad.as_deref(),
+            Some("M")
+        );
     }
 }
