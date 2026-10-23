@@ -4,8 +4,41 @@ import { defineConfig } from "vite";
 
 const host = process.env.TAURI_DEV_HOST;
 
+/**
+ * Dev only. A store module (`src/lib/state/*.svelte.ts`) holds the session
+ * state every component of a page shares. A hot update of one gave it a new
+ * `?t=` URL, but components transformed earlier kept importing the old one:
+ * two copies, and part of a page read an empty store (the Ships loadout bar
+ * showed "Stock" beside cards showing the real loadout). A change to a store
+ * now drops the cached transform of every module importing it, directly or
+ * not, and reloads the page, so all of them import the same copy.
+ *
+ * @returns {import("vite").Plugin}
+ */
+function storesReloadWhole() {
+  return {
+    name: "starlume:stores-reload-whole",
+    apply: "serve",
+    handleHotUpdate({ file, server, modules }) {
+      if (!/\/src\/lib\/state\/[^/]+\.svelte\.ts$/.test(file.replaceAll("\\", "/"))) return;
+      /** @type {Set<import("vite").ModuleNode>} */
+      const seen = new Set();
+      /** @param {import("vite").ModuleNode} m */
+      const drop = (m) => {
+        if (seen.has(m)) return;
+        seen.add(m);
+        server.moduleGraph.invalidateModule(m);
+        m.importers.forEach(drop);
+      };
+      modules.forEach(drop);
+      server.ws.send({ type: "full-reload" });
+      return [];
+    },
+  };
+}
+
 export default defineConfig(async () => ({
-  plugins: [tailwindcss(), sveltekit()],
+  plugins: [storesReloadWhole(), tailwindcss(), sveltekit()],
 
   // @veelume/ui ships SOURCE (.svelte / .svelte.ts rune modules). The dev
   // dependency pre-bundler (esbuild) cannot parse those — it mangles the
