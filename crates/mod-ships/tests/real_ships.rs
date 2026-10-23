@@ -700,3 +700,65 @@ fn uex_ships_join() {
         "more than 5 % of UEX's ships unmatched"
     );
 }
+
+/// Your ships' insured and live loadouts from the dev app's inventory
+/// cache, as edits on stock: they must apply (the view builds) and give
+/// back the loadout the inventory describes. 2026-10-23: 35 owned ships,
+/// 25 with a saved (insured) loadout, 11 with a live instance.
+#[test]
+#[ignore = "needs a real Data.p4k and the dev inventory cache"]
+fn owned_loadouts_apply() {
+    let cooked = cooked();
+    let path = app_kit::app_data_root()
+        .join("dossier")
+        .join("inventory.json");
+    let inv: svc_dossier::Inventory = app_kit::load_json(&path);
+    assert!(
+        !inv.entitlements.is_empty(),
+        "no inventory cache; refresh My Items once"
+    );
+    let power = PowerInput {
+        mode: Mode::Scm,
+        off: vec![],
+        levels: vec![],
+    };
+    let (mut ships_seen, mut insured, mut live) = (0, 0, 0);
+    for row in ships(&cooked) {
+        let owned = mod_ships::owned_loadouts(&cooked, &inv, &row.guid).unwrap();
+        for o in &owned {
+            ships_seen += 1;
+            if !o.insured.is_empty() {
+                insured += 1;
+            }
+            let lv = o.live.as_ref();
+            if lv.is_some() {
+                live += 1;
+            }
+            for edits in [Some(&o.insured), lv].into_iter().flatten() {
+                let input = LoadoutInput {
+                    ship: row.guid.clone(),
+                    edits: edits.clone(),
+                };
+                view(&cooked, &input, &power).unwrap_or_else(|e| panic!("{}: {e:?}", row.name));
+            }
+            eprintln!(
+                "{:40} insured {:>3} edits | live {}",
+                row.name,
+                o.insured.len(),
+                lv.map_or("-".into(), |l| format!("{} edits", l.len()))
+            );
+            if row.name.contains("Super Hornet") {
+                for e in lv.into_iter().flatten().take(8) {
+                    let items = cooked.holotable.items.as_ref().unwrap();
+                    let name = e
+                        .item
+                        .as_ref()
+                        .and_then(|g| items.get(&g.parse().unwrap())?.display_name(&cooked.locale));
+                    eprintln!("    live {:?} -> {:?}", e.path, name);
+                }
+            }
+        }
+    }
+    eprintln!("owned {ships_seen}, insured changed {insured}, live {live}");
+    assert!(ships_seen > 0);
+}

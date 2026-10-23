@@ -158,9 +158,11 @@ impl Loadouts {
     }
 
     /// Keep `draft` as the ship's working loadout. A `based_on` that names
-    /// no saved loadout of the ship falls back to stock.
+    /// no saved loadout of the ship (nor a loadout in the game) falls back
+    /// to stock.
     pub fn set_draft(&mut self, ship: &str, mut draft: Draft) {
         if let Some(b) = &draft.based_on
+            && !in_game(b)
             && !self.saved.iter().any(|s| &s.id == b && s.ship == ship)
         {
             draft.based_on = None;
@@ -171,6 +173,13 @@ impl Loadouts {
             self.drafts.insert(ship.to_string(), draft);
         }
     }
+}
+
+/// A draft's base that is one of your ships' loadouts in the game
+/// (`insured:<urn>`, `live:<urn>`, see [`crate::owned`]), not a saved one:
+/// read-only, so kept as written and never saved into.
+pub fn in_game(based_on: &str) -> bool {
+    based_on.starts_with("insured:") || based_on.starts_with("live:")
 }
 
 #[cfg(test)]
@@ -262,6 +271,15 @@ mod tests {
             },
         );
         assert_eq!(l.drafts["ship"].based_on, None);
+        // A loadout in the game is a base too.
+        l.set_draft(
+            "ship",
+            Draft {
+                based_on: Some("live:urn:x".into()),
+                ..draft(vec![swap("qd", "xl1")])
+            },
+        );
+        assert_eq!(l.drafts["ship"].based_on.as_deref(), Some("live:urn:x"));
     }
 
     #[test]

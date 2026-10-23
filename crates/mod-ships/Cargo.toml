@@ -11,6 +11,9 @@ description = "Starlume ships module — loadouts: what a ship carries, its powe
 # Vehicles, ports, loadouts and the power network come from svc-data's
 # cooked index (module rule 1). No sc-holotable pin.
 svc-data.workspace = true
+# The inventory snapshot's types (owned ships, their saved loadouts, what
+# is fitted): read from the cache the shell hands over, no fetching here.
+svc-dossier.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

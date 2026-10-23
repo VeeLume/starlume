@@ -85,6 +85,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         ships::ships_delete_loadout,
         ships::ships_prices,
         ships::ships_market,
+        ships::ships_owned,
         uex::uex_status,
         uex::uex_refresh,
         devtracker::devtracker_overview,

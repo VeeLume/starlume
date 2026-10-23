@@ -1159,6 +1159,82 @@ pub(crate) async fn ships_market(
     .map_err(|e| AppError::Internal(e.to_string()))
 }
 
+/// One ship you own and its loadouts in the game.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnedShipView {
+    /// The entitlement's URN: the loadout select's key.
+    pub urn: String,
+    /// Where it is ("Area 18 hangar"); null when it isn't in any stash.
+    pub place: Option<String>,
+    /// The insured loadout (what a claim restores) as edits on stock;
+    /// empty: stock.
+    pub insured: Vec<EditView>,
+    /// What is fitted on it now; null when it isn't in any stash.
+    pub live: Option<Vec<EditView>>,
+}
+
+/// Your ships of one class and their loadouts in the game.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ShipOwnedView {
+    pub ships: Vec<OwnedShipView>,
+    /// When the inventory was read, Unix seconds; null: never (My Items
+    /// hasn't read it).
+    pub read_at: Option<f64>,
+}
+
+/// Your ships of class `ship` and their insured and live loadouts, from
+/// the inventory snapshot My Items keeps (**no network, no gate**: the
+/// cached read).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn ships_owned(
+    app: AppHandle,
+    channel: String,
+    ship: String,
+) -> Result<ShipOwnedView, AppError> {
+    use tauri::Manager;
+    let cooked = cooked_for(&app, &channel).await?;
+    let inventory = app.state::<crate::AppState>().dossier.cached_inventory();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(inv) = inventory else {
+            return Ok(ShipOwnedView {
+                ships: Vec::new(),
+                read_at: None,
+            });
+        };
+        let places: HashMap<String, String> = mod_items::finder(&inv, &cooked)
+            .ships
+            .into_iter()
+            .filter_map(|s| {
+                let p = s.place?;
+                let name = match p.kind {
+                    mod_items::PlaceKind::Hangar => format!("{} hangar", p.name),
+                    _ => p.name,
+                };
+                Some((s.key, name))
+            })
+            .collect();
+        let owned = mod_ships::owned_loadouts(&cooked, &inv, &ship)?;
+        Ok::<_, mod_ships::ViewError>(ShipOwnedView {
+            ships: owned
+                .into_iter()
+                .map(|o| OwnedShipView {
+                    place: places.get(&o.urn).cloned(),
+                    insured: edit_views(&o.insured),
+                    live: o.live.as_deref().map(edit_views),
+                    urn: o.urn,
+                })
+                .collect(),
+            read_at: Some(inv.fetched_at as f64).filter(|t| *t > 0.0),
+        })
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
+    .map_err(|e| AppError::Config(e.to_string()))
+}
+
 /// Where a ship is sold and rented (UEX's community prices).
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

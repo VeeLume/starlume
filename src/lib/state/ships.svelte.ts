@@ -15,6 +15,7 @@ import {
   type LevelView,
   type ShipLoadoutsView,
   type ShipMarketView,
+  type ShipOwnedView,
   type ShipPricesView,
   type ShipSavedLoadoutView,
   type QtPlacesView,
@@ -243,10 +244,45 @@ function finalSwaps(edits: EditView[]): Map<string, string | null> {
   return new Map(edits.map((e) => [e.path.join("/"), e.item]));
 }
 
+let _owned = $state.raw<Record<string, ShipOwnedView>>({});
+
+/** Your ships of each class and their loadouts in the game (the inventory
+ *  My Items last read). */
+export const shipsOwned = {
+  of(ship: string): ShipOwnedView | null {
+    return _owned[ship] ?? null;
+  },
+};
+
+/** `ship`'s copies you own and their insured and live loadouts, from the
+ *  cached inventory (no network). */
+export async function loadOwned(channel: string, ship: string): Promise<void> {
+  const result = await commands.shipsOwned(channel, ship);
+  if (result.status === "ok") _owned = { ..._owned, [ship]: result.data };
+}
+
+/** A loadout in the game as a draft's base: `insured:<urn>` or
+ *  `live:<urn>`. Read-only: saving it makes a new loadout. */
+export const inGame = (id: string | null | undefined) => !!id && (id.startsWith("insured:") || id.startsWith("live:"));
+
+/** What a draft of `ship` is measured against: the saved loadout it came
+ *  from, or one in the game (no power settings: the game has none). */
+function baseOf(ship: string): { edits: EditView[]; off: string[]; levels: LevelView[] } | null {
+  const id = shipsUi.basedOn[ship];
+  if (!id) return null;
+  if (inGame(id)) {
+    const [kind, urn] = [id.slice(0, id.indexOf(":")), id.slice(id.indexOf(":") + 1)];
+    const o = shipsOwned.of(ship)?.ships.find((s) => s.urn === urn);
+    const edits = kind === "insured" ? o?.insured : o?.live;
+    return edits ? { edits, off: [], levels: [] } : null;
+  }
+  return shipsLoadouts.of(ship).find((s) => s.id === id) ?? null;
+}
+
 /** How many ports and power settings `ship`'s draft changes against its
- *  saved loadout (or stock). */
+ *  base (a saved loadout, one in the game, or stock). */
 export function changesOf(ship: string): number {
-  const base = shipsLoadouts.of(ship).find((s) => s.id === shipsUi.basedOn[ship]) ?? null;
+  const base = baseOf(ship);
   const a = finalSwaps(base?.edits ?? []);
   const b = finalSwaps(shipsUi.edits[ship] ?? []);
   let n = 0;
@@ -269,7 +305,9 @@ export function swapsFromStock(ship: string): number {
  *  `asNew` as a new one named `name`. An error message, or null. */
 export async function saveLoadout(channel: string, name: string, asNew: boolean): Promise<string | null> {
   const ship = shipsUi.ship;
-  const id = asNew ? null : (shipsUi.basedOn[ship] ?? null);
+  // A loadout in the game is read-only: saving makes a new one.
+  const based = shipsUi.basedOn[ship] ?? null;
+  const id = asNew || inGame(based) ? null : based;
   const clash = shipsLoadouts.of(ship).find((s) => s.name.trim().toLowerCase() === name.trim().toLowerCase() && s.id !== id);
   if (clash) return `There is a loadout named ${clash.name} already.`;
   clearTimeout(_pending.get(ship));
@@ -280,10 +318,21 @@ export async function saveLoadout(channel: string, name: string, asNew: boolean)
   return null;
 }
 
-/** Open a saved loadout (null: stock) on the open ship; its draft goes. */
+/** Open a saved loadout, one in the game (`insured:<urn>`, `live:<urn>`)
+ *  or stock (null) on the open ship; its draft goes. */
 export async function openLoadout(id: string | null): Promise<void> {
   const ship = shipsUi.ship;
   clearTimeout(_pending.get(ship));
+  if (inGame(id)) {
+    shipsUi.basedOn[ship] = id;
+    const base = baseOf(ship);
+    shipsUi.edits[ship] = base ? $state.snapshot(base.edits) : [];
+    shipsUi.off[ship] = [];
+    shipsUi.levels[ship] = [];
+    _hydrated.add(ship);
+    await commands.shipsSetDraft(ship, draftOf(ship));
+    return;
+  }
   const result = await commands.shipsOpenLoadout(ship, id);
   if (result.status === "ok") adopt(ship, result.data);
 }

@@ -29,6 +29,7 @@
     listenForShipChanges,
     loadImages,
     loadMarket,
+    loadOwned,
     loadPlaces,
     refreshImages,
     shipsImages,
@@ -140,13 +141,18 @@
     untrack(() => void loadPage(c));
   });
 
-  // Where the open ship is sold and rented (cached UEX prices, no network),
-  // once its page is in: then the game data the names come from is loaded
-  // (asked any sooner after a start, the command failed and never retried).
+  // Where the open ship is sold and rented (cached UEX prices), and your
+  // copies' loadouts in the game (the cached inventory): no network. Once
+  // its page is in: then the game data both read is loaded (asked any
+  // sooner after a start, the commands failed and never retried).
   $effect(() => {
     const c = channel;
     const ship = shipsUi.ship;
-    if (c && ship && page?.ship === ship) untrack(() => void loadShipPrices(c, ship));
+    if (c && ship && page?.ship === ship)
+      untrack(() => {
+        void loadShipPrices(c, ship);
+        void loadOwned(c, ship);
+      });
   });
 
   const powered = $derived(

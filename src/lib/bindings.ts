@@ -771,6 +771,19 @@ async shipsMarket(channel: string) : Promise<Result<ShipMarketView[], AppError>>
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Your ships of class `ship` and their insured and live loadouts, from
+ * the inventory snapshot My Items keeps (**no network, no gate**: the
+ * cached read).
+ */
+async shipsOwned(channel: string, ship: string) : Promise<Result<ShipOwnedView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_owned", { channel, ship }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async uexStatus() : Promise<UexStatusView> {
     return await TAURI_INVOKE("uex_status");
 },
@@ -2428,6 +2441,27 @@ set: ArmourSetView | null }
  */
 export type OwnedPartView = { place: string; count: number }
 /**
+ * One ship you own and its loadouts in the game.
+ */
+export type OwnedShipView = { 
+/**
+ * The entitlement's URN: the loadout select's key.
+ */
+urn: string; 
+/**
+ * Where it is ("Area 18 hangar"); null when it isn't in any stash.
+ */
+place: string | null; 
+/**
+ * The insured loadout (what a claim restores) as edits on stock;
+ * empty: stock.
+ */
+insured: EditView[]; 
+/**
+ * What is fitted on it now; null when it isn't in any stash.
+ */
+live: EditView[] | null }
+/**
  * One owned ship class.
  */
 export type OwnedView = { ship: string; count: number; rented: boolean }
@@ -2853,6 +2887,15 @@ pad: string | null;
  * null when the store doesn't list it.
  */
 storeUsd: number | null }
+/**
+ * Your ships of one class and their loadouts in the game.
+ */
+export type ShipOwnedView = { ships: OwnedShipView[]; 
+/**
+ * When the inventory was read, Unix seconds; null: never (My Items
+ * hasn't read it).
+ */
+readAt: number | null }
 /**
  * What the page shows for one loadout.
  */
