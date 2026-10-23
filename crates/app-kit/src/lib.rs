@@ -75,6 +75,35 @@ pub fn load_json<T: DeserializeOwned + Default>(path: &Path) -> T {
     }
 }
 
+/// [`load_json`] for what the user made (saved loadouts): an unparseable
+/// file is moved aside to `<name>.bad-<unix seconds>` before the defaults
+/// come back, so the next save cannot overwrite it and it stays at hand to
+/// recover.
+pub fn load_json_or_set_aside<T: DeserializeOwned + Default>(path: &Path) -> T {
+    let Ok(bytes) = std::fs::read(path) else {
+        return T::default();
+    };
+    serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let mut aside = path.as_os_str().to_owned();
+        aside.push(format!(".bad-{secs}"));
+        match std::fs::rename(path, &aside) {
+            Ok(()) => tracing::warn!(
+                "failed to parse {}: {e}; moved aside to {}",
+                path.display(),
+                Path::new(&aside).display()
+            ),
+            Err(r) => tracing::warn!(
+                "failed to parse {}: {e}; could not move it aside: {r}",
+                path.display()
+            ),
+        }
+        T::default()
+    })
+}
+
 /// Serialize `value` as pretty JSON and write it atomically.
 pub fn save_json<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     let bytes = serde_json::to_vec_pretty(value)
@@ -95,6 +124,20 @@ mod tests {
         atomic_write(&path, b"two").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"two");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unparseable_user_data_is_moved_aside() {
+        let dir = std::env::temp_dir().join("starlume-app-kit-aside");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("loadouts.json");
+        atomic_write(&path, b"{ not json").unwrap();
+        let v: Vec<String> = load_json_or_set_aside(&path);
+        assert!(v.is_empty());
+        assert!(!path.exists());
+        let aside: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+        assert_eq!(aside.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
