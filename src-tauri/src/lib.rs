@@ -42,8 +42,10 @@ pub mod notify;
 mod patchnotes;
 mod sc;
 mod settings;
+mod ships;
 mod state;
 mod suspend;
+mod uex;
 mod watch;
 mod window;
 

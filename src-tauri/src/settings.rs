@@ -299,6 +299,7 @@ pub(crate) fn update_settings(
     crate::devtracker::nudge();
     crate::patchnotes::nudge();
     crate::commlinks::nudge();
+    crate::uex::nudge();
     // A tighter archive retention applies right away; a looser one only
     // keeps future builds (pruned ones are gone).
     if retention(&settings) != old_retention {

@@ -105,13 +105,29 @@ impl Module for Mining {
     }
 }
 
+/// Ships — the loadout manager: what a ship carries, its power network and
+/// what else fits (computation in `crates/mod-ships`, IPC in `ships.rs`).
+struct Ships;
+
+impl Module for Ships {
+    fn id(&self) -> &'static str {
+        crate::ships::MODULE_ID
+    }
+    fn name(&self) -> &'static str {
+        "Ships"
+    }
+    fn description(&self) -> &'static str {
+        "Fit your ships: every port and what fits it, the power network as the engineering screen shows it, and how a swap changes the ship"
+    }
+}
+
 /// All modules offered by this build, enabled or not. Unreleased modules
-/// (Contracts) exist only in debug builds — the Rust half of the frontend's
+/// (Contracts, Ships) exist only in debug builds — the Rust half of the frontend's
 /// `$lib/unreleased` gate (v0.1.0 scope decision; the Dev Tracker shipped in
 /// v0.2.0, Mining in v0.3.0).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
-        &[&Devtracker, &Langpatch, &Items, &Mining, &Contracts]
+        &[&Devtracker, &Langpatch, &Items, &Mining, &Ships, &Contracts]
     } else {
         &[&Devtracker, &Langpatch, &Items, &Mining]
     }

@@ -1,0 +1,20 @@
+[package]
+name = "mod-ships"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume ships module — loadouts: what a ship carries, its power network, and what else fits"
+
+[dependencies]
+# Vehicles, ports, loadouts and the power network come from svc-data's
+# cooked index (module rule 1). No sc-holotable pin.
+svc-data.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+# The real-data check of how UEX's ships join ours (reads the dev cache).
+svc-uex.workspace = true
+app-kit.workspace = true

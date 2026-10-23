@@ -1,0 +1,22 @@
+[package]
+name = "svc-uex"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume UEX service — community shop, ship and marketplace prices from UEX Corp's public API, cached on disk"
+
+[dependencies]
+# Public API reads (UEX Corp, a third party, not an RSI/CIG API): every
+# caller gates via AppState::require_online first.
+reqwest.workspace = true
+app-kit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

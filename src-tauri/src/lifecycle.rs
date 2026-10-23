@@ -131,6 +131,10 @@ pub fn run() {
             // a settled install change — a new build often means new notes).
             crate::patchnotes::spawn_refresher(app.handle());
             crate::commlinks::spawn_refresher(app.handle());
+            // UEX's community prices: each list again once UEX's max-age
+            // has run out (online-gated, silent offline).
+            crate::uex::spawn_refresher(app.handle());
+            crate::ships::allow_images(app.handle());
 
             // Watch installs for settled build changes (30s stat-only poll)
             // → InstallChanged on the bus → cache invalidation + re-warm.

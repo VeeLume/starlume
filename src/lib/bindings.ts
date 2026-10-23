@@ -583,6 +583,197 @@ async miningScanReady() : Promise<boolean> {
     return await TAURI_INVOKE("mining_scan_ready");
 },
 /**
+ * Every ship a player can own, sorted by name.
+ */
+async shipsList(channel: string) : Promise<Result<ShipRowView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_list", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A ship's stock loadout as slots.
+ */
+async shipsStock(channel: string, ship: string) : Promise<Result<SlotView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_stock", { channel, ship }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A ship with a loadout under the player's power settings: slots, power
+ * network, and the figures the page leads with.
+ */
+async shipsView(channel: string, loadout: ShipLoadoutView, power: PowerSettingsView) : Promise<Result<ShipPageView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_view", { channel, loadout, power }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * What else fits the port at `targets[0]`, each option with its figures
+ * and the ship with it fitted on every target port.
+ */
+async shipsCandidates(channel: string, loadout: ShipLoadoutView, power: PowerSettingsView, targets: string[][]) : Promise<Result<CandidateView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_candidates", { channel, loadout, power, targets }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Your ships (from the inventory snapshot already on disk: **no
+ * network, no gate**), the ships new since the first build Starlume saw,
+ * and the ones opened lately. Records this build's ships as seen.
+ */
+async shipsHome(channel: string) : Promise<Result<ShipsHomeView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_home", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Each hull's store picture that is on disk (editions the store does not
+ * list share their base hull's). **No network, no gate.**
+ */
+async shipsImages(channel: string) : Promise<Result<ShipImageView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_images", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Where quantum travel goes: the build's waypoints with game labels, and
+ * the default routes. Reads the cooked data only.
+ */
+async shipsPlaces(channel: string) : Promise<Result<QtPlacesView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_places", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Refresh the store's ship list and pictures when the cache is older than
+ * a week (or `force`). Returns whether it read the store. **Gated** by
+ * `require_online()`: a public website read, like the comm-links.
+ */
+async shipsImagesRefresh(force: boolean) : Promise<Result<boolean, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_images_refresh", { force }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Note that `ship` was opened (the home page's "Recently opened").
+ */
+async shipsOpened(ship: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_opened", { ship }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * `ship`'s saved loadouts and the draft the Build tab had open.
+ */
+async shipsLoadouts(ship: string) : Promise<Result<ShipLoadoutsView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_loadouts", { ship }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Keep what the Build tab has open for `ship` (every edit, so a restart
+ * loses nothing).
+ */
+async shipsSetDraft(ship: string, draft: ShipDraftView) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_set_draft", { ship, draft }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Save `draft` as `name` (into `id`, or by name, or as a new one); the
+ * ship's draft is then based on it. Stamped with the channel's build.
+ */
+async shipsSaveLoadout(channel: string, ship: string, id: string | null, name: string, draft: ShipDraftView) : Promise<Result<ShipLoadoutsView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_save_loadout", { channel, ship, id, name, draft }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open a saved loadout (`null`: stock) on `ship`, replacing its draft.
+ */
+async shipsOpenLoadout(ship: string, id: string | null) : Promise<Result<ShipLoadoutsView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_open_loadout", { ship, id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Forget a saved loadout; the open draft keeps its edits.
+ */
+async shipsDeleteLoadout(ship: string, id: string) : Promise<Result<ShipLoadoutsView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_delete_loadout", { ship, id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Where `ship` is sold and rented, from the cached UEX lists (no
+ * network). Matched by the record GUID, else by name: the plain name,
+ * with its maker, and without a leading maker code.
+ */
+async shipsPrices(channel: string, ship: string) : Promise<Result<ShipPricesView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_prices", { channel, ship }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async uexStatus() : Promise<UexStatusView> {
+    return await TAURI_INVOKE("uex_status");
+},
+/**
+ * Fetch whatever is due now. **Gated** by `require_online()`.
+ */
+async uexRefresh() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("uex_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The feed and the module's state. **No network, no gate.**
  */
 async devtrackerOverview() : Promise<DevtrackerOverview> {
@@ -891,6 +1082,10 @@ async leaveGroup(groupId: string) : Promise<Result<null, AppError>> {
 /** user-defined types **/
 
 /**
+ * G per direction.
+ */
+export type AccelView = { forward: number; backward: number; left: number; right: number; up: number; down: number }
+/**
  * What kind of work an activity is — inline surfaces filter on it.
  */
 export type ActivityKind = 
@@ -921,7 +1116,15 @@ export type ActivityKind =
 /**
  * svc-commlinks: reading RSI's comm-link listing.
  */
-"comm-links"
+"comm-links" | 
+/**
+ * svc-shipstore: the first fill of the store's ship pictures.
+ */
+"ship-store" | 
+/**
+ * svc-uex: the first fill of UEX's price lists.
+ */
+"uex"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -1108,6 +1311,26 @@ export type AreaView = { id: string; name: string;
  * Named after the provider's record, not a place.
  */
 fromRecord: boolean; places: SpawnPlaceView[]; rocks: AreaRockView[] }
+/**
+ * The hull armour.
+ */
+export type ArmorView = { health: number | null; 
+/**
+ * A hit at or below this does nothing.
+ */
+deflection: TypedView | null; 
+/**
+ * Damage the hull takes per point through.
+ */
+hullDamage: TypedView | null; 
+/**
+ * Damage the armour takes per point.
+ */
+durability: TypedView | null; 
+/**
+ * IR, EM, cross-section multipliers.
+ */
+signals: [number, number, number]; penetrationReduction: number }
 export type ArmourSetView = { key: string; 
 /**
  * "Sol-III Aviator".
@@ -1118,6 +1341,14 @@ name: string;
  * `Legs`, `Undersuit`, `Backpack`), in that order.
  */
 pieces: string[] }
+/**
+ * A ship that arrived after Starlume started watching.
+ */
+export type ArrivalView = { ship: string; 
+/**
+ * The build version it first appeared in.
+ */
+since: string }
 /**
  * An article only listed (older than the parsed window).
  */
@@ -1167,9 +1398,36 @@ share: number | null }
  * anywhere inside the radius.
  */
 export type BlastView = { cleanMinM: number; cleanMaxM: number; cleanDamage: number; fullMinM: number; fullMaxM: number; fullDamage: number; rockRadiusM: number; cleanClearM: number; fullClearM: number }
+/**
+ * The boost capacitor at one assignment level.
+ */
+export type BoostView = { regenS: number; depleteS: number | null; 
+/**
+ * Boosted turn over normal: pitch, yaw, roll.
+ */
+turn: number[] }
 export type BpPoolEntryView = { blueprint_record_guid: string; name: string | null; weight: number }
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
 export type BuildInfoView = { label: string; value: string }
+/**
+ * One option for a port.
+ */
+export type CandidateView = { item: string; name: string; recordName: string; size: number; grade: number; class: string | null; itemType: string; subType: string; stats: StatView[]; fitted: boolean; impact: ImpactView; 
+/**
+ * Free owned copies by place, most first; null without an inventory
+ * snapshot (My Items never refreshed).
+ */
+owned: OwnedPartView[] | null; 
+/**
+ * The shops that sell it, cheapest first (UEX's community prices);
+ * empty when none are known or the prices were never fetched.
+ */
+shops: OfferView[]; 
+/**
+ * What players ask and offer for it on UEX's marketplace, per side and
+ * quality tier.
+ */
+market: MarketView[] }
 /**
  * What a capture is of.
  */
@@ -1203,6 +1461,10 @@ export type CargoLegView = { commodity: string | null; commodity_guid: string | 
 export type ChoiceView = { value: string; label: string }
 export type ClassSharesView = { easy: number; manageable: number; hard: number; tooMuchPower: number; impossible: number }
 export type ClimbStepView = { untilCharge: number; throttle: number }
+/**
+ * One column of the power screen.
+ */
+export type ColumnView = { id: string; itemType: string; items: string[]; max: number; minimums: number[]; level: number; off: boolean; excluded: boolean }
 /**
  * One bar of a distribution's masses, its rolls counted by class.
  */
@@ -1489,6 +1751,18 @@ meanDanger: number;
  */
 inWindow: number }
 /**
+ * Doors of one kind.
+ */
+export type DoorView = { name: string; count: number; hp: number; 
+/**
+ * Its record name says `Breachable`.
+ */
+breachable: boolean }
+/**
+ * One swap on top of the stock loadout.
+ */
+export type EditView = { path: string[]; item: string | null }
+/**
  * What lasers put on the rock: power, and the change to resistance,
  * instability and window as fractions (`-0.3`: 30 % less).
  */
@@ -1543,6 +1817,19 @@ unnamed: number;
  */
 fetched_at: number }
 export type FittedPartView = { geid: string; port: string | null; depth: number; kind: ItemKindView }
+export type FlightView = { mass: number; scmSpeed: number; boostForward: number; boostBackward: number; navSpeed: number; 
+/**
+ * deg/s: pitch, yaw, roll.
+ */
+rotation: number[]; 
+/**
+ * deg/s at full boost (capacitor level 6): pitch, yaw, roll.
+ */
+rotationBoosted: number[]; acceleration: AccelView; accelerationBoosted: AccelView; 
+/**
+ * SCU per minute at full thrust: main, retro, manoeuvring.
+ */
+hydrogenBurn: number[]; hydrogenCapacity: number }
 export type FriendGroup = { id: string; name: string; is_owner: boolean; members: GroupMember[] }
 export type FriendUser = { user_id: string; username: string }
 export type GadgetRowView = { 
@@ -1625,6 +1912,26 @@ unholdable: boolean; tooMuchPower: boolean; climbAtMinimum: number | null; pulse
  * The wave-lift table, lowest throttle first.
  */
 jumps: JumpRowView[]; waveMax: number; wavePeriodS: number; wavePeriodMaxS: number; damping: number; peakJumpAtBalance: number | null; peakJumpAvgAtBalance: number | null; peakJumpFull: number; drainAtMinimum: number | null; timeToWindowS: number | null; timeInWindowS: number | null; crackAboveS: number | null; paybackEdge: number | null; paybackTop: number | null; dangerFillEdgeS: number | null; dangerFillTopS: number | null; dangerDrainS: number | null; backFromTopOffS: number | null; backFromTopMinS: number | null; modifierPersistenceS: number }
+/**
+ * One gun's damage under the current power.
+ */
+export type GunView = { 
+/**
+ * Port path, `/`-joined.
+ */
+path: string; burst: number | null; sustained: number | null; power: number; 
+/**
+ * Seconds of continuous fire at this power (capacitor or heat).
+ */
+fires: number | null; 
+/**
+ * Shots the capacitor holds at this power; null for a gun with rounds.
+ */
+loaded: number | null; 
+/**
+ * DPS over a 30 s engagement from a cold, full gun.
+ */
+window: number | null }
 export type HolderView = { geid: string; name: string; item_type: string }
 /**
  * One card's place on Home (see [`AppSettings::home_cards`]).
@@ -1679,6 +1986,43 @@ edited_ms: number;
  * Newest first, at most [`HOTFIX_ENTRIES`].
  */
 entries: HotfixEntryView[] }
+export type HullPartView = { name: string; depth: number; hp: number; breakable: boolean; 
+/**
+ * Losing it destroys the ship.
+ */
+vital: boolean }
+/**
+ * The hull's structure.
+ */
+export type HullView = { 
+/**
+ * Width, length, height, m.
+ */
+dimensions: [number, number, number] | null; hullMass: number | null; parts: HullPartView[]; fuseMultiplier: number; componentMultiplier: number; thrusters: ThrusterView[]; doors: DoorView[] }
+/**
+ * The ship with a part fitted.
+ */
+export type ImpactView = { supply: number | null; free: number | null; cooling: number | null; em: number | null; ir: number | null; shieldHealth: number | null; quantum32Gm: number | null; 
+/**
+ * Seconds for a 60 Gm jump.
+ */
+quantum60Gm: number | null; 
+/**
+ * Seconds for the moon tour, cooldowns included.
+ */
+quantumTour: number | null; 
+/**
+ * How far the ship's quantum fuel reaches with this drive, Gm.
+ */
+quantumRangeGm: number | null; 
+/**
+ * Every gun's sustained DPS together with the part fitted.
+ */
+gunDps: number | null; 
+/**
+ * The share of their power the guns get, 0 to 1.
+ */
+gunPower: number | null }
 export type IngredientView = { 
 /**
  * `resource` | `item` | `other`.
@@ -1692,6 +2036,10 @@ amount: number }
  * Shell mirror of `svc_discovery::InstallInfo` (specta shape).
  */
 export type InstallView = { channel: string; platform: string; directory: string; version: string; build_id: string }
+/**
+ * What an insurance claim costs.
+ */
+export type InsuranceView = { waitMinutes: number; mandatoryMinutes: number; expediteFee: number }
 /**
  * What the last inventory fetch holds, in counts — the page header and
  * the first check that the fetch works on a real account.
@@ -1798,6 +2146,7 @@ launcher_found: boolean;
  * `StarCitizen.exe` (or its EAC bootstrapper) is running.
  */
 game_running: boolean }
+export type LevelView = { column: string; pips: number }
 /**
  * One channel the account may play, as the launcher would install it.
  */
@@ -1821,6 +2170,30 @@ export type LoadoutView = { lasers: LaserInputView[]; gadget: string | null;
  */
 lead: number | null }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
+/**
+ * UEX's marketplace average for an item, one side, one quality tier.
+ */
+export type MarketView = { 
+/**
+ * "sell": players selling it (what you'd pay); "buy": players wanting it.
+ */
+side: string; 
+/**
+ * A crafted item's quality tier; 0: none.
+ */
+tier: number; 
+/**
+ * Open listings now.
+ */
+listings: number; 
+/**
+ * aUEC: now (0 when nothing is listed), this week, this month.
+ */
+now: number; week: number; month: number; 
+/**
+ * Unix seconds of the last change.
+ */
+updated: number }
 /**
  * The loadout's class along the mass axis for this rock's composition.
  */
@@ -1884,6 +2257,10 @@ export type MiningStateView = { current: LoadoutView;
  */
 basedOn: string | null; saved: SavedLoadoutView[] }
 export type MissileStatsView = { size: number; is_torpedo: boolean; damage: DamageBreakdownView | null; speed: number | null; arm_time: number; tracking: TrackingView | null }
+/**
+ * The missiles and what fires them.
+ */
+export type MissilesView = { count: number; maxArmed: number | null; cooldown: number | null; controllers: number }
 export type MissionCategoryView = { name: string | null; icon: string }
 export type MissionDifficultyView = { mechanical_skill: number; mental_load: number; risk_of_loss: number; game_knowledge: number }
 export type MissionEncounterView = { label: string; difficulty: string | null; waves: MissionWaveView[]; 
@@ -1923,6 +2300,7 @@ showcases: string[] }
 export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean }
 export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
 export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[]; spawns: SpawnSlotView[] }
+export type ModeView = "scm" | "nav"
 /**
  * A laser's, module's or gadget's mining modifiers, in percent. `null`
  * when the item does not change that value.
@@ -1957,6 +2335,26 @@ source: string | null;
  * would be noise (see `activity.rs`).
  */
 quiet: boolean }) & { id: number; ts: number }
+/**
+ * A place that sells (or rents) something, from UEX's community prices.
+ */
+export type OfferView = { 
+/**
+ * The terminal as UEX names it ("Dumper's Area 18").
+ */
+terminal: string; 
+/**
+ * Where it is, smallest first ("Area 18 · ArcCorp · Stanton").
+ */
+place: string; 
+/**
+ * aUEC.
+ */
+price: number; 
+/**
+ * Unix seconds of the last player report.
+ */
+updated: number }
 /**
  * One laser and whoever works it.
  */
@@ -2011,6 +2409,16 @@ stock: LoadoutSlotView[] | null;
  * The armour set the piece belongs to, from the game data.
  */
 set: ArmourSetView | null }
+/**
+ * Owned copies of a part that are free to fit: in a place's storage, not
+ * on a port, not inside a ship or container, owned (not rented, not
+ * bricked). The inventory has no insurance or claim state.
+ */
+export type OwnedPartView = { place: string; count: number }
+/**
+ * One owned ship class.
+ */
+export type OwnedView = { ship: string; count: number; rented: boolean }
 /**
  * A patch-note thread and what its title says.
  */
@@ -2118,11 +2526,76 @@ kind: string;
  * it); empty when carried or unknown.
  */
 key: string }
+export type PlantView = { path: string; on: boolean }
+/**
+ * The player's hand on the power network.
+ */
+export type PowerSettingsView = { mode: ModeView; 
+/**
+ * Port paths (`/`-joined) of items switched off.
+ */
+off: string[]; 
+/**
+ * Columns set by hand, in the order they were set.
+ */
+levels: LevelView[] }
+/**
+ * The power network after the player's settings.
+ */
+export type PowerView = { mode: ModeView; supply: number; used: number; columns: ColumnView[]; cooling: number | null; coolantMade: number; coolantAsked: number; em: number; ir: number; shieldRegen: number; 
+/**
+ * Power plants by port path, and whether each is on.
+ */
+plants: PlantView[]; 
+/**
+ * EM and IR by item type, largest first (IR: what the coolers give
+ * off for that type's heat).
+ */
+sources: SourceView[] }
 /**
  * One INI value before and after patching (`mod_langpatch::preview`).
  */
 export type PreviewTextView = { key: string | null; original: string; patched: string }
 export type Profile = { username: string; avatar_url: string | null }
+/**
+ * A place quantum travel can go.
+ */
+export type QtPlaceView = { guid: string; name: string; 
+/**
+ * `Planet`, `Moon`, `Lagrange point`, `Jump point`, `Station`, `Rest
+ * stop`, `City` or `Outpost`.
+ */
+kind: string; system: string; 
+/**
+ * System-global, m.
+ */
+position: [number, number, number]; 
+/**
+ * Where travel drops out, m from the centre.
+ */
+arrival: number }
+/**
+ * The places and the routes shown by default (GUID pairs).
+ */
+export type QtPlacesView = { places: QtPlaceView[]; routes: ([string, string])[] }
+export type QuantumView = { drive: string; speed: number; spoolUp: number; 
+/**
+ * s after a jump that reached full speed; shorter jumps wait less.
+ */
+cooldown: number; fuelPerGm: number; fuelCapacity: number; rangeGm: number | null; 
+/**
+ * [distance Gm, seconds] pairs, 0.5 Gm apart up to 60 Gm: spool-up
+ * and travel.
+ */
+times: ([number, number])[]; 
+/**
+ * The same, 5 Gm apart up to 300 Gm (routes past the chart).
+ */
+far: ([number, number])[]; 
+/**
+ * A planet's moons hopped in a row, cooldowns included.
+ */
+tour: TourView | null }
 export type QuoteView = { 
 /**
  * `"reply"` | `"opener"` | `"mention"`.
@@ -2298,6 +2771,111 @@ export type ScanRowView = { percent: number | null; name: string | null;
  */
 element: string | null; inert: boolean; quality: number | null }
 export type ScripRewardView = { name: string | null; amount: number }
+/**
+ * Seats by what their occupant controls.
+ */
+export type SeatsView = { pilot: number; copilot: number; mannedTurrets: number; remoteTurrets: number; mining: number; salvage: number; 
+/**
+ * Seats with any role.
+ */
+crew: number; passengers: number }
+/**
+ * The shield generators as one.
+ */
+export type ShieldView = { face: string | null; generators: number; maxReallocation: number | null; damagedDelay: number; downedDelay: number; resistance: TypedRangeView | null; absorption: TypedRangeView | null; 
+/**
+ * The shields' pips over their most (resistance's lerp factor;
+ * inferred).
+ */
+ratio: number; 
+/**
+ * The shield column's pips now and its most.
+ */
+pips: [number, number] | null }
+/**
+ * A loadout as the Build tab edits it.
+ */
+export type ShipDraftView = { 
+/**
+ * The saved loadout it started from; null: stock.
+ */
+basedOn: string | null; edits: EditView[]; off: string[]; levels: LevelView[] }
+/**
+ * A hull's store picture on disk.
+ */
+export type ShipImageView = { guid: string; 
+/**
+ * Local path, for `convertFileSrc`.
+ */
+path: string }
+/**
+ * A ship and how it differs from stock.
+ */
+export type ShipLoadoutView = { ship: string; edits: EditView[] }
+/**
+ * A ship's saved loadouts, by name, and its working draft.
+ */
+export type ShipLoadoutsView = { saved: ShipSavedLoadoutView[]; 
+/**
+ * Null: stock, nothing changed.
+ */
+draft: ShipDraftView | null }
+/**
+ * What the page shows for one loadout.
+ */
+export type ShipPageView = { ship: string; slots: SlotView[]; power: PowerView | null; guns: GunView[]; summary: SummaryView }
+/**
+ * Where a ship is sold and rented (UEX's community prices).
+ */
+export type ShipPricesView = { 
+/**
+ * Cheapest first.
+ */
+buy: OfferView[]; 
+/**
+ * Per rental (UEX: one day), cheapest first.
+ */
+rent: OfferView[]; 
+/**
+ * When UEX's lists were last fetched, Unix seconds; null: never.
+ */
+fetchedAt: number | null }
+/**
+ * One ship in the picker.
+ */
+export type ShipRowView = { guid: string; recordName: string; name: string; manufacturer: string | null; manufacturerCode: string | null; career: string | null; role: string | null; 
+/**
+ * CIG's crew figure (`crewSize`).
+ */
+crew: number; 
+/**
+ * The stock loadout's seats by what they control.
+ */
+seats: SeatsView; 
+/**
+ * The base hull this is an edition of, when it is one.
+ */
+base: string | null; ground: boolean; reward: boolean; 
+/**
+ * Cargo grids of the stock loadout, SCU.
+ */
+cargo: number | null; 
+/**
+ * The stock armour's deflection: a hit at or below it does nothing.
+ */
+deflection: TypedView | null }
+/**
+ * One saved loadout.
+ */
+export type ShipSavedLoadoutView = { id: string; name: string; edits: EditView[]; off: string[]; levels: LevelView[]; 
+/**
+ * The game build it was last saved in.
+ */
+build: string; 
+/**
+ * Unix seconds.
+ */
+savedAt: number }
 export type ShipSlotView = { count_min: number; count_max: number; ships: string[]; factions: string[] }
 export type ShipView = { key: string; kind: ItemKindView; geid: string | null; place: PlaceView | null; holders: HolderView[]; 
 /**
@@ -2313,6 +2891,28 @@ source: string;
  */
 rental_expiry: number | null; fitted: FittedPartView[]; stock: LoadoutSlotView[] | null; saved: LoadoutSlotView[] | null }
 export type ShipWeaponStatsView = { size: number; item_sub_type: string; damage: DamageBreakdownView | null; penetration_m: number | null; ammo_speed: number | null; ammo_lifetime: number | null; total_ammo: number | null; capacitor: number | null }
+/**
+ * The Ships page with no ship open.
+ */
+export type ShipsHomeView = { 
+/**
+ * `None` until an inventory has been read (My Items); an empty list
+ * when it holds no ships.
+ */
+owned: OwnedView[] | null; 
+/**
+ * When the inventory was read, Unix seconds.
+ */
+ownedAt: number | null; arrivals: ArrivalView[]; 
+/**
+ * The build "new" counts from (the first one Starlume saw).
+ */
+watchingSince: string | null; recent: string[] }
+/**
+ * One port of a loadout and what it holds.
+ */
+export type SlotView = { path: string[]; label: string | null; minSize: number; maxSize: number; editable: boolean; item: string | null; name: string | null; itemType: string | null; subType: string | null; size: number; grade: number; class: string | null; system: SystemView; stats: StatView[]; children: SlotView[] }
+export type SourceView = { itemType: string; em: number; ir: number }
 export type SpawnPlaceView = { id: string; name: string }
 /**
  * NPC / entity slot (`svc_data::SpawnSlot`).
@@ -2322,7 +2922,48 @@ export type SpawnSlotView = { count_min: number; count_max: number; concurrent: 
  * Raw archetype / class tag names (`PU_Soldier`, `Heavy`).
  */
 kinds: string[]; factions: string[]; allied: boolean; target: boolean }
+/**
+ * One figure of a part.
+ */
+export type StatView = { key: string; label: string; value: number; unit: string; better: number }
+/**
+ * What the ship stores.
+ */
+export type StorageView = { cargo: number; lockers: number; inventory: number | null; suitLockers: number; weaponRacks: number; rackSlots: number }
+export type SummaryView = { hullHealth: number; armorHealth: number | null; shieldHealth: number | null; shieldRegenMax: number | null; flight: FlightView | null; quantum: QuantumView | null; 
+/**
+ * The radar's aim assist, m: [now, at full power].
+ */
+aimAssist: [number, number] | null; 
+/**
+ * The radar cross-section seen from the side, the front and above.
+ */
+crossSection: [number, number, number] | null; storage: StorageView | null; armor: ArmorView | null; shield: ShieldView | null; hull: HullView; insurance: InsuranceView | null; 
+/**
+ * The loadout's seats by what they control.
+ */
+crew: SeatsView; missiles: MissilesView | null; 
+/**
+ * Boost at thruster capacitor levels 0..=6; empty without one.
+ */
+boost: BoostView[]; 
+/**
+ * The client's default capacitor level.
+ */
+boostDefault: number }
 export type SupportRowView = { laser: string; modules: string[]; eval: EvalView }
+/**
+ * What a port's contents belong to.
+ */
+export type SystemView = "weapons" | "turrets" | "missiles" | "countermeasures" | "shields" | "powerPlants" | "coolers" | "quantum" | "radar" | "lifeSupport" | "fuel" | "thrusters" | "docked" | "other"
+/**
+ * One thruster.
+ */
+export type ThrusterView = { 
+/**
+ * `Main`, `Retro`, `VTOL` or `Maneuvering`.
+ */
+kind: string; place: string; hp: number }
 /**
  * One moment of the plan for everyone.
  */
@@ -2335,7 +2976,40 @@ throttles: number[]; big: number; usual: number;
  * Each operator's share of the lift (their share of the gain).
  */
 shares: number[] }
+/**
+ * Several jumps in a row: spool-up and travel per leg, and the cooldown
+ * before each next one.
+ */
+export type TourView = { planet: string; legs: number; gm: number; seconds: number; 
+/**
+ * Of `seconds`, waiting on the cooldown.
+ */
+cooling: number }
 export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
+/**
+ * Physical, energy, distortion: (min, max).
+ */
+export type TypedRangeView = { physical: [number, number]; energy: [number, number]; distortion: [number, number] }
+/**
+ * Physical, energy, distortion.
+ */
+export type TypedView = { physical: number; energy: number; distortion: number }
+/**
+ * Where UEX's prices stand.
+ */
+export type UexStatusView = { 
+/**
+ * When the shop prices were last fetched, Unix seconds; null: never.
+ */
+fetchedAt: number | null; 
+/**
+ * Online mode is on (refreshes can run).
+ */
+online: boolean; 
+/**
+ * The last refresh's error, if it failed.
+ */
+error: string | null }
 export type YourSetupView = { 
 /**
  * Your lasers' range and, for a rock that is too much power, how far

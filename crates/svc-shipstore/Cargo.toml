@@ -1,0 +1,24 @@
+[package]
+name = "svc-shipstore"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume ship-store service — RSI's pledge-store ship list and its images, cached on disk"
+
+[dependencies]
+# The listing client is sc-dossier's (pledge, anonymous). Public website
+# reads: every caller gates via AppState::require_online first.
+sc-dossier.workspace = true
+# The image cache on RSI's media host (same host, same sizes).
+svc-commlinks.workspace = true
+app-kit.workspace = true
+serde.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true

@@ -38,6 +38,12 @@ server-db-reset:
 dev-alt profile="alt":
     STARLUME_PROFILE={{profile}} ./target/debug/starlume.exe
 
+# Same as `just dev`, plus WebView2's DevTools port on 127.0.0.1 so a tool
+# can screenshot and drive the webview (Claude's design checks use it).
+# Run the app with the webview's DevTools port open
+dev-inspect port="9222":
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port={{port}} pnpm tauri dev
+
 # Backgrounds the server and kills it when `just dev` exits (Ctrl+C). Needs
 # `just server-env` done once first. See CONTRIBUTING "Testing with two accounts"
 # for the two-instance flow — this only starts server + first instance.

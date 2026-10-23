@@ -8,6 +8,7 @@ members = [
     "crates/mod-items",
     "crates/mod-langpatch",
     "crates/mod-mining",
+    "crates/mod-ships",
     "crates/server",
     "crates/svc-discovery",
     "crates/svc-data",
@@ -15,6 +16,8 @@ members = [
     "crates/svc-commlinks",
     "crates/svc-dossier",
     "crates/svc-patchnotes",
+    "crates/svc-shipstore",
+    "crates/svc-uex",
     "crates/svc-log",
     "crates/svc-spectrum",
     "crates/svc-sync",
@@ -44,11 +47,11 @@ scraper = "0.20"
 # The SC data backbone — ONE pin for the whole app (the whole point of the
 # consolidation). Base features here; svc-data adds `foundations` on the same
 # pin (Cargo unions features across the workspace).
-sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.27.2", features = ["installs"] }
+sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.36.0", features = ["installs"] }
 # The gRPC lab's shipped client: game services, Spectrum, patch notes,
 # comm-links. ONE
 # pin for every service that uses it.
-sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.10.0" }
+sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.11.0" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
@@ -79,12 +82,15 @@ mod-devtracker = { path = "crates/mod-devtracker" }
 mod-items = { path = "crates/mod-items" }
 mod-langpatch = { path = "crates/mod-langpatch" }
 mod-mining = { path = "crates/mod-mining" }
+mod-ships = { path = "crates/mod-ships" }
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
 svc-capture = { path = "crates/svc-capture" }
 svc-commlinks = { path = "crates/svc-commlinks" }
 svc-dossier = { path = "crates/svc-dossier" }
 svc-patchnotes = { path = "crates/svc-patchnotes" }
+svc-shipstore = { path = "crates/svc-shipstore" }
+svc-uex = { path = "crates/svc-uex" }
 svc-log = { path = "crates/svc-log" }
 svc-spectrum = { path = "crates/svc-spectrum" }
 svc-sync = { path = "crates/svc-sync" }
