@@ -71,7 +71,8 @@ pub struct Summary {
     /// The radar's aim assist under the current power.
     pub aim_assist: Option<AimAssist>,
     /// The radar cross-section seen from the side, the front and above
-    /// (the data's x / y / z); `None` when it comes from the geometry.
+    /// (the data's x / y / z) times the armour's signal multiplier, as the
+    /// HUD shows it; `None` when it comes from the geometry.
     pub cross_section: Option<[f32; 3]>,
     pub storage: Option<StorageSummary>,
     pub armor: Option<ArmorSummary>,
@@ -860,9 +861,15 @@ pub fn view(
             settings,
         )
     });
+    let defense = Defense::compute(
+        vehicle,
+        &loadout.mounted,
+        &index.vehicles,
+        &index.components,
+    );
     let power = net
         .as_ref()
-        .map(|(n, a, mode)| power_of(n, a, mode, settings.mode));
+        .map(|(n, a, mode)| power_of(n, a, mode, settings.mode, vehicle, defense.armor.as_ref()));
     let guns = net
         .as_ref()
         .map(|(n, a, mode)| guns(cooked, &loadout, n, a, mode))
@@ -885,12 +892,6 @@ pub fn view(
             })
             .max_by(|x, y| x.distance.total_cmp(&y.distance))
     });
-    let defense = Defense::compute(
-        vehicle,
-        &loadout.mounted,
-        &index.vehicles,
-        &index.components,
-    );
     // The shield column's pips over its most: resistance follows it.
     let pips = power.as_ref().and_then(|p| {
         let c = p.columns.iter().find(|c| c.id == "pool:Shield")?;
@@ -996,7 +997,15 @@ pub fn view(
             flight,
             quantum,
             aim_assist,
-            cross_section: vehicle.cross_section,
+            // As ShipSignature scales it, which needs a network's readout
+            // this doesn't: the hull's axes times the armour's multiplier.
+            cross_section: vehicle.cross_section.map(|axes| {
+                let x = defense
+                    .armor
+                    .as_ref()
+                    .map_or(1.0, |a| a.signal_cross_section);
+                axes.map(|v| v * x)
+            }),
             storage: storage(cooked, vehicle, &loadout.vehicle, &loadout.mounted),
             boost: boost(cooked, &loadout.mounted),
             armor: armor(cooked, &defense, &loadout.mounted),

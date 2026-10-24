@@ -53,12 +53,14 @@
 
   const free = $derived(Math.round((power.supply - power.used) * 10) / 10);
   const coolPct = $derived(power.cooling === null ? null : Math.round(power.cooling * 100));
-  const k = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : Math.round(v).toLocaleString("en-US"));
+  // Cut to 0.1k, not rounded, as the ship's screen does (5,067 reads 5.0K).
+  const k = (v: number) => (v >= 1000 ? `${(Math.floor(v / 100) / 10).toFixed(1)}k` : Math.round(v).toLocaleString("en-US"));
 
-  type Block = { kind: "min" | "pip"; size: number; lit: boolean; level: number };
+  type Block = { kind: "min" | "pip" | "hollow"; size: number; lit: boolean; level: number };
 
   /** A column's blocks, bottom up: the minimum blocks (each a member's
-   *  minimum, drawn as one), then one per remaining pip. */
+   *  minimum, drawn as one), one per remaining pip, then the hollow slots
+   *  the members ask for over what the pool holds (never filled). */
   function blocks(c: ColumnView): Block[] {
     const out: Block[] = [];
     let at = 0;
@@ -67,6 +69,7 @@
       out.push({ kind: "min", size: m, lit: c.level >= at - 0.01, level: at });
     }
     for (let p = at; p < c.max; p++) out.push({ kind: "pip", size: 1, lit: c.level >= p + 0.99, level: p + 1 });
+    for (let p = Math.max(at, c.max); p < c.slots; p++) out.push({ kind: "hollow", size: 1, lit: false, level: p + 1 });
     return out;
   }
 
@@ -136,6 +139,9 @@
         <span class="n">{c.level > 0 && !c.excluded ? Math.round(c.level * 10) / 10 : ""}</span>
         <div class="stack">
           {#each blocks(c) as b (b.level)}
+            {#if b.kind === "hollow"}
+              <span class="blk hollow" class:dead={c.excluded || c.off} title="{name}: the parts ask for more than the pool holds"></span>
+            {:else}
             <button
               type="button"
               class="blk"
@@ -148,6 +154,7 @@
               onclick={() => onlevel(c.id, b.lit && Math.abs(c.level - b.level) < 0.01 ? b.level - b.size : b.level)}
               >{b.kind === "min" ? b.size : ""}</button
             >
+            {/if}
           {/each}
         </div>
         <button
@@ -351,6 +358,12 @@
   }
   .blk.min.on {
     background: color-mix(in srgb, var(--accent) 55%, var(--bg-sunk));
+  }
+  .blk.hollow {
+    height: 11px;
+    background: transparent;
+    border-style: dashed;
+    cursor: default;
   }
   .blk.dead {
     opacity: 0.35;

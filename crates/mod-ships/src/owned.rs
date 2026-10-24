@@ -8,7 +8,8 @@
 //! The saved loadout names its ports; the live tree gives each part's port
 //! as a CRC of the lowercased name, read back through the stock tree's
 //! port names. A part on a port the stock tree doesn't have (inside a part
-//! swapped for one with other ports) is left out.
+//! swapped for one with other ports) is left out. A stock port the live
+//! tree leaves empty is emptied (a rack whose missiles were fired).
 
 use std::collections::{HashMap, HashSet};
 
@@ -99,8 +100,13 @@ pub fn owned_loadouts(
                 .geid
                 .and_then(|geid| inventory.stashes.iter().find_map(|s| find(&s.items, geid)))
                 .map(|node| {
-                    let mut wanted = Vec::new();
-                    fitted(&node.attached, &[], &ports, &by_crc, &mut wanted);
+                    let mut live = HashMap::new();
+                    fitted(&node.attached, &[], &ports, &by_crc, &mut live);
+                    let mut wanted: Vec<_> = live
+                        .iter()
+                        .filter_map(|(path, item)| Some((path.clone(), Some((*item)?))))
+                        .collect();
+                    emptied(&stock.mounted, &[], &live, &mut wanted);
                     edits(&stock, wanted)
                 });
             OwnedLoadouts {
@@ -143,26 +149,47 @@ fn find(nodes: &[ItemRecord], geid: u64) -> Option<&ItemRecord> {
     })
 }
 
-/// What the live tree has fitted, as (port path, item): every attached
-/// part whose port and class are known.
+/// What the live tree has fitted, by port path: every attached part whose
+/// port is known, with its item when the class is known too (`None`: a
+/// part is there, but not one we can name, so nothing below it is read).
 fn fitted(
     nodes: &[ItemRecord],
     prefix: &[String],
     ports: &HashMap<u32, String>,
     by_crc: &HashMap<u32, Guid>,
-    out: &mut Vec<(Vec<String>, Option<Guid>)>,
+    out: &mut HashMap<Vec<String>, Option<Guid>>,
 ) {
     for n in nodes {
-        let (Some(port), Some(item)) = (
-            n.port_crc.and_then(|p| ports.get(&p)),
-            by_crc.get(&n.class_crc),
-        ) else {
+        let Some(port) = n.port_crc.and_then(|p| ports.get(&p)) else {
             continue;
         };
         let mut path = prefix.to_vec();
         path.push(port.clone());
-        out.push((path.clone(), Some(*item)));
-        fitted(&n.attached, &path, ports, by_crc, out);
+        let item = by_crc.get(&n.class_crc).copied();
+        out.insert(path.clone(), item);
+        if item.is_some() {
+            fitted(&n.attached, &path, ports, by_crc, out);
+        }
+    }
+}
+
+/// The stock parts the live tree has taken off, as (port path, empty): a
+/// stock port with a part that has nothing on it live (missiles fired,
+/// a weapon removed), under parts that are as stock.
+fn emptied(
+    mounted: &[Mounted],
+    prefix: &[String],
+    live: &HashMap<Vec<String>, Option<Guid>>,
+    out: &mut Vec<(Vec<String>, Option<Guid>)>,
+) {
+    for m in mounted {
+        let mut path = prefix.to_vec();
+        path.push(m.port.clone());
+        match live.get(&path) {
+            None if m.item.is_some() => out.push((path, None)),
+            Some(Some(item)) if m.item == Some(*item) => emptied(&m.children, &path, live, out),
+            _ => {}
+        }
     }
 }
 

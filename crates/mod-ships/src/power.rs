@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use svc_data::ships::Items;
 use svc_data::ships::{
     Allocation, EItemType, EMasterMode, Mounted, NetworkParams, PortContainer, PowerNetwork,
-    Readout, ResourceProfiles, Vehicles,
+    Readout, ResourceProfiles, ShipSignature, Vehicle, VehicleArmor, Vehicles,
 };
 
 /// Segments as the client counts them.
@@ -61,6 +61,10 @@ pub struct Column {
     pub items: Vec<String>,
     /// Pips it can take.
     pub max: i64,
+    /// Slots the screen draws: `max`, or more when a pool's members ask
+    /// for more than it holds (three shield generators asking 2 each in a
+    /// pool of 4 draw 6, the top 2 hollow and never filled).
+    pub slots: i64,
     /// The members' minimums, in pips: the blocks the screen draws at the
     /// bottom of the column (one per shield generator). Empty when the
     /// column has none worth drawing.
@@ -87,6 +91,8 @@ pub struct Power {
     pub cooling: Option<f64>,
     pub coolant_made: f64,
     pub coolant_asked: f64,
+    /// The ship's EM and IR as the screen shows them: the items' sum times
+    /// the armour's signal multipliers ([`ShipSignature`]).
     pub em: f64,
     pub ir: f64,
     /// Shield resource the generators make per second.
@@ -97,7 +103,8 @@ pub struct Power {
     pub sources: Vec<Source>,
 }
 
-/// One item type's share of the signatures.
+/// One item type's share of the signatures, under the armour's
+/// multipliers like the totals, so the shares add up to them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Source {
     /// `AttachDef.Type`, as the DCB spells it.
@@ -169,24 +176,17 @@ pub(crate) fn network(
     (net, a, mode)
 }
 
-/// Build the network of `loadout`, apply `input`, and read it out.
-#[allow(clippy::too_many_arguments)]
-pub fn power(
-    loadout: &[Mounted],
-    container: Option<&PortContainer>,
-    vehicles: &Vehicles,
-    items: &Items,
-    profiles: &ResourceProfiles,
-    params: &NetworkParams,
-    input: &PowerInput,
+/// What the screen shows of `net` under `a`, on `vehicle` in `armor`.
+pub(crate) fn power_of(
+    net: &PowerNetwork,
+    a: &Allocation,
+    mode: &EMasterMode,
+    m: Mode,
+    vehicle: &Vehicle,
+    armor: Option<&VehicleArmor>,
 ) -> Power {
-    let (net, a, mode) = network(loadout, container, vehicles, items, profiles, params, input);
-    power_of(&net, &a, &mode, input.mode)
-}
-
-/// What the screen shows of `net` under `a`.
-pub(crate) fn power_of(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode, m: Mode) -> Power {
     let readout = net.readout(a, mode);
+    let ship = ShipSignature::compute(&readout, vehicle, armor);
     let columns = columns(net, a, mode);
     let used = columns
         .iter()
@@ -201,16 +201,22 @@ pub(crate) fn power_of(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode, m
         cooling: readout.cooling(),
         coolant_made: readout.coolant_made,
         coolant_asked: readout.coolant_asked,
-        em: readout.em,
-        ir: readout.ir,
+        em: ship.em,
+        ir: ship.ir,
         shield_regen: readout.shield_made,
         plants: net.plants.iter().map(|p| (p.path.clone(), p.on)).collect(),
-        sources: sources(net, &readout),
+        sources: sources(net, &readout, armor),
     }
 }
 
-/// The readout's EM and IR by item type.
-fn sources(net: &PowerNetwork, readout: &Readout) -> Vec<Source> {
+/// The readout's EM and IR by item type, under `armor`'s multipliers.
+fn sources(net: &PowerNetwork, readout: &Readout, armor: Option<&VehicleArmor>) -> Vec<Source> {
+    let (em_x, ir_x) = armor.map_or((1.0, 1.0), |a| {
+        (
+            f64::from(a.signal_electromagnetic),
+            f64::from(a.signal_infrared),
+        )
+    });
     let types: HashMap<&str, &EItemType> = net
         .consumers
         .iter()
@@ -223,19 +229,20 @@ fn sources(net: &PowerNetwork, readout: &Readout) -> Vec<Source> {
             .copied()
             .unwrap_or(&EItemType::PowerPlant);
         let ir = if readout.coolant_asked > 0.0 {
-            readout.ir * i.coolant_asked / readout.coolant_asked
+            readout.ir * i.coolant_asked / readout.coolant_asked * ir_x
         } else {
             0.0
         };
+        let em = f64::from(i.em) * em_x;
         let name = t.as_dcb_str();
         match out.iter_mut().find(|s| s.item_type == name) {
             Some(s) => {
-                s.em += f64::from(i.em);
+                s.em += em;
                 s.ir += ir;
             }
             None => out.push(Source {
                 item_type: name.to_string(),
-                em: f64::from(i.em),
+                em,
                 ir,
             }),
         }
@@ -350,13 +357,18 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
         } else {
             Vec::new()
         };
+        let max = net.pool_size(p);
+        // What the members on ask for, whole segments up (the client caps
+        // a fixed pool at min(that, its size); the screen draws both).
+        let asked = on.iter().map(|c| c.request as f64).sum::<f64>() / SEGMENT;
         out.push((
             rank(&pool.item_type),
             Column {
                 id: format!("pool:{}", pool.item_type.as_dcb_str()),
                 item_type: pool.item_type.as_dcb_str().to_string(),
                 items: members.iter().map(|c| c.path.clone()).collect(),
-                max: net.pool_size(p),
+                max,
+                slots: max.max(asked.ceil() as i64),
                 minimums,
                 level: pool
                     .members
@@ -380,6 +392,7 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
                 item_type: c.item_type.as_dcb_str().to_string(),
                 items: vec![c.path.clone()],
                 max: (c.request as f64 / SEGMENT).floor() as i64,
+                slots: (c.request as f64 / SEGMENT).floor() as i64,
                 // Its minimum, the bottom block of its column, as the game
                 // draws it (a cooler's or radar's floor).
                 minimums: Some((c.minimum as f64 / SEGMENT).ceil() as i64)

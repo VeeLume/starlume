@@ -311,6 +311,8 @@ pub struct ColumnView {
     pub item_type: String,
     pub items: Vec<String>,
     pub max: i32,
+    /// Slots drawn; those above `max` are hollow, never filled.
+    pub slots: i32,
     pub minimums: Vec<i32>,
     pub level: f64,
     pub off: bool,
@@ -370,6 +372,7 @@ impl From<Power> for PowerView {
                     item_type: c.item_type,
                     items: c.items,
                     max: c.max as i32,
+                    slots: c.slots as i32,
                     minimums: c.minimums.into_iter().map(|m| m as i32).collect(),
                     level: c.level,
                     off: c.off,

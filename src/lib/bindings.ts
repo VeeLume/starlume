@@ -1489,7 +1489,11 @@ export type ClimbStepView = { untilCharge: number; throttle: number }
 /**
  * One column of the power screen.
  */
-export type ColumnView = { id: string; itemType: string; items: string[]; max: number; minimums: number[]; level: number; off: boolean; excluded: boolean }
+export type ColumnView = { id: string; itemType: string; items: string[]; max: number; 
+/**
+ * Slots drawn; those above `max` are hollow, never filled.
+ */
+slots: number; minimums: number[]; level: number; off: boolean; excluded: boolean }
 /**
  * One bar of a distribution's masses, its rolls counted by class.
  */
