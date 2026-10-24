@@ -11,26 +11,31 @@ const host = process.env.TAURI_DEV_HOST;
  * two copies, and part of a page read an empty store (the Ships loadout bar
  * showed "Stock" beside cards showing the real loadout). A change to a store
  * now drops the cached transform of every module importing it, directly or
- * not, and reloads the page, so all of them import the same copy.
+ * not, and reloads the page, so all of them import the same copy. So does
+ * a change to anything a store imports (a regenerated `bindings.ts` hot-
+ * updates every store above it, the same split: the Ships cards lost their
+ * pictures and prices).
  *
  * @returns {import("vite").Plugin}
  */
 function storesReloadWhole() {
+  /** @param {import("vite").ModuleNode} m */
+  const isStore = (m) => /\/src\/lib\/state\/[^/]+\.svelte\.ts$/.test((m.file ?? "").replaceAll("\\", "/"));
   return {
     name: "starlume:stores-reload-whole",
     apply: "serve",
-    handleHotUpdate({ file, server, modules }) {
-      if (!/\/src\/lib\/state\/[^/]+\.svelte\.ts$/.test(file.replaceAll("\\", "/"))) return;
+    handleHotUpdate({ server, modules }) {
       /** @type {Set<import("vite").ModuleNode>} */
-      const seen = new Set();
+      const above = new Set();
       /** @param {import("vite").ModuleNode} m */
-      const drop = (m) => {
-        if (seen.has(m)) return;
-        seen.add(m);
-        server.moduleGraph.invalidateModule(m);
-        m.importers.forEach(drop);
+      const walk = (m) => {
+        if (above.has(m)) return;
+        above.add(m);
+        m.importers.forEach(walk);
       };
-      modules.forEach(drop);
+      modules.forEach(walk);
+      if (![...above].some(isStore)) return;
+      above.forEach((m) => server.moduleGraph.invalidateModule(m));
       server.ws.send({ type: "full-reload" });
       return [];
     },

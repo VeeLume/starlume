@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use svc_data::ships::Items;
 use svc_data::ships::{
-    Allocation, EItemType, EMasterMode, Mounted, NetworkParams, PortContainer, PowerNetwork,
-    Readout, ResourceProfiles, ShipSignature, Vehicle, VehicleArmor, Vehicles,
+    Allocation, EItemType, EMasterMode, Mounted, NetworkParams, PoolSize, PortContainer,
+    PowerNetwork, Readout, ResourceProfiles, ShipSignature, Vehicle, VehicleArmor, Vehicles,
 };
 
 /// Segments as the client counts them.
@@ -61,9 +61,10 @@ pub struct Column {
     pub items: Vec<String>,
     /// Pips it can take.
     pub max: i64,
-    /// Slots the screen draws: `max`, or more when a pool's members ask
-    /// for more than it holds (three shield generators asking 2 each in a
-    /// pool of 4 draw 6, the top 2 hollow and never filled).
+    /// Slots the screen draws; those above `max` are hollow, never filled:
+    /// a fixed pool whose members ask for less than its size (ballistic
+    /// guns), or a pool counting only some of its members (three shield
+    /// generators asking 2 each in a pool counting 2 draw 6).
     pub slots: i64,
     /// The members' minimums, in pips: the blocks the screen draws at the
     /// bottom of the column (one per shield generator). Empty when the
@@ -349,8 +350,16 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
         }
         let members: Vec<_> = pool.members.iter().map(|&c| &net.consumers[c]).collect();
         let on: Vec<_> = members.iter().filter(|c| c.on).collect();
+        // The members the pool counts: the first `max_items` of those on, in
+        // the client's order. One past them only widens the pool (a third
+        // shield generator: its slots hollow, no minimum block).
+        let counted = match pool.size {
+            PoolSize::Dynamic { max_items: Some(n) } => usize::try_from(n).unwrap_or(0),
+            _ => usize::MAX,
+        };
         let minimums: Vec<i64> = if pool.item_type == EItemType::Shield {
             on.iter()
+                .take(counted)
                 .map(|c| (c.minimum as f64 / SEGMENT).round() as i64)
                 .filter(|&m| m > 0)
                 .collect()
@@ -358,9 +367,21 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
             Vec::new()
         };
         let max = net.pool_size(p);
-        // What the members on ask for, whole segments up (the client caps
-        // a fixed pool at min(that, its size); the screen draws both).
-        let asked = on.iter().map(|c| c.request as f64).sum::<f64>() / SEGMENT;
+        // The hollow slots, as the game draws them:
+        // - A fixed pool draws its size. Members asking less leave the rest
+        //   hollow (ballistic guns). Members asking more get no more (12
+        //   guns asking 12.2 in the Centaurus's 4).
+        // - A pool sized by its members that counts only so many of them
+        //   draws what all of them ask for, the uncounted ones hollow (the
+        //   Super Hornet Mk II's shields: 2 of its 3 generators).
+        let slots = match pool.size {
+            PoolSize::Fixed(size) => max.max(i64::from(size)),
+            PoolSize::Dynamic { .. } => {
+                let asked = on.iter().map(|c| c.request as f64).sum::<f64>() / SEGMENT;
+                max.max(asked.ceil() as i64)
+            }
+            PoolSize::Plain => max,
+        };
         out.push((
             rank(&pool.item_type),
             Column {
@@ -368,7 +389,7 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
                 item_type: pool.item_type.as_dcb_str().to_string(),
                 items: members.iter().map(|c| c.path.clone()).collect(),
                 max,
-                slots: max.max(asked.ceil() as i64),
+                slots,
                 minimums,
                 level: pool
                     .members

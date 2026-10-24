@@ -770,8 +770,8 @@ fn owned_loadouts_apply() {
 /// insured loadout from the dev inventory cache: JS-400, 3× 7SA Concord,
 /// 2× Bracer with the right one switched off, Ardor-3 SA ×2, Attrition-3
 /// ×2, M6A ×2). The weapons pool is fixed at 4 and takes all 4 (before
-/// sc-holotable v0.39.1 it capped at 2); the shields draw 6 slots, 4
-/// fillable; the armour's 1.13 lifts EM, IR and CS to the screen's
+/// sc-holotable v0.39.1 it capped at 2); the shields count 2 of the 3
+/// generators, so draw 6 slots, 4 fillable; the armour's 1.13 lifts EM, IR and CS to the screen's
 /// figures, which cut to 0.1K, not round (sc-holotable v0.40.0).
 ///
 /// | state                | screen                         |
@@ -848,8 +848,19 @@ fn hornet_matches_the_power_screen() {
             p.ir,
             p.em,
         );
-        assert_eq!(col("WeaponGun").level.round(), 4.0, "{label}");
-        assert_eq!((col("Shield").max, col("Shield").slots), (4, 6), "{label}");
+        // Fixed at 4: no hollow slots, though the guns ask for 6.2.
+        assert_eq!(
+            (col("WeaponGun").level.round(), col("WeaponGun").slots),
+            (4.0, 4),
+            "{label}"
+        );
+        // 2 generators counted (a minimum block each), the third hollow.
+        let s = col("Shield");
+        assert_eq!(
+            (s.max, s.slots, s.minimums.clone()),
+            (4, 6, vec![1, 1]),
+            "{label}"
+        );
         assert_eq!(p.supply as f64 - p.used, free, "{label}");
         assert_eq!(ours[0], screen[0], "{label}: IR");
         assert_eq!(ours[2], screen[2], "{label}: CS");
