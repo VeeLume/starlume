@@ -238,13 +238,15 @@
       {/each}
       <!-- The picker shows on every tab ("Pick a ship" with none open), so
            the greyed Build and Ship tabs have their way in beside them. -->
+      {#if shipsUi.ship}
+        <div class="loadout">
+          <LoadoutBar {channel} {shipName} />
+        </div>
+      {/if}
       <div class="open">
         <ShipMenu ships={spaceships.filter((s) => !s.base)} value={baseOf} onpick={openFromList} />
-        {#if shipsUi.ship}
-          {#if editions.length > 1}
-            <Select label="Edition" options={editionOptions} value={shipsUi.ship} onchange={openShip} />
-          {/if}
-          <LoadoutBar {channel} {shipName} />
+        {#if shipsUi.ship && editions.length > 1}
+          <Select label="Edition" options={editionOptions} value={shipsUi.ship} onchange={openShip} />
         {/if}
       </div>
     </div>
@@ -380,9 +382,17 @@
     margin-bottom: 0;
     flex-wrap: wrap;
   }
-  /* The open ship, its edition and loadout at the tab row's end, on the
-   * tabs' line; on a narrow window they wrap under the tabs rather than
-   * scrolling the page sideways. */
+  /* The open loadout in the middle of the tab row, taking the room between
+   * the tabs and the ship. */
+  .loadout {
+    flex: 1 1 auto;
+    align-self: center;
+    margin-inline: 16px;
+    padding-bottom: 6px;
+  }
+  /* The open ship and its edition at the tab row's end, on the tabs' line;
+   * on a narrow window they wrap under the tabs rather than scrolling the
+   * page sideways. */
   .open {
     margin-left: auto;
     align-self: center;

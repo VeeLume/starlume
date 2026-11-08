@@ -92,36 +92,38 @@
 </script>
 
 <div class="lo">
-  <Select label="Loadout" {options} value={based?.id ?? STOCK} onchange={pick} />
-  {#if naming}
-    <!-- svelte-ignore a11y_autofocus -->
-    <input
-      class="input"
-      bind:value={newName}
-      aria-label="Name of the new loadout"
-      autofocus
-      onkeydown={(e) => {
-        if (e.key === "Enter") void save(true);
-        if (e.key === "Escape") naming = false;
-      }}
-    />
-    <button type="button" class="btn" onclick={() => (naming = false)}>Cancel</button>
-    <button type="button" class="btn primary" disabled={!newName.trim()} onclick={() => void save(true)}>Save</button>
-  {:else if based}
-    {#if changes > 0}
-      <span class="hue-chip h-loot">{changes} unsaved change{changes === 1 ? "" : "s"}</span>
-      <button type="button" class="btn" onclick={() => void openLoadout(based.id)}>Revert</button>
-      <button type="button" class="btn" class:primary={based.game} onclick={startNaming}>Save as new</button>
-      {#if !based.game}<button type="button" class="btn primary" onclick={() => void save(false)}>Save</button>{/if}
-    {:else if !based.game}
-      <button type="button" class="btn subtle" onclick={() => (asking = { kind: "delete" })}>Delete</button>
+  <div class="pick"><Select label="Loadout" {options} value={based?.id ?? STOCK} onchange={pick} /></div>
+  <div class="acts">
+    {#if naming}
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        class="input"
+        bind:value={newName}
+        aria-label="Name of the new loadout"
+        autofocus
+        onkeydown={(e) => {
+          if (e.key === "Enter") void save(true);
+          if (e.key === "Escape") naming = false;
+        }}
+      />
+      <button type="button" class="btn" onclick={() => (naming = false)}>Cancel</button>
+      <button type="button" class="btn primary" disabled={!newName.trim()} onclick={() => void save(true)}>Save</button>
+    {:else if based}
+      {#if changes > 0}
+        <span class="hue-chip h-loot">{changes} unsaved change{changes === 1 ? "" : "s"}</span>
+        <button type="button" class="btn" onclick={() => void openLoadout(based.id)}>Revert</button>
+        <button type="button" class="btn" class:primary={based.game} onclick={startNaming}>Save as new</button>
+        {#if !based.game}<button type="button" class="btn primary" onclick={() => void save(false)}>Save</button>{/if}
+      {:else if !based.game}
+        <button type="button" class="btn subtle" onclick={() => (asking = { kind: "delete" })}>Delete</button>
+      {/if}
+    {:else if changes > 0}
+      <span class="hue-chip h-loot">{swaps} changed from stock</span>
+      <button type="button" class="btn" onclick={() => void openLoadout(null)}>Back to stock</button>
+      <button type="button" class="btn primary" onclick={startNaming}>Save as new</button>
     {/if}
-  {:else if changes > 0}
-    <span class="hue-chip h-loot">{swaps} changed from stock</span>
-    <button type="button" class="btn" onclick={() => void openLoadout(null)}>Back to stock</button>
-    <button type="button" class="btn primary" onclick={startNaming}>Save as new</button>
-  {/if}
-  {#if error}<span class="err">{error}</span>{/if}
+    {#if error}<span class="err">{error}</span>{/if}
+  </div>
 </div>
 
 <ConfirmDialog
@@ -137,7 +139,18 @@
 />
 
 <style>
+  /* The select centred, its actions beside it in a column reserved at their
+   * widest, so they appear without moving the select or the ship picker. */
   .lo {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(26rem, 1fr);
+    align-items: center;
+    column-gap: 8px;
+  }
+  .pick {
+    grid-column: 2;
+  }
+  .acts {
     display: flex;
     align-items: center;
     gap: 8px;
