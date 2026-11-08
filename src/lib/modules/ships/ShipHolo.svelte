@@ -13,6 +13,7 @@
 
   let {
     picture,
+    live,
     scene,
     open = false,
     glow = null,
@@ -21,6 +22,8 @@
     onclick,
   }: {
     picture: string | undefined;
+    /** The 3D view (the "Ship holo" setting); off, just the picture. */
+    live: boolean;
     /** Null until assembled, and for a ship without a model. */
     scene: ShipScene | null;
     open?: boolean;
@@ -36,6 +39,11 @@
   let drawn = $state(false);
   let busy = $state(false);
   let shows = 0;
+
+  // Off and on again is a new canvas: the picture holds the place again.
+  $effect(() => {
+    if (!live) drawn = false;
+  });
 
   $effect(() => {
     if (!view || !scene) return;
@@ -87,9 +95,11 @@
   {#if picture && !drawn}<img class="shot" src={picture} alt="" />{/if}
   <!-- The view's own dark floor: on a transparent canvas the see-through
        hull layers up into a solid blob. -->
-  <div class="model" class:drawn>
-    <ShipViewport source={tauriSource()} bind:view options={{ mode: "holo", background: true, grid: true }} {busy} />
-  </div>
+  {#if live}
+    <div class="model" class:drawn>
+      <ShipViewport source={tauriSource()} bind:view options={{ mode: "holo", background: true, grid: true }} {busy} />
+    </div>
+  {/if}
   <button
     type="button"
     class="more"

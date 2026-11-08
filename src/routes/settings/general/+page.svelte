@@ -61,6 +61,12 @@
       </Settings.Row>
     </Settings.Section>
 
+    <Settings.Section title="Ships">
+      <Settings.Row label="Ship holo" hint="Draw your ship in 3D on the Build page. Off, Build shows its picture and loads no models.">
+        <Switch label="Ship holo" checked={settings.ship_holo} onchange={(v) => apply({ ship_holo: v })} />
+      </Settings.Row>
+    </Settings.Section>
+
     {#if error}
       <p class="text-sm text-destructive">{error}</p>
     {/if}

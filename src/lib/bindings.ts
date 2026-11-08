@@ -1350,7 +1350,12 @@ modules_offered: string[] | null;
  * version like "0.2.0"; the changes are authored in
  * `src/lib/guides.ts`). `None` is seeded like `modules_offered`.
  */
-guide_seen: string | null }
+guide_seen: string | null; 
+/**
+ * Draw the fitted ship in 3D on Build. Off, Build shows its picture and
+ * reads no models.
+ */
+ship_holo?: boolean }
 export type AreaRockView = { rockType: string; name: string; 
 /**
  * Share of the area's ship-mineable rocks.

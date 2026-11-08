@@ -15,6 +15,7 @@
   import SlotCards, { SYSTEMS, change, type Entry, type Fig } from "$lib/modules/ships/SlotCards.svelte";
   import { shieldResist } from "$lib/modules/ships/figures";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
+  import { settingsStore } from "$lib/state/settings.svelte";
   import LoadoutBar from "$lib/modules/ships/LoadoutBar.svelte";
   import PartPicker from "$lib/modules/ships/PartPicker.svelte";
   import ShipDetails from "$lib/modules/ships/ShipDetails.svelte";
@@ -93,6 +94,7 @@
    *  (frontend rule 7). It stays open across hulls, to compare them. */
   let details = $state(false);
   let holoEl = $state<HTMLElement>();
+  const holo = $derived(settingsStore.current?.ship_holo ?? false);
   /** Build: the holo in the middle with the fighting parts left of it and
    *  the running parts right. */
   const FIGHT: Entry[][] = [[["weapons", "turrets"], "missiles", "countermeasures", "shields"]];
@@ -150,7 +152,7 @@
     const c = channel;
     const ship = shipsUi.ship;
     const edits = JSON.stringify(shipsUi.edits[ship]);
-    if (c && ship && edits !== "" && view === "build" && page?.ship === ship) untrack(() => void loadScene(c));
+    if (c && ship && edits !== "" && holo && view === "build" && page?.ship === ship) untrack(() => void loadScene(c));
   });
 
   // Where the open ship is sold and rented (cached UEX prices), and your
@@ -329,6 +331,7 @@
           <div class="core">
             <ShipHolo
               {picture}
+              live={holo}
               scene={shipsScene.of(shipsUi.ship)}
               open={details}
               {glow}
