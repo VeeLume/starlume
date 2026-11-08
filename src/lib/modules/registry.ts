@@ -22,7 +22,8 @@ export const moduleRegistry: ModuleDescriptor[] = [
   langpatchModule,
   itemsModule,
   miningModule,
-  ...(SHOW_UNRELEASED ? [shipsModule, contractsModule] : []),
+  shipsModule,
+  ...(SHOW_UNRELEASED ? [contractsModule] : []),
 ];
 
 export function moduleById(id: string): ModuleDescriptor | undefined {

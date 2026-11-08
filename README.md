@@ -66,6 +66,23 @@ and see it against your ship:
 
 Mining reads your game install only; nothing goes online.
 
+### Ships
+
+Fit your ships and see what a swap does before you buy it:
+
+- **Build:** every port, what it holds and what else fits, around the power
+  network as the ship's power screen shows it; a swap or a pip updates damage,
+  shields, signatures and quantum range
+- **Ship:** the hull itself, with its role, crew, structure, armour, flight,
+  quantum travel and where to buy or rent it
+- saved loadouts of your own and, with My Items on, your ships' insured and
+  live loadouts
+- shop and player-market prices, player-reported through
+  [UEX](https://uexcorp.space)
+
+Ships reads your game install. Pictures and prices come from the internet when
+online features are on (see [Online and privacy](#online-and-privacy)).
+
 ### My Items *(opt-in)*
 
 Finds every item and ship on your account:
@@ -103,8 +120,10 @@ parses the game data locally. Online use is limited and under your control:
 - **Online features** (Settings → Online & privacy → Enable online features, on
   by default) let Starlume look up your public RSI profile, read RSI's public
   patch notes and comm-links (with their images) for News, and download what
-  you ask it to. Switch them off and nothing leaves your machine except the
-  update check.
+  you ask it to. With the Ships module on, it also reads RSI's public ship
+  store (names and pictures) and UEX's public price lists; neither read sends
+  anything about you or your account. Switch online features off and nothing
+  leaves your machine except the update check.
 - **Update check:** always on, even offline, so everyone gets security fixes.
   It only asks GitHub whether a new release exists.
 

@@ -15,6 +15,7 @@ export const shipsModule: ModuleDescriptor = {
     "Every port, what it holds and what else fits",
     "Power, cooling and signatures as the power screen shows them",
     "How a swap changes the ship before you buy it",
+    "Shop and player-market prices from UEX, when you're online",
   ],
   needsGame: true,
   nav: [{ href: "/ships", label: "Ships", icon: Rocket }],
