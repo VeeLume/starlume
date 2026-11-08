@@ -1,28 +1,26 @@
 <script lang="ts">
-  // Ships: one ship, in two tabs, each meant to read in one screen with no
+  // Ships: one ship on one page, meant to read in one screen with no
   // scrolling. Build assumes the ship is known: the part cards (alike parts
   // folded into one line) beside the power panel (sc-vehicles' network as
   // the ship's power screen shows it) and the figures parts and pips
-  // change. Ship is the hull itself: picture, role, structure, armour,
-  // flight, logistics, charts. Reads the cooked game data only: no network.
-  import { onDestroy, onMount, untrack } from "svelte";
+  // change. The hull itself (role, structure, armour, flight, logistics,
+  // charts) opens out of the holo. Reads the cooked game data only: no
+  // network.
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { Select, createBrowseState, type SelectOption } from "@veelume/ui";
   import type { SystemView } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import PowerPanel from "$lib/modules/ships/PowerPanel.svelte";
-  import ShipFigures from "$lib/modules/ships/ShipFigures.svelte";
   import SlotCards, { SYSTEMS, change, type Entry, type Fig } from "$lib/modules/ships/SlotCards.svelte";
   import { shieldResist } from "$lib/modules/ships/figures";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
-  import AccelRose from "$lib/modules/ships/AccelRose.svelte";
   import LoadoutBar from "$lib/modules/ships/LoadoutBar.svelte";
   import PartPicker from "$lib/modules/ships/PartPicker.svelte";
-  import QtChart from "$lib/modules/ships/QtChart.svelte";
+  import ShipDetails from "$lib/modules/ships/ShipDetails.svelte";
+  import ShipHolo from "$lib/modules/ships/ShipHolo.svelte";
   import ShipMenu from "$lib/modules/ships/ShipMenu.svelte";
-  import ShipPrices from "$lib/modules/ships/ShipPrices.svelte";
   import ShipsHome from "$lib/modules/ships/ShipsHome.svelte";
-  import { crewParts, crewTitle } from "$lib/modules/ships/seats";
   import type { SlotView } from "$lib/bindings";
   import {
     closePicker,
@@ -45,7 +43,6 @@
     setLevel,
     shipsCandidates,
     shipsPicker,
-    shipsPrices,
     shipsStore,
     shipsUi,
     toggleOff,
@@ -76,21 +73,28 @@
 
   let ready = $state(false);
   /** The view, in the URL like any view mode (frontend rule 7): every ship,
-   *  or the open ship's Build or Ship page. The two need a ship open; the
-   *  list keeps it open, so Build goes back to it. */
+   *  or the open ship's Build page. Build needs a ship open; the list keeps
+   *  it open, so Build goes back to it. */
   const VIEWS = [
     ["ships", "Ships"],
-    ["ship", "Ship"],
     ["build", "Build"],
   ] as const;
   type View = (typeof VIEWS)[number][0];
   const browse = createBrowseState({ tab: { kind: "one", default: "build" } });
-  const view = $derived<View>(!shipsUi.ship ? "ships" : browse.values.tab === "ship" || browse.values.tab === "ships" ? browse.values.tab : "build");
-  /** A ship picked from the list or the picker opens on its Build page
-   *  (from Ship it stays on Ship: switching hulls to compare them). */
+  const view = $derived<View>(!shipsUi.ship || browse.values.tab === "ships" ? "ships" : "build");
+  /** A ship picked from the list or the picker opens on its Build page. */
   function openFromList(guid: string) {
     openShip(guid);
-    if (view !== "ship") browse.set("tab", "build");
+    browse.set("tab", "build");
+  }
+  /** The holo opened into the ship's stats: an expansion, so page-local
+   *  (frontend rule 7). It stays open across hulls, to compare them. */
+  let details = $state(false);
+  let holoEl = $state<HTMLButtonElement>();
+  async function closeDetails() {
+    details = false;
+    await tick();
+    holoEl?.focus({ preventScroll: true });
   }
   /** Build: the holo in the middle with the fighting parts left of it and
    *  the running parts right. */
@@ -237,7 +241,7 @@
         >
       {/each}
       <!-- The picker shows on every tab ("Pick a ship" with none open), so
-           the greyed Build and Ship tabs have their way in beside them. -->
+           the greyed Build tab has its way in beside it. -->
       {#if shipsUi.ship}
         <div class="loadout">
           <LoadoutBar {channel} {shipName} />
@@ -257,6 +261,7 @@
     {:else if page && page.ship === shipsUi.ship}
       {@const s = page.summary}
       {@const picture = shipsImages.byGuid.get(shipsUi.ship)}
+      {@const glow = SYSTEMS.find((x) => x.id === hover)?.hue ?? null}
       {#snippet power()}
         {#if page.power}
           <PowerPanel
@@ -304,62 +309,22 @@
           />
         </div>
       {/if}
-      {#if view === "build"}
-        <!-- The ship in the middle over its power screen; the parts that
-             fight on its left, the parts that run it on its right. -->
-        {@const glow = SYSTEMS.find((x) => x.id === hover)?.hue ?? null}
-        <div class="around">
+      <!-- The ship in the middle over its power screen; the parts that
+           fight on its left, the parts that run it on its right. The holo
+           opens the ship's own stats over all of it. -->
+      <div class="stage">
+        <div class="around" class:under={details} inert={details}>
           <div class="side left">{@render cards(FIGHT)}</div>
           <div class="core">
-            <div class="holo framed" class:lit={glow} style:--glow={glow ?? "var(--hue-sky)"}>
-              {#if picture}<img class="shot" src={picture} alt="" />{/if}
-            </div>
+            <ShipHolo {picture} {glow} bind:el={holoEl} onclick={() => (details = true)} />
             {@render power()}
           </div>
           <div class="side right">{@render cards(RUN)}</div>
         </div>
-      {:else}
-        <div class="ship">
-          <div class="parts">
-            <section class="head" aria-label="Ship">
-              <div class="id">
-                <span class="meta">
-                  {#if row?.manufacturerCode}<b class="code">{row.manufacturerCode}</b>{/if}
-                  {#each [row?.career, row?.role].filter(Boolean) as m (m)}<span>{m}</span>{/each}
-                  <span class="crew" title={crewTitle(s.crew)}><b>{s.crew.crew} crew</b>{#each crewParts(s.crew) as c (c)}<i>{c}</i>{/each}</span>
-                </span>
-                <h1>{shipName}</h1>
-              </div>
-              <div class="holo">
-                {#if picture}<img class="shot" src={picture} alt="" />{/if}
-              </div>
-            </section>
-            <div class="charts">
-              {#if s.flight}
-                <section class="panel" aria-label="Flight">
-                  <h3 class="label">Flight</h3>
-                  <AccelRose normal={s.flight.acceleration} boosted={s.flight.accelerationBoosted} />
-                </section>
-              {/if}
-              {#if s.quantum}
-                <section class="panel" aria-label="Quantum travel">
-                  <h3 class="label">Quantum travel</h3>
-                  <QtChart drive={s.quantum} />
-                </section>
-              {/if}
-              <section class="panel wide" aria-label="Where to get it">
-                <h3 class="label">Where to get it</h3>
-                <ShipPrices prices={shipsPrices.of(shipsUi.ship)} />
-              </section>
-            </div>
-          </div>
-          <aside class="numbers" aria-label="Figures">
-            <div class="figures">
-              <ShipFigures {page} />
-            </div>
-          </aside>
-        </div>
-      {/if}
+        {#if details}
+          <ShipDetails {page} {row} name={shipName} {picture} from={holoEl} onclose={closeDetails} />
+        {/if}
+      </div>
     {:else}
       <p class="hint">Reading the ship…</p>
     {/if}
@@ -403,99 +368,9 @@
     gap: 8px 10px;
     padding-bottom: 6px;
   }
-  /* Ship: two columns in the one page scroll, the parts (head, charts)
-   * and the numbers (figures). */
-  .ship {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 470px;
-    gap: 16px;
-    align-items: start;
-  }
-  .parts,
-  .numbers {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    min-width: 0;
-  }
-  .figures {
-    padding: 14px 18px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: color-mix(in srgb, var(--bg-raised) 60%, transparent);
-  }
-  .head {
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 16px;
-    border: 1px solid color-mix(in srgb, var(--hue-sky) 30%, var(--border));
-    border-radius: var(--radius-lg);
-    background: radial-gradient(
-      120% 90% at 50% 35%,
-      color-mix(in srgb, var(--hue-sky) 10%, var(--bg-sunk)),
-      var(--bg-sunk) 70%
-    );
-  }
-  h1 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: 1.6rem;
-    color: var(--text-strong);
-  }
-  .id {
+  /* What the ship sheet lies over. */
+  .stage {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-height: 64px;
-  }
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 12px;
-    font-size: var(--text-small);
-    color: var(--text-faint);
-  }
-  .crew {
-    display: inline-flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    align-items: center;
-  }
-  .crew b {
-    font-weight: 600;
-    color: var(--text-dim);
-    margin-right: 2px;
-  }
-  .crew i {
-    font-style: normal;
-    font-size: 0.7rem;
-    padding: 0 6px;
-    border-radius: var(--radius-chip);
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-  }
-  .code {
-    font: 700 0.72rem var(--font-mono);
-    color: var(--hue-sand);
-  }
-  /* The holo window: the ship, at a fixed height so the cards start in
-   * view under it. */
-  .holo {
-    position: relative;
-    height: clamp(220px, 32vh, 380px);
-  }
-  .shot {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    mask-image: radial-gradient(closest-side, black 70%, transparent);
-    opacity: 0.92;
-    pointer-events: none;
   }
   /* Build: the ship and its power screen in the middle, the parts around
    * it. The middle column is capped so the parts keep their room. */
@@ -508,6 +383,11 @@
     grid-template-areas: "left core right";
     gap: 16px;
     align-items: start;
+    transition: opacity 200ms var(--easing);
+  }
+  /* The sheet can be shorter than the cards; they go, it doesn't stretch. */
+  .around.under {
+    opacity: 0;
   }
   .side {
     min-width: 0;
@@ -539,69 +419,12 @@
       grid-template-columns: minmax(0, 1fr) 380px;
     }
   }
-  /* The holo window on Build: framed like the Ship tab's head; the system
-   * under the pointer tints its glow (colour only, nothing moves). */
-  .holo.framed {
-    border: 1px solid color-mix(in srgb, var(--glow) 30%, var(--border));
-    border-radius: var(--radius-lg);
-    background: radial-gradient(
-      120% 90% at 50% 45%,
-      color-mix(in srgb, var(--glow) 10%, var(--bg-sunk)),
-      var(--bg-sunk) 70%
-    );
-    transition:
-      border-color 160ms var(--easing),
-      background 160ms var(--easing);
-  }
-  .holo.framed.lit {
-    border-color: color-mix(in srgb, var(--glow) 55%, var(--border));
-  }
-  /* A store picture is a full scene that hides the background, so the
-   * glow lies over it, around the edge. */
-  .holo.framed::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    box-shadow: inset 0 0 0 transparent;
-    transition: box-shadow 160ms var(--easing);
-  }
-  .holo.framed.lit::after {
-    box-shadow: inset 0 0 56px color-mix(in srgb, var(--glow) 45%, transparent);
-  }
   .hint {
     font-size: var(--text-small);
     color: var(--text-faint);
   }
   .error {
     color: var(--bad);
-  }
-  /* Flight and Quantum sit side by side only when the rose and its figures
-     fit (the default window is too narrow); the price rows take a full row. */
-  .charts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-  }
-  .charts .panel {
-    flex: 1 1 420px;
-    min-width: 0;
-  }
-  .charts .panel.wide {
-    flex-basis: 100%;
-  }
-  .panel {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px 16px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: color-mix(in srgb, var(--bg-raised) 45%, transparent);
-  }
-  .panel h3 {
-    margin: 0;
   }
   /* Over the window, not the page: wherever the card sits, the picker
    * opens in view, its list scrolling inside it; a light veil keeps the

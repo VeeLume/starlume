@@ -1,8 +1,9 @@
 <script lang="ts">
-  // The Ship page's figures as label and value rows: what belongs to the
+  // The ship sheet's figures as label and value rows: what belongs to the
   // hull (structure, armour, flight, logistics). What changes with parts
-  // and pips is on the Build page, in its boxes' header lines and the power
-  // panel. All of it is computed Rust-side; this only lays it out.
+  // and pips is on Build, in its boxes' header lines and the power panel;
+  // accelerations are in the rose beside these. All of it is computed
+  // Rust-side; this only lays it out.
   import type { ShipPageView } from "$lib/bindings";
 
   let { page }: { page: ShipPageView } = $props();
@@ -23,17 +24,6 @@
     ["energy", "Energy"],
     ["distortion", "Distortion"],
   ] as const;
-  const accel = $derived(
-    s.flight
-      ? ([
-          ["Forward", s.flight.acceleration.forward, s.flight.accelerationBoosted.forward],
-          ["Retro", s.flight.acceleration.backward, s.flight.accelerationBoosted.backward],
-          ["Strafe", Math.max(s.flight.acceleration.left, s.flight.acceleration.right), Math.max(s.flight.accelerationBoosted.left, s.flight.accelerationBoosted.right)],
-          ["Up", s.flight.acceleration.up, s.flight.accelerationBoosted.up],
-          ["Down", s.flight.acceleration.down, s.flight.accelerationBoosted.down],
-        ] as const)
-      : [],
-  );
 </script>
 
 {#snippet head(title: string)}
@@ -109,12 +99,6 @@
         <dt>Boosted</dt>
         <dd>{f.rotationBoosted.map((v) => fmt(v)).join(" / ")}<small>°/s</small></dd>
       </dl>
-      <div class="tb acc" role="table" aria-label="Acceleration">
-        <span class="th" role="columnheader">Acceleration</span><span class="th r" role="columnheader">G</span><span class="th r" role="columnheader">boosted</span>
-        {#each accel as [label, a, b] (label)}
-          <span role="cell">{label}</span><span class="v" role="cell">{fmt(a, 1)}</span><span class="v dim" role="cell">{fmt(b, 1)}</span>
-        {/each}
-      </div>
     </section>
   {/if}
   <section>
@@ -193,9 +177,6 @@
     font-size: var(--text-small);
     color: var(--text-dim);
   }
-  .tb.acc {
-    grid-template-columns: minmax(0, 1fr) repeat(2, 72px);
-  }
   .th {
     font-size: 0.68rem;
     font-weight: 600;
@@ -208,9 +189,6 @@
   .v {
     font-family: var(--font-mono);
     color: var(--text-strong);
-  }
-  .v.dim {
-    color: var(--text-dim);
   }
   .good {
     color: var(--good);

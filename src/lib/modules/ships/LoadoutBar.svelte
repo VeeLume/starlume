@@ -140,6 +140,7 @@
     else if (naming) naming = false;
     else close();
     error = "";
+    e.preventDefault(); // the ship sheet under the menu stays open
   }
 
   function outside(e: MouseEvent) {
