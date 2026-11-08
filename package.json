@@ -19,8 +19,10 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "@veelume/sc-render": "github:VeeLume/sc-render#v0.1.0&path:packages/sc-render",
     "@veelume/ui": "github:VeeLume/veelume-ui#v0.1.12&path:packages/ui",
-    "lucide-svelte": "^1.0.1"
+    "lucide-svelte": "^1.0.1",
+    "three": "~0.186.1"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",
@@ -29,6 +31,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
     "@types/node": "^25.6.0",
+    "@types/three": "~0.186.0",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "tailwindcss": "^4.3.3",

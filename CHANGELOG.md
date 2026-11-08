@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **Ship holo** — on Build, your ship is now a hologram of what is actually
+  fitted, read from your own game install. Drag to turn it, scroll to zoom,
+  click for its stats; pointing at a part's card lights that part on the ship.
+
 ## [0.4.0] - 2026-11-08
 
 Starlume gets a ships module: fit any ship and see what a swap does before you

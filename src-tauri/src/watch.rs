@@ -17,6 +17,7 @@
 //! themselves; they don't hook in here.
 
 use tauri::{AppHandle, Manager};
+use tauri_plugin_sc_render::ScRenderExt;
 
 use crate::bus::BusEvent;
 use crate::{AppState, data, langpatch, notify};
@@ -70,6 +71,7 @@ async fn on_install_changed(app: &AppHandle, info: svc_discovery::InstallInfo) {
     );
 
     app.state::<AppState>().data.evict();
+    app.sc_render().evict(); // it holds the old build's p4k open
     let _ = data::refresh_installs(app).await;
 
     notify::notify(

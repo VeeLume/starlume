@@ -21,6 +21,8 @@ use tauri::{
     AppHandle, LogicalPosition, LogicalSize, Manager, WebviewWindow, WebviewWindowBuilder,
 };
 
+use tauri_plugin_sc_render::ScRenderExt;
+
 use crate::error::AppError;
 use crate::{AppState, suspend};
 
@@ -98,6 +100,7 @@ pub fn hide_to_tray(window: &tauri::Window) {
         suspend::suspend_webview(&w);
     }
     app.state::<AppState>().data.evict();
+    app.sc_render().evict();
 
     let shows = SHOWS.load(Ordering::SeqCst);
     tauri::async_runtime::spawn(async move {

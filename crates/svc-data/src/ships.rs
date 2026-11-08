@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 
-use sc_holotable::asset::{AssetSource, Datacore, Guid};
+use sc_holotable::asset::{AssetSource, CharacterDefinition, Datacore, Guid};
 use serde::{Deserialize, Serialize};
 
 pub use sc_holotable::asset::generated::{
@@ -34,6 +34,7 @@ pub use sc_holotable::items::{Item, ItemClass, Items};
 pub use sc_holotable::locations::{QuantumTravel, Waypoint, Waypoints};
 pub use sc_holotable::ship_components::*;
 pub use sc_holotable::vehicles::*;
+pub use sc_holotable::visuals::{Palettes, Scene, Visuals};
 pub use sc_holotable::weapons::{LoadoutContext, ShipWeapon, SustainKind, WeaponPower};
 
 /// The cooked ship bundle.
@@ -88,6 +89,44 @@ pub struct ShipsIndex {
     /// could not open the p4k.
     #[serde(default)]
     pub waypoints: Waypoints,
+}
+
+/// What the ship holo assembles a vehicle from, with any loadout. Kept out
+/// of [`crate::CookedData`] in its own snapshot: only a holo needs it, so
+/// it costs the normal load and the idle footprint nothing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ShipVisuals {
+    pub visuals: Visuals,
+    pub palettes: Palettes,
+}
+
+impl ShipVisuals {
+    /// Cook them from one parsed `Datacore`.
+    pub(crate) fn build(datacore: &Datacore, items: &Items) -> Self {
+        Self {
+            visuals: Visuals::build(datacore, items),
+            palettes: Palettes::build(datacore),
+        }
+    }
+
+    /// `vehicle` (record `guid`) with `loadout` installed, for drawing.
+    /// `None` when the vehicle has no geometry.
+    pub fn assemble(
+        &self,
+        guid: &Guid,
+        vehicle: &Vehicle,
+        loadout: &[Mounted],
+        assets: &AssetSource,
+    ) -> Option<Scene> {
+        scene(
+            &self.visuals,
+            &self.palettes,
+            guid,
+            vehicle,
+            loadout,
+            |path| CharacterDefinition::read(assets, path).map_err(|e| e.to_string()),
+        )
+    }
 }
 
 /// One listed vehicle: what a ship picker offers.

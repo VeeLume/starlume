@@ -1,16 +1,14 @@
 <script lang="ts">
-  // The holo opened: the ship's own stats and graphs, grown out of the
-  // picture over the build. The columns are Build's, so the picture stays
-  // exactly where it was and the sheet opens around it. Its menus sit above
-  // it, so switching hull or loadout keeps it open.
-  import { onMount } from "svelte";
+  // The holo opened: the ship's own stats and graphs, grown out of it over
+  // the build. The columns are Build's and the holo itself stays where it
+  // is, above this sheet (the middle column leaves it room). The row's menus
+  // sit above too, so switching hull or loadout keeps it open.
   import { cubicOut } from "svelte/easing";
   import type { ShipPageView, ShipRowView } from "$lib/bindings";
   import { shipsPrices } from "$lib/state/ships.svelte";
   import AccelRose from "./AccelRose.svelte";
   import QtChart from "./QtChart.svelte";
   import ShipFigures from "./ShipFigures.svelte";
-  import ShipHolo from "./ShipHolo.svelte";
   import ShipPrices from "./ShipPrices.svelte";
   import { crewParts, crewTitle } from "./seats";
 
@@ -18,23 +16,18 @@
     page,
     row,
     name,
-    picture,
     from,
     onclose,
   }: {
     page: ShipPageView;
     row: ShipRowView | null;
     name: string;
-    picture: string | undefined;
-    /** The Build holo: what the sheet grows out of and shrinks back into. */
+    /** The holo: what the sheet grows out of and shrinks back into. */
     from: HTMLElement | undefined;
     onclose: () => void;
   } = $props();
 
   const s = $derived(page.summary);
-  let holo = $state<HTMLButtonElement>();
-
-  onMount(() => holo?.focus({ preventScroll: true }));
 
   /** Reveals the sheet from the holo's rectangle; nothing is resized, so the
    *  charts and the picture stand still while it opens. */
@@ -73,7 +66,7 @@
     {/if}
   </div>
   <div class="core">
-    <ShipHolo {picture} open bind:el={holo} onclick={onclose} />
+    <div class="room" aria-hidden="true"></div>
     <div class="id">
       <span class="meta">
         {#if row?.manufacturerCode}<b class="code">{row.manufacturerCode}</b>{/if}
@@ -130,6 +123,9 @@
   }
   .core {
     grid-area: core;
+  }
+  .room {
+    height: var(--holo-height);
   }
   .prices {
     grid-area: prices;

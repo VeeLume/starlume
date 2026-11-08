@@ -8,6 +8,7 @@
     "updater:default",
     "dialog:default",
     "process:allow-restart",
-    "deep-link:default"
+    "deep-link:default",
+    "sc-render:default"
   ]
 }

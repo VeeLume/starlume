@@ -2799,6 +2799,48 @@
           "markdownDescription": "Denies the restart command without any pre-configured scope."
         },
         {
+          "description": "Load models, materials and skeletons; the scr scheme needs no permission.\n#### This default permission set includes:\n\n- `allow-load-model`\n- `allow-load-material`\n- `allow-load-skeleton`",
+          "type": "string",
+          "const": "sc-render:default",
+          "markdownDescription": "Load models, materials and skeletons; the scr scheme needs no permission.\n#### This default permission set includes:\n\n- `allow-load-model`\n- `allow-load-material`\n- `allow-load-skeleton`"
+        },
+        {
+          "description": "Enables the load_material command without any pre-configured scope.",
+          "type": "string",
+          "const": "sc-render:allow-load-material",
+          "markdownDescription": "Enables the load_material command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the load_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "sc-render:allow-load-model",
+          "markdownDescription": "Enables the load_model command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the load_skeleton command without any pre-configured scope.",
+          "type": "string",
+          "const": "sc-render:allow-load-skeleton",
+          "markdownDescription": "Enables the load_skeleton command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_material command without any pre-configured scope.",
+          "type": "string",
+          "const": "sc-render:deny-load-material",
+          "markdownDescription": "Denies the load_material command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "sc-render:deny-load-model",
+          "markdownDescription": "Denies the load_model command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_skeleton command without any pre-configured scope.",
+          "type": "string",
+          "const": "sc-render:deny-load-skeleton",
+          "markdownDescription": "Denies the load_skeleton command without any pre-configured scope."
+        },
+        {
           "description": "This permission set configures which kind of\nupdater functions are exposed to the frontend.\n\n#### Granted Permissions\n\nThe full workflow from checking for updates to installing them\nis enabled.\n\n\n#### This default permission set includes:\n\n- `allow-check`\n- `allow-download`\n- `allow-install`\n- `allow-download-and-install`",
           "type": "string",
           "const": "updater:default",

@@ -11,10 +11,12 @@ use mod_ships::{
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use svc_data::Guid;
-use svc_data::ships::{Accelerations, Loadout};
-use tauri::AppHandle;
+use svc_data::ships::{Accelerations, Loadout, RecordCollection};
+use tauri::{AppHandle, Manager};
+use tauri_plugin_sc_render::ScRenderExt;
 
-use crate::data::cooked_for;
+use crate::AppState;
+use crate::data::{cooked_for, install_for};
 use crate::error::AppError;
 
 /// Module id (Rust registry, settings, frontend descriptor).
@@ -1300,6 +1302,45 @@ pub(crate) async fn ships_view(
         .map_err(|e| AppError::Internal(e.to_string()))?
         .map(Into::into)
         .map_err(|e| AppError::Config(e.to_string()))
+}
+
+/// A ship with its fitted loadout, as the holo draws it. Assembled from the
+/// cooked recipes (no DCB) and the `.cdf` files in the local install.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn ships_scene(
+    app: AppHandle,
+    channel: String,
+    loadout: ShipLoadoutView,
+) -> Result<sc_render::ShipScene, AppError> {
+    let cooked = cooked_for(&app, &channel).await?;
+    let install = install_for(&app, &channel).await?;
+    let input: LoadoutInput = loadout.into();
+    tauri::async_runtime::spawn_blocking(move || {
+        let visuals = app
+            .state::<AppState>()
+            .data
+            .ship_visuals(&install)
+            .ok_or_else(|| AppError::Config("this build has no cooked ship models yet".into()))?;
+        let fitted =
+            mod_ships::loadout(&cooked, &input).map_err(|e| AppError::Config(e.to_string()))?;
+        let vehicle = cooked
+            .ships
+            .vehicles
+            .get(&fitted.vehicle)
+            .ok_or_else(|| AppError::Config(format!("unknown ship {}", input.ship)))?;
+        // Taken per call and dropped with it: a held `Arc` would keep the
+        // install open across a hide, past `evict`.
+        let assets = app.sc_render().assets().map_err(AppError::Internal)?;
+        let scene = visuals
+            .assemble(&fitted.vehicle, vehicle, &fitted.mounted, assets.source())
+            .ok_or_else(|| AppError::Config("this ship has no model".into()))?;
+        Ok(sc_render::ShipScene::new(&scene, input.ship.clone(), |g| {
+            g.to_string()
+        }))
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
 }
 
 /// Where quantum travel goes: the build's waypoints with game labels, and

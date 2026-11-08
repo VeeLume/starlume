@@ -6,7 +6,7 @@
   // change. The hull itself (role, structure, armour, flight, logistics,
   // charts) opens out of the holo. Reads the cooked game data only: no
   // network.
-  import { onDestroy, onMount, tick, untrack } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { Select, createBrowseState, type SelectOption } from "@veelume/ui";
   import type { SystemView } from "$lib/bindings";
@@ -33,6 +33,7 @@
     shipsImages,
     loadHome,
     loadPage,
+    loadScene,
     loadShipPrices,
     loadShips,
     openShip,
@@ -43,6 +44,7 @@
     setLevel,
     shipsCandidates,
     shipsPicker,
+    shipsScene,
     shipsStore,
     shipsUi,
     toggleOff,
@@ -90,17 +92,13 @@
   /** The holo opened into the ship's stats: an expansion, so page-local
    *  (frontend rule 7). It stays open across hulls, to compare them. */
   let details = $state(false);
-  let holoEl = $state<HTMLButtonElement>();
-  async function closeDetails() {
-    details = false;
-    await tick();
-    holoEl?.focus({ preventScroll: true });
-  }
+  let holoEl = $state<HTMLElement>();
   /** Build: the holo in the middle with the fighting parts left of it and
    *  the running parts right. */
   const FIGHT: Entry[][] = [[["weapons", "turrets"], "missiles", "countermeasures", "shields"]];
   const RUN: SystemView[][] = [["powerPlants", "coolers", "quantum", "radar", "lifeSupport", "fuel", "docked"]];
   let hover = $state<SystemView | null>(null);
+  let hoverPorts = $state<string[] | null>(null);
   const channel = $derived(dataStore.channel);
   const ships = $derived(shipsStore.ships);
   const page = $derived(shipsStore.page);
@@ -143,6 +141,16 @@
     const key = JSON.stringify([shipsUi.ship, shipsUi.edits[shipsUi.ship], shipsUi.mode, shipsUi.off[shipsUi.ship], shipsUi.levels[shipsUi.ship]]);
     if (!c || !shipsUi.ship || !key) return;
     untrack(() => void loadPage(c));
+  });
+
+  // The holo draws what is fitted: again when the parts change (the store
+  // skips an unchanged loadout, so a power change costs nothing). Once the
+  // page is in, for the same reason as below.
+  $effect(() => {
+    const c = channel;
+    const ship = shipsUi.ship;
+    const edits = JSON.stringify(shipsUi.edits[ship]);
+    if (c && ship && edits !== "" && view === "build" && page?.ship === ship) untrack(() => void loadScene(c));
   });
 
   // Where the open ship is sold and rented (cached UEX prices), and your
@@ -288,7 +296,10 @@
           selected={shipsPicker.open?.targets[0].join("/") ?? null}
           onpick={(ss) => channel && void openPicker(channel, ss.map((s) => s.path))}
           ontoggle={toggleOff}
-          onhover={(s) => (hover = s)}
+          onhover={(s, ports) => {
+            hover = s;
+            hoverPorts = ports;
+          }}
           weaponPool={page.power?.columns.find((c) => c.itemType === "WeaponGun") ?? null}
         />
       {/snippet}
@@ -313,16 +324,24 @@
            fight on its left, the parts that run it on its right. The holo
            opens the ship's own stats over all of it. -->
       <div class="stage">
-        <div class="around" class:under={details} inert={details}>
-          <div class="side left">{@render cards(FIGHT)}</div>
+        <div class="around" class:under={details}>
+          <div class="side left fades" inert={details}>{@render cards(FIGHT)}</div>
           <div class="core">
-            <ShipHolo {picture} {glow} bind:el={holoEl} onclick={() => (details = true)} />
-            {@render power()}
+            <ShipHolo
+              {picture}
+              scene={shipsScene.of(shipsUi.ship)}
+              open={details}
+              {glow}
+              lit={hoverPorts}
+              bind:el={holoEl}
+              onclick={() => (details = !details)}
+            />
+            <div class="fades" inert={details}>{@render power()}</div>
           </div>
-          <div class="side right">{@render cards(RUN)}</div>
+          <div class="side right fades" inert={details}>{@render cards(RUN)}</div>
         </div>
         {#if details}
-          <ShipDetails {page} {row} name={shipName} {picture} from={holoEl} onclose={closeDetails} />
+          <ShipDetails {page} {row} name={shipName} from={holoEl} onclose={() => (details = false)} />
         {/if}
       </div>
     {:else}
@@ -371,6 +390,7 @@
   /* What the ship sheet lies over. */
   .stage {
     position: relative;
+    --holo-height: clamp(220px, 32vh, 380px);
   }
   /* Build: the ship and its power screen in the middle, the parts around
    * it. The middle column is capped so the parts keep their room. */
@@ -383,10 +403,13 @@
     grid-template-areas: "left core right";
     gap: 16px;
     align-items: start;
+  }
+  /* The sheet can be shorter than the cards; they go, it doesn't stretch.
+   * The holo stays: it is the sheet's centre. */
+  .fades {
     transition: opacity 200ms var(--easing);
   }
-  /* The sheet can be shorter than the cards; they go, it doesn't stretch. */
-  .around.under {
+  .around.under .fades {
     opacity: 0;
   }
   .side {

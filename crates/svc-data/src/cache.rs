@@ -26,9 +26,13 @@ use sc_holotable::asset::{
 };
 
 use crate::cooked::{CookedData, DATA_COOK_VERSION};
+use crate::ships::ShipVisuals;
 use crate::{InstallRef, LoadTier};
 
 pub(crate) const PROCESSED_SNAPSHOT_NAME: &str = "foundations.cook";
+/// The ship holo's recipes, written and invalidated with the cook, loaded
+/// only when a holo opens.
+pub(crate) const VISUALS_SNAPSHOT_NAME: &str = "visuals.cook";
 pub(crate) const EXTRACT_SNAPSHOT_NAME: &str = "extract.snap";
 
 /// Snapshot provenance from an install's identity fields.
@@ -141,11 +145,35 @@ pub(crate) fn extract_meta(dir: &Path) -> Option<SnapshotMeta> {
         .map(|snap| snap.meta)
 }
 
-/// Delete the cooked snapshot (and its key) — slimming an archived build to
-/// its extract.
+/// Delete the cooked snapshots (and the key) — slimming an archived build
+/// to its extract.
 pub(crate) fn drop_processed(dir: &Path) -> std::io::Result<()> {
     let _ = std::fs::remove_file(key_path(dir, PROCESSED_SNAPSHOT_NAME));
+    let _ = std::fs::remove_file(dir.join(VISUALS_SNAPSHOT_NAME));
     std::fs::remove_file(dir.join(PROCESSED_SNAPSHOT_NAME))
+}
+
+/// Load the ship holo's recipes. `None` on any failure: the holo falls back
+/// to the picture and the next cook writes them again.
+pub(crate) fn try_load_visuals(dir: &Path, install: &InstallRef) -> Option<ShipVisuals> {
+    let path = dir.join(VISUALS_SNAPSHOT_NAME);
+    let snap = ProcessedSnapshot::<ShipVisuals>::load(&path, DATA_COOK_VERSION)
+        .inspect_err(|e| tracing::info!("ship visuals snapshot unusable ({e})"))
+        .ok()?;
+    same_build(&snap.meta.build_id, install).then(|| snap.into_index())
+}
+
+/// Persist the ship holo's recipes. Failure is non-fatal (logged).
+pub(crate) fn save_visuals(dir: &Path, install: &InstallRef, visuals: ShipVisuals) {
+    let path = dir.join(VISUALS_SNAPSHOT_NAME);
+    let saved = ProcessedSnapshot::new(meta_for(install), DATA_COOK_VERSION, visuals).save(&path);
+    match saved {
+        Ok(()) => {
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            tracing::info!(bytes = size, "wrote ship visuals snapshot");
+        }
+        Err(e) => tracing::warn!("failed to save ship visuals to {}: {e}", path.display()),
+    }
 }
 
 /// Persist the cooked data. Failure is non-fatal (logged): the load already

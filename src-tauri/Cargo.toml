@@ -36,6 +36,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
 # Open the system browser for the server's Discord OAuth flow.
 tauri-plugin-opener = "2"
+# The ship holo: models and textures from the local install. Must build
+# against the same sc-holotable tag as the root pin.
+sc-render = { workspace = true, features = ["specta"] }
+tauri-plugin-sc-render.workspace = true
 # starlume:// scheme — the auth callback (and future cross-app hooks).
 tauri-plugin-deep-link = "2"
 # One resident companion per machine. The `deep-link` feature forwards a
