@@ -1795,6 +1795,24 @@ pub(crate) fn ships_open_loadout(
     })
 }
 
+/// Rename a saved loadout of `ship`; its parts and the open draft stay.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn ships_rename_loadout(
+    ship: String,
+    id: String,
+    name: String,
+) -> Result<ShipLoadoutsView, AppError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AppError::Internal("a loadout needs a name".into()));
+    }
+    with_loadouts(|l| {
+        l.rename(&ship, &id, name);
+        loadouts_view(l, &ship)
+    })
+}
+
 /// Forget a saved loadout; the open draft keeps its edits.
 #[tauri::command]
 #[specta::specta]
