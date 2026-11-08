@@ -1,8 +1,21 @@
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 
 const host = process.env.TAURI_DEV_HOST;
+
+/**
+ * The dev server's port, 1445 unless `STARLUME_DEV_PORT` says otherwise (the
+ * environment, or an untracked `.env.local`). A second checkout, such as the
+ * App's worktree, takes its own so both run side by side. Tauri's `devUrl`
+ * cannot read the environment: `tools/dev.mjs` (`just dev-here`) sets it.
+ *
+ * @param {string} mode
+ */
+function devPort(mode) {
+  const fromFile = loadEnv(mode, process.cwd(), "STARLUME_").STARLUME_DEV_PORT;
+  return Number(process.env.STARLUME_DEV_PORT || fromFile) || 1445;
+}
 
 /**
  * Dev only. A store module (`src/lib/state/*.svelte.ts`) holds the session
@@ -42,7 +55,7 @@ function storesReloadWhole() {
   };
 }
 
-export default defineConfig(async () => ({
+export default defineConfig(async ({ mode }) => ({
   plugins: [storesReloadWhole(), tailwindcss(), sveltekit()],
 
   // @veelume/ui ships SOURCE (.svelte / .svelte.ts rune modules). The dev
@@ -66,14 +79,14 @@ export default defineConfig(async () => ({
   // Vite options for Tauri development
   clearScreen: false,
   server: {
-    port: 1445,
+    port: devPort(mode),
     strictPort: true,
     host: host || false,
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 1446,
+          port: devPort(mode) + 1,
         }
       : undefined,
     watch: {

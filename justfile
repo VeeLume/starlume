@@ -38,6 +38,13 @@ server-db-reset:
 dev-alt profile="alt":
     STARLUME_PROFILE={{profile}} ./target/debug/starlume.exe
 
+# Takes STARLUME_DEV_PORT (and STARLUME_PROFILE / STARLUME_DATA_DIR for the app)
+# from the environment or an untracked .env.local, so a second checkout runs
+# beside the first. With none set it is `just dev`. See tools/dev.mjs.
+# Run the app on this checkout's own dev port
+dev-here *args:
+    pnpm dev:tauri {{args}}
+
 # Same as `just dev`, plus WebView2's DevTools port on 127.0.0.1 so a tool
 # can screenshot and drive the webview (Claude's design checks use it).
 # Run the app with the webview's DevTools port open

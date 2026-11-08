@@ -147,7 +147,9 @@ long-lived state (code comments cite them by name):
   errors politely without a configured server URL. Don't invent server endpoints — the
   contract lands together with `hearth-server`'s successor.
 - Frontend dev server runs on port **1445** (Hearth uses 1420 — both apps run side by side
-  in dev).
+  in dev). A second checkout (the App's worktree) sets `STARLUME_DEV_PORT` in its untracked
+  `.env.local` and starts with `just dev-here`; it also needs `STARLUME_PROFILE` there when the
+  other checkout's app runs, since a debug build takes the single-instance lock otherwise.
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
