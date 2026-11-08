@@ -3,8 +3,9 @@
 ## [Unreleased]
 
 - **Ship holo** — on Build, your ship is now a hologram of what is actually
-  fitted, read from your own game install. Drag to turn it, scroll to zoom,
-  click for its stats; pointing at a part's card lights that part on the ship.
+  fitted, read from your own game install. Drag to turn it; pointing at a
+  part's card lights the part and turns it towards you. Click to expand the
+  holo behind the ship's stats, where you can look from any angle and zoom.
   Settings → General turns it off, and Build shows the ship's picture instead.
 
 ## [0.4.0] - 2026-11-08

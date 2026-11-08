@@ -93,7 +93,7 @@
   /** The holo opened into the ship's stats: an expansion, so page-local
    *  (frontend rule 7). It stays open across hulls, to compare them. */
   let details = $state(false);
-  let holoEl = $state<HTMLElement>();
+  let holoSlot = $state<HTMLElement>();
   const holo = $derived(settingsStore.current?.ship_holo ?? false);
   /** Build: the holo in the middle with the fighting parts left of it and
    *  the running parts right. */
@@ -101,6 +101,7 @@
   const RUN: SystemView[][] = [["powerPlants", "coolers", "quantum", "radar", "lifeSupport", "fuel", "docked"]];
   let hover = $state<SystemView | null>(null);
   let hoverPorts = $state<string[] | null>(null);
+  let hoverLine = $state<string[] | null>(null);
   const channel = $derived(dataStore.channel);
   const ships = $derived(shipsStore.ships);
   const page = $derived(shipsStore.page);
@@ -298,9 +299,10 @@
           selected={shipsPicker.open?.targets[0].join("/") ?? null}
           onpick={(ss) => channel && void openPicker(channel, ss.map((s) => s.path))}
           ontoggle={toggleOff}
-          onhover={(s, ports) => {
+          onhover={(s, ports, line) => {
             hover = s;
             hoverPorts = ports;
+            hoverLine = line ? ports : null;
           }}
           weaponPool={page.power?.columns.find((c) => c.itemType === "WeaponGun") ?? null}
         />
@@ -329,22 +331,25 @@
         <div class="around" class:under={details}>
           <div class="side left fades" inert={details}>{@render cards(FIGHT)}</div>
           <div class="core">
-            <ShipHolo
-              {picture}
-              live={holo}
-              scene={shipsScene.of(shipsUi.ship)}
-              open={details}
-              {glow}
-              lit={hoverPorts}
-              bind:el={holoEl}
-              onclick={() => (details = !details)}
-            />
+            <div class="holo-slot" bind:this={holoSlot}>
+              <ShipHolo
+                {picture}
+                live={holo}
+                scene={shipsScene.of(shipsUi.ship)}
+                open={details}
+                slot={holoSlot}
+                hue={glow}
+                lit={hoverPorts}
+                focus={hoverLine}
+                onclick={() => (details = !details)}
+              />
+            </div>
             <div class="fades" inert={details}>{@render power()}</div>
           </div>
           <div class="side right fades" inert={details}>{@render cards(RUN)}</div>
         </div>
         {#if details}
-          <ShipDetails {page} {row} name={shipName} from={holoEl} onclose={() => (details = false)} />
+          <ShipDetails {page} {row} name={shipName} from={holoSlot} onclose={() => (details = false)} />
         {/if}
       </div>
     {:else}
@@ -393,7 +398,12 @@
   /* What the ship sheet lies over. */
   .stage {
     position: relative;
-    --holo-height: clamp(220px, 32vh, 380px);
+    flex: 1 0 auto;
+  }
+  /* The holo card, at a fixed height so the power screen starts in view
+   * under it. It keeps its place while the holo is expanded. */
+  .holo-slot {
+    height: clamp(220px, 32vh, 380px);
   }
   /* Build: the ship and its power screen in the middle, the parts around
    * it. The middle column is capped so the parts keep their room. */

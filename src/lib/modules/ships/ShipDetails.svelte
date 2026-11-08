@@ -1,8 +1,8 @@
 <script lang="ts">
-  // The holo opened: the ship's own stats and graphs, grown out of it over
-  // the build. The columns are Build's and the holo itself stays where it
-  // is, above this sheet (the middle column leaves it room). The row's menus
-  // sit above too, so switching hull or loadout keeps it open.
+  // The ship's own stats and graphs, over its expanded holo: the columns
+  // keep to the sides, the ship stays in the middle, and the empty parts
+  // let the pointer through to it. The row's menus sit above, so switching
+  // hull or loadout keeps this open.
   import { cubicOut } from "svelte/easing";
   import type { ShipPageView, ShipRowView } from "$lib/bindings";
   import { shipsPrices } from "$lib/state/ships.svelte";
@@ -22,18 +22,18 @@
     page: ShipPageView;
     row: ShipRowView | null;
     name: string;
-    /** The holo: what the sheet grows out of and shrinks back into. */
+    /** The holo card's place: what this grows out of and shrinks back into. */
     from: HTMLElement | undefined;
     onclose: () => void;
   } = $props();
 
   const s = $derived(page.summary);
 
-  /** Reveals the sheet from the holo's rectangle; nothing is resized, so the
-   *  charts and the picture stand still while it opens. */
-  function grow(node: HTMLElement, holoEl: HTMLElement | undefined) {
-    if (!holoEl || matchMedia("(prefers-reduced-motion: reduce)").matches) return { duration: 0 };
-    const a = holoEl.getBoundingClientRect();
+  /** Reveals the sheet from the card's rectangle; nothing is resized, so
+   *  the charts stand still while it opens. */
+  function grow(node: HTMLElement, card: HTMLElement | undefined) {
+    if (!card || matchMedia("(prefers-reduced-motion: reduce)").matches) return { duration: 0 };
+    const a = card.getBoundingClientRect();
     const b = node.getBoundingClientRect();
     const edges = [a.top - b.top, b.right - a.right, b.bottom - a.bottom, a.left - b.left];
     return {
@@ -51,7 +51,7 @@
 <svelte:window onkeydown={key} />
 
 <div class="sheet" role="region" aria-label="Ship stats" transition:grow={from}>
-  <div class="graphs">
+  <div class="panel graphs">
     {#if s.flight}
       <section aria-label="Flight">
         <h3 class="label">Flight</h3>
@@ -64,94 +64,69 @@
         <QtChart drive={s.quantum} />
       </section>
     {/if}
+    <section aria-label="Where to get it">
+      <h3 class="label">Where to get it</h3>
+      <ShipPrices prices={shipsPrices.of(page.ship)} />
+    </section>
   </div>
-  <div class="core">
-    <div class="room" aria-hidden="true"></div>
-    <div class="id">
-      <span class="meta">
-        {#if row?.manufacturerCode}<b class="code">{row.manufacturerCode}</b>{/if}
-        {#each [row?.career, row?.role].filter(Boolean) as m (m)}<span>{m}</span>{/each}
-        <span class="crew" title={crewTitle(s.crew)}><b>{s.crew.crew} crew</b>{#each crewParts(s.crew) as c (c)}<i>{c}</i>{/each}</span>
-      </span>
-      <h1>{name}</h1>
-    </div>
+  <div class="panel id">
+    <span class="meta">
+      {#if row?.manufacturerCode}<b class="code">{row.manufacturerCode}</b>{/if}
+      {#each [row?.career, row?.role].filter(Boolean) as m (m)}<span>{m}</span>{/each}
+      <span class="crew" title={crewTitle(s.crew)}><b>{s.crew.crew} crew</b>{#each crewParts(s.crew) as c (c)}<i>{c}</i>{/each}</span>
+    </span>
+    <h1>{name}</h1>
   </div>
-  <section class="prices" aria-label="Where to get it">
-    <h3 class="label">Where to get it</h3>
-    <ShipPrices prices={shipsPrices.of(page.ship)} />
-  </section>
-  <div class="figures">
+  <div class="panel figures">
     <ShipFigures {page} />
   </div>
 </div>
 
 <style>
-  /* Over the build rather than instead of it: the cards keep their folds
-   * for when the sheet closes, and its frame hugs what is in it. Under the
-   * row's menus. */
   .sheet {
     position: absolute;
     inset: 0 0 auto;
     z-index: 10;
+    min-height: 100%;
+    box-sizing: border-box;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(400px, 520px) minmax(0, 1fr);
-    grid-template-rows: auto 1fr;
-    grid-template-areas:
-      "graphs core figures"
-      "graphs prices figures";
+    grid-template-columns: minmax(0, 440px) minmax(0, 1fr) minmax(0, 440px);
+    grid-template-areas: "graphs id figures";
     gap: 16px;
     align-items: start;
-    border: 1px solid color-mix(in srgb, var(--hue-sky) 30%, var(--border));
-    border-radius: var(--radius-lg);
-    background: radial-gradient(
-      100% 70% at 50% 20%,
-      color-mix(in srgb, var(--hue-sky) 10%, var(--bg-sunk)),
-      var(--bg-sunk) 70%
-    );
+    padding: 16px;
+    pointer-events: none;
   }
-  .graphs,
-  .core,
-  .figures {
+  .panel {
     display: flex;
     flex-direction: column;
     gap: 20px;
     min-width: 0;
+    padding: 14px 16px;
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--bg-sunk) 80%, transparent);
+    pointer-events: auto;
   }
   .graphs {
     grid-area: graphs;
-    padding: 16px 0 16px 18px;
-  }
-  .core {
-    grid-area: core;
-  }
-  .room {
-    height: var(--holo-height);
-  }
-  .prices {
-    grid-area: prices;
-    padding-bottom: 16px;
   }
   .figures {
     grid-area: figures;
-    padding: 16px 18px 16px 0;
   }
-  /* Build's narrow layout: the picture beside a 380 px column, the graphs
-   * before the shops. */
+  .id {
+    grid-area: id;
+    justify-self: center;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
+  }
+  /* Too narrow for a free middle: the name over the two columns. */
   @container (width < 1400px) {
     .sheet {
-      grid-template-columns: minmax(0, 1fr) 380px;
-      grid-template-rows: auto auto 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       grid-template-areas:
-        "core figures"
-        "graphs figures"
-        "prices figures";
-    }
-    .graphs {
-      padding-block: 0;
-    }
-    .id,
-    .prices {
-      padding-left: 18px;
+        "id id"
+        "graphs figures";
     }
   }
   section {
@@ -163,11 +138,6 @@
   h3 {
     margin: 0;
   }
-  .id {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
   h1 {
     margin: 0;
     font-family: var(--font-display);
@@ -177,6 +147,7 @@
   .meta {
     display: flex;
     flex-wrap: wrap;
+    justify-content: center;
     gap: 6px 12px;
     font-size: var(--text-small);
     color: var(--text-faint);

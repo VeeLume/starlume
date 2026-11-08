@@ -97,8 +97,9 @@
     /** Open the picker on these ports (a folded line's every part). */
     onpick: (slots: SlotView[]) => void;
     ontoggle: (paths: string[]) => void;
-    /** The box under the pointer and the ports of its line or its parts. */
-    onhover: (system: SystemView | null, ports: string[] | null) => void;
+    /** The box under the pointer, the ports of its line or its parts, and
+     *  whether it is one line. */
+    onhover: (system: SystemView | null, ports: string[] | null, line: boolean) => void;
     /** The power panel's weapons pool: what it gives the guns. */
     weaponPool?: ColumnView | null;
     /** The panels each column shows, top to bottom. */
@@ -132,7 +133,7 @@
     const now = `${system}:${ports?.join("|")}`;
     if (now === hoveredPorts) return;
     hoveredPorts = now;
-    onhover(system, ports);
+    onhover(system, ports, !!line);
   }
   const num = (v: number, d = 0) => v.toLocaleString("en-US", { maximumFractionDigits: d });
   const stat = (s: SlotView, k: string) => s.stats.find((x) => x.key === k)?.value ?? null;
