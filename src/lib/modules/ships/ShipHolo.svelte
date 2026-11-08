@@ -182,6 +182,13 @@
     z-index: 9;
     height: auto;
   }
+  /* Too narrow for the stats to sit beside the ship: it goes above them. */
+  @container (width < 1400px) {
+    .holo.open {
+      bottom: auto;
+      height: 55vh;
+    }
+  }
   .shot {
     position: absolute;
     inset: 0;

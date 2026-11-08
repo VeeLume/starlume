@@ -120,9 +120,11 @@
     gap: 4px;
     text-align: center;
   }
-  /* Too narrow for a free middle: the name over the two columns. */
+  /* Too narrow for a free middle: the ship on top (ShipHolo), then the name
+   * over the two columns. */
   @container (width < 1400px) {
     .sheet {
+      padding-top: calc(55vh + 16px);
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       grid-template-areas:
         "id id"
