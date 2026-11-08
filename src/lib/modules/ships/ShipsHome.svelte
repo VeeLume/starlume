@@ -13,6 +13,7 @@
   import type { ShipRowView, ShipsHomeView } from "$lib/bindings";
   import { shipsMarket } from "$lib/state/ships.svelte";
   import ShipTile from "./ShipTile.svelte";
+  import UexLink from "./UexLink.svelte";
 
   let {
     ships,
@@ -147,6 +148,7 @@
     <Select label="Crew" options={crewOptions} value={browse.values.crew} onchange={(v) => browse.set("crew", v)} />
     <span class="grow"></span>
     <Select label="Order" options={sortOptions} value={sort} onchange={(v) => browse.set("sort", v)} />
+    <small class="source">In-game prices from <UexLink />, reported by players</small>
   </div>
 
   {#if !narrowed}
@@ -250,6 +252,13 @@
     font-family: var(--font-sans);
     font-size: var(--text-small);
     font-weight: var(--weight-normal);
+    color: var(--text-faint);
+  }
+  /* In the filter row, so it shows above the first price however long the
+   * list is. */
+  .source {
+    margin-left: auto;
+    font-size: var(--text-small);
     color: var(--text-faint);
   }
   h3 {

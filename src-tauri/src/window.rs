@@ -21,6 +21,7 @@ use tauri::{
     AppHandle, LogicalPosition, LogicalSize, Manager, WebviewWindow, WebviewWindowBuilder,
 };
 
+use crate::error::AppError;
 use crate::{AppState, suspend};
 
 const MAIN: &str = "main";
@@ -162,6 +163,27 @@ static GUIDE_OPENED: AtomicBool = AtomicBool::new(false);
 #[specta::specta]
 pub fn guide_open_due() -> bool {
     !GUIDE_OPENED.swap(true, Ordering::Relaxed)
+}
+
+/// The pages the credits link to. A fixed list, so the webview can't hand
+/// the system browser an address of its own.
+const CREDIT_LINKS: &[&str] = &[
+    "https://uexcorp.space",
+    "https://robertsspaceindustries.com",
+    "https://github.com/VeeLume/starlume",
+];
+
+/// Open one of the credits' pages in the user's browser.
+#[tauri::command]
+#[specta::specta]
+pub fn open_credit_link(app: AppHandle, url: String) -> Result<(), AppError> {
+    use tauri_plugin_opener::OpenerExt;
+    if !CREDIT_LINKS.contains(&url.as_str()) {
+        return Err(AppError::Internal("not a known link".into()));
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| AppError::Internal(format!("could not open the browser: {e}")))
 }
 
 /// When the startup update check last ran in this process.

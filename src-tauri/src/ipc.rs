@@ -21,6 +21,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         window::take_restore_route,
         window::update_check_due,
         window::guide_open_due,
+        window::open_credit_link,
         dossier::blueprints_owned,
         dossier::blueprints_refresh,
         modules::list_modules,

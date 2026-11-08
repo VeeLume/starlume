@@ -53,6 +53,17 @@ async guideOpenDue() : Promise<boolean> {
     return await TAURI_INVOKE("guide_open_due");
 },
 /**
+ * Open one of the credits' pages in the user's browser.
+ */
+async openCreditLink(url: string) : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_credit_link", { url }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The cached owned-blueprint set, or an empty/null one when nothing has been
  * fetched. **No network, no gate** — safe on startup so a decoration renders
  * from the last fetch.
