@@ -95,8 +95,8 @@ base64 = "0.22"
 # WebView2 suspension (tray memory). Versions MUST match wry's own
 # webview2-com — the COM interface types are shared with `with_webview`.
 [target.'cfg(windows)'.dependencies]
-webview2-com = "0.38"
-windows-core = "0.61"
+webview2-com = "0.39"
+windows-core = "0.62"
 
 [dev-dependencies]
 tempfile.workspace = true

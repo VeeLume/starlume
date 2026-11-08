@@ -111,35 +111,13 @@ export class Turntable {
   }
 }
 
-/** What the holo knows of a port. Private in sc-render v0.1.0 (its merged
- *  mesh is in the ship frame): read here until it has a public call for a
- *  port's bounds. */
-type Box = { min: Point; max: Point };
-type Point = { x: number; y: number; z: number };
-type PortBounds = {
-  path: string;
-  bounds?: Box;
-  mesh: { geometry: { boundingBox: Box | null; computeBoundingBox(): void } };
-};
-
-function boxOf(port: PortBounds): Box | null {
-  if (port.bounds) return port.bounds;
-  if (!port.mesh.geometry.boundingBox) port.mesh.geometry.computeBoundingBox();
-  return port.mesh.geometry.boundingBox;
-}
-
 /** The direction of these ports from the ship's axis, or null when they
  *  are unknown or central. */
 function sideOf(view: ShipView, ports: string[]): number | null {
-  const known = (view as unknown as { holo: { ports: PortBounds[] } | null }).holo?.ports ?? [];
-  const wanted = ports.map((p) => p.toLowerCase());
-  const found = known
-    .filter((k) => wanted.some((w) => k.path === w || k.path.startsWith(`${w}/`)))
-    .flatMap((k) => boxOf(k) ?? []);
-  if (!found.length) return null;
-  const mid = (axis: "x" | "y") => found.reduce((sum, b) => sum + (b.min[axis] + b.max[axis]) / 2, 0) / found.length;
-  const x = mid("x") - view.centre.x;
-  const y = mid("y") - view.centre.y;
+  const box = view.portBounds(ports);
+  if (!box) return null;
+  const x = (box.min.x + box.max.x) / 2 - view.centre.x;
+  const y = (box.min.y + box.max.y) / 2 - view.centre.y;
   const size = view.bounds.max.distanceTo(view.bounds.min) / 2;
   return Math.hypot(x, y) < size * CENTRED ? null : Math.atan2(y, x);
 }
