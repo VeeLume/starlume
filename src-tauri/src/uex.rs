@@ -7,7 +7,7 @@
 //! **Refresh cadence.** After a startup delay, then hourly: each list is
 //! fetched again only once the `max-age` UEX sent with it has run out
 //! (12 h; the marketplace 1 h), and on a settings change (the online
-//! switch) or Refresh.
+//! switch, the Ships module) or Refresh. Nothing is fetched without Ships.
 
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
@@ -101,16 +101,29 @@ async fn refresh(app: &AppHandle) -> Result<(), AppError> {
     }
 }
 
-/// The background refresher. Silent when offline — that is a choice, not an
-/// error.
+/// Only Ships shows these prices, so someone without it fetches none
+/// (module rule 2: lightweight for someone who wants one module).
+fn module_enabled(state: &AppState) -> bool {
+    state
+        .settings
+        .lock()
+        .unwrap()
+        .enabled_modules
+        .iter()
+        .any(|m| m == crate::ships::MODULE_ID)
+}
+
+/// The background refresher. Silent when offline or without Ships — that is
+/// a choice, not an error. Turning either on wakes it (`nudge`).
 pub fn spawn_refresher(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(STARTUP_DELAY).await;
         loop {
             let state = app.state::<AppState>();
-            let due =
-                state.require_online().is_ok() && state.uex.stale(chrono::Utc::now().timestamp());
+            let due = module_enabled(&state)
+                && state.require_online().is_ok()
+                && state.uex.stale(chrono::Utc::now().timestamp());
             if due && let Err(e) = refresh(&app).await {
                 tracing::info!("UEX refresh failed: {e}");
             }
