@@ -73,8 +73,8 @@ Fit your ships and see what a swap does before you buy it:
 - **Build:** every port, what it holds and what else fits, around the power
   network as the ship's power screen shows it; a swap or a pip updates damage,
   shields, signatures and quantum range
-- **Ship:** the hull itself, with its role, crew, structure, armour, flight,
-  quantum travel and where to buy or rent it
+- **Ship stats:** click the ship's picture for the hull itself, with its role,
+  crew, structure, armour, flight, quantum travel and where to buy or rent it
 - saved loadouts of your own and, with My Items on, your ships' insured and
   live loadouts
 - shop and player-market prices, player-reported through

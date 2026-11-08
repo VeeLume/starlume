@@ -12,6 +12,7 @@
   import { Segmented } from "@veelume/ui";
   import type { CandidateView, OfferView, TourView } from "$lib/bindings";
   import { damageType, figuresFor, SIGNALS } from "./figures";
+  import UexLink from "./UexLink.svelte";
 
   let {
     title,
@@ -434,7 +435,7 @@
 
   <div class="pf">
     <span class="faint">{list?.length ?? 0} parts fit</span>
-    {#if extras.some((x) => x.key === "_buy" || x.key === "_market")}<span class="faint">Prices: UEX player reports</span>{/if}
+    {#if extras.some((x) => x.key === "_buy" || x.key === "_market")}<span class="faint">Prices: <UexLink /> player reports</span>{/if}
     <span class="faint">Click a column to sort</span>
     <span class="grow"></span>
     <button type="button" class="btn" onclick={() => onpick(null)}>Leave empty</button>

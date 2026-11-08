@@ -3,6 +3,7 @@
   // (the game files have no shops): cheapest first, each with its place
   // and how old its report is. The first few show; the rest fold.
   import type { OfferView, ShipPricesView } from "$lib/bindings";
+  import UexLink from "./UexLink.svelte";
 
   let { prices }: { prices: ShipPricesView | null } = $props();
 
@@ -48,7 +49,7 @@
     {#if !all && (prices.buy.length > SHOWN || prices.rent.length > SHOWN)}
       <button type="button" class="btn subtle more" onclick={() => (all = true)}>Show every shop</button>
     {/if}
-    <p class="foot">Player-reported prices from UEX; each row's age is its last report.</p>
+    <p class="foot">Player-reported prices from <UexLink />; each row's age is its last report.</p>
   {/if}
 </div>
 

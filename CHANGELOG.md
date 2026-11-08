@@ -18,6 +18,8 @@ buy it.
   public price lists for player-reported shop and market prices.
 - **Your data is safer** — a settings or data file Starlume can't read is now
   moved aside instead of being overwritten.
+- **Credits** — Settings → About names where Starlume's data comes from, with
+  links.
 
 ## [0.3.0] - 2026-10-19
 
