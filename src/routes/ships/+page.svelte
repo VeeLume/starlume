@@ -425,6 +425,12 @@
   .around.under .fades {
     opacity: 0;
   }
+  /* A long list of cards must not stretch the expanded holo past the
+   * window and push the ship out of view. */
+  .around.under {
+    height: 0;
+    overflow: hidden;
+  }
   .side {
     min-width: 0;
   }

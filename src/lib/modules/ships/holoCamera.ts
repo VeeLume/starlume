@@ -5,6 +5,8 @@
 import type { ShipView } from "@veelume/sc-render";
 
 const TURN_MS = 450;
+/** How far above the ship's horizontal the camera starts. */
+const ELEVATION = (12 * Math.PI) / 180;
 /** A part this close to the ship's axis has no side to turn to. */
 const CENTRED = 0.04;
 
@@ -26,9 +28,26 @@ export class Turntable {
     view.controls.addEventListener("end", () => (this.rest = this.azimuth()));
   }
 
-  /** Around the ship's vertical axis only, at the angle it is framed at. */
+  /** Down to a low look along the ship, at the same distance and side. */
+  level() {
+    const { camera, controls } = this.view;
+    const distance = camera.position.distanceTo(controls.target);
+    const azimuth = this.azimuth();
+    const flat = Math.cos(ELEVATION) * distance;
+    camera.position.set(
+      controls.target.x + Math.cos(azimuth) * flat,
+      controls.target.y + Math.sin(azimuth) * flat,
+      controls.target.z + Math.sin(ELEVATION) * distance,
+    );
+    controls.update();
+  }
+
+  /** Around the ship's vertical axis only, from the low look. */
   lock() {
     const { controls } = this.view;
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = Math.PI;
+    this.level();
     const polar = controls.getPolarAngle();
     controls.minPolarAngle = polar;
     controls.maxPolarAngle = polar;

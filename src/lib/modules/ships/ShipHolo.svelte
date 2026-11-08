@@ -65,8 +65,10 @@
         if (seq !== shows) return;
         drawn = true;
         // `show` framed it anew.
-        if (open) turntable?.free();
-        else turntable?.lock();
+        if (open) {
+          turntable?.free();
+          turntable?.level();
+        } else turntable?.lock();
       })
       .catch((e) => console.warn("the ship holo failed:", e))
       .finally(() => {
