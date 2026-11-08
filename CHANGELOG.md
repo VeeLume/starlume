@@ -10,9 +10,9 @@ buy it.
 - **Ships** — every ship in one list, with search, career and sort. **Build**
   lays out a ship's parts around its power screen: every port, what it holds
   and what else fits, and how a swap or a pip changes damage, shields,
-  signatures and quantum range. **Ship** is the hull itself: role, crew,
-  structure, armour, flight, quantum travel and where to buy or rent it. Save
-  your own loadouts; with My Items on, your ships' insured and live loadouts
+  signatures and quantum range. Click the ship's picture for the hull itself:
+  role, crew, structure, armour, flight, quantum travel and where to buy or rent
+  it. Save your own loadouts; with My Items on, your ships' insured and live loadouts
   are there too. It reads your game install. With the module on and online
   features on, it also reads RSI's public ship store for pictures and UEX's
   public price lists for player-reported shop and market prices.

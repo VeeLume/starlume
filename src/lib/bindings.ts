@@ -736,6 +736,17 @@ async shipsOpenLoadout(ship: string, id: string | null) : Promise<Result<ShipLoa
 }
 },
 /**
+ * Rename a saved loadout of `ship`; its parts and the open draft stay.
+ */
+async shipsRenameLoadout(ship: string, id: string, name: string) : Promise<Result<ShipLoadoutsView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_rename_loadout", { ship, id, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Forget a saved loadout; the open draft keeps its edits.
  */
 async shipsDeleteLoadout(ship: string, id: string) : Promise<Result<ShipLoadoutsView, AppError>> {

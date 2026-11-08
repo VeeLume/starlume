@@ -52,13 +52,20 @@
     q = "";
   }
 
+  /** Esc closes the menu and goes no further (the ship sheet under it stays). */
+  function key(e: KeyboardEvent) {
+    if (e.key !== "Escape" || !open) return;
+    open = false;
+    e.preventDefault();
+  }
+
   function outside(e: MouseEvent) {
     const t = e.target as HTMLElement;
     if (open && el && t.isConnected && !el.contains(t)) open = false;
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && (open = false)} onclick={outside} />
+<svelte:window onkeydown={key} onclick={outside} />
 
 <div class="menu" bind:this={el}>
   <button type="button" class="trigger" class:on={open} aria-haspopup="true" aria-expanded={open} onclick={() => (open = !open)}>

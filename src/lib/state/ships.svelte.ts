@@ -296,11 +296,6 @@ export function changesOf(ship: string): number {
   return n;
 }
 
-/** Ports the open ship's draft swaps away from stock. */
-export function swapsFromStock(ship: string): number {
-  return finalSwaps(shipsUi.edits[ship] ?? []).size;
-}
-
 /** Save the open ship's draft: into the loadout it is based on, or with
  *  `asNew` as a new one named `name`. An error message, or null. */
 export async function saveLoadout(channel: string, name: string, asNew: boolean): Promise<string | null> {
@@ -335,6 +330,18 @@ export async function openLoadout(id: string | null): Promise<void> {
   }
   const result = await commands.shipsOpenLoadout(ship, id);
   if (result.status === "ok") adopt(ship, result.data);
+}
+
+/** Rename a saved loadout of the open ship; its parts and the draft stay.
+ *  An error message, or null. */
+export async function renameLoadout(id: string, name: string): Promise<string | null> {
+  const ship = shipsUi.ship;
+  const clash = shipsLoadouts.of(ship).find((s) => s.name.trim().toLowerCase() === name.trim().toLowerCase() && s.id !== id);
+  if (clash) return `There is a loadout named ${clash.name} already.`;
+  const result = await commands.shipsRenameLoadout(ship, id, name);
+  if (result.status !== "ok") return result.error.message;
+  _saved = { ..._saved, [ship]: result.data.saved };
+  return null;
 }
 
 /** Forget a saved loadout; what is open keeps its edits, against stock. */

@@ -144,6 +144,18 @@ impl Loadouts {
         true
     }
 
+    /// Rename the saved loadout `id` of `ship`; its parts, its build stamp
+    /// and any draft based on it stay. `false` when `id` is not the ship's.
+    pub fn rename(&mut self, ship: &str, id: &str, name: &str) -> bool {
+        match self.saved.iter_mut().find(|s| s.id == id && s.ship == ship) {
+            Some(s) => {
+                s.name = name.to_string();
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Forget a saved loadout; a draft based on it keeps its edits as a
     /// try-out against stock.
     pub fn delete(&mut self, id: &str) -> bool {
@@ -240,6 +252,36 @@ mod tests {
             (l.saved[0].name.as_str(), l.saved[0].build.as_str()),
             ("Bounty", "4.11")
         );
+    }
+
+    #[test]
+    fn rename_keeps_the_parts_and_the_draft() {
+        let mut l = Loadouts::default();
+        l.save(
+            "ship",
+            None,
+            "PVE",
+            draft(vec![swap("qd", "hemera")]),
+            "4.10",
+            1,
+            || "1".into(),
+        );
+        // An unsaved change on top of the saved loadout.
+        let edited = Draft {
+            based_on: Some("1".into()),
+            ..draft(vec![swap("qd", "atlas")])
+        };
+        l.set_draft("ship", edited.clone());
+
+        assert!(l.rename("ship", "1", "Bounty"));
+        assert_eq!(l.saved[0].name, "Bounty");
+        assert_eq!(l.saved[0].edits, vec![swap("qd", "hemera")]);
+        assert_eq!(l.saved[0].saved_at, 1);
+        assert_eq!(l.drafts["ship"], edited);
+
+        assert!(!l.rename("other", "1", "Nope"));
+        assert!(!l.rename("ship", "2", "Nope"));
+        assert_eq!(l.saved[0].name, "Bounty");
     }
 
     #[test]

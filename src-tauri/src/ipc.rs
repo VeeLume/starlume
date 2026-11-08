@@ -82,6 +82,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         ships::ships_set_draft,
         ships::ships_save_loadout,
         ships::ships_open_loadout,
+        ships::ships_rename_loadout,
         ships::ships_delete_loadout,
         ships::ships_prices,
         ships::ships_market,
