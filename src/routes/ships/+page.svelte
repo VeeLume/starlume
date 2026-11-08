@@ -345,7 +345,7 @@
                   <QtChart drive={s.quantum} />
                 </section>
               {/if}
-              <section class="panel" aria-label="Where to get it">
+              <section class="panel wide" aria-label="Where to get it">
                 <h3 class="label">Where to get it</h3>
                 <ShipPrices prices={shipsPrices.of(shipsUi.ship)} />
               </section>
@@ -567,10 +567,19 @@
   .error {
     color: var(--bad);
   }
+  /* Flight and Quantum sit side by side only when the rose and its figures
+     fit (the default window is too narrow); the price rows take a full row. */
   .charts {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    display: flex;
+    flex-wrap: wrap;
     gap: 16px;
+  }
+  .charts .panel {
+    flex: 1 1 420px;
+    min-width: 0;
+  }
+  .charts .panel.wide {
+    flex-basis: 100%;
   }
   .panel {
     display: flex;
