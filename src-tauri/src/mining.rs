@@ -26,8 +26,10 @@ fn state_path() -> std::path::PathBuf {
     app_kit::app_data_root().join("mining").join("state.json")
 }
 
+/// The saved loadouts are the player's own work: a file that no longer
+/// parses is moved aside, never overwritten by the next save.
 pub(crate) fn load_state() -> MiningState {
-    app_kit::load_json(&state_path())
+    app_kit::load_json_or_set_aside(&state_path())
 }
 
 fn save_state(state: &MiningState) -> Result<(), AppError> {

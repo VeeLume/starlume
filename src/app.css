@@ -898,6 +898,12 @@ table.data tr.selected {
 .tabs .tab:hover:not(:disabled) {
   color: var(--text);
 }
+/* A view that needs something first (a ship picked): visibly off, so the
+ * click that does nothing doesn't read as a dead control. */
+.tabs .tab:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .tabs .tab.active {
   color: var(--text-strong);
   border-bottom-color: var(--accent);

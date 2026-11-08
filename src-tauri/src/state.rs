@@ -50,6 +50,14 @@ pub struct AppState {
     /// network method is gated by `require_online()` at the call site
     /// (`commlinks.rs`).
     pub commlinks: Arc<svc_commlinks::CommLinksService>,
+    /// RSI's pledge-store ships and their pictures (Ships page). Its one
+    /// network method is gated by `require_online()` at the call site
+    /// (`ships.rs`).
+    pub shipstore: Arc<svc_shipstore::ShipStoreService>,
+    /// UEX's community prices (shops, ships, marketplace) + disk cache.
+    /// Public reads of a third-party API — every network method is gated by
+    /// `require_online()` at the call site (`uex.rs`).
+    pub uex: Arc<svc_uex::UexService>,
 }
 
 impl AppState {
@@ -79,6 +87,12 @@ impl AppState {
             commlinks: Arc::new(svc_commlinks::CommLinksService::new(
                 app_kit::app_data_root().join("commlinks"),
             )),
+            shipstore: Arc::new(svc_shipstore::ShipStoreService::new(
+                app_kit::app_data_root().join("shipstore"),
+            )),
+            uex: Arc::new(svc_uex::UexService::new(svc_uex::dir_in(
+                &app_kit::app_data_root(),
+            ))),
         }
     }
 
@@ -150,6 +164,8 @@ mod tests {
             spectrum: Arc::new(svc_spectrum::SpectrumService::new(std::env::temp_dir())),
             patchnotes: Arc::new(svc_patchnotes::PatchNotesService::new(std::env::temp_dir())),
             commlinks: Arc::new(svc_commlinks::CommLinksService::new(std::env::temp_dir())),
+            shipstore: Arc::new(svc_shipstore::ShipStoreService::new(std::env::temp_dir())),
+            uex: Arc::new(svc_uex::UexService::new(std::env::temp_dir())),
         }
     }
 

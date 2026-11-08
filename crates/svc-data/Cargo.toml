@@ -14,8 +14,9 @@ description = "Starlume data service — one shared DCB parse + snapshot cache p
 # `missions-payout` adds the contracts pipeline + the DCB-read UecCurve for
 # the mission catalog cook. `weapons` adds sc-weapons (ship weapons +
 # missiles) for the weapons-index cook. `mining` adds sc-mining + the mining
-# item sheets for the mining-index cook.
-sc-holotable = { workspace = true, features = ["foundations", "missions-payout", "weapons", "crafting", "mining"] }
+# item sheets for the mining-index cook. `vehicles` adds sc-vehicles (hulls,
+# ports, loadouts, the power network) for the ships-index cook.
+sc-holotable = { workspace = true, features = ["foundations", "missions-payout", "weapons", "crafting", "mining", "vehicles"] }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

@@ -35,7 +35,26 @@ use serde::{Deserialize, Serialize};
 /// ([`CookedData::mining`]).
 /// rev 10: mining rock types, compositions and rock meshes (the generator).
 /// rev 11: mining places in the cook (sc-holotable v0.23's cheap walk).
-pub const STARLUME_COOK_REV: u32 = 11;
+/// rev 12: ships: vehicles, port containers, resource profiles, network
+/// rules, component sheets, item-port modifiers, thruster axes
+/// ([`CookedData::ships`]).
+/// rev 13: sc-holotable v0.28: the ship header on `Vehicle` (manufacturer,
+/// career, role, description) and the ship guns' sheets
+/// ([`crate::ships::ShipsIndex::guns`]).
+/// rev 14: sc-holotable v0.30: port containers with their XML loadouts,
+/// the player ships' interior entities ([`crate::ships::ShipsIndex::interiors`]).
+/// rev 15: sc-holotable v0.32: seat control priorities on ports, vital hull
+/// parts, missile controllers, the doors' HP
+/// ([`crate::ships::ShipsIndex::door_health`]).
+/// rev 16: sc-holotable v0.33: the afterburner's capacitor curves (boost
+/// by capacitor level).
+/// rev 17: sc-holotable v0.34: quantum-travel waypoints
+/// ([`crate::ships::ShipsIndex::waypoints`]); docking doors' HP.
+/// rev 18: ship guns' fire rate, burst DPS and seconds until the first
+/// forced stop ([`crate::ShipWeaponEntry`]), for the part picker.
+/// rev 19: sc-holotable v0.36: cluster missiles' submunitions and total
+/// damage ([`crate::MissileEntry`]).
+pub const STARLUME_COOK_REV: u32 = 19;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.
@@ -71,6 +90,10 @@ pub struct CookedData {
     /// keys — see [`crate::mining`]).
     #[serde(default)]
     pub mining: crate::mining::MiningIndex,
+    /// Vehicles, ports, loadouts and the power network's inputs (see
+    /// [`crate::ships`]).
+    #[serde(default)]
+    pub ships: crate::ships::ShipsIndex,
 }
 
 /// One page of item search results.

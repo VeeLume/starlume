@@ -47,6 +47,7 @@ pub mod crafting;
 pub mod legality;
 pub mod mining;
 pub mod missions;
+pub mod ships;
 pub mod weapons;
 
 mod cache;
@@ -75,6 +76,7 @@ pub use missions::{
     MissionPayout, MissionPlace, MissionPoolFacts, MissionRef, MissionRegion, MissionWave,
     RepRequirement, RepReward, ScripReward, ShipSlot, SpawnSlot,
 };
+pub use ships::{ShipsIndex, VehicleEntry};
 pub use weapons::{DamageBreakdown, MissileEntry, ShipWeaponEntry, TrackingEntry, WeaponsIndex};
 
 // Selected sc-holotable surface for CookedData consumers (module crates
@@ -737,6 +739,7 @@ fn cook(
         &foundations.resources,
         assets,
     );
+    let ships = ships::build_ships(&datacore, &foundations.items, assets);
     let holotable = sc_holotable::HolotableSnapshot::from_foundations(&foundations);
     drop(datacore);
     CookedData {
@@ -747,6 +750,7 @@ fn cook(
         weapons,
         crafting,
         mining,
+        ships,
     }
 }
 
@@ -773,6 +777,7 @@ mod tests {
             tags: vec![],
             required_tags: vec![],
             mass: None,
+            inventory: None,
         }
     }
 
@@ -806,6 +811,7 @@ mod tests {
             },
             locale,
             mining: Default::default(),
+            ships: Default::default(),
             missions: vec![fake_mission()],
             legality: vec![legality::LegalityEntry {
                 resource_guid: guid(5).to_string(),
@@ -838,6 +844,9 @@ mod tests {
                     ammo_lifetime: Some(2.0),
                     total_ammo: Some(1500),
                     capacitor: None,
+                    rpm: Some(900.0),
+                    burst_dps: Some(375.0),
+                    burst_seconds: Some(12.0),
                 }],
                 missiles: Vec::new(),
             },

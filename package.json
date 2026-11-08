@@ -1,10 +1,11 @@
 {
   "name": "starlume",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Starlume — the Star Citizen companion",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "dev:tauri": "node tools/dev.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

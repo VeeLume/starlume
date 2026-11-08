@@ -12,6 +12,7 @@ import { contractsModule } from "./contracts/descriptor";
 import { itemsModule } from "./items/descriptor";
 import { devtrackerModule } from "./devtracker/descriptor";
 import { miningModule } from "./mining/descriptor";
+import { shipsModule } from "./ships/descriptor";
 import { SHOW_UNRELEASED } from "$lib/unreleased";
 
 export const moduleRegistry: ModuleDescriptor[] = [
@@ -21,6 +22,7 @@ export const moduleRegistry: ModuleDescriptor[] = [
   langpatchModule,
   itemsModule,
   miningModule,
+  shipsModule,
   ...(SHOW_UNRELEASED ? [contractsModule] : []),
 ];
 

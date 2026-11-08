@@ -74,6 +74,18 @@ pub struct ShipWeaponEntry {
     pub total_ammo: Option<i32>,
     /// Energy-weapon capacitor budget (`SustainKind::Energy.max_ammo_load`).
     pub capacitor: Option<f32>,
+    /// Rounds per minute of the primary fire action (sc-weapons
+    /// `burst_rpm`); `None` for beams and burst-fire guns.
+    #[serde(default)]
+    pub rpm: Option<f32>,
+    /// Peak damage per second, at full power (sc-weapons `burst_dps`).
+    #[serde(default)]
+    pub burst_dps: Option<f32>,
+    /// Seconds of fire before the first forced stop: overheat for heat
+    /// weapons, an empty capacitor for energy ones (sc-weapons
+    /// `burst_seconds`).
+    #[serde(default)]
+    pub burst_seconds: Option<f32>,
 }
 
 /// One missile / torpedo entity.
@@ -93,6 +105,14 @@ pub struct MissileEntry {
     pub is_torpedo: bool,
     /// Warhead explosion damage.
     pub damage: Option<DamageBreakdown>,
+    /// Cluster submunitions it releases (sc-weapons `Missile::cluster`);
+    /// 0 for a plain warhead.
+    #[serde(default)]
+    pub submunitions: u32,
+    /// The warhead plus every submunition, all hitting (sc-weapons
+    /// `Missile::total_damage`: the Rattler II 1,370 + 7 × 300 = 3,470).
+    #[serde(default)]
+    pub total_damage: Option<DamageBreakdown>,
     /// Cruise speed in m/s. `None` for unguided ordnance.
     pub speed: Option<f32>,
     /// Seconds before the warhead arms after launch.
@@ -137,6 +157,9 @@ pub(crate) fn build_weapons(datacore: &Datacore, items: &Items) -> WeaponsIndex 
                 SustainKind::Energy(e) if e.max_ammo_load > 0.0 => Some(e.max_ammo_load),
                 _ => None,
             },
+            rpm: w.burst_rpm(),
+            burst_dps: w.burst_dps(),
+            burst_seconds: w.burst_seconds(),
         })
         .collect();
     ship_weapons.sort_by(|a, b| {
@@ -154,6 +177,11 @@ pub(crate) fn build_weapons(datacore: &Datacore, items: &Items) -> WeaponsIndex 
             size: m.size,
             is_torpedo: matches!(m.item_sub_type, EItemSubType::Torpedo),
             damage: m.damage.as_ref().map(breakdown),
+            submunitions: m
+                .cluster
+                .as_ref()
+                .map_or(0, |c| c.submunitions.len() as u32),
+            total_damage: m.total_damage().as_ref().map(breakdown),
             speed: m.speed,
             arm_time: m.arm_time,
             tracking: m.tracking.as_ref().map(|t| TrackingEntry {

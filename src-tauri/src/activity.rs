@@ -43,6 +43,10 @@ pub enum ActivityKind {
     PatchNotes,
     /// svc-commlinks: reading RSI's comm-link listing.
     CommLinks,
+    /// svc-shipstore: the first fill of the store's ship pictures.
+    ShipStore,
+    /// svc-uex: the first fill of UEX's price lists.
+    Uex,
 }
 
 /// Where an activity is. `stage` is a user-facing label ("Parsing
