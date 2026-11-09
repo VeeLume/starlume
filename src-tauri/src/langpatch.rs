@@ -566,13 +566,14 @@ async fn apply_install(
     )?;
 
     let p4k_path = install.p4k_path.clone();
+    let index = app.state::<AppState>().data.asset_index_file(install);
     let overrides = load_overrides(&install.channel_key);
     let install_dir = install_dir.to_path_buf();
     let channel_key = install.channel_key.clone();
 
     activity.set_stage("Writing global.ini…");
     tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
-        let base = svc_data::read_base_global_ini(&p4k_path)?;
+        let base = svc_data::read_base_global_ini(&p4k_path, Some(&index))?;
         let mut lines = merge::decode_ini(&base)?;
 
         if let Some((pack_lines, _)) = &pack {

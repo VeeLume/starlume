@@ -40,10 +40,9 @@ fn main() {
     let catalog = Catalog::build(&cooked.mining, &cooked.locale).expect("ship ruleset");
     // The names the game shows, rendered in its HUD font from the install.
     let p4k = std::path::PathBuf::from(std::env::var("STARLUME_REAL_P4K").unwrap());
-    let movie =
-        svc_data::read_p4k_file(&p4k, "ui/fonts/shared/fonts_en.gfx").expect("fonts_en.gfx");
+    let movie = svc_data::read_p4k_file(&p4k, None, svc_data::HUD_FONTS).expect("fonts_en.gfx");
     let font = svc_capture::gfxfont::find_font(&movie, "Blender Pro Bold").expect("font");
-    let (locale, source) = svc_data::active_locale(&p4k).expect("locale");
+    let (locale, source) = svc_data::active_locale(&p4k, None).expect("locale");
     eprintln!("localisation: {source:?}");
     let names = NameSet::build(&font, &catalog, &locale);
     eprintln!("{} names rendered", names.len());

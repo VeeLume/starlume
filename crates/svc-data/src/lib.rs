@@ -234,6 +234,12 @@ impl DataService {
         dir
     }
 
+    /// The install's asset index file, for reading known files out of its
+    /// p4k. It may not exist; readers then open the whole archive.
+    pub fn asset_index_file(&self, install: &InstallRef) -> PathBuf {
+        self.build_dir(install).join(cache::ASSET_INDEX_NAME)
+    }
+
     /// Cache/load state for one install. Cheap (file existence + map peek).
     pub fn status(&self, install: &InstallRef) -> DataStatus {
         let cooked = self.get(install);
@@ -556,43 +562,41 @@ fn load_on_thread(
         .map_err(|_| anyhow!("data-loader thread dropped its sender"))?
 }
 
+/// The stock English text, as text patching applies its changes to it.
+pub const BASE_GLOBAL_INI: &str = "localization/english/global.ini";
+/// The HUD's fonts, which the mining capture reads glyphs from.
+pub const HUD_FONTS: &str = "ui/fonts/shared/fonts_en.gfx";
+/// Every file read by a known path outside a cook, so the cook lists them in
+/// the asset index. A new single-file read is one more entry here.
+pub(crate) const KNOWN_P4K_FILES: &[&str] = &[BASE_GLOBAL_INI, HUD_FONTS];
+
 /// Read the raw base `global.ini` bytes (UTF-16 LE as CIG ships it) from an
-/// install's `Data.p4k`. A single-file archive read — seconds, no DCB parse.
-/// The apply stage of text patching needs the *raw* file (line order, `,P`
-/// suffixes, duplicates), which the parsed [`LocaleMap`] deliberately
-/// doesn't preserve.
-pub fn read_base_global_ini(p4k_path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
-    let assets =
-        AssetSource::open(p4k_path).with_context(|| format!("opening {}", p4k_path.display()))?;
-    assets
-        .find_and_read(|name| {
-            // Entry names come with either separator depending on the
-            // archive writer — normalize before matching.
-            name.to_ascii_lowercase()
-                .replace('\\', "/")
-                .ends_with("localization/english/global.ini")
-        })
-        .context("reading global.ini from p4k")?
-        .map(|(_, bytes)| bytes)
-        .ok_or_else(|| anyhow!("global.ini not found in {}", p4k_path.display()))
+/// install's `Data.p4k`. The apply stage of text patching needs the *raw*
+/// file (line order, `,P` suffixes, duplicates), which the parsed
+/// [`LocaleMap`] deliberately doesn't preserve.
+pub fn read_base_global_ini(
+    p4k_path: &std::path::Path,
+    index: Option<&std::path::Path>,
+) -> anyhow::Result<Vec<u8>> {
+    read_p4k_file(p4k_path, index, BASE_GLOBAL_INI)
 }
 
-/// Read one file from an install's `Data.p4k` by its path's ending
-/// (case- and separator-insensitive, e.g. `ui/fonts/shared/fonts_en.gfx`).
-/// A single-file archive read.
-pub fn read_p4k_file(p4k_path: &std::path::Path, suffix: &str) -> anyhow::Result<Vec<u8>> {
-    let want = suffix.to_ascii_lowercase().replace('\\', "/");
-    let assets =
-        AssetSource::open(p4k_path).with_context(|| format!("opening {}", p4k_path.display()))?;
-    assets
-        .find_and_read(|name| {
-            name.to_ascii_lowercase()
-                .replace('\\', "/")
-                .ends_with(&want)
-        })
-        .with_context(|| format!("reading {suffix} from p4k"))?
-        .map(|(_, bytes)| bytes)
-        .ok_or_else(|| anyhow!("{suffix} not found in {}", p4k_path.display()))
+/// Read one file from an install's `Data.p4k` by its path. With the install's
+/// asset index ([`DataService::asset_index_file`]) a listed file never loads
+/// the archive's file list; without one, or for an unlisted path, the whole
+/// archive opens (a second and hundreds of MB, until this returns).
+pub fn read_p4k_file(
+    p4k_path: &std::path::Path,
+    index: Option<&std::path::Path>,
+    path: &str,
+) -> anyhow::Result<Vec<u8>> {
+    match index {
+        Some(index) => AssetSource::open_indexed(p4k_path, index),
+        None => AssetSource::open(p4k_path),
+    }
+    .with_context(|| format!("opening {}", p4k_path.display()))?
+    .read_data(path)
+    .with_context(|| format!("reading {path} from {}", p4k_path.display()))
 }
 
 /// Where the localisation the game shows came from.
@@ -610,7 +614,10 @@ pub enum LocaleSource {
 /// override file when one exists (it shadows the p4k copy wholesale),
 /// else the stock file in the p4k. Text the HUD shows (ore names, labels)
 /// comes from here, so readers of the HUD match against it.
-pub fn active_locale(p4k_path: &std::path::Path) -> anyhow::Result<(LocaleMap, LocaleSource)> {
+pub fn active_locale(
+    p4k_path: &std::path::Path,
+    index: Option<&std::path::Path>,
+) -> anyhow::Result<(LocaleMap, LocaleSource)> {
     let install = p4k_path
         .parent()
         .ok_or_else(|| anyhow!("p4k has no folder"))?;
@@ -641,8 +648,9 @@ pub fn active_locale(p4k_path: &std::path::Path) -> anyhow::Result<(LocaleMap, L
         }
         tracing::warn!(path = %loose.display(), "unreadable localisation override; using the stock file");
     }
-    let bytes = read_p4k_file(p4k_path, &format!("localization/{language}/global.ini"))
-        .or_else(|_| read_base_global_ini(p4k_path))?;
+    let stock = format!("localization/{language}/global.ini");
+    let bytes = read_p4k_file(p4k_path, index, &stock)
+        .or_else(|_| read_base_global_ini(p4k_path, index))?;
     Ok((
         LocaleMap::parse(&bytes).context("parsing global.ini")?,
         LocaleSource::Stock,
@@ -684,8 +692,11 @@ fn load_blocking(
             .inspect_err(|e| tracing::warn!("opening the p4k for the rock meshes: {e:#}"))
             .ok();
         let (cooked, visuals) = cook(datacore, asset_data, assets.as_ref(), progress);
-        drop(assets);
         progress(Stage::Saving);
+        if let Some(assets) = &assets {
+            cache::save_asset_index(dir, assets, &visuals);
+        }
+        drop(assets);
         cache::save_processed(dir, install, &cooked);
         cache::save_visuals(dir, install, visuals);
         tracing::info!(
@@ -715,8 +726,9 @@ fn load_blocking(
 
     // The p4k stays open through the cook for the rock meshes.
     let (cooked, visuals) = cook(datacore, asset_data, Some(&assets), progress);
-    drop(assets);
     progress(Stage::Saving);
+    cache::save_asset_index(dir, &assets, &visuals);
+    drop(assets);
     cache::save_processed(dir, install, &cooked);
     cache::save_visuals(dir, install, visuals);
 
