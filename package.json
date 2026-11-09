@@ -19,7 +19,7 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
-    "@veelume/sc-render": "github:VeeLume/sc-render#v0.4.0&path:packages/sc-render",
+    "@veelume/sc-render": "github:VeeLume/sc-render#v0.5.0&path:packages/sc-render",
     "@veelume/ui": "github:VeeLume/veelume-ui#v0.1.12&path:packages/ui",
     "lucide-svelte": "^1.0.1",
     "three": "~0.186.1"

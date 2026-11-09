@@ -3077,7 +3077,12 @@ node_parts: NodePart[];
 /**
  * The interior's static geometry (walls, floors, fixtures).
  */
-interior: InteriorBrush[] }
+interior: InteriorBrush[]; 
+/**
+ * The install its files are read from; `None` is the primary one. Set
+ * with [`read_from`](Self::read_from).
+ */
+install: string | null }
 export type ShipSlotView = { count_min: number; count_max: number; ships: string[]; factions: string[] }
 export type ShipView = { key: string; kind: ItemKindView; geid: string | null; place: PlaceView | null; holders: HolderView[]; 
 /**

@@ -83,8 +83,8 @@ mod-items = { path = "crates/mod-items" }
 mod-langpatch = { path = "crates/mod-langpatch" }
 mod-mining = { path = "crates/mod-mining" }
 mod-ships = { path = "crates/mod-ships" }
-sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.4.0" }
-tauri-plugin-sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.4.0" }
+sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.5.0" }
+tauri-plugin-sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.5.0" }
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
 svc-capture = { path = "crates/svc-capture" }
