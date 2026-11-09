@@ -1,7 +1,7 @@
 // Settings categories as data (the kit scaffold's contract): adding a
 // setting is one entry here plus one small page under /settings/<id>.
 
-import { Blocks, Database, Globe, Info, SlidersHorizontal, UserRound } from "lucide-svelte";
+import { Blocks, Database, Gauge, Globe, Info, SlidersHorizontal, UserRound } from "lucide-svelte";
 import type { SettingsCategory } from "@veelume/ui";
 import { SHOW_UNRELEASED } from "$lib/unreleased";
 
@@ -46,6 +46,13 @@ export const settingsCategories: SettingsCategory[] = [
         },
       ]
     : []),
+  {
+    id: "performance",
+    label: "Performance",
+    description: "How much memory Starlume is using",
+    icon: Gauge,
+    path: "/settings/performance",
+  },
   {
     id: "about",
     label: "About",

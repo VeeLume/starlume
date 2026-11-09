@@ -7,6 +7,8 @@
   part's card lights the part and turns it towards you. Click to expand the
   holo behind the ship's stats, where you can look from any angle and zoom.
   Settings → General turns it off, and Build shows the ship's picture instead.
+- **Performance** — Settings → Performance shows how much memory Starlume is
+  using right now.
 
 ## [0.4.0] - 2026-11-08
 

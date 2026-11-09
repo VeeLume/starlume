@@ -6,8 +6,8 @@ use tauri_specta::{Builder, collect_commands};
 
 use crate::{
     activity, auth, commlinks, data, devtracker, dossier, friends, groups, items, langpatch,
-    launcher, mining, mining_capture, modules, notify, patchnotes, sc, settings, ships, uex,
-    window,
+    launcher, mining, mining_capture, modules, notify, patchnotes, performance, sc, settings,
+    ships, uex, window,
 };
 
 /// Single source of truth for the IPC command list. Used both by `run()` at
@@ -22,6 +22,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         window::update_check_due,
         window::guide_open_due,
         window::open_credit_link,
+        performance::performance_memory,
         dossier::blueprints_owned,
         dossier::blueprints_refresh,
         modules::list_modules,
