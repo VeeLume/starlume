@@ -40,6 +40,7 @@ mod mining_capture;
 mod modules;
 pub mod notify;
 mod patchnotes;
+mod performance;
 mod sc;
 mod settings;
 mod ships;

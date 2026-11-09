@@ -64,6 +64,17 @@ async openCreditLink(url: string) : Promise<Result<null, AppError>> {
 }
 },
 /**
+ * Read fresh on every call: the page polls it only while it is open.
+ */
+async performanceMemory() : Promise<Result<MemoryView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("performance_memory") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The cached owned-blueprint set, or an empty/null one when nothing has been
  * fetched. **No network, no gate** — safe on startup so a decoration renders
  * from the last fetch.
@@ -2294,6 +2305,26 @@ class: RockClassView | null }
  * A distribution's masses in tonnes.
  */
 export type MassRangeView = { min: number; mode: number; max: number }
+/**
+ * One sample, in megabytes.
+ */
+export type MemoryView = { 
+/**
+ * This process.
+ */
+appMb: number; 
+/**
+ * The WebView2 processes under it.
+ */
+webviewMb: number; webviewProcesses: number; 
+/**
+ * Of the app's heap: in use.
+ */
+heapUsedMb: number; 
+/**
+ * Of the app's heap: freed but not returned to Windows.
+ */
+heapHeldMb: number }
 export type MiningAreasView = { areas: AreaView[]; 
 /**
  * The places are known (the cook could read them); else areas carry
