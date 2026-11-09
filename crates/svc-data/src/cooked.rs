@@ -54,7 +54,9 @@ use serde::{Deserialize, Serialize};
 /// forced stop ([`crate::ShipWeaponEntry`]), for the part picker.
 /// rev 19: sc-holotable v0.36: cluster missiles' submunitions and total
 /// damage ([`crate::MissileEntry`]).
-pub const STARLUME_COOK_REV: u32 = 19;
+/// rev 20: sc-holotable v0.41; the ship holo's render recipes, written
+/// beside the cook ([`crate::ships::ShipVisuals`]).
+pub const STARLUME_COOK_REV: u32 = 20;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

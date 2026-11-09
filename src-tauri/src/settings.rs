@@ -105,6 +105,10 @@ pub struct AppSettings {
     /// version like "0.2.0"; the changes are authored in
     /// `src/lib/guides.ts`). `None` is seeded like `modules_offered`.
     pub guide_seen: Option<String>,
+    /// Draw the fitted ship in 3D on Build. Off, Build shows its picture and
+    /// reads no models.
+    #[serde(default = "default_true")]
+    pub ship_holo: bool,
 }
 
 /// What an install that finished onboarding before the What's-new guide
@@ -147,6 +151,7 @@ impl Default for AppSettings {
             home_cards: Vec::new(),
             modules_offered: None,
             guide_seen: None,
+            ship_holo: true,
         }
     }
 }

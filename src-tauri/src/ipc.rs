@@ -73,6 +73,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         ships::ships_list,
         ships::ships_stock,
         ships::ships_view,
+        ships::ships_scene,
         ships::ships_candidates,
         ships::ships_home,
         ships::ships_images,

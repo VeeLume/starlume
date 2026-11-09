@@ -628,6 +628,18 @@ async shipsView(channel: string, loadout: ShipLoadoutView, power: PowerSettingsV
 }
 },
 /**
+ * A ship with its fitted loadout, as the holo draws it. Assembled from the
+ * cooked recipes (no DCB) and the `.cdf` files in the local install.
+ */
+async shipsScene(channel: string, loadout: ShipLoadoutView) : Promise<Result<ShipScene, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_scene", { channel, loadout }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * What else fits the port at `targets[0]`, each option with its figures
  * and the ship with it fitted on every target port.
  */
@@ -1338,7 +1350,12 @@ modules_offered: string[] | null;
  * version like "0.2.0"; the changes are authored in
  * `src/lib/guides.ts`). `None` is seeded like `modules_offered`.
  */
-guide_seen: string | null }
+guide_seen: string | null; 
+/**
+ * Draw the fitted ship in 3D on Build. Off, Build shows its picture and
+ * reads no models.
+ */
+ship_holo?: boolean }
 export type AreaRockView = { rockType: string; name: string; 
 /**
  * Share of the area's ship-mineable rocks.
@@ -2092,6 +2109,14 @@ export type InstallView = { channel: string; platform: string; directory: string
  */
 export type InsuranceView = { waitMinutes: number; mandatoryMinutes: number; expediteFee: number }
 /**
+ * One placed interior geometry file.
+ */
+export type InteriorBrush = { geometry: string; 
+/**
+ * Ship frame, 3 × 4 row-major.
+ */
+transform: [number, number, number, number, number, number, number, number, number, number, number, number] }
+/**
  * What the last inventory fetch holds, in counts — the page header and
  * the first check that the fetch works on a real account.
  */
@@ -2358,6 +2383,10 @@ export type ModeView = "scm" | "nav"
  */
 export type ModifiersView = { resistance: number | null; instability: number | null; windowSize: number | null; windowRate: number | null; shatterDamage: number | null; clusterFactor: number | null; catastrophicRate: number | null }
 export type ModuleInfo = { id: string; name: string; description: string; enabled: boolean }
+/**
+ * A hull mesh node and the damage part it belongs to.
+ */
+export type NodePart = { node: string; part: string }
 /**
  * An optional action on a notification — a labelled link the frontend turns
  * into a "View →" affordance that navigates to `href` (an in-app route).
@@ -2842,6 +2871,57 @@ export type ScanRowView = { percent: number | null; name: string | null;
  * Catalog element id; `null` for inert material or an unknown name.
  */
 element: string | null; inert: boolean; quality: number | null }
+export type SceneAttachment = { 
+/**
+ * Bone or geometry node; empty for a part skinned to this one's
+ * skeleton, which sits at its origin (a body's head, a head's hair).
+ */
+bone: string; 
+/**
+ * Offset from the bone: position, then rotation as a quaternion
+ * `(x, y, z, w)` (a port helper's `Offset`, a `.cdf` part's
+ * `RelPosition` / `RelRotation`).
+ */
+offset_position: [number, number, number]; offset_rotation: [number, number, number, number]; 
+/**
+ * The attached item's own helper (bone or node) that meets the bone,
+ * instead of its origin (`ItemOffsetHelperName`).
+ */
+item_helper: string | null; 
+/**
+ * The parent's port, as the loadout names it; `None` for a `.cdf` part.
+ */
+port: string | null; part: ScenePart }
+/**
+ * A palette entry, sRGB bytes; gloss 0..=255.
+ */
+export type ScenePaletteEntry = { tint: [number, number, number]; spec: [number, number, number]; gloss: number }
+/**
+ * One item's geometry and what hangs on it.
+ */
+export type ScenePart = { 
+/**
+ * The name the log shows.
+ */
+record: string; 
+/**
+ * The item's record GUID; empty for a `.cdf` part that is no item.
+ */
+guid: string; 
+/**
+ * Drawn at the item origin.
+ */
+pieces: ScenePiece[]; 
+/**
+ * `.chr` whose bones the attachments name; without one they name
+ * geometry nodes of the pieces.
+ */
+skeleton: string | null; attachments: SceneAttachment[]; palette: [ScenePaletteEntry, ScenePaletteEntry, ScenePaletteEntry] | null }
+export type ScenePiece = { geometry: string; 
+/**
+ * `None`: the geometry's own `MtlName`.
+ */
+material: string | null }
 export type ScripRewardView = { name: string | null; amount: number }
 /**
  * Seats by what their occupant controls.
@@ -2978,6 +3058,26 @@ build: string;
  * Unix seconds.
  */
 savedAt: number }
+/**
+ * A ship to draw.
+ * 
+ * [`node_parts`](Self::node_parts) and [`interior`](Self::interior) are
+ * optional: empty, the view has no per-damage-part colouring and no
+ * interior.
+ */
+export type ShipScene = { id: string; label: string; root: ScenePart; 
+/**
+ * What could not be resolved (shown in the log).
+ */
+notes: string[]; 
+/**
+ * Hull mesh node → damage part, for colouring the drawn hull.
+ */
+node_parts: NodePart[]; 
+/**
+ * The interior's static geometry (walls, floors, fixtures).
+ */
+interior: InteriorBrush[] }
 export type ShipSlotView = { count_min: number; count_max: number; ships: string[]; factions: string[] }
 export type ShipView = { key: string; kind: ItemKindView; geid: string | null; place: PlaceView | null; holders: HolderView[]; 
 /**

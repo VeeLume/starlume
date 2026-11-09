@@ -17,6 +17,7 @@ import {
   type ShipMarketView,
   type ShipOwnedView,
   type ShipPricesView,
+  type ShipScene,
   type ShipSavedLoadoutView,
   type QtPlacesView,
   type ModeView,
@@ -399,6 +400,31 @@ export async function loadPage(channel: string): Promise<void> {
   } else {
     _pageError = result.error.message;
   }
+}
+
+let _scene = $state.raw<{ ship: string; key: string; scene: ShipScene } | null>(null);
+let _sceneSeq = 0;
+
+/** The open ship as its holo draws it, fitted parts included. */
+export const shipsScene = {
+  of(ship: string): ShipScene | null {
+    return _scene?.ship === ship ? _scene.scene : null;
+  },
+};
+
+/** Assemble the open ship for its holo; the last scene stays while the next
+ *  loads, the newest request wins. A failure leaves the picture showing. */
+export async function loadScene(channel: string): Promise<void> {
+  const ship = shipsUi.ship;
+  if (!ship) return;
+  const loadout = { ship, edits: shipsUi.edits[ship] ?? [] };
+  const key = JSON.stringify([channel, loadout]);
+  if (key === _scene?.key) return;
+  const seq = ++_sceneSeq;
+  const result = await commands.shipsScene(channel, loadout);
+  if (seq !== _sceneSeq) return;
+  if (result.status === "ok") _scene = { ship, key, scene: result.data };
+  else console.warn("no ship holo:", result.error.message);
 }
 
 /** The stock page beside the edited one (spviewer's "+2,938 DPS"): only

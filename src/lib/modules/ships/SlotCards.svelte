@@ -97,7 +97,9 @@
     /** Open the picker on these ports (a folded line's every part). */
     onpick: (slots: SlotView[]) => void;
     ontoggle: (paths: string[]) => void;
-    onhover: (system: SystemView | null) => void;
+    /** The box under the pointer, the ports of its line or its parts, and
+     *  whether it is one line. */
+    onhover: (system: SystemView | null, ports: string[] | null, line: boolean) => void;
     /** The power panel's weapons pool: what it gives the guns. */
     weaponPool?: ColumnView | null;
     /** The panels each column shows, top to bottom. */
@@ -123,6 +125,16 @@
   );
 
   const key = (s: SlotView) => s.path.join("/");
+  /** The part line under the pointer, else the whole box, for the holo. */
+  let hoveredPorts = "";
+  function hovering(e: MouseEvent | null, system: SystemView | null, cards: SlotView[]) {
+    const line = (e?.target as HTMLElement | undefined)?.closest<HTMLElement>("[data-ports]");
+    const ports = system === null ? null : line ? line.dataset.ports!.split("|") : cards.map(key);
+    const now = `${system}:${ports?.join("|")}`;
+    if (now === hoveredPorts) return;
+    hoveredPorts = now;
+    onhover(system, ports, !!line);
+  }
   const num = (v: number, d = 0) => v.toLocaleString("en-US", { maximumFractionDigits: d });
   const stat = (s: SlotView, k: string) => s.stats.find((x) => x.key === k)?.value ?? null;
 
@@ -372,7 +384,7 @@
 {#snippet part(s: SlotView, sub: boolean)}
   {@const k = key(s)}
   {@const offNow = isOff(s)}
-  <div class="ln" class:sel={selected === k} class:off={offNow} class:sub>
+  <div class="ln" class:sel={selected === k} class:off={offNow} class:sub data-ports={k}>
     <span class="chev"></span>
     {@render lead(s)}
     <button type="button" class="nm" disabled={!s.editable} data-part onclick={() => onpick([s])}>
@@ -401,7 +413,13 @@
         {#if cards.length}
           {@const sum = summary(sys.id, cards)}
           {@const Icon = sys.icon}
-          <section class="sys" style:--hue={sys.hue} onmouseenter={() => onhover(sys.id)} onmouseleave={() => onhover(null)} aria-label={sys.label}>
+          <section
+            class="sys"
+            style:--hue={sys.hue}
+            onmousemove={(e) => hovering(e, sys.id, cards)}
+            onmouseleave={() => hovering(null, null, [])}
+            aria-label={sys.label}
+          >
             <header>
               <Icon size={14} />
               <b>{sys.label}</b>
@@ -461,7 +479,7 @@
     {@const lead0 = r.parts[0]}
     {@const offN = r.parts.filter(isOff).length}
     {@const paths = r.parts.filter((p) => powered.has(key(p))).map(key)}
-    <div class="ln" class:off={offN === r.parts.length} class:sub>
+    <div class="ln" class:off={offN === r.parts.length} class:sub data-ports={r.parts.map(key).join("|")}>
       <button type="button" class="chev" onclick={() => (open[k] = !open[k])} aria-expanded={!fold} aria-label={fold ? "Show each" : "Fold"}>
         {#if fold}<ChevronRight size={13} />{:else}<ChevronDown size={13} />{/if}
       </button>
@@ -490,7 +508,7 @@
     {@const fold = !open[k]}
     {@const mOff = isOff(r.head)}
     {@const dps = gunDps(r.parts)}
-    <div class="ln" class:off={mOff} class:sub>
+    <div class="ln" class:off={mOff} class:sub data-ports={k}>
       <button type="button" class="chev" onclick={() => (open[k] = !open[k])} aria-expanded={!fold} aria-label={fold ? "Show each" : "Fold"}>
         {#if fold}<ChevronRight size={13} />{:else}<ChevronDown size={13} />{/if}
       </button>

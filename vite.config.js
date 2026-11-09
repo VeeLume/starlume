@@ -66,8 +66,11 @@ export default defineConfig(async ({ mode }) => ({
   // copies are listed explicitly (the kit's consumer rule, 0.1.1) — else
   // bits-ui's styled components miss their virtual CSS and dev dies.
   optimizeDeps: {
-    exclude: ["@veelume/ui"],
+    exclude: ["@veelume/ui", "@veelume/sc-render"],
     include: [
+      "@veelume/sc-render > three",
+      "@veelume/sc-render > three/addons/controls/OrbitControls.js",
+      "@veelume/sc-render > three/addons/environments/RoomEnvironment.js",
       "@veelume/ui > bits-ui",
       "@veelume/ui > @floating-ui/dom",
       "@veelume/ui > @internationalized/date",
