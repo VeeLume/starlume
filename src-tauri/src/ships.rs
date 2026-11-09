@@ -1331,13 +1331,17 @@ pub(crate) async fn ships_scene(
             .ok_or_else(|| AppError::Config(format!("unknown ship {}", input.ship)))?;
         // Taken per call and dropped with it: a held `Arc` would keep the
         // install open across a hide, past `evict`.
-        let assets = app.sc_render().assets().map_err(AppError::Internal)?;
+        let assets = app
+            .sc_render()
+            .assets_at(&install.p4k_path)
+            .map_err(AppError::Internal)?;
         let scene = visuals
             .assemble(&fitted.vehicle, vehicle, &fitted.mounted, assets.source())
             .ok_or_else(|| AppError::Config("this ship has no model".into()))?;
-        Ok(sc_render::ShipScene::new(&scene, input.ship.clone(), |g| {
-            g.to_string()
-        }))
+        Ok(
+            sc_render::ShipScene::new(&scene, input.ship.clone(), |g| g.to_string())
+                .read_from(&assets),
+        )
     })
     .await
     .map_err(|e| AppError::Internal(e.to_string()))?

@@ -4806,8 +4806,8 @@ dependencies = [
 
 [[package]]
 name = "sc-render"
-version = "0.4.0"
-source = "git+https://github.com/VeeLume/sc-render?tag=v0.4.0#a58af5eedaadcfd95bdd7afe323f4de55e4e80ca"
+version = "0.5.0"
+source = "git+https://github.com/VeeLume/sc-render?tag=v0.5.0#7d5d0d9e72e7908a7c1e48d2c42f44ba14459783"
 dependencies = [
  "image_dds",
  "sc-discovery",
@@ -6408,8 +6408,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-sc-render"
-version = "0.4.0"
-source = "git+https://github.com/VeeLume/sc-render?tag=v0.4.0#a58af5eedaadcfd95bdd7afe323f4de55e4e80ca"
+version = "0.5.0"
+source = "git+https://github.com/VeeLume/sc-render?tag=v0.5.0#7d5d0d9e72e7908a7c1e48d2c42f44ba14459783"
 dependencies = [
  "sc-render",
  "tauri",
