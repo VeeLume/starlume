@@ -30,6 +30,25 @@ export interface ReleaseGuide {
 
 export const RELEASE_GUIDES: ReleaseGuide[] = [
   {
+    version: "0.5.0",
+    changes: [
+      {
+        kind: "new",
+        title: "Ship holo",
+        body: "On Build, your ship is a hologram of what is fitted. Drag it to turn it, point at a part to find it, click it for the ship's stats. The switch on the card shows the picture instead.",
+        href: "/ships",
+        action: "Open Ships",
+      },
+      {
+        kind: "new",
+        title: "Settings → Performance",
+        body: "How much memory Starlume is using right now.",
+        href: "/settings/performance",
+        action: "Open",
+      },
+    ],
+  },
+  {
     version: "0.3.0",
     changes: [
       {

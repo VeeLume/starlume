@@ -1,6 +1,6 @@
 {
   "name": "starlume",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Starlume — the Star Citizen companion",
   "type": "module",
   "scripts": {
