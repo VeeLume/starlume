@@ -2,14 +2,23 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-09
+
+Your ship on Build is now a hologram of what is actually fitted. Game data is
+rebuilt once on the first start after updating.
+
 - **Ship holo** — on Build, your ship is now a hologram of what is actually
   fitted, read from your own game install. Drag to turn it; pointing at a
   part's card lights the part and turns it towards you. Click to expand the
   holo behind the ship's stats, where you can look from any angle and zoom.
   A switch on the card shows the ship's picture instead, and Settings → Modules
-  turns the holo off altogether.
+  turns the holo off altogether. A PTU ship is drawn from your PTU install.
+- **Sharper ship pictures** — with online features on, a ship's picture comes
+  from RSI's public ship store in full size the first time you show it.
 - **Performance** — Settings → Performance shows how much memory Starlume is
   using right now.
+- **Less waiting on game files** — applying a text patch and reading a mining
+  scan no longer load the game archive's whole file list.
 
 ## [0.4.0] - 2026-11-08
 
