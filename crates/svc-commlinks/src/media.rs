@@ -163,6 +163,39 @@ pub async fn sync(dir: &Path, wanted: &[WantedImage], user_agent: &str) -> usize
     fetched
 }
 
+/// Have `image` in `dir`, leaving everything else there alone. Whether it is
+/// there afterwards. **Network** when it is missing — see the module contract.
+pub async fn ensure(dir: &Path, image: &WantedImage, user_agent: &str) -> bool {
+    let path = dir.join(&image.file);
+    if path.is_file() {
+        return true;
+    }
+    let client = match reqwest::Client::builder()
+        .user_agent(user_agent)
+        .timeout(Duration::from_secs(20))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("image: no HTTP client: {e}");
+            return false;
+        }
+    };
+    match fetch(&client, &image.url).await {
+        Ok(bytes) => match app_kit::atomic_write(&path, &bytes) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!(file = %image.file, "image not saved: {e}");
+                false
+            }
+        },
+        Err(e) => {
+            tracing::info!(url = %image.url, "image skipped: {e}");
+            false
+        }
+    }
+}
+
 async fn fetch(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
     let response = client.get(url).send().await.map_err(|e| e.to_string())?;
     let status = response.status();

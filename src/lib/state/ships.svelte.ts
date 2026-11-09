@@ -42,6 +42,8 @@ export const shipsUi = $state({
   /** Swaps per ship, on top of its stock loadout. */
   edits: {} as Record<string, EditView[]>,
   mode: "scm" as ModeView,
+  /** The Build card shows the ship's picture rather than its holo. */
+  picture: false,
   /** Port paths (`/`-joined) switched off, per ship. */
   off: {} as Record<string, string[]>,
   /** Power columns set by hand, per ship, in the order they were set. */
@@ -126,7 +128,31 @@ export const shipsImages = {
   get byGuid() {
     return _images;
   },
+  /** The large pictures fetched so far: only for ships shown as a picture. */
+  get large() {
+    return _wallpapers;
+  },
 };
+
+let _wallpapers = $state.raw<Map<string, string>>(new Map());
+const _wallpapersAsked = new Set<string>();
+
+/** `ship`'s large picture, ready to draw before the page swaps to it. Asked
+ *  again next time when it couldn't be had (offline, say). */
+export async function loadWallpaper(channel: string, ship: string): Promise<void> {
+  if (_wallpapersAsked.has(ship)) return;
+  _wallpapersAsked.add(ship);
+  const result = await commands.shipsWallpaper(channel, ship);
+  if (result.status !== "ok" || !result.data) {
+    _wallpapersAsked.delete(ship);
+    return;
+  }
+  const url = convertFileSrc(result.data);
+  const image = new Image();
+  image.src = url;
+  await image.decode().catch(() => undefined);
+  _wallpapers = new Map(_wallpapers).set(ship, url);
+}
 
 /** The pictures on disk (no network), then a refresh of the store list if
  *  it is a week old: online-gated Rust-side, silent when offline. A

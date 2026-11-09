@@ -16,6 +16,12 @@
     const err = await applySettings({ enabled_modules: next });
     if (err) error = err.message;
   }
+
+  async function setHolo(on: boolean) {
+    error = "";
+    const err = await applySettings({ ship_holo: on });
+    if (err) error = err.message;
+  }
 </script>
 
 <Settings.Page title="Modules">
@@ -37,6 +43,14 @@
         {/each}
       {/if}
     </Settings.Section>
+
+    {#if settings.enabled_modules.includes("ships")}
+      <Settings.Section title="Ships">
+        <Settings.Row label="Ship holo" hint="Draw your ship in 3D on the Build page. Off, Build shows its picture and loads no models.">
+          <Switch label="Ship holo" checked={settings.ship_holo} onchange={(v) => setHolo(v)} />
+        </Settings.Row>
+      </Settings.Section>
+    {/if}
 
     {#if error}
       <p class="text-sm text-destructive">{error}</p>
