@@ -72,7 +72,7 @@ fn derive_and_apply_from_real_data() {
     assert!(count("label_fixes") > 0, "label fixes empty");
 
     // ── Apply into a fake install dir ───────────────────────────────────
-    let base = svc_data::read_base_global_ini(&install.p4k_path).expect("base global.ini");
+    let base = svc_data::read_base_global_ini(&install.p4k_path, None).expect("base global.ini");
     let mut lines = merge::decode_ini(&base).expect("decode base INI");
     let line_count_before = lines.len();
 

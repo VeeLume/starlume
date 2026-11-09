@@ -22,6 +22,30 @@
 
 use svc_data::{CrimestatRisk, DataService, InstallRef, LegalityKind};
 
+/// The known single files read the same through a cooked asset index as
+/// through a full open. Point `STARLUME_REAL_INDEX` at a cook's `assets.index`.
+#[test]
+#[ignore = "needs a real Data.p4k and its assets.index"]
+fn known_files_read_through_the_index() {
+    let p4k = std::env::var("STARLUME_REAL_P4K").expect("set STARLUME_REAL_P4K");
+    let index = std::env::var("STARLUME_REAL_INDEX").expect("set STARLUME_REAL_INDEX");
+    let (p4k, index) = (std::path::Path::new(&p4k), std::path::Path::new(&index));
+    assert!(index.exists(), "no index at {}", index.display());
+    for path in [svc_data::BASE_GLOBAL_INI, svc_data::HUD_FONTS] {
+        let started = std::time::Instant::now();
+        let indexed = svc_data::read_p4k_file(p4k, Some(index), path).expect("indexed read");
+        let indexed_took = started.elapsed();
+        let started = std::time::Instant::now();
+        let full = svc_data::read_p4k_file(p4k, None, path).expect("full read");
+        eprintln!(
+            "{path}: {} bytes, indexed {indexed_took:?}, full open {:?}",
+            full.len(),
+            started.elapsed()
+        );
+        assert_eq!(indexed, full, "{path} differs through the index");
+    }
+}
+
 #[test]
 #[ignore = "needs a real Data.p4k — set STARLUME_REAL_P4K"]
 fn cook_from_real_install() {

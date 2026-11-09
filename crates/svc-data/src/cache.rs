@@ -21,7 +21,7 @@
 use std::path::{Path, PathBuf};
 
 use sc_holotable::asset::{
-    AssetConfig, AssetData, AssetSource, Datacore, ExtractSnapshot, ProcessedSnapshot,
+    AssetConfig, AssetData, AssetIndex, AssetSource, Datacore, ExtractSnapshot, ProcessedSnapshot,
     SnapshotCaptureConfig, SnapshotMeta,
 };
 
@@ -34,6 +34,9 @@ pub(crate) const PROCESSED_SNAPSHOT_NAME: &str = "foundations.cook";
 /// only when a holo opens.
 pub(crate) const VISUALS_SNAPSHOT_NAME: &str = "visuals.cook";
 pub(crate) const EXTRACT_SNAPSHOT_NAME: &str = "extract.snap";
+/// Where the files Starlume reads outside a cook sit in the p4k, so reading
+/// one never loads the archive's whole file list (see [`save_asset_index`]).
+pub(crate) const ASSET_INDEX_NAME: &str = "assets.index";
 
 /// Snapshot provenance from an install's identity fields.
 pub(crate) fn meta_for(install: &InstallRef) -> SnapshotMeta {
@@ -150,7 +153,42 @@ pub(crate) fn extract_meta(dir: &Path) -> Option<SnapshotMeta> {
 pub(crate) fn drop_processed(dir: &Path) -> std::io::Result<()> {
     let _ = std::fs::remove_file(key_path(dir, PROCESSED_SNAPSHOT_NAME));
     let _ = std::fs::remove_file(dir.join(VISUALS_SNAPSHOT_NAME));
+    let _ = std::fs::remove_file(dir.join(ASSET_INDEX_NAME));
     std::fs::remove_file(dir.join(PROCESSED_SNAPSHOT_NAME))
+}
+
+/// List every file a holo can need and every known single file, while the
+/// cook has the archive open anyway. Failure is non-fatal (logged): without
+/// an index, reads open the whole archive as they would otherwise.
+pub(crate) fn save_asset_index(dir: &Path, assets: &AssetSource, visuals: &ShipVisuals) {
+    let path = dir.join(ASSET_INDEX_NAME);
+    let mut index = match AssetIndex::builder(assets) {
+        Ok(index) => index,
+        Err(e) => {
+            tracing::warn!("can't build the asset index: {e}");
+            return;
+        }
+    };
+    visuals.visuals.add_files(&mut index);
+    for file in crate::KNOWN_P4K_FILES {
+        index.add(file);
+    }
+    // Every language's stock text: `user.cfg` picks one at read time.
+    let languages: Vec<String> = assets
+        .find(|name| {
+            let name = name.to_ascii_lowercase().replace('/', "\\");
+            name.contains("\\localization\\") && name.ends_with("\\global.ini")
+        })
+        .map(|entry| entry.name.to_string())
+        .collect();
+    for language in &languages {
+        index.add(language);
+    }
+    let bytes = index.finish().to_bytes();
+    match app_kit::atomic_write(&path, &bytes) {
+        Ok(()) => tracing::info!(bytes = bytes.len(), "wrote the asset index"),
+        Err(e) => tracing::warn!("failed to save {}: {e}", path.display()),
+    }
 }
 
 /// Load the ship holo's recipes. `None` on any failure: the holo falls back

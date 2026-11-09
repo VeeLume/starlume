@@ -18,6 +18,7 @@ description = "Starlume data service — one shared DCB parse + snapshot cache p
 # ports, loadouts, the power network) for the ships-index cook. `visuals`
 # adds the render recipes the ship holo assembles from.
 sc-holotable = { workspace = true, features = ["foundations", "missions-payout", "weapons", "crafting", "mining", "vehicles", "visuals"] }
+app-kit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

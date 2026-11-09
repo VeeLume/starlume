@@ -19,8 +19,9 @@ use std::sync::{Arc, Mutex};
 use base64::Engine;
 use mod_mining::{NameSet, ScanReading, read_scan};
 use svc_capture::Frame;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
+use crate::AppState;
 use crate::error::AppError;
 use crate::mining::catalog_for;
 
@@ -36,9 +37,10 @@ static NAMES: Mutex<Option<(NameKey, Arc<NameSet>)>> = Mutex::new(None);
 
 fn name_set(
     install: &svc_data::InstallRef,
+    index: &Path,
     catalog: &mod_mining::Catalog,
 ) -> Result<Arc<NameSet>, AppError> {
-    let (locale, source) = svc_data::active_locale(&install.p4k_path)
+    let (locale, source) = svc_data::active_locale(&install.p4k_path, Some(index))
         .map_err(|e| AppError::Config(format!("can't read the game's localisation: {e:#}")))?;
     let stamp = match &source {
         svc_data::LocaleSource::Override(p) => std::fs::metadata(p)
@@ -54,7 +56,7 @@ fn name_set(
     {
         return Ok(set.clone());
     }
-    let movie = svc_data::read_p4k_file(&install.p4k_path, "ui/fonts/shared/fonts_en.gfx")
+    let movie = svc_data::read_p4k_file(&install.p4k_path, Some(index), svc_data::HUD_FONTS)
         .map_err(|e| AppError::Config(format!("can't read the game's HUD fonts: {e:#}")))?;
     let font = svc_capture::gfxfont::find_font(&movie, "Blender Pro Bold")
         .map_err(|e| AppError::Config(format!("can't read the game's HUD font: {e}")))?;
@@ -266,10 +268,11 @@ pub(crate) async fn mining_capture(
 ) -> Result<CaptureView, AppError> {
     let catalog = catalog_for(&app, &channel).await?;
     let install = crate::data::install_for(&app, &channel).await?;
+    let index = app.state::<AppState>().data.asset_index_file(&install);
     tauri::async_runtime::spawn_blocking(move || {
         let frame = svc_capture::capture_game().map_err(|e| AppError::Config(e.to_string()))?;
         let file = keep(kind, &frame)?;
-        let names = name_set(&install, &catalog)?;
+        let names = name_set(&install, &index, &catalog)?;
         Ok(read(kind, &frame, &file, &catalog, &names))
     })
     .await
@@ -287,10 +290,11 @@ pub(crate) async fn mining_read_screenshot(
 ) -> Result<CaptureView, AppError> {
     let catalog = catalog_for(&app, &channel).await?;
     let install = crate::data::install_for(&app, &channel).await?;
+    let index = app.state::<AppState>().data.asset_index_file(&install);
     tauri::async_runtime::spawn_blocking(move || {
         let file = PathBuf::from(path);
         let frame = Frame::open(&file).map_err(|e| AppError::Config(e.to_string()))?;
-        let names = name_set(&install, &catalog)?;
+        let names = name_set(&install, &index, &catalog)?;
         Ok(read(kind, &frame, &file, &catalog, &names))
     })
     .await

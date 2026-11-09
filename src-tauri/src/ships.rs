@@ -1331,9 +1331,10 @@ pub(crate) async fn ships_scene(
             .ok_or_else(|| AppError::Config(format!("unknown ship {}", input.ship)))?;
         // Taken per call and dropped with it: a held `Arc` would keep the
         // install open across a hide, past `evict`.
+        let index = app.state::<AppState>().data.asset_index_file(&install);
         let assets = app
             .sc_render()
-            .assets_at(&install.p4k_path)
+            .assets_at_indexed(&install.p4k_path, &index)
             .map_err(AppError::Internal)?;
         let scene = visuals
             .assemble(&fitted.vehicle, vehicle, &fitted.mounted, assets.source())
