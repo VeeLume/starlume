@@ -47,7 +47,7 @@ scraper = "0.20"
 # The SC data backbone — ONE pin for the whole app (the whole point of the
 # consolidation). Base features here; svc-data adds `foundations` on the same
 # pin (Cargo unions features across the workspace).
-sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.42.0", features = ["installs"] }
+sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.43.0", features = ["installs"] }
 # The gRPC lab's shipped client: game services, Spectrum, patch notes,
 # comm-links. ONE
 # pin for every service that uses it.
@@ -83,8 +83,8 @@ mod-items = { path = "crates/mod-items" }
 mod-langpatch = { path = "crates/mod-langpatch" }
 mod-mining = { path = "crates/mod-mining" }
 mod-ships = { path = "crates/mod-ships" }
-sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.3.0" }
-tauri-plugin-sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.3.0" }
+sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.4.0" }
+tauri-plugin-sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.4.0" }
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
 svc-capture = { path = "crates/svc-capture" }
