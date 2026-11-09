@@ -651,6 +651,19 @@ async shipsScene(channel: string, loadout: ShipLoadoutView) : Promise<Result<Shi
 }
 },
 /**
+ * A hull's large store picture, fetched the first time it is shown and kept.
+ * `None` without one, or offline when it isn't on disk yet. **Gated** by
+ * `require_online()` before any download.
+ */
+async shipsWallpaper(channel: string, ship: string) : Promise<Result<string | null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ships_wallpaper", { channel, ship }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * What else fits the port at `targets[0]`, each option with its figures
  * and the ship with it fitted on every target port.
  */

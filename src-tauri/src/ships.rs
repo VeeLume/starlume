@@ -1394,11 +1394,53 @@ pub struct ShipImageView {
 /// directories).
 pub fn allow_images(app: &AppHandle) {
     use tauri::Manager;
-    let images = app.state::<crate::AppState>().shipstore.images_dir();
-    let _ = std::fs::create_dir_all(&images);
-    if let Err(e) = app.asset_protocol_scope().allow_directory(&images, false) {
-        tracing::warn!("ship pictures not readable by the page: {e}");
+    let service = app.state::<crate::AppState>().shipstore.clone();
+    for dir in [service.images_dir(), service.wallpapers_dir()] {
+        let _ = std::fs::create_dir_all(&dir);
+        if let Err(e) = app.asset_protocol_scope().allow_directory(&dir, false) {
+            tracing::warn!("ship pictures not readable by the page: {e}");
+        }
     }
+}
+
+/// A hull's large store picture, fetched the first time it is shown and kept.
+/// `None` without one, or offline when it isn't on disk yet. **Gated** by
+/// `require_online()` before any download.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn ships_wallpaper(
+    app: AppHandle,
+    channel: String,
+    ship: String,
+) -> Result<Option<String>, AppError> {
+    use tauri::Manager;
+    let cooked = cooked_for(&app, &channel).await?;
+    let service = app.state::<crate::AppState>().shipstore.clone();
+    let lookup = service.clone();
+    let stored = tauri::async_runtime::spawn_blocking(move || {
+        let cache = lookup.cached()?;
+        let rows = ship_rows(&cooked);
+        let store: Vec<(u32, &str)> = cache
+            .ships
+            .iter()
+            .map(|s| (s.id, s.name.as_str()))
+            .collect();
+        let id = mod_ships::match_store(&rows, &store)
+            .into_iter()
+            .find_map(|(guid, id)| (guid == ship).then_some(id))?;
+        cache.ships.iter().find(|s| s.id == id).cloned()
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    let Some(stored) = stored else {
+        return Ok(None);
+    };
+    let path = match service.wallpaper_path(&stored) {
+        Some(path) => Some(path),
+        None if app.state::<crate::AppState>().require_online().is_err() => None,
+        None => service.fetch_wallpaper(&stored, USER_AGENT).await,
+    };
+    Ok(path.map(|p| p.to_string_lossy().into_owned()))
 }
 
 /// Each hull's store picture that is on disk (editions the store does not

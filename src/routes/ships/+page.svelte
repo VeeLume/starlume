@@ -36,6 +36,7 @@
     loadPage,
     loadScene,
     loadShipPrices,
+    loadWallpaper,
     loadShips,
     openShip,
     shipsHome,
@@ -156,6 +157,14 @@
     if (c && ship && edits !== "" && holo && view === "build" && page?.ship === ship) untrack(() => void loadScene(c));
   });
 
+  // The large picture only when it is what the card shows: while the holo
+  // loads the small one holds the place.
+  $effect(() => {
+    const c = channel;
+    const ship = shipsUi.ship;
+    if (c && ship && view === "build" && (!holo || shipsUi.picture)) untrack(() => void loadWallpaper(c, ship));
+  });
+
   // Where the open ship is sold and rented (cached UEX prices), and your
   // copies' loadouts in the game (the cached inventory): no network. Once
   // its page is in: then the game data both read is loaded (asked any
@@ -271,7 +280,7 @@
       <p class="error">{shipsStore.pageError}</p>
     {:else if page && page.ship === shipsUi.ship}
       {@const s = page.summary}
-      {@const picture = shipsImages.byGuid.get(shipsUi.ship)}
+      {@const picture = shipsImages.large.get(shipsUi.ship) ?? shipsImages.byGuid.get(shipsUi.ship)}
       {@const glow = SYSTEMS.find((x) => x.id === hover)?.hue ?? null}
       {#snippet power()}
         {#if page.power}
@@ -334,6 +343,8 @@
             <div class="holo-slot" bind:this={holoSlot}>
               <ShipHolo
                 {picture}
+                name={shipName}
+                detail={[row?.career, row?.role].filter(Boolean).join(" · ")}
                 live={holo}
                 scene={shipsScene.of(shipsUi.ship)}
                 open={details}

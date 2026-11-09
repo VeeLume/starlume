@@ -63,6 +63,19 @@ pub fn wanted_images(ships: &[StoreShip]) -> Vec<WantedImage> {
         .collect()
 }
 
+/// A ship's 1920 × 1080 wallpaper (~1 MB), fetched only for ships whose
+/// picture is shown. `None` for a URL not on RSI's media host.
+fn wallpaper_image(ship: &StoreShip) -> Option<WantedImage> {
+    let url = ship.media.wallpaper.as_deref()?;
+    url.strip_prefix("https://media.robertsspaceindustries.com/")?;
+    let (_, ext) = url.rsplit_once('.')?;
+    let ext = ext.to_ascii_lowercase();
+    matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp").then(|| WantedImage {
+        file: format!("{}.{ext}", ship.id),
+        url: url.to_string(),
+    })
+}
+
 pub struct ShipStoreService {
     cache_root: PathBuf,
     run_lock: tokio::sync::Mutex<()>,
@@ -93,6 +106,28 @@ impl ShipStoreService {
             ship.media.thumbnail.as_deref()?,
             SIZE,
         )
+    }
+
+    /// Where the large pictures go; the shell lets the webview read it.
+    pub fn wallpapers_dir(&self) -> PathBuf {
+        self.cache_root.join("wallpapers")
+    }
+
+    /// `ship`'s large picture on disk, if fetched. No network.
+    pub fn wallpaper_path(&self, ship: &StoreShip) -> Option<PathBuf> {
+        let path = self.wallpapers_dir().join(wallpaper_image(ship)?.file);
+        path.is_file().then_some(path)
+    }
+
+    /// Fetch `ship`'s large picture if it isn't on disk yet. `None` when
+    /// that fails. **Network** — see the module contract.
+    pub async fn fetch_wallpaper(&self, ship: &StoreShip, user_agent: &str) -> Option<PathBuf> {
+        let image = wallpaper_image(ship)?;
+        let dir = self.wallpapers_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        media::ensure(&dir, &image, user_agent)
+            .await
+            .then(|| dir.join(image.file))
     }
 
     /// The cached list; `None` before the first refresh. No network.
