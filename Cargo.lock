@@ -2851,6 +2851,13 @@ name = "mod-contracts"
 version = "0.5.0"
 
 [[package]]
+name = "mod-crafting"
+version = "0.5.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "mod-devtracker"
 version = "0.5.0"
 dependencies = [
@@ -5642,6 +5649,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "keyring",
+ "mod-crafting",
  "mod-devtracker",
  "mod-items",
  "mod-langpatch",

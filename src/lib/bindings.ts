@@ -605,6 +605,57 @@ async miningScanReady() : Promise<boolean> {
     return await TAURI_INVOKE("mining_scan_ready");
 },
 /**
+ * Every blueprint of `channel`'s build, sorted by name.
+ */
+async craftingBlueprints(channel: string) : Promise<Result<BlueprintRowView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("crafting_blueprints", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * One blueprint's recipe; `null` when the build has no such blueprint.
+ */
+async craftingDetail(channel: string, blueprint: string) : Promise<Result<BlueprintDetailView | null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("crafting_detail", { channel, blueprint }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * What you marked.
+ */
+async craftingMarks() : Promise<CraftingMarksView> {
+    return await TAURI_INVOKE("crafting_marks");
+},
+/**
+ * Flip one mark on a blueprint; the marks as they now stand.
+ */
+async craftingToggle(mark: CraftingMark, blueprint: string) : Promise<Result<CraftingMarksView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("crafting_toggle", { mark, blueprint }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The materials in your cached inventory, named from `channel`'s game data;
+ * empty when nothing has been fetched yet. **No network, no gate.**
+ */
+async craftingStock(channel: string) : Promise<Result<StockStackView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("crafting_stock", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Every ship a player can own, sorted by name.
  */
 async shipsList(channel: string) : Promise<Result<ShipRowView[], AppError>> {
@@ -1487,6 +1538,16 @@ share: number | null }
  */
 export type BlastView = { cleanMinM: number; cleanMaxM: number; cleanDamage: number; fullMinM: number; fullMaxM: number; fullDamage: number; rockRadiusM: number; cleanClearM: number; fullClearM: number }
 /**
+ * One blueprint opened: its slots, curves, stat sheet and sources.
+ */
+export type BlueprintDetailView = { guid: string; defaultQuality: number; slots: BlueprintSlotView[]; stats: BlueprintStatView[]; grantedBy: GrantingMissionView[] }
+/**
+ * One blueprint in the catalog list.
+ */
+export type BlueprintRowView = { guid: string; name: string; category: string | null; itemType: string; subType: string; size: number; grade: number; class: string | null; manufacturer: string | null; craftSeconds: number | null; materials: MaterialView[] }
+export type BlueprintSlotView = { name: string | null; material: MaterialView; modifiers: SlotModifierView[] }
+export type BlueprintStatView = { group: string | null; label: string; property: string | null; unit: string; higherIsBetter: boolean | null; base: number | null }
+/**
  * The boost capacitor at one assignment level.
  */
 export type BoostView = { regenS: number; depleteS: number | null; 
@@ -1643,6 +1704,14 @@ factor: number;
  */
 factor_up_is_better: boolean | null }
 export type CraftedView = { ingredients: IngredientView[]; properties: CraftedPropertyView[] }
+/**
+ * Which mark a toggle flips.
+ */
+export type CraftingMark = "owned" | "wantBlueprint" | "wantItem"
+/**
+ * What you marked, by blueprint GUID.
+ */
+export type CraftingMarksView = { owned: string[]; wantBlueprint: string[]; wantItem: string[] }
 /**
  * A crew ship beside yours on the rock.
  */
@@ -1956,6 +2025,7 @@ pickShare: number | null;
  * The sample's masses as bars, lightest first.
  */
 masses: MassBucketView[] }
+export type GrantingMissionView = { missionId: string; title: string }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
  * An unofficial-API feature users can individually allow (named for gRPC,
@@ -2319,6 +2389,10 @@ class: RockClassView | null }
  */
 export type MassRangeView = { min: number; mode: number; max: number }
 /**
+ * What a recipe's slot takes.
+ */
+export type MaterialView = { name: string; scu: number | null; count: number | null; minQuality: number }
+/**
  * One sample, in megabytes.
  */
 export type MemoryView = { 
@@ -2421,6 +2495,7 @@ export type MissionRefView = { mission_id: string; title: string | null; once_on
 export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
 export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[]; spawns: SpawnSlotView[] }
 export type ModeView = "scm" | "nav"
+export type ModifierRangeView = { additive: boolean; startQuality: number; endQuality: number; atStart: number; atEnd: number }
 /**
  * A laser's, module's or gadget's mining modifiers, in percent. `null`
  * when the item does not change that value.
@@ -3159,6 +3234,11 @@ ownedAt: number | null; arrivals: ArrivalView[];
  * The build "new" counts from (the first one Starlume saw).
  */
 watchingSince: string | null; recent: string[] }
+export type SlotModifierView = { property: string | null; name: string | null; 
+/**
+ * `percent`, `negatedPercent` or `raw`.
+ */
+transform: string; ranges: ModifierRangeView[] }
 /**
  * One port of a loadout and what it holds.
  */
@@ -3177,6 +3257,14 @@ kinds: string[]; factions: string[]; allied: boolean; target: boolean }
  * One figure of a part.
  */
 export type StatView = { key: string; label: string; value: number; unit: string; better: number }
+/**
+ * One stack of a material you hold.
+ */
+export type StockStackView = { name: string; quality: number; 
+/**
+ * SCU for bulk, pieces else.
+ */
+amount: number; bulk: boolean; place: string }
 /**
  * What the ship stores.
  */

@@ -4,6 +4,7 @@ members = [
     "src-tauri",
     "crates/app-kit",
     "crates/mod-contracts",
+    "crates/mod-crafting",
     "crates/mod-devtracker",
     "crates/mod-items",
     "crates/mod-langpatch",
@@ -78,6 +79,7 @@ tauri-specta = { version = "2.0.0-rc.21", features = ["typescript"] }
 # Internal crates
 app-kit = { path = "crates/app-kit" }
 mod-contracts = { path = "crates/mod-contracts" }
+mod-crafting = { path = "crates/mod-crafting" }
 mod-devtracker = { path = "crates/mod-devtracker" }
 mod-items = { path = "crates/mod-items" }
 mod-langpatch = { path = "crates/mod-langpatch" }

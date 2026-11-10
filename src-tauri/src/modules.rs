@@ -121,15 +121,40 @@ impl Module for Ships {
     }
 }
 
+/// Crafting — the blueprint catalog with what you own and want, and each
+/// recipe's materials and stats (marks in `crates/mod-crafting`, IPC in
+/// `crafting.rs`, over svc-data's catalog).
+struct Crafting;
+
+impl Module for Crafting {
+    fn id(&self) -> &'static str {
+        crate::crafting::MODULE_ID
+    }
+    fn name(&self) -> &'static str {
+        "Crafting"
+    }
+    fn description(&self) -> &'static str {
+        "Every blueprint, which ones you own and want, and what a recipe makes at the quality of the materials you hold"
+    }
+}
+
 /// All modules offered by this build, enabled or not. Unreleased modules
 /// (Contracts) exist only in debug builds — the Rust half of the frontend's
 /// `$lib/unreleased` gate (v0.1.0 scope decision; the Dev Tracker shipped in
 /// v0.2.0, Mining in v0.3.0, Ships in v0.4.0).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
-        &[&Devtracker, &Langpatch, &Items, &Mining, &Ships, &Contracts]
+        &[
+            &Devtracker,
+            &Langpatch,
+            &Items,
+            &Mining,
+            &Ships,
+            &Crafting,
+            &Contracts,
+        ]
     } else {
-        &[&Devtracker, &Langpatch, &Items, &Mining, &Ships]
+        &[&Devtracker, &Langpatch, &Items, &Mining, &Ships, &Crafting]
     }
 }
 

@@ -25,6 +25,7 @@ use sc_holotable::asset::{
     SnapshotCaptureConfig, SnapshotMeta,
 };
 
+use crate::blueprints::BlueprintIndex;
 use crate::cooked::{CookedData, DATA_COOK_VERSION};
 use crate::ships::ShipVisuals;
 use crate::{InstallRef, LoadTier};
@@ -33,6 +34,7 @@ pub(crate) const PROCESSED_SNAPSHOT_NAME: &str = "foundations.cook";
 /// The ship holo's recipes, written and invalidated with the cook, loaded
 /// only when a holo opens.
 pub(crate) const VISUALS_SNAPSHOT_NAME: &str = "visuals.cook";
+pub(crate) const BLUEPRINTS_SNAPSHOT_NAME: &str = "blueprints.cook";
 pub(crate) const EXTRACT_SNAPSHOT_NAME: &str = "extract.snap";
 /// Where the files Starlume reads outside a cook sit in the p4k, so reading
 /// one never loads the archive's whole file list (see [`save_asset_index`]).
@@ -153,6 +155,7 @@ pub(crate) fn extract_meta(dir: &Path) -> Option<SnapshotMeta> {
 pub(crate) fn drop_processed(dir: &Path) -> std::io::Result<()> {
     let _ = std::fs::remove_file(key_path(dir, PROCESSED_SNAPSHOT_NAME));
     let _ = std::fs::remove_file(dir.join(VISUALS_SNAPSHOT_NAME));
+    let _ = std::fs::remove_file(dir.join(BLUEPRINTS_SNAPSHOT_NAME));
     let _ = std::fs::remove_file(dir.join(ASSET_INDEX_NAME));
     std::fs::remove_file(dir.join(PROCESSED_SNAPSHOT_NAME))
 }
@@ -199,6 +202,30 @@ pub(crate) fn try_load_visuals(dir: &Path, install: &InstallRef) -> Option<ShipV
         .inspect_err(|e| tracing::info!("ship visuals snapshot unusable ({e})"))
         .ok()?;
     same_build(&snap.meta.build_id, install).then(|| snap.into_index())
+}
+
+/// The blueprint catalog from its snapshot; `None` until a cook has written
+/// it for this build.
+pub(crate) fn try_load_blueprints(dir: &Path, install: &InstallRef) -> Option<BlueprintIndex> {
+    let path = dir.join(BLUEPRINTS_SNAPSHOT_NAME);
+    let snap = ProcessedSnapshot::<BlueprintIndex>::load(&path, DATA_COOK_VERSION)
+        .inspect_err(|e| tracing::info!("blueprint snapshot unusable ({e})"))
+        .ok()?;
+    same_build(&snap.meta.build_id, install).then(|| snap.into_index())
+}
+
+/// Persist the blueprint catalog. Failure is non-fatal (logged).
+pub(crate) fn save_blueprints(dir: &Path, install: &InstallRef, blueprints: BlueprintIndex) {
+    let path = dir.join(BLUEPRINTS_SNAPSHOT_NAME);
+    let saved =
+        ProcessedSnapshot::new(meta_for(install), DATA_COOK_VERSION, blueprints).save(&path);
+    match saved {
+        Ok(()) => {
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            tracing::info!(bytes = size, "wrote blueprint snapshot");
+        }
+        Err(e) => tracing::warn!("failed to save blueprints to {}: {e}", path.display()),
+    }
 }
 
 /// Persist the ship holo's recipes. Failure is non-fatal (logged).

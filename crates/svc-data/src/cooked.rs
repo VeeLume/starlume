@@ -57,7 +57,9 @@ use serde::{Deserialize, Serialize};
 /// rev 20: sc-holotable v0.41; the ship holo's render recipes, written
 /// beside the cook ([`crate::ships::ShipVisuals`]).
 /// rev 21: sc-holotable v0.44; the asset index, written beside the cook.
-pub const STARLUME_COOK_REV: u32 = 21;
+/// rev 22: the blueprint catalog, written beside the cook
+/// ([`crate::blueprints::BlueprintIndex`]).
+pub const STARLUME_COOK_REV: u32 = 22;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

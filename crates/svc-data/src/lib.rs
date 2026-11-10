@@ -41,6 +41,7 @@
 //! with an explicit 32 MiB stack ([`LOADER_STACK_SIZE`]) — the pattern
 //! proven in Hearth / sc-langpatch / bulkhead.
 
+pub mod blueprints;
 pub mod builds;
 pub mod cooked;
 pub mod crafting;
@@ -62,6 +63,10 @@ use anyhow::{Context, anyhow};
 use sc_holotable::asset::{AssetConfig, AssetData, AssetSource, Datacore};
 use sc_holotable::build_foundations;
 
+pub use blueprints::{
+    BlueprintEntry, BlueprintIndex, BlueprintSlot, BlueprintStat, GrantingMission, ModifierRange,
+    ModifierTransform, SlotModifier,
+};
 pub use builds::{BuildMeta, RetentionPolicy, changelist, is_prod_channel, release};
 pub use cooked::{
     CookedData, DATA_COOK_VERSION, ItemDetail, ItemPage, ItemQuery, ItemRow, ManufacturerRow,
@@ -184,6 +189,8 @@ pub struct DataService {
     loaded: Mutex<HashMap<String, Arc<CookedData>>>,
     /// `build key → the ship holo's recipes`, once a holo has asked.
     visuals: Mutex<HashMap<String, Arc<ships::ShipVisuals>>>,
+    /// `build key → the blueprint catalog`, once Crafting has asked.
+    blueprints: Mutex<HashMap<String, Arc<BlueprintIndex>>>,
     /// `build key → parse lock` — the single-flight guard behind
     /// [`Self::load`]. Concurrent loads of one build (two channels on the
     /// same changelist included) serialize on this and the losers pick up
@@ -205,6 +212,7 @@ impl DataService {
             cache_root,
             loaded: Mutex::new(HashMap::new()),
             visuals: Mutex::new(HashMap::new()),
+            blueprints: Mutex::new(HashMap::new()),
             parse_locks: Mutex::new(HashMap::new()),
             loading: Mutex::new(HashSet::new()),
         }
@@ -297,6 +305,22 @@ impl DataService {
         Some(visuals)
     }
 
+    /// The blueprint catalog for an install's build: from memory, else from
+    /// its snapshot. **Never parses**; `None` until a cook has written it.
+    pub fn blueprints(&self, install: &InstallRef) -> Option<Arc<BlueprintIndex>> {
+        let key = install.build_key();
+        if let Some(blueprints) = self.blueprints.lock().unwrap().get(&key) {
+            return Some(Arc::clone(blueprints));
+        }
+        let dir = self.build_dir(install);
+        let blueprints = Arc::new(cache::try_load_blueprints(&dir, install)?);
+        self.blueprints
+            .lock()
+            .unwrap()
+            .insert(key, Arc::clone(&blueprints));
+        Some(blueprints)
+    }
+
     /// Run the full load waterfall for an install, on a dedicated
     /// 32 MiB-stack thread (see module docs). Blocking — the shell wraps
     /// this in `spawn_blocking`. Idempotent: if the bundle is already in
@@ -350,6 +374,7 @@ impl DataService {
     /// under a second.
     pub fn evict(&self) {
         self.visuals.lock().unwrap().clear();
+        self.blueprints.lock().unwrap().clear();
         let mut loaded = self.loaded.lock().unwrap();
         if !loaded.is_empty() {
             tracing::debug!(builds = loaded.len(), "evicting cooked data");
@@ -364,6 +389,7 @@ impl DataService {
             Some(install) => {
                 self.loaded.lock().unwrap().remove(&install.build_key());
                 self.visuals.lock().unwrap().remove(&install.build_key());
+                self.blueprints.lock().unwrap().remove(&install.build_key());
                 remove_dir_if_present(&self.build_dir(install))
             }
             None => {
@@ -691,7 +717,7 @@ fn load_blocking(
         let assets = AssetSource::open(&install.p4k_path)
             .inspect_err(|e| tracing::warn!("opening the p4k for the rock meshes: {e:#}"))
             .ok();
-        let (cooked, visuals) = cook(datacore, asset_data, assets.as_ref(), progress);
+        let (cooked, visuals, blueprints) = cook(datacore, asset_data, assets.as_ref(), progress);
         progress(Stage::Saving);
         if let Some(assets) = &assets {
             cache::save_asset_index(dir, assets, &visuals);
@@ -699,6 +725,7 @@ fn load_blocking(
         drop(assets);
         cache::save_processed(dir, install, &cooked);
         cache::save_visuals(dir, install, visuals);
+        cache::save_blueprints(dir, install, blueprints);
         tracing::info!(
             channel = %install.channel_key,
             elapsed_ms = start.elapsed().as_millis(),
@@ -725,12 +752,13 @@ fn load_blocking(
     cache::save_extract(dir, install, &assets);
 
     // The p4k stays open through the cook for the rock meshes.
-    let (cooked, visuals) = cook(datacore, asset_data, Some(&assets), progress);
+    let (cooked, visuals, blueprints) = cook(datacore, asset_data, Some(&assets), progress);
     progress(Stage::Saving);
     cache::save_asset_index(dir, &assets, &visuals);
     drop(assets);
     cache::save_processed(dir, install, &cooked);
     cache::save_visuals(dir, install, visuals);
+    cache::save_blueprints(dir, install, blueprints);
 
     tracing::info!(
         channel = %install.channel_key,
@@ -746,14 +774,15 @@ fn load_blocking(
 /// signature enforces it).
 ///
 /// `assets` is the live p4k when the caller has it open: the rock meshes
-/// (mining) are read from it. The ship holo's recipes come back beside the
-/// bundle: they are saved on their own and don't stay in memory.
+/// (mining) are read from it. The ship holo's recipes and the blueprint
+/// catalog come back beside the bundle: they are saved on their own and
+/// don't stay in memory.
 fn cook(
     datacore: Datacore,
     asset_data: AssetData,
     assets: Option<&AssetSource>,
     progress: &impl Fn(Stage),
-) -> (CookedData, ships::ShipVisuals) {
+) -> (CookedData, ships::ShipVisuals, BlueprintIndex) {
     progress(Stage::Cooking);
     let foundations = build_foundations(&datacore);
     // Missions cook off the same parse, reusing the foundations' item /
@@ -778,6 +807,8 @@ fn cook(
     );
     let ships = ships::build_ships(&datacore, &foundations.items, assets);
     let visuals = ships::ShipVisuals::build(&datacore, &foundations.items);
+    let blueprints =
+        blueprints::build_blueprints(&datacore, &foundations, &asset_data.locale, &missions);
     let holotable = sc_holotable::HolotableSnapshot::from_foundations(&foundations);
     drop(datacore);
     let cooked = CookedData {
@@ -790,7 +821,7 @@ fn cook(
         mining,
         ships,
     };
-    (cooked, visuals)
+    (cooked, visuals, blueprints)
 }
 
 #[cfg(test)]
