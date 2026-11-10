@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BlueprintRowView, BlueprintSlotView, BlueprintStatView, MaterialView, StockStackView } from "$lib/bindings";
-import { bestQuality, canCraft, foldFamilies, holdingText, effectText, evalModifier, evalStat, fmtTime, heldAt, presetQuality, readiness, reachText, shelfOf, stockIndex } from "./model";
+import { bestQuality, canCraft, foldFamilies, gradeLetter, holdingText, shelfRank, effectText, evalModifier, evalStat, fmtTime, heldAt, presetQuality, readiness, reachText, shelfOf, stockIndex } from "./model";
 
 const band = (at0: number, at1000: number, additive = false) => ({
   additive,
@@ -167,14 +167,42 @@ describe("variant families", () => {
 });
 
 describe("shelving", () => {
-  const kind = (itemType: string, subType = "UNDEFINED", size = 1) => ({ itemType, subType, size, category: null });
+  const kind = (itemType: string, subType = "UNDEFINED", size = 1, name = "") => ({ itemType, subType, size, name });
 
   it("files ship parts by size, size 0 included", () => {
-    expect(shelfOf(kind("Cooler", "UNDEFINED", 0))).toMatchObject({ main: "Coolers", sub: "Size 0" });
+    expect(shelfOf(kind("Cooler", "UNDEFINED", 0))).toMatchObject({ main: "Coolers", sub: "Size 0", sized: true });
   });
 
   it("files armour by slot", () => {
-    expect(shelfOf(kind("Char_Armor_Helmet", "Heavy"))).toMatchObject({ main: "Armour", sub: "Helmets" });
+    expect(shelfOf(kind("Char_Armor_Helmet", "Heavy"))).toMatchObject({
+      main: "Armour",
+      kind: "Helmets",
+      weight: "Heavy",
+      sub: "Helmets · Heavy",
+    });
+  });
+
+  it("puts flight gear apart from the weights", () => {
+    expect(shelfOf(kind("Char_Armor_Helmet", "Helmet")).weight).toBe("Flight & other");
+    expect(shelfOf(kind("Char_Armor_Backpack", "LightArmor")).weight).toBe("Light");
+  });
+
+  it("files weapons by class", () => {
+    expect(shelfOf(kind("WeaponPersonal", "Small", 1, "S38 Pistol")).kind).toBe("Pistols");
+    expect(shelfOf(kind("WeaponPersonal", "Medium", 1, "A03 Sniper Rifle")).kind).toBe("Snipers");
+    expect(shelfOf(kind("WeaponPersonal", "Medium", 1, "C54 SMG")).kind).toBe("SMGs");
+    expect(shelfOf(kind("WeaponPersonal", "Medium", 1, "P4-AR Rifle")).kind).toBe("Rifles");
+  });
+
+  it("only a part with a class has a grade", () => {
+    expect(gradeLetter({ class: "Military", grade: 2 })).toBe("B");
+    expect(gradeLetter({ class: null, grade: 1 })).toBe("");
+  });
+
+  it("shelves parts Military A first", () => {
+    expect(shelfRank({ class: "Military", grade: 1 })).toBeLessThan(shelfRank({ class: "Military", grade: 2 }));
+    expect(shelfRank({ class: "Military", grade: 4 })).toBeLessThan(shelfRank({ class: "Civilian", grade: 1 }));
+    expect(shelfRank({ class: "Industrial", grade: 4 })).toBeLessThan(shelfRank({ class: null, grade: 1 }));
   });
 
   it("keeps an unknown kind on a shelf", () => {

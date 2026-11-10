@@ -10,7 +10,7 @@
   const look = $derived(lookOf(family.shelf.main));
   const Icon = $derived(look.icon);
   const rep = $derived(family.variants[0]);
-  const sized = $derived(family.shelf.sub.startsWith("Size"));
+  const sized = $derived(family.shelf.sized);
   const n = $derived(family.variants.length);
 
   const DOT: Record<Readiness, string> = { good: "var(--good)", short: "var(--warn)", none: "var(--text-faint)" };

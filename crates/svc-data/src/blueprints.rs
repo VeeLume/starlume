@@ -1054,6 +1054,39 @@ mod probe {
         serde_json::to_vec(index).map_or(0, |v| v.len())
     }
 
+    /// What the catalog's filter fields hold, from a cooked build.
+    #[test]
+    #[ignore = "needs a cooked build: set STARLUME_REAL_BUILD_DIR"]
+    fn filter_values() {
+        let dir = std::path::PathBuf::from(
+            std::env::var("STARLUME_REAL_BUILD_DIR").expect("set STARLUME_REAL_BUILD_DIR"),
+        );
+        let snap = sc_holotable::asset::ProcessedSnapshot::<super::BlueprintIndex>::load(
+            &dir.join("blueprints.cook"),
+            crate::cooked::DATA_COOK_VERSION,
+        )
+        .expect("blueprints.cook");
+        let mut seen: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+        let mut families = std::collections::BTreeSet::new();
+        for b in &snap.into_index().blueprints {
+            let key = format!(
+                "{} | {} | {} | grade {}",
+                b.item_type,
+                b.sub_type,
+                b.class.as_deref().unwrap_or("-"),
+                b.grade
+            );
+            let e = seen.entry(key.clone()).or_default();
+            e.0 += 1;
+            if families.insert((key, b.family.clone())) {
+                e.1 += 1;
+            }
+        }
+        for (k, (n, f)) in seen {
+            eprintln!("{n:>5} {f:>5}  {k}");
+        }
+    }
+
     /// Which grouping signals agree, over the real blueprints.
     fn grouping() {
         use sc_holotable::asset::{Guid, RecordCollection};

@@ -39,7 +39,7 @@
   const look = $derived(lookOf(family.shelf.main));
   const Icon = $derived(look.icon);
   const variant = $derived(family.variants.find((v) => v.guid === focus) ?? family.variants[0]);
-  const sized = $derived(family.shelf.sub.startsWith("Size"));
+  const sized = $derived(family.shelf.sized);
   const many = $derived(family.variants.length > 1);
 
   // Plain, not $state: only tells a new family from a new variant of this one.

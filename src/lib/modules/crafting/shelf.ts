@@ -10,7 +10,7 @@ export interface ShelfLook {
 }
 
 const LOOK: Record<string, ShelfLook> = {
-  "Personal weapons": { icon: Crosshair, hue: "var(--hue-apricot)" },
+  Weapons: { icon: Crosshair, hue: "var(--hue-apricot)" },
   Armour: { icon: Shield, hue: "var(--hue-sky)" },
   Clothing: { icon: Shirt, hue: "var(--hue-rose)" },
   Attachments: { icon: Puzzle, hue: "var(--hue-sand)" },

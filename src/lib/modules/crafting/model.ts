@@ -117,10 +117,29 @@ export function classText(b: { class: string | null; grade: number }): string {
 // ── Where a blueprint is shelved ────────────────────────────────────────────
 
 export interface Shelf {
+  /** Item type: the top filter and the list's sections. */
   main: string;
   mainOrder: number;
+  /** Item subtype, when the type has one worth filtering by. */
+  kind: string;
+  /** Armour's weight class. */
+  weight: string;
+  /** The list's sub-section under `main`. */
   sub: string;
+  subOrder: number;
+  /** Has a size worth showing (ship parts run from size 0). */
+  sized: boolean;
 }
+
+/** The way the game's shops shelve parts. */
+export const CLASSES = ["Military", "Stealth", "Competition", "Civilian", "Industrial"];
+export const GRADES = ["A", "B", "C", "D"];
+export const WEIGHTS = ["Light", "Medium", "Heavy", "Flight & other"];
+
+/** A part's grade letter. Only parts with a class have a real one: armour
+ *  and guns carry a placeholder. */
+export const gradeLetter = (b: { class: string | null; grade: number }) =>
+  b.class && b.grade >= 1 && b.grade <= 4 ? GRADES[b.grade - 1] : "";
 
 const COMPONENTS: [string, string][] = [
   ["Cooler", "Coolers"],
@@ -129,33 +148,74 @@ const COMPONENTS: [string, string][] = [
   ["QuantumDrive", "Quantum drives"],
   ["Radar", "Radars"],
 ];
-const MINING_SALVAGE = ["WeaponMining", "MiningModifier", "SalvageHead", "SalvageModifier", "TractorBeam"];
+const MINING_SALVAGE: [string, string][] = [
+  ["WeaponMining", "Mining lasers"],
+  ["MiningModifier", "Mining modules"],
+  ["SalvageHead", "Salvage heads"],
+  ["SalvageModifier", "Salvage modules"],
+  ["TractorBeam", "Tractor beams"],
+];
+const ARMOUR_SLOTS: [string, string][] = [
+  ["Char_Armor_Helmet", "Helmets"],
+  ["Char_Armor_Torso", "Core"],
+  ["Char_Armor_Arms", "Arms"],
+  ["Char_Armor_Legs", "Legs"],
+  ["Char_Armor_Backpack", "Backpacks"],
+  ["Char_Armor_Undersuit", "Undersuits"],
+];
+export const WEAPON_CLASSES = ["Pistols", "SMGs", "Rifles", "Shotguns", "Snipers", "LMGs", "Launchers", "Melee"];
 
-const ARMOUR_SLOT: Record<string, string> = {
-  Char_Armor_Helmet: "Helmets",
-  Char_Armor_Torso: "Torso",
-  Char_Armor_Arms: "Arms",
-  Char_Armor_Legs: "Legs",
-  Char_Armor_Backpack: "Backpacks",
-  Char_Armor_Undersuit: "Undersuits",
-};
+/** A personal weapon's class. The game's subtype is only Small / Medium /
+ *  Large, so the rest reads the name, as My Items does. */
+function weaponClass(subType: string, name: string): string {
+  if (subType === "Knife") return "Melee";
+  if (subType === "Small") return "Pistols";
+  if (subType === "Large" || /Launcher/.test(name)) return "Launchers";
+  if (/Sniper|Crossbow/.test(name)) return "Snipers";
+  if (/Shotgun/.test(name)) return "Shotguns";
+  if (/LMG/.test(name)) return "LMGs";
+  if (/SMG/.test(name)) return "SMGs";
+  return "Rifles";
+}
 
-/** The catalog's two-level taxonomy, from the item's own type. */
-export function shelfOf(b: { itemType: string; subType: string; size: number; category: string | null }): Shelf {
+/** Armour's subtype is its weight; flight helmets and packs have their own. */
+function weightOf(subType: string): string {
+  const w = subType === "LightArmor" ? "Light" : subType;
+  return WEIGHTS.includes(w) ? w : "Flight & other";
+}
+
+/** The catalog's taxonomy, from the item's own type and subtype. */
+export function shelfOf(b: { itemType: string; subType: string; size: number; name: string }): Shelf {
   const t = b.itemType;
-  // Ship parts run from size 0, so 0 is a size there.
+  const plain = { kind: "", weight: "", sized: false };
   const size = `Size ${b.size}`;
-  if (t === "WeaponPersonal") return { main: "Personal weapons", mainOrder: 10, sub: b.subType === "UNDEFINED" ? "" : b.subType };
-  if (t.startsWith("Char_Armor")) return { main: "Armour", mainOrder: 20, sub: ARMOUR_SLOT[t] ?? "Other" };
-  if (t.startsWith("Char_Clothing")) return { main: "Clothing", mainOrder: 25, sub: "" };
-  if (t === "WeaponAttachment") return { main: "Attachments", mainOrder: 27, sub: "" };
-  if (t === "WeaponGun") return { main: "Ship weapons", mainOrder: 30, sub: size };
-  if (t === "Missile" || t === "Torpedo") return { main: "Missiles", mainOrder: 35, sub: size };
-  const i = COMPONENTS.findIndex(([k]) => k === t);
-  if (i >= 0) return { main: COMPONENTS[i][1], mainOrder: 40 + i, sub: size };
-  if (MINING_SALVAGE.includes(t)) return { main: "Mining & salvage", mainOrder: 50, sub: size };
-  if (t === "FPS_Consumable") return { main: "Consumables", mainOrder: 60, sub: "" };
-  return { main: "Other", mainOrder: 90, sub: "" };
+  if (t === "WeaponPersonal") {
+    const kind = weaponClass(b.subType, b.name);
+    return { ...plain, main: "Weapons", mainOrder: 10, kind, sub: kind, subOrder: WEAPON_CLASSES.indexOf(kind) };
+  }
+  const slot = ARMOUR_SLOTS.findIndex(([k]) => k === t);
+  if (slot >= 0) {
+    const kind = ARMOUR_SLOTS[slot][1];
+    const weight = weightOf(b.subType);
+    return { ...plain, main: "Armour", mainOrder: 20, kind, weight, sub: `${kind} · ${weight}`, subOrder: slot * 10 + WEIGHTS.indexOf(weight) };
+  }
+  if (t.startsWith("Char_Clothing")) return { ...plain, main: "Clothing", mainOrder: 25, sub: "", subOrder: 0 };
+  if (t === "WeaponAttachment") return { ...plain, main: "Attachments", mainOrder: 27, sub: "", subOrder: 0 };
+  if (t === "WeaponGun") return { ...plain, main: "Ship weapons", mainOrder: 30, sub: size, subOrder: b.size, sized: true };
+  const part = COMPONENTS.findIndex(([k]) => k === t);
+  if (part >= 0) return { ...plain, main: COMPONENTS[part][1], mainOrder: 40 + part, sub: size, subOrder: b.size, sized: true };
+  const tool = MINING_SALVAGE.findIndex(([k]) => k === t);
+  if (tool >= 0) {
+    const kind = MINING_SALVAGE[tool][1];
+    return { ...plain, main: "Mining & salvage", mainOrder: 50, kind, sub: `${kind} · ${size}`, subOrder: tool * 10 + b.size, sized: true };
+  }
+  return { ...plain, main: "Other", mainOrder: 90, sub: "", subOrder: 0 };
+}
+
+/** Military A first, the way the shops shelve parts. */
+export function shelfRank(b: { class: string | null; grade: number }): number {
+  const c = b.class ? CLASSES.indexOf(b.class) : -1;
+  return (c < 0 ? CLASSES.length : c) * 10 + b.grade;
 }
 
 // ── Variant families ────────────────────────────────────────────────────────

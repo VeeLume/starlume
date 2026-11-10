@@ -19,7 +19,18 @@
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import BlueprintCard from "$lib/modules/crafting/BlueprintCard.svelte";
   import RecipeSheet from "$lib/modules/crafting/RecipeSheet.svelte";
-  import { canCraft, foldFamilies, shelfOf, type Family } from "$lib/modules/crafting/model";
+  import ChipButton from "$lib/components/items/explorer/ChipButton.svelte";
+  import {
+    CLASSES,
+    GRADES,
+    WEIGHTS,
+    canCraft,
+    foldFamilies,
+    gradeLetter,
+    shelfOf,
+    shelfRank,
+    type Family,
+  } from "$lib/modules/crafting/model";
   import { lookOf } from "$lib/modules/crafting/shelf";
   import { blueprintsStore, loadOwnedBlueprints, refreshOwnedBlueprints } from "$lib/state/blueprints.svelte";
   import { getBlueprints, getManufacturers } from "$lib/state/catalog.svelte";
@@ -30,7 +41,11 @@
   const browse = createBrowseState({
     q: { kind: "text" },
     show: { kind: "one", default: "", narrows: false },
-    shelf: { kind: "one", default: "" },
+    type: { kind: "one", default: "", narrows: false },
+    kind: { kind: "one", default: "", narrows: false },
+    weight: { kind: "one", default: "", narrows: false },
+    class: { kind: "one", default: "", narrows: false },
+    grade: { kind: "one", default: "", narrows: false },
     maker: { kind: "one", default: "" },
     sort: { kind: "one", default: "shelf", narrows: false },
     sel: { kind: "one", default: "", narrows: false },
@@ -105,22 +120,57 @@
   ];
   const viewTest = $derived(VIEWS.find(([id]) => id === browse.values.show)?.[2] ?? VIEWS[0][2]);
 
+  // The chip filters: type, then subtype, weight, class and grade. Each row
+  // counts what the other rows leave, so a number is what a click would show.
+  type Field = "type" | "kind" | "weight" | "class" | "grade";
+  const FIELD: Record<Field, (f: Family) => string> = {
+    type: (f) => f.shelf.main,
+    kind: (f) => f.shelf.kind,
+    weight: (f) => f.shelf.weight,
+    class: (f) => f.variants[0].class ?? "",
+    grade: (f) => gradeLetter(f.variants[0]),
+  };
+  const FIELDS = Object.keys(FIELD) as Field[];
+  const passes = (f: Family, except?: Field) =>
+    FIELDS.every((k) => k === except || !browse.values[k] || FIELD[k](f) === browse.values[k]);
+  /** A row's values in `order`, each with its count. */
+  function chips(field: Field, order: string[]): [string, number][] {
+    const counts = new Map<string, number>();
+    for (const f of families) {
+      const v = FIELD[field](f);
+      // Types are the way out of a narrowing, so they ignore the rows below.
+      if (v && viewTest(f) && (field === "type" || passes(f, field))) counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+    return [...counts].sort(([a], [b]) => order.indexOf(a) - order.indexOf(b));
+  }
+  const orderBy = (key: (f: Family) => number, pick: (f: Family) => string) => [
+    ...new Set([...families].sort((a, b) => key(a) - key(b)).map(pick)),
+  ];
+  const typeChips = $derived(chips("type", orderBy((f) => f.shelf.mainOrder, (f) => f.shelf.main)));
+  const kindChips = $derived(browse.values.type ? chips("kind", orderBy((f) => f.shelf.subOrder, (f) => f.shelf.kind)) : []);
+  const weightChips = $derived(browse.values.type ? chips("weight", WEIGHTS) : []);
+  const classChips = $derived(chips("class", CLASSES));
+  const gradeChips = $derived(chips("grade", GRADES));
+  /** Picking a type starts its own sub filters fresh; class and grade carry
+   *  over when the new type has them (Military coolers, then Military shields). */
+  function pickType(t: string) {
+    const has = (field: "class" | "grade") =>
+      families.some((f) => (!t || f.shelf.main === t) && FIELD[field](f) === browse.values[field]);
+    browse.setMany({
+      type: t,
+      kind: "",
+      weight: "",
+      class: has("class") ? browse.values.class : "",
+      grade: has("grade") ? browse.values.grade : "",
+    });
+  }
+  const toggle = (field: Field, v: string) => browse.set(field, browse.values[field] === v ? "" : v);
+
   const shelfOrder = $derived(new Map(families.map((f) => [f.shelf.main, f.shelf.mainOrder])));
   const byShelf = (a: string, b: string) => (shelfOrder.get(a) ?? 0) - (shelfOrder.get(b) ?? 0);
   const distinct = (pick: (f: Family) => string) => [...new Set(families.map(pick).filter(Boolean))];
 
   const facets = $derived<FacetDef<Family>[]>([
-    {
-      id: "shelf",
-      label: "Category",
-      mode: "one",
-      options: [
-        { value: "", label: "All categories" },
-        ...distinct((f) => f.shelf.main)
-          .sort(byShelf)
-          .map((v) => ({ value: v, label: v, test: (f: Family) => f.shelf.main === v })),
-      ],
-    },
     {
       id: "maker",
       label: "Manufacturer",
@@ -134,6 +184,7 @@
     },
   ]);
 
+  const subRank = $derived(new Map(families.map((f) => [`${f.shelf.main}/${f.shelf.sub}`, f.shelf.subOrder])));
   const groupBy = $derived<GroupDef<Family>[] | undefined>(
     browse.values.sort === "shelf"
       ? [
@@ -141,7 +192,7 @@
           {
             key: (f) => `${f.shelf.main}/${f.shelf.sub}`,
             label: (k) => k.slice(k.indexOf("/") + 1),
-            compare: (a, b) => a.localeCompare(b, "en", { numeric: true }),
+            compare: (a, b) => (subRank.get(a) ?? 0) - (subRank.get(b) ?? 0),
           },
         ]
       : undefined,
@@ -149,7 +200,7 @@
 
   const descriptor = $derived({
     sources: () => families,
-    derive: (list: Family[]) => list.filter(viewTest),
+    derive: (list: Family[]) => list.filter((f) => viewTest(f) && passes(f)),
     searchIn: (f: Family) => [
       f.title,
       f.shelf.main,
@@ -160,7 +211,12 @@
     ],
     facets,
     sorts: [
-      { value: "shelf", label: "Category", compare: (a: Family, b: Family) => a.title.localeCompare(b.title) },
+      {
+        value: "shelf",
+        label: "Category",
+        compare: (a: Family, b: Family) =>
+          shelfRank(a.variants[0]) - shelfRank(b.variants[0]) || a.title.localeCompare(b.title),
+      },
       { value: "name", label: "Name", compare: (a: Family, b: Family) => a.title.localeCompare(b.title) },
       {
         value: "time",
@@ -201,6 +257,17 @@
   {/if}
 {/snippet}
 
+{#snippet chipRow(label: string, field: Field, list: [string, number][])}
+  {#if list.length > 1}
+    <span class="group">
+      <span class="group-label">{label}</span>
+      {#each list as [v, n] (v)}
+        <ChipButton on={browse.values[field] === v} {n} onclick={() => toggle(field, v)}>{v}</ChipButton>
+      {/each}
+    </span>
+  {/if}
+{/snippet}
+
 {#if ready && !channel}
   <NoGameData />
 {:else}
@@ -215,7 +282,7 @@
             class="tab"
             class:active={browse.values.show === id}
             aria-selected={browse.values.show === id}
-            onclick={() => browse.set("show", id)}>{label}<span class="n">{fmtN(families.filter(test).length)}</span></button
+            onclick={() => browse.set("show", id)}>{label}<span class="n">{fmtN(families.filter((f) => test(f) && passes(f)).length)}</span></button
           >
         {/each}
       </div>
@@ -229,6 +296,21 @@
         <a class="read" href="/settings/online">Read what you own from the game</a>
       {/if}
     </header>
+
+    <div class="bar">
+      <ChipButton on={!browse.values.type} onclick={() => pickType("")}>All</ChipButton>
+      {#each typeChips as [t, n] (t)}
+        <ChipButton on={browse.values.type === t} {n} onclick={() => pickType(browse.values.type === t ? "" : t)}>{t}</ChipButton>
+      {/each}
+    </div>
+    {#if kindChips.length > 1 || weightChips.length > 1 || classChips.length > 1 || gradeChips.length > 1}
+      <div class="bar sub-bar">
+        {@render chipRow("Subtype", "kind", kindChips)}
+        {@render chipRow("Weight", "weight", weightChips)}
+        {@render chipRow("Class", "class", classChips)}
+        {@render chipRow("Grade", "grade", gradeChips)}
+      </div>
+    {/if}
 
     {#if error}<p class="error">{error}</p>{/if}
     {#if craftingStore.error}<p class="error">{craftingStore.error}</p>{/if}
@@ -276,6 +358,28 @@
     list-style: none;
     margin: 0;
     padding: 0;
+  }
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+  }
+  .sub-bar {
+    gap: 5px 16px;
+  }
+  .group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+  }
+  .group-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-badge);
+    color: var(--text-faint);
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
   }
   .work {
     flex: 1;
