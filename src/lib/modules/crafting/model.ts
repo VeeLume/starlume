@@ -3,6 +3,7 @@
 // to re-evaluate as a slider moves. Mirrors sc-crafting's evaluation.
 
 import type {
+  BlueprintRowView,
   BlueprintSlotView,
   BlueprintStatView,
   MaterialView,
@@ -157,6 +158,34 @@ export function shelfOf(b: { itemType: string; subType: string; size: number; ca
   return { main: "Other", mainOrder: 90, sub: "" };
 }
 
+// ── Variant families ────────────────────────────────────────────────────────
+
+/** One catalog row: an item and its colourways. */
+export interface Family {
+  key: string;
+  title: string;
+  shelf: Shelf;
+  maker: string;
+  /** The plain one first. */
+  variants: BlueprintRowView[];
+  ownedCount: number;
+  wantBlueprint: boolean;
+  wantItem: boolean;
+  craftable: boolean;
+}
+
+/** Blueprints folded by family, the plain variant first, then by label. */
+export function foldFamilies(rows: BlueprintRowView[]): BlueprintRowView[][] {
+  const out = new Map<string, BlueprintRowView[]>();
+  for (const r of rows) {
+    const list = out.get(r.family);
+    if (list) list.push(r);
+    else out.set(r.family, [r]);
+  }
+  const label = (r: BlueprintRowView) => r.variant ?? "";
+  return [...out.values()].map((list) => list.sort((a, b) => label(a).localeCompare(label(b))));
+}
+
 // ── What you hold ───────────────────────────────────────────────────────────
 
 export type Stock = Map<string, StockStackView[]>;
@@ -211,6 +240,20 @@ export function canCraft(materials: MaterialView[], stock: Stock): boolean {
     } else needed.set(m.name, { need: needOf(m), min: m.minQuality });
   }
   return [...needed].every(([name, { need, min }]) => heldAt(stock.get(name), min) >= need);
+}
+
+/** A slot's stock in words, for someone reading it cold. `read` is false
+ *  when the inventory has never been fetched: not the same as holding none. */
+export function holdingText(stacks: StockStackView[] | undefined, m: MaterialView, quality: number, read: boolean): string {
+  if (!read) return "Your inventory hasn't been read yet";
+  if (!stacks?.length) return "You have none in your inventory";
+  const bulk = stacks[0].bulk;
+  const amount = (v: number) => (bulk ? `${v.toFixed(2)} SCU` : `${Math.floor(v)} pcs`);
+  const held = heldAt(stacks, quality);
+  const best = stacks.reduce((a, b) => (b.quality > a.quality ? b : a));
+  if (held >= needOf(m)) return `You have ${amount(held)} at Q${quality} or better · ${best.place}`;
+  if (held > 0) return `You have only ${amount(held)} at Q${quality} or better`;
+  return `You have some, but your best is Q${best.quality}`;
 }
 
 export type Preset = "Min" | "Base" | "Best in stock" | "Max";

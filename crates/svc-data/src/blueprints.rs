@@ -20,7 +20,7 @@ use sc_holotable::crafting::{
     GameplayPropertyModifier, GameplayStat, GlobalParams, Process, SlotName, ValueRange,
 };
 use sc_holotable::fps_weapons::{Damage as FpsDamage, FpsWeaponStats, FpsWeapons};
-use sc_holotable::items::{Item, ItemClass};
+use sc_holotable::items::{Item, ItemCatalog, ItemClass};
 use sc_holotable::ship_components::{ShipComponentStats, ShipComponents};
 use sc_holotable::ship_weapons::{Damage as ShipDamage, ShipWeaponStats, ShipWeapons};
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,14 @@ pub struct BlueprintEntry {
     /// The crafted item's record GUID.
     pub entity_guid: Option<String>,
     pub name: String,
+    /// The variant family it folds into: shared by colourways of one item,
+    /// see [`assign_families`]. A lone blueprint is a family of one.
+    pub family: String,
+    /// The family's name, without any colourway.
+    pub family_name: String,
+    /// What sets this one apart in its family ("Snow Camo"); `None` for the
+    /// plain one and for a family of one.
+    pub variant: Option<String>,
     /// CIG's category record, prefix cut (`FPSArmours`, `VehicleWeaponsS3`).
     pub category: Option<String>,
     pub item_type: String,
@@ -176,10 +184,170 @@ pub(crate) fn build_blueprints(
         .collect();
     blueprints
         .sort_by(|a, b| (a.name.to_lowercase(), &a.guid).cmp(&(b.name.to_lowercase(), &b.guid)));
+    let models = ItemCatalog::build(items, &foundations.paths, locale);
+    assign_families(&mut blueprints, &models, foundations);
     BlueprintIndex {
         default_quality,
         blueprints,
     }
+}
+
+/// Fold blueprints into variant families: one row in the catalog for an item
+/// and its colourways.
+///
+/// Two signals say "same item": sc-holotable's [`ItemCatalog`] model, which
+/// goes by display name, and the entity record's stem, which goes by CIG's
+/// `<item>_NN_NN` numbering. Names split what the records join ("Aztalan
+/// Galena Helmet" is `thp_light_helmet_01_01_12`, "Aztalan Helmet" `_01_01_01`),
+/// so either signal may join. Nothing joins across a different recipe, stat
+/// sheet, type or size: a family shares one recipe sheet, so that has to be
+/// true of every member ("Chiron Arms Purgatory Camo" has its own numbers).
+/// Geometry is no signal: unrelated items share models.
+///
+/// On 4.10.2 live: 1,618 blueprints, 762 families.
+fn assign_families(
+    entries: &mut [BlueprintEntry],
+    models: &ItemCatalog,
+    foundations: &Foundations,
+) {
+    let signals: Vec<Signals> = entries
+        .iter()
+        .map(|b| {
+            let entity = b
+                .entity_guid
+                .as_deref()
+                .and_then(|g| g.parse::<Guid>().ok());
+            Signals {
+                guard: format!(
+                    "{:?}|{:?}|{:?}|{}|{}|{}|{}",
+                    b.craft_seconds, b.slots, b.stats, b.item_type, b.sub_type, b.size, b.grade
+                ),
+                model: entity
+                    .as_ref()
+                    .and_then(|e| models.model_id_of(e))
+                    .map(str::to_owned),
+                stem: entity
+                    .as_ref()
+                    .and_then(|e| foundations.paths.get(e))
+                    .and_then(|r| record_stem(&r.name))
+                    .map(str::to_owned),
+            }
+        })
+        .collect();
+    for group in group_families(&signals) {
+        let names: Vec<&str> = group.iter().map(|&i| entries[i].name.as_str()).collect();
+        let family_name = family_name(&names);
+        let family = entries[group[0]].guid.clone();
+        let solo = group.len() == 1;
+        for &i in &group {
+            entries[i].variant = if solo {
+                None
+            } else {
+                variant_label(&entries[i].name, &family_name)
+            };
+            entries[i].family = family.clone();
+            entries[i].family_name = family_name.clone();
+        }
+    }
+}
+
+struct Signals {
+    /// Everything a family has to share.
+    guard: String,
+    model: Option<String>,
+    stem: Option<String>,
+}
+
+/// Indices per family, each ascending, in order of their first member.
+fn group_families(signals: &[Signals]) -> Vec<Vec<usize>> {
+    fn root(parent: &mut [usize], i: usize) -> usize {
+        let mut r = i;
+        while parent[r] != r {
+            parent[r] = parent[parent[r]];
+            r = parent[r];
+        }
+        r
+    }
+    let mut parent: Vec<usize> = (0..signals.len()).collect();
+    let mut seen: HashMap<(&str, u8, &str), usize> = HashMap::new();
+    for (i, s) in signals.iter().enumerate() {
+        let keys = [(0, s.model.as_deref()), (1, s.stem.as_deref())];
+        for (kind, key) in keys {
+            let Some(key) = key else { continue };
+            let first = *seen.entry((s.guard.as_str(), kind, key)).or_insert(i);
+            let (a, b) = (root(&mut parent, first), root(&mut parent, i));
+            parent[b.max(a)] = b.min(a);
+        }
+    }
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut slot: HashMap<usize, usize> = HashMap::new();
+    for i in 0..signals.len() {
+        let r = root(&mut parent, i);
+        let at = *slot.entry(r).or_insert_with(|| {
+            groups.push(Vec::new());
+            groups.len() - 1
+        });
+        groups[at].push(i);
+    }
+    groups
+}
+
+/// A record name without its colourway numbers: `thp_light_helmet_01_01_12`
+/// is `thp_light_helmet_01`. `None` for a name that isn't numbered that way.
+fn record_stem(record: &str) -> Option<&str> {
+    let name = record
+        .strip_prefix("EntityClassDefinition.")
+        .unwrap_or(record);
+    let numbered = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let (rest, last) = name.rsplit_once('_')?;
+    let (stem, before) = rest.rsplit_once('_')?;
+    let (_, model) = stem.rsplit_once('_')?;
+    (numbered(last) && numbered(before) && numbered(model)).then_some(stem)
+}
+
+/// The name a family reads under: the words its members share, when that
+/// says what the item is, else its shortest member ("Aztalan" alone is not
+/// an item, "Aztalan Helmet" is).
+fn family_name(names: &[&str]) -> String {
+    let mut shared: Vec<&str> = names[0].split_whitespace().collect();
+    for name in &names[1..] {
+        let same = shared
+            .iter()
+            .zip(name.split_whitespace())
+            .take_while(|(a, b)| *a == b)
+            .count();
+        shared.truncate(same);
+    }
+    let joined = shared.join(" ");
+    if shared.len() >= 2 || names.contains(&joined.as_str()) {
+        return joined;
+    }
+    names
+        .iter()
+        .min_by_key(|n| (n.len(), **n))
+        .map(|n| n.to_string())
+        .unwrap_or_default()
+}
+
+/// What a member's name adds to its family's, quotes and brackets off.
+/// `None` when it adds nothing.
+fn variant_label(name: &str, family: &str) -> Option<String> {
+    let mut family_words: Vec<&str> = family.split_whitespace().collect();
+    let rest: Vec<&str> = name
+        .split_whitespace()
+        .filter(|w| match family_words.iter().position(|f| f == w) {
+            Some(at) => {
+                family_words.remove(at);
+                false
+            }
+            None => true,
+        })
+        .collect();
+    let label = rest
+        .join(" ")
+        .trim_matches(|c| matches!(c, '"' | '(' | ')'))
+        .to_owned();
+    (!label.is_empty()).then_some(label)
 }
 
 /// Blueprint GUID → the missions whose reward pools hold it, once each.
@@ -245,6 +413,9 @@ impl Context<'_> {
                 .map(str::to_owned)
                 .unwrap_or_else(|| self.record_name(&b.blueprint_record_guid)),
             entity_guid: entity.as_ref().map(Guid::to_string),
+            family: guid.clone(),
+            family_name: String::new(),
+            variant: None,
             category: b.category.as_ref().and_then(|c| {
                 let name = &self.categories.get(c)?.name;
                 Some(
@@ -883,6 +1054,188 @@ mod probe {
         serde_json::to_vec(index).map_or(0, |v| v.len())
     }
 
+    /// Which grouping signals agree, over the real blueprints.
+    fn grouping() {
+        use sc_holotable::asset::{Guid, RecordCollection};
+        use sc_holotable::items::ItemCatalog;
+        use sc_holotable::visuals::Visuals;
+        use std::collections::{BTreeMap, BTreeSet};
+        use std::str::FromStr;
+
+        let dir = std::path::PathBuf::from(
+            std::env::var("STARLUME_REAL_BUILD_DIR").expect("set STARLUME_REAL_BUILD_DIR"),
+        );
+        let snap = ExtractSnapshot::load(&dir.join("extract.snap")).expect("extract.snap");
+        let (asset_data, datacore) = snap
+            .hydrate(&AssetConfig::standard())
+            .expect("datacore from the snapshot");
+        let foundations = sc_holotable::build_foundations(&datacore);
+        let locale = &asset_data.locale;
+        let index = super::build_blueprints(&datacore, &foundations, locale, &[]);
+        let catalog = ItemCatalog::build(&foundations.items, &foundations.paths, locale);
+        let visuals = Visuals::build(&datacore, &foundations.items);
+
+        struct R<'a> {
+            b: &'a super::BlueprintEntry,
+            model: String,
+            geometry: String,
+            record: String,
+            recipe: String,
+            stats: String,
+        }
+        let rows: Vec<R> = index
+            .blueprints
+            .iter()
+            .map(|b| {
+                let g = b
+                    .entity_guid
+                    .as_deref()
+                    .and_then(|g| Guid::from_str(g).ok());
+                let model = g
+                    .as_ref()
+                    .and_then(|g| catalog.model_id_of(g))
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("none:{}", b.guid));
+                let geometry = g
+                    .as_ref()
+                    .and_then(|g| visuals.get(g))
+                    .and_then(|v| v.geometry.as_ref())
+                    .and_then(|n| n.geometry.clone())
+                    .unwrap_or_else(|| format!("none:{}", b.guid));
+                let record = g
+                    .as_ref()
+                    .and_then(|g| foundations.paths.get(g))
+                    .map(|r| r.name.clone())
+                    .unwrap_or_default();
+                R {
+                    b,
+                    model,
+                    geometry,
+                    record,
+                    recipe: format!("{:?}|{:?}", b.craft_seconds, b.slots),
+                    stats: format!("{:?}", b.stats),
+                }
+            })
+            .collect();
+
+        let group = |key: &dyn Fn(&R) -> String| {
+            let mut m: BTreeMap<String, Vec<&R>> = BTreeMap::new();
+            for r in &rows {
+                m.entry(key(r)).or_default().push(r);
+            }
+            m
+        };
+        let distinct = |g: &[&R], f: &dyn Fn(&R) -> String| {
+            g.iter().map(|r| f(r)).collect::<BTreeSet<_>>().len()
+        };
+        let by_model = group(&|r| r.model.clone());
+        let by_geo = group(&|r| r.geometry.clone());
+        eprintln!(
+            "rows {}, by model {}, by geometry {}",
+            rows.len(),
+            by_model.len(),
+            by_geo.len()
+        );
+
+        let show = |title: &str, list: Vec<&Vec<&R>>, f: &dyn Fn(&R) -> String| {
+            eprintln!("--- {title}: {}", list.len());
+            for g in list.iter().take(25) {
+                eprintln!("  group of {}:", g.len());
+                for r in g.iter().take(6) {
+                    eprintln!(
+                        "    {} [{}] {}",
+                        r.b.name,
+                        r.record,
+                        f(r).chars().take(70).collect::<String>()
+                    );
+                }
+            }
+        };
+        show(
+            "models with more than one recipe",
+            by_model
+                .values()
+                .filter(|g| distinct(g, &|r| r.recipe.clone()) > 1)
+                .collect(),
+            &|r| {
+                format!(
+                    "{:?}s {}",
+                    r.b.craft_seconds,
+                    r.b.slots
+                        .iter()
+                        .map(|s| s.material.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            },
+        );
+        show(
+            "models with more than one stat sheet",
+            by_model
+                .values()
+                .filter(|g| distinct(g, &|r| r.stats.clone()) > 1)
+                .collect(),
+            &|r| r.stats.clone(),
+        );
+        show(
+            "models with more than one geometry",
+            by_model
+                .values()
+                .filter(|g| distinct(g, &|r| r.geometry.clone()) > 1)
+                .collect(),
+            &|r| r.geometry.clone(),
+        );
+        show(
+            "geometries across more than one model",
+            by_geo
+                .values()
+                .filter(|g| distinct(g, &|r| r.model.clone()) > 1)
+                .collect(),
+            &|r| r.model.clone(),
+        );
+        let guarded = group(&|r| format!("{}#{}#{}", r.model, r.recipe, r.stats));
+        let geo_guarded = group(&|r| {
+            format!(
+                "{}#{}#{}#{}#{}",
+                r.geometry, r.recipe, r.stats, r.b.item_type, r.b.size
+            )
+        });
+        eprintln!(
+            "model+recipe+stats {}, geometry+recipe+stats {}",
+            guarded.len(),
+            geo_guarded.len()
+        );
+        let both = group(&|r| format!("{}#{}#{}#{}", r.model, r.geometry, r.recipe, r.stats));
+        eprintln!("model+geometry+recipe+stats {}", both.len());
+        let mut sizes: Vec<&Vec<&R>> = guarded.values().collect();
+        sizes.sort_by_key(|g| std::cmp::Reverse(g.len()));
+        eprintln!("--- largest guarded groups");
+        for g in sizes.iter().take(20) {
+            let names: Vec<_> = g.iter().take(8).map(|r| r.b.name.as_str()).collect();
+            eprintln!("  {:>3} {}", g.len(), names.join(" | "));
+        }
+        let mut shelves: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+        for g in guarded.values() {
+            let e = shelves.entry(g[0].b.item_type.as_str()).or_default();
+            e.0 += 1;
+            e.1 += g.len();
+        }
+        for (k, (groups, n)) in shelves {
+            eprintln!("  {k}: {n} blueprints in {groups} groups");
+        }
+    }
+
+    #[test]
+    #[ignore = "needs a real raw extract: set STARLUME_REAL_BUILD_DIR"]
+    fn grouping_on_real_data() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(grouping)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
     #[test]
     #[ignore = "needs a real raw extract: set STARLUME_REAL_BUILD_DIR"]
     fn catalog_on_real_data() {
@@ -905,6 +1258,89 @@ mod tests {
         let desc = r"Item Type: Cooler\nManufacturer: Aegis Dynamics \nSize: 1\n\nText.";
         assert_eq!(manufacturer_line(desc).as_deref(), Some("Aegis Dynamics"));
         assert_eq!(manufacturer_line("Just text."), None);
+    }
+
+    fn signals(guard: &str, model: Option<&str>, stem: Option<&str>) -> Signals {
+        Signals {
+            guard: guard.into(),
+            model: model.map(str::to_owned),
+            stem: stem.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn either_signal_joins_a_family() {
+        let groups = group_families(&[
+            signals("r", Some("a"), Some("x")),
+            signals("r", Some("b"), Some("x")),
+            signals("r", Some("b"), None),
+            signals("r", Some("c"), None),
+        ]);
+        assert_eq!(groups, [vec![0, 1, 2], vec![3]]);
+    }
+
+    #[test]
+    fn a_different_recipe_never_joins() {
+        let groups = group_families(&[
+            signals("r1", Some("a"), Some("x")),
+            signals("r2", Some("a"), Some("x")),
+        ]);
+        assert_eq!(groups, [vec![0], vec![1]]);
+    }
+
+    #[test]
+    fn no_signal_stands_alone() {
+        let groups = group_families(&[signals("r", None, None), signals("r", None, None)]);
+        assert_eq!(groups, [vec![0], vec![1]]);
+    }
+
+    #[test]
+    fn a_record_stem_drops_the_colourway_numbers() {
+        assert_eq!(
+            record_stem("EntityClassDefinition.thp_light_helmet_01_01_12"),
+            Some("thp_light_helmet_01")
+        );
+        assert_eq!(record_stem("COOL_JSPN_S02_CryoStarEX_SCItem"), None);
+        assert_eq!(record_stem("cds_helmet_01_crus01_01"), None);
+    }
+
+    #[test]
+    fn a_family_reads_under_its_shared_words() {
+        assert_eq!(
+            family_name(&["ADP Arms Aqua", "ADP Arms Black"]),
+            "ADP Arms"
+        );
+        assert_eq!(family_name(&["ADP Core", "ADP Core Aqua"]), "ADP Core");
+        // One shared word isn't an item.
+        assert_eq!(
+            family_name(&["Aztalan Galena Helmet", "Aztalan Helmet"]),
+            "Aztalan Helmet"
+        );
+        assert_eq!(
+            family_name(&["A03 \"Canuto\" Sniper Rifle", "A03 Sniper Rifle"]),
+            "A03 Sniper Rifle"
+        );
+    }
+
+    #[test]
+    fn a_variant_is_what_its_name_adds() {
+        assert_eq!(
+            variant_label("ADP Arms Snow Camo", "ADP Arms").as_deref(),
+            Some("Snow Camo")
+        );
+        assert_eq!(
+            variant_label("Aztalan Galena Helmet", "Aztalan Helmet").as_deref(),
+            Some("Galena")
+        );
+        assert_eq!(
+            variant_label("A03 \"Canuto\" Sniper Rifle", "A03 Sniper Rifle").as_deref(),
+            Some("Canuto")
+        );
+        assert_eq!(
+            variant_label("ADP Arms (Modified)", "ADP Arms").as_deref(),
+            Some("Modified")
+        );
+        assert_eq!(variant_label("ADP Arms", "ADP Arms"), None);
     }
 
     #[test]

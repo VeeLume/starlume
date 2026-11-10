@@ -645,9 +645,10 @@ async craftingToggle(mark: CraftingMark, blueprint: string) : Promise<Result<Cra
 },
 /**
  * The materials in your cached inventory, named from `channel`'s game data;
- * empty when nothing has been fetched yet. **No network, no gate.**
+ * `null` when it has never been read, which is not the same as holding
+ * nothing. **No network, no gate.**
  */
-async craftingStock(channel: string) : Promise<Result<StockStackView[], AppError>> {
+async craftingStock(channel: string) : Promise<Result<StockStackView[] | null, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("crafting_stock", { channel }) };
 } catch (e) {
@@ -1544,7 +1545,7 @@ export type BlueprintDetailView = { guid: string; defaultQuality: number; slots:
 /**
  * One blueprint in the catalog list.
  */
-export type BlueprintRowView = { guid: string; name: string; category: string | null; itemType: string; subType: string; size: number; grade: number; class: string | null; manufacturer: string | null; craftSeconds: number | null; materials: MaterialView[] }
+export type BlueprintRowView = { guid: string; name: string; family: string; familyName: string; variant: string | null; category: string | null; itemType: string; subType: string; size: number; grade: number; class: string | null; manufacturer: string | null; craftSeconds: number | null; materials: MaterialView[] }
 export type BlueprintSlotView = { name: string | null; material: MaterialView; modifiers: SlotModifierView[] }
 export type BlueprintStatView = { group: string | null; label: string; property: string | null; unit: string; higherIsBetter: boolean | null; base: number | null }
 /**

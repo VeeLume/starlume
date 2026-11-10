@@ -59,7 +59,8 @@ use serde::{Deserialize, Serialize};
 /// rev 21: sc-holotable v0.44; the asset index, written beside the cook.
 /// rev 22: the blueprint catalog, written beside the cook
 /// ([`crate::blueprints::BlueprintIndex`]).
-pub const STARLUME_COOK_REV: u32 = 22;
+/// rev 23: blueprints folded into variant families.
+pub const STARLUME_COOK_REV: u32 = 23;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

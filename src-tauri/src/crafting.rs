@@ -22,6 +22,9 @@ pub(crate) const MODULE_ID: &str = "crafting";
 pub struct BlueprintRowView {
     pub guid: String,
     pub name: String,
+    pub family: String,
+    pub family_name: String,
+    pub variant: Option<String>,
     pub category: Option<String>,
     pub item_type: String,
     pub sub_type: String,
@@ -188,6 +191,9 @@ pub(crate) async fn crafting_blueprints(
         .map(|b| BlueprintRowView {
             guid: b.guid.clone(),
             name: b.name.clone(),
+            family: b.family.clone(),
+            family_name: b.family_name.clone(),
+            variant: b.variant.clone(),
             category: b.category.clone(),
             item_type: b.item_type.clone(),
             sub_type: b.sub_type.clone(),
@@ -300,37 +306,40 @@ pub(crate) fn crafting_toggle(
 }
 
 /// The materials in your cached inventory, named from `channel`'s game data;
-/// empty when nothing has been fetched yet. **No network, no gate.**
+/// `null` when it has never been read, which is not the same as holding
+/// nothing. **No network, no gate.**
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn crafting_stock(
     app: AppHandle,
     channel: String,
-) -> Result<Vec<StockStackView>, AppError> {
+) -> Result<Option<Vec<StockStackView>>, AppError> {
     let Some(inventory) = app.state::<AppState>().dossier.cached_inventory() else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let cooked = cooked_for(&app, &channel).await?;
     let finder = tokio::task::spawn_blocking(move || mod_items::finder(&inventory, &cooked))
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
-    Ok(finder
-        .items
-        .into_iter()
-        .filter(|i| i.ownership != mod_items::OwnershipState::Bricked)
-        .filter_map(|i| {
-            let r = i.resource?;
-            // A stack's amount, as My Items counts it: SCU for cargo, pieces
-            // for what is gathered by hand.
-            let bulk = i.kind.item_type == "Cargo";
-            let stack = f64::from(i.stack);
-            Some(StockStackView {
-                name: r.name,
-                quality: u32::from(r.quality),
-                amount: if bulk { r.scu * stack } else { stack },
-                bulk,
-                place: i.place.name,
+    Ok(Some(
+        finder
+            .items
+            .into_iter()
+            .filter(|i| i.ownership != mod_items::OwnershipState::Bricked)
+            .filter_map(|i| {
+                let r = i.resource?;
+                // A stack's amount, as My Items counts it: SCU for cargo, pieces
+                // for what is gathered by hand.
+                let bulk = i.kind.item_type == "Cargo";
+                let stack = f64::from(i.stack);
+                Some(StockStackView {
+                    name: r.name,
+                    quality: u32::from(r.quality),
+                    amount: if bulk { r.scu * stack } else { stack },
+                    bulk,
+                    place: i.place.name,
+                })
             })
-        })
-        .collect())
+            .collect(),
+    ))
 }

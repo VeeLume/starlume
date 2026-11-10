@@ -1,42 +1,31 @@
 <script lang="ts">
   // Crafting: the blueprint catalog beside the recipe of the one you picked.
-  // The catalog is reference data, cached per channel; what you own, want and
-  // hold are overlaid in `derive`, so the filters can read them.
+  // The catalog is reference data, cached per channel. An item and its
+  // colourways fold into one row; what you own, want and hold are overlaid
+  // in `derive`, so the filters can read them.
   import { onDestroy, onMount } from "svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
-  import { Check, Flag, Heart } from "lucide-svelte";
   import {
     Button,
-    Expand,
     Placeholder,
-    Segmented,
     Surface,
     createBrowseState,
     type FacetDef,
     type GroupDef,
+    type GroupHeader,
     type Status,
   } from "@veelume/ui";
   import type { BlueprintRowView, ManufacturerRowView } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
+  import BlueprintCard from "$lib/modules/crafting/BlueprintCard.svelte";
   import RecipeSheet from "$lib/modules/crafting/RecipeSheet.svelte";
-  import { canCraft, classText, fmtTime, shelfOf, type Shelf } from "$lib/modules/crafting/model";
+  import { canCraft, foldFamilies, shelfOf, type Family } from "$lib/modules/crafting/model";
+  import { lookOf } from "$lib/modules/crafting/shelf";
   import { blueprintsStore, loadOwnedBlueprints, refreshOwnedBlueprints } from "$lib/state/blueprints.svelte";
   import { getBlueprints, getManufacturers } from "$lib/state/catalog.svelte";
-  import { craftingStore, listenForStockChanges, loadMarks, loadStock, toggleMark } from "$lib/state/crafting.svelte";
+  import { craftingStore, listenForStockChanges, loadMarks, loadStock } from "$lib/state/crafting.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
-
-  type Row = BlueprintRowView & {
-    key: string;
-    title: string;
-    shelf: Shelf;
-    maker: string;
-    owned: boolean;
-    inGame: boolean;
-    wantBlueprint: boolean;
-    wantItem: boolean;
-    craftable: boolean;
-  };
 
   const browse = createBrowseState({
     q: { kind: "text" },
@@ -53,7 +42,7 @@
   let blueprints = $state<BlueprintRowView[]>([]);
   let manufacturers = $state<ManufacturerRowView[]>([]);
   let sheetOpen = $state(true);
-  let sheetWidth = $state<number | null>(null);
+  let sheetWidth = $state<number | null>(460);
 
   const channel = $derived(dataStore.channel);
 
@@ -88,64 +77,48 @@
 
   const codeByName = $derived(new Map(manufacturers.flatMap((m) => (m.name ? [[m.name, m.code] as const] : []))));
 
-  const rows = $derived<Row[]>(
-    blueprints.map((b) => ({
-      ...b,
-      key: b.guid,
-      title: b.name,
-      shelf: shelfOf(b),
-      maker: b.manufacturer ? (codeByName.get(b.manufacturer) ?? b.manufacturer) : "",
-      owned: craftingStore.owns(b.guid),
-      inGame: craftingStore.ownedInGame(b.guid),
-      wantBlueprint: craftingStore.wantsBlueprint(b.guid),
-      wantItem: craftingStore.wantsItem(b.guid),
-      craftable: craftingStore.owns(b.guid) && canCraft(b.materials, craftingStore.stock),
-    })),
+  const families = $derived<Family[]>(
+    foldFamilies(blueprints).map((variants) => {
+      const rep = variants[0];
+      const owned = variants.filter((v) => craftingStore.owns(v.guid)).length;
+      return {
+        key: rep.family,
+        title: rep.familyName,
+        shelf: shelfOf(rep),
+        maker: rep.manufacturer ? (codeByName.get(rep.manufacturer) ?? rep.manufacturer) : "",
+        variants,
+        ownedCount: owned,
+        wantBlueprint: variants.some((v) => craftingStore.wantsBlueprint(v.guid)),
+        wantItem: variants.some((v) => craftingStore.wantsItem(v.guid)),
+        craftable: owned > 0 && canCraft(rep.materials, craftingStore.stock),
+      };
+    }),
   );
 
-  const SHOW: Record<string, (r: Row) => boolean> = {
-    "": () => true,
-    owned: (r) => r.owned,
-    missing: (r) => !r.owned,
-    wanted: (r) => r.wantBlueprint || r.wantItem,
-    craftable: (r) => r.craftable,
-  };
-  const showOptions = $derived(
-    (
-      [
-        ["", "All"],
-        ["owned", "Owned"],
-        ["missing", "Missing"],
-        ["wanted", "Wanted"],
-        ["craftable", "Craftable"],
-      ] as const
-    ).map(([value, label]) => ({
-      value,
-      // A no-break space: the count stays on the label's line.
-      label: `${label} ${rows.filter(SHOW[value]).length.toLocaleString("en-US")}`,
-    })),
-  );
+  const VIEWS: [string, string, (f: Family) => boolean][] = [
+    ["", "All", () => true],
+    ["owned", "Owned", (f) => f.ownedCount > 0],
+    ["missing", "Missing", (f) => f.ownedCount === 0],
+    ["wantbp", "Want blueprint", (f) => f.wantBlueprint],
+    ["wantitem", "Want item", (f) => f.wantItem],
+    ["craftable", "Craftable", (f) => f.craftable],
+  ];
+  const viewTest = $derived(VIEWS.find(([id]) => id === browse.values.show)?.[2] ?? VIEWS[0][2]);
 
-  /** Distinct values, in `compare` order. */
-  function options(pick: (r: Row) => string, compare?: (a: string, b: string) => number) {
-    return [...new Set(rows.map(pick).filter(Boolean))].sort(compare);
-  }
-
-  const shelfOrder = $derived(new Map(rows.map((r) => [r.shelf.main, r.shelf.mainOrder])));
+  const shelfOrder = $derived(new Map(families.map((f) => [f.shelf.main, f.shelf.mainOrder])));
   const byShelf = (a: string, b: string) => (shelfOrder.get(a) ?? 0) - (shelfOrder.get(b) ?? 0);
+  const distinct = (pick: (f: Family) => string) => [...new Set(families.map(pick).filter(Boolean))];
 
-  const facets = $derived<FacetDef<Row>[]>([
+  const facets = $derived<FacetDef<Family>[]>([
     {
       id: "shelf",
       label: "Category",
       mode: "one",
       options: [
         { value: "", label: "All categories" },
-        ...options((r) => r.shelf.main, byShelf).map((v) => ({
-          value: v,
-          label: v,
-          test: (r: Row) => r.shelf.main === v,
-        })),
+        ...distinct((f) => f.shelf.main)
+          .sort(byShelf)
+          .map((v) => ({ value: v, label: v, test: (f: Family) => f.shelf.main === v })),
       ],
     },
     {
@@ -154,28 +127,20 @@
       mode: "one",
       options: [
         { value: "", label: "All manufacturers" },
-        ...options((r) => r.manufacturer ?? "").map((v) => ({
-          value: v,
-          label: v,
-          test: (r: Row) => r.manufacturer === v,
-        })),
+        ...distinct((f) => f.variants[0].manufacturer ?? "")
+          .sort()
+          .map((v) => ({ value: v, label: v, test: (f: Family) => f.variants[0].manufacturer === v })),
       ],
     },
   ]);
 
-  const owned = (list: Row[]) => list.filter((r) => r.owned).length;
-  const shelved = $derived(browse.values.sort === "shelf");
-  const groupBy = $derived<GroupDef<Row>[] | undefined>(
-    shelved
+  const groupBy = $derived<GroupDef<Family>[] | undefined>(
+    browse.values.sort === "shelf"
       ? [
+          { key: (f) => f.shelf.main, compare: byShelf },
           {
-            key: (r) => r.shelf.main,
-            label: (k, list) => `${k} · ${owned(list)} owned of`,
-            compare: byShelf,
-          },
-          {
-            key: (r) => `${r.shelf.main}/${r.shelf.sub}`,
-            label: (k, list) => `${k.slice(k.indexOf("/") + 1) || "All"} · ${owned(list)} owned of`,
+            key: (f) => `${f.shelf.main}/${f.shelf.sub}`,
+            label: (k) => k.slice(k.indexOf("/") + 1),
             compare: (a, b) => a.localeCompare(b, "en", { numeric: true }),
           },
         ]
@@ -183,24 +148,31 @@
   );
 
   const descriptor = $derived({
-    sources: () => rows,
-    derive: (list: Row[]) => list.filter(SHOW[browse.values.show] ?? SHOW[""]),
-    searchIn: (r: Row) => [r.title, r.shelf.main, r.shelf.sub, r.manufacturer, ...r.materials.map((m) => m.name)],
+    sources: () => families,
+    derive: (list: Family[]) => list.filter(viewTest),
+    searchIn: (f: Family) => [
+      f.title,
+      f.shelf.main,
+      f.shelf.sub,
+      f.variants[0].manufacturer,
+      ...f.variants.map((v) => v.name),
+      ...f.variants[0].materials.map((m) => m.name),
+    ],
     facets,
     sorts: [
-      { value: "shelf", label: "Category", compare: (a: Row, b: Row) => a.title.localeCompare(b.title) },
-      { value: "name", label: "Name", compare: (a: Row, b: Row) => a.title.localeCompare(b.title) },
+      { value: "shelf", label: "Category", compare: (a: Family, b: Family) => a.title.localeCompare(b.title) },
+      { value: "name", label: "Name", compare: (a: Family, b: Family) => a.title.localeCompare(b.title) },
       {
         value: "time",
         label: "Craft time",
-        compare: (a: Row, b: Row) => (a.craftSeconds ?? 0) - (b.craftSeconds ?? 0),
+        compare: (a: Family, b: Family) => (a.variants[0].craftSeconds ?? 0) - (b.variants[0].craftSeconds ?? 0),
       },
     ],
     groupBy,
   });
 
   const status = $derived<Status>(error ? "error" : loading ? "loading" : "ready");
-  const selected = $derived(rows.find((r) => r.key === browse.values.sel) ?? null);
+  const selected = $derived(families.find((f) => f.key === browse.values.sel) ?? null);
 
   const settings = $derived(settingsStore.current);
   const syncable = $derived(
@@ -211,105 +183,83 @@
       ? new Date(blueprintsStore.fetchedAt * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" })
       : null,
   );
+  const fmtN = (n: number) => n.toLocaleString("en-US");
+  const ownedIn = (list: Family[]) => list.filter((f) => f.ownedCount > 0).length;
 </script>
+
+{#snippet section(h: GroupHeader<Family>)}
+  {#if h.level === 0}
+    {@const look = lookOf(h.label)}
+    {@const Icon = look.icon}
+    <div class="shelf" style="--hue: {look.hue}">
+      <Icon size={15} />
+      <h2>{h.label}</h2>
+      <span class="count">{ownedIn(h.rows)} of {fmtN(h.rows.length)} owned</span>
+    </div>
+  {:else if h.label}
+    <div class="sub">{h.label}<span class="count">{fmtN(h.rows.length)}</span></div>
+  {/if}
+{/snippet}
 
 {#if ready && !channel}
   <NoGameData />
 {:else}
   <div class="page">
+    <header class="pagehead">
+      <h1>Crafting</h1>
+      <div class="tabs views" role="tablist" aria-label="Show">
+        {#each VIEWS as [id, label, test] (id)}
+          <button
+            type="button"
+            role="tab"
+            class="tab"
+            class:active={browse.values.show === id}
+            aria-selected={browse.values.show === id}
+            onclick={() => browse.set("show", id)}>{label}<span class="n">{fmtN(families.filter(test).length)}</span></button
+          >
+        {/each}
+      </div>
+      <span class="grow"></span>
+      {#if syncable}
+        <span class="read">{readAgo ? `Owned read ${readAgo}` : "Owned not read yet"}</span>
+        <Button variant="outline" disabled={blueprintsStore.refreshing} onclick={() => void refreshOwnedBlueprints()}>
+          {blueprintsStore.refreshing ? "Reading…" : "Sync"}
+        </Button>
+      {:else}
+        <a class="read" href="/settings/online">Read what you own from the game</a>
+      {/if}
+    </header>
+
     {#if error}<p class="error">{error}</p>{/if}
     {#if craftingStore.error}<p class="error">{craftingStore.error}</p>{/if}
     {#if blueprintsStore.error}<p class="error">{blueprintsStore.error}</p>{/if}
 
-    <Surface.Supporting
-      title="Recipe"
-      open={sheetOpen}
-      onopen={(next) => (sheetOpen = next)}
-      width={sheetWidth}
-      onresize={(w) => (sheetWidth = w)}
-      class="min-h-0 flex-1"
-    >
-      {#snippet main()}
-        <Surface.Root {descriptor} {browse} selected={browse.values.sel || null} class="min-h-0 flex-1">
-          <Surface.Toolbar>
-            {#snippet leading()}
-              <Segmented options={showOptions} value={browse.values.show} onchange={(v) => browse.set("show", v)} />
-            {/snippet}
-            {#snippet actions()}
-              {#if syncable}
-                <Button
-                  variant="outline"
-                  title={readAgo ? `Owned blueprints last read ${readAgo}` : "Read your owned blueprints from the game"}
-                  disabled={blueprintsStore.refreshing}
-                  onclick={() => void refreshOwnedBlueprints()}
-                >
-                  {blueprintsStore.refreshing ? "Reading…" : "Sync"}
-                </Button>
-              {:else}
-                <a class="read" href="/settings/online" title="Read your owned blueprints from the game">Turn on sync</a>
-              {/if}
-            {/snippet}
-          </Surface.Toolbar>
-
-          <Surface.List {status} onselect={(r: Row) => browse.set("sel", r.key)}>
-            {#snippet row(r: Row, isSelected: boolean)}
-              <Expand.Row title={r.title} selected={isSelected} onselect={() => browse.set("sel", r.key)}>
-                {#snippet gutter()}
-                  <button
-                    type="button"
-                    class="tog"
-                    class:on={r.owned}
-                    disabled={r.inGame}
-                    aria-pressed={r.owned}
-                    aria-label={r.inGame ? "Owned in the game" : r.owned ? "Mark not owned" : "Mark owned"}
-                    title={r.inGame ? "Owned in the game" : r.owned ? "Mark not owned" : "Mark owned"}
-                    onclick={() => void toggleMark("owned", r.guid)}><Check size={13} /></button
-                  >
-                {/snippet}
-                {#snippet meta()}
-                  <span class="mats">{r.materials.map((m) => m.name).join(", ")}</span>
-                {/snippet}
-                {#snippet right()}
-                  <span class="facts">
-                    <span class="mfr" title={r.manufacturer}>{r.maker}</span>
-                    <span>{r.shelf.sub.startsWith("Size") ? `S${r.size}` : ""}</span>
-                    <span class="cls">{classText(r)}</span>
-                    <span class="time">{fmtTime(r.craftSeconds)}</span>
-                  </span>
-                {/snippet}
-                {#snippet actions()}
-                  <button
-                    type="button"
-                    class="tog want"
-                    class:on={r.wantBlueprint}
-                    aria-pressed={r.wantBlueprint}
-                    aria-label="Want this blueprint"
-                    title="Want this blueprint"
-                    onclick={() => void toggleMark("wantBlueprint", r.guid)}><Flag size={13} /></button
-                  >
-                  <button
-                    type="button"
-                    class="tog want"
-                    class:on={r.wantItem}
-                    aria-pressed={r.wantItem}
-                    aria-label="Want the item"
-                    title="Want the item"
-                    onclick={() => void toggleMark("wantItem", r.guid)}><Heart size={13} /></button
-                  >
-                {/snippet}
-              </Expand.Row>
-            {/snippet}
-          </Surface.List>
-        </Surface.Root>
-      {/snippet}
-      {#snippet pane()}
-        {#if selected && channel}
-          <RecipeSheet row={selected} {channel} />
-        {:else}
-          <Placeholder>Pick a blueprint to see its recipe.</Placeholder>
-        {/if}
-      {/snippet}
-    </Surface.Supporting>
+    <div class="work">
+      <Surface.Supporting
+        title="Recipe"
+        open={sheetOpen}
+        onopen={(next) => (sheetOpen = next)}
+        width={sheetWidth}
+        onresize={(w) => (sheetWidth = w)}
+      >
+        {#snippet main()}
+          <Surface.Root {descriptor} {browse} selected={browse.values.sel || null} class="min-h-0 flex-1">
+            <Surface.List {status} group={section} onselect={(f: Family) => browse.set("sel", f.key)}>
+              {#snippet row(f: Family, isSelected: boolean)}
+                <BlueprintCard family={f} selected={isSelected} onclick={() => browse.set("sel", f.key)} />
+              {/snippet}
+            </Surface.List>
+          </Surface.Root>
+        {/snippet}
+        {#snippet pane()}
+          {#if selected && channel}
+            <RecipeSheet family={selected} {channel} />
+          {:else}
+            <Placeholder>Pick a blueprint to see its recipe.</Placeholder>
+          {/if}
+        {/snippet}
+      </Surface.Supporting>
+    </div>
   </div>
 {/if}
 
@@ -327,75 +277,69 @@
     margin: 0;
     padding: 0;
   }
+  .work {
+    flex: 1;
+    min-height: 0;
+  }
+  .pagehead {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: var(--weight-bold);
+    color: var(--text-strong);
+  }
+  .views {
+    align-self: flex-end;
+    margin-bottom: 0;
+    border-bottom: 0;
+  }
+  .grow {
+    flex: 1;
+  }
   .read {
-    font-size: var(--text-small);
-    color: var(--text-dim);
     white-space: nowrap;
-  }
-  .tog {
-    all: unset;
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    box-sizing: border-box;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-chip);
+    font-size: var(--text-small);
     color: var(--text-faint);
-    cursor: pointer;
   }
-  .tog:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--text);
-  }
-  .tog:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
-  }
-  .tog.on {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--on-accent);
-  }
-  .tog:disabled {
-    cursor: default;
-  }
-  .tog.want {
-    border-color: transparent;
-  }
-  .tog.want.on {
-    background: var(--accent-fill);
-    border-color: var(--accent-border);
+  a.read {
     color: var(--accent);
   }
-  .mats {
+  .shelf {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 6px 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid color-mix(in srgb, var(--hue) 30%, var(--border));
+    color: color-mix(in srgb, var(--hue) 75%, var(--text-strong));
+  }
+  .shelf h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.12rem;
+    font-weight: var(--weight-bold);
+    color: var(--text-strong);
+  }
+  .count {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .sub {
+    display: flex;
+    align-items: baseline;
+    margin: 8px 6px 6px;
+    font-family: var(--font-mono);
     font-size: var(--text-small);
     color: var(--text-dim);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .facts {
-    display: grid;
-    grid-template-columns: 56px 24px 92px 44px;
-    gap: 8px;
-    align-items: baseline;
-  }
-  .mfr {
-    font-family: var(--font-mono);
-    font-weight: var(--weight-medium);
-    color: var(--hue-sand);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .cls {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .time {
-    font-family: var(--font-mono);
-    text-align: right;
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
   }
 </style>

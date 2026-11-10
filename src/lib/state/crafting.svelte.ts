@@ -12,6 +12,7 @@ let _owned = $state<Set<string>>(new Set());
 let _wantBlueprint = $state<Set<string>>(new Set());
 let _wantItem = $state<Set<string>>(new Set());
 let _stock = $state<Stock>(new Map());
+let _stockRead = $state(false);
 let _error = $state("");
 
 function apply(marks: CraftingMarksView) {
@@ -23,6 +24,10 @@ function apply(marks: CraftingMarksView) {
 export const craftingStore = {
   get stock() {
     return _stock;
+  },
+  /** The inventory has been read at least once. */
+  get stockRead() {
+    return _stockRead;
   },
   get error() {
     return _error;
@@ -51,7 +56,10 @@ export async function toggleMark(mark: CraftingMark, blueprint: string): Promise
 /** What you hold, from the cached inventory: a local read. */
 export async function loadStock(channel: string): Promise<void> {
   const result = await commands.craftingStock(channel);
-  if (result.status === "ok") _stock = stockIndex(result.data);
+  if (result.status === "ok") {
+    _stockRead = result.data !== null;
+    _stock = stockIndex(result.data ?? []);
+  }
 }
 
 /** Keep the stock current with a fresh inventory or a new build. */

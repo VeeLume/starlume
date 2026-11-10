@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { BlueprintSlotView, BlueprintStatView, MaterialView, StockStackView } from "$lib/bindings";
-import { bestQuality, canCraft, effectText, evalModifier, evalStat, fmtTime, heldAt, presetQuality, readiness, reachText, shelfOf, stockIndex } from "./model";
+import type { BlueprintRowView, BlueprintSlotView, BlueprintStatView, MaterialView, StockStackView } from "$lib/bindings";
+import { bestQuality, canCraft, foldFamilies, holdingText, effectText, evalModifier, evalStat, fmtTime, heldAt, presetQuality, readiness, reachText, shelfOf, stockIndex } from "./model";
 
 const band = (at0: number, at1000: number, additive = false) => ({
   additive,
@@ -138,6 +138,15 @@ describe("what you hold", () => {
     expect(canCraft([], new Map())).toBe(false);
   });
 
+  it("says what you hold in words", () => {
+    const m = material({ scu: 2 });
+    expect(holdingText(stacks, m, 500, false)).toBe("Your inventory hasn't been read yet");
+    expect(holdingText(undefined, m, 500, true)).toBe("You have none in your inventory");
+    expect(holdingText(stacks, m, 500, true)).toBe("You have 3.00 SCU at Q500 or better · Area18");
+    expect(holdingText(stacks, m, 700, true)).toBe("You have only 1.00 SCU at Q700 or better");
+    expect(holdingText(stacks, m, 900, true)).toBe("You have some, but your best is Q800");
+  });
+
   it("sets slots from a preset", () => {
     const m = material({ minQuality: 200, scu: 1 });
     expect(presetQuality("Min", m, 500, stacks)).toBe(200);
@@ -145,6 +154,15 @@ describe("what you hold", () => {
     expect(presetQuality("Max", m, 500, stacks)).toBe(1000);
     expect(presetQuality("Best in stock", m, 500, stacks)).toBe(800);
     expect(presetQuality("Best in stock", m, 500, undefined)).toBe(500);
+  });
+});
+
+describe("variant families", () => {
+  const row = (family: string, variant: string | null) => ({ family, variant }) as BlueprintRowView;
+
+  it("folds by family, the plain one first", () => {
+    const folded = foldFamilies([row("a", "Snow"), row("b", null), row("a", null), row("a", "Aqua")]);
+    expect(folded.map((f) => f.map((r) => r.variant))).toEqual([[null, "Aqua", "Snow"], [null]]);
   });
 });
 
