@@ -117,7 +117,9 @@ export function classText(b: { class: string | null; grade: number }): string {
 // ── Where a blueprint is shelved ────────────────────────────────────────────
 
 export interface Shelf {
-  /** Item type: the top filter and the list's sections. */
+  /** The category tree's top level: ship parts share one, as in My Items. */
+  top: string;
+  /** The list's sections. */
   main: string;
   mainOrder: number;
   /** Item subtype, when the type has one worth filtering by. */
@@ -191,25 +193,28 @@ export function shelfOf(b: { itemType: string; subType: string; size: number; na
   const size = `Size ${b.size}`;
   if (t === "WeaponPersonal") {
     const kind = weaponClass(b.subType, b.name);
-    return { ...plain, main: "Weapons", mainOrder: 10, kind, sub: kind, subOrder: WEAPON_CLASSES.indexOf(kind) };
+    return { ...plain, top: "Weapons", main: "Weapons", mainOrder: 10, kind, sub: kind, subOrder: WEAPON_CLASSES.indexOf(kind) };
   }
   const slot = ARMOUR_SLOTS.findIndex(([k]) => k === t);
   if (slot >= 0) {
     const kind = ARMOUR_SLOTS[slot][1];
     const weight = weightOf(b.subType);
-    return { ...plain, main: "Armour", mainOrder: 20, kind, weight, sub: `${kind} · ${weight}`, subOrder: slot * 10 + WEIGHTS.indexOf(weight) };
+    return { ...plain, top: "Armour", main: "Armour", mainOrder: 20, kind, weight, sub: `${kind} · ${weight}`, subOrder: slot * 10 + WEIGHTS.indexOf(weight) };
   }
-  if (t.startsWith("Char_Clothing")) return { ...plain, main: "Clothing", mainOrder: 25, sub: "", subOrder: 0 };
-  if (t === "WeaponAttachment") return { ...plain, main: "Attachments", mainOrder: 27, sub: "", subOrder: 0 };
-  if (t === "WeaponGun") return { ...plain, main: "Ship weapons", mainOrder: 30, sub: size, subOrder: b.size, sized: true };
+  if (t.startsWith("Char_Clothing")) return { ...plain, top: "Clothing", main: "Clothing", mainOrder: 25, sub: "", subOrder: 0 };
+  if (t === "WeaponAttachment") return { ...plain, top: "Attachments", main: "Attachments", mainOrder: 27, sub: "", subOrder: 0 };
+  if (t === "WeaponGun") return { ...plain, top: "Ship parts", main: "Ship weapons", mainOrder: 30, kind: "Ship weapons", sub: size, subOrder: b.size, sized: true };
   const part = COMPONENTS.findIndex(([k]) => k === t);
-  if (part >= 0) return { ...plain, main: COMPONENTS[part][1], mainOrder: 40 + part, sub: size, subOrder: b.size, sized: true };
+  if (part >= 0) {
+    const kind = COMPONENTS[part][1];
+    return { ...plain, top: "Ship parts", main: kind, mainOrder: 40 + part, kind, sub: size, subOrder: b.size, sized: true };
+  }
   const tool = MINING_SALVAGE.findIndex(([k]) => k === t);
   if (tool >= 0) {
     const kind = MINING_SALVAGE[tool][1];
-    return { ...plain, main: "Mining & salvage", mainOrder: 50, kind, sub: `${kind} · ${size}`, subOrder: tool * 10 + b.size, sized: true };
+    return { ...plain, top: "Mining & salvage", main: "Mining & salvage", mainOrder: 50, kind, sub: `${kind} · ${size}`, subOrder: tool * 10 + b.size, sized: true };
   }
-  return { ...plain, main: "Other", mainOrder: 90, sub: "", subOrder: 0 };
+  return { ...plain, top: "Other", main: "Other", mainOrder: 90, sub: "", subOrder: 0 };
 }
 
 /** Military A first, the way the shops shelve parts. */

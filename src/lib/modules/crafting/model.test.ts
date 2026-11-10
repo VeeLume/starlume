@@ -170,7 +170,13 @@ describe("shelving", () => {
   const kind = (itemType: string, subType = "UNDEFINED", size = 1, name = "") => ({ itemType, subType, size, name });
 
   it("files ship parts by size, size 0 included", () => {
-    expect(shelfOf(kind("Cooler", "UNDEFINED", 0))).toMatchObject({ main: "Coolers", sub: "Size 0", sized: true });
+    expect(shelfOf(kind("Cooler", "UNDEFINED", 0))).toMatchObject({
+      top: "Ship parts",
+      main: "Coolers",
+      kind: "Coolers",
+      sub: "Size 0",
+      sized: true,
+    });
   });
 
   it("files armour by slot", () => {

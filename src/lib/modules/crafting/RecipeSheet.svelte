@@ -392,10 +392,11 @@
     gap: 4px;
     box-sizing: border-box;
     height: 24px;
-    padding: 0 7px;
+    padding: 0 6px;
     border: 1px solid var(--border);
     border-radius: var(--radius-chip);
     font-size: var(--text-badge);
+    white-space: nowrap;
     color: var(--text-faint);
     cursor: pointer;
   }

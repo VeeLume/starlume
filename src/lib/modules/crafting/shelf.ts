@@ -2,7 +2,7 @@
 // Hues say what kind of thing something is and never mark it clickable
 // (design direction, 2026-10-15).
 
-import { Box, Crosshair, Orbit, Pickaxe, Pill, Puzzle, Radar, Rocket, Shield, ShieldHalf, Shirt, Snowflake, Swords, Zap } from "lucide-svelte";
+import { Box, Cpu, Crosshair, Orbit, Pickaxe, Pill, Puzzle, Radar, Rocket, Shield, ShieldHalf, Shirt, Snowflake, Swords, Zap } from "lucide-svelte";
 
 export interface ShelfLook {
   icon: typeof Box;
@@ -16,6 +16,7 @@ const LOOK: Record<string, ShelfLook> = {
   Attachments: { icon: Puzzle, hue: "var(--hue-sand)" },
   "Ship weapons": { icon: Swords, hue: "var(--hue-rose)" },
   Missiles: { icon: Rocket, hue: "var(--hue-rose)" },
+  "Ship parts": { icon: Cpu, hue: "var(--hue-teal)" },
   Coolers: { icon: Snowflake, hue: "var(--hue-teal)" },
   "Power plants": { icon: Zap, hue: "var(--hue-teal)" },
   Shields: { icon: ShieldHalf, hue: "var(--hue-teal)" },

@@ -1,6 +1,7 @@
 <script lang="ts">
   // One item in the catalog, its colourways folded in: a tinted tile, the
   // name, what it takes and whether you hold it, where you stand with it.
+  import { Check, Flag, Hammer, Heart } from "lucide-svelte";
   import { craftingStore } from "$lib/state/crafting.svelte";
   import { classText, fmtTime, readiness, type Family, type Readiness } from "./model";
   import { lookOf } from "./shelf";
@@ -23,14 +24,16 @@
   <span class="body">
     <span class="line">
       <span class="name">{family.title}</span>
-      {#if n > 1}<span class="variants">{n} variants</span>{/if}
+      {#if n > 1}<span class="variants" title="{n} variants">×{n}</span>{/if}
+      <span class="time">{fmtTime(rep.craftSeconds)}</span>
+    </span>
+    {#if family.maker || sized || classText(rep)}
       <span class="facts">
         {#if family.maker}<span class="maker" title={rep.manufacturer}>{family.maker}</span>{/if}
         {#if sized}<span>S{rep.size}</span>{/if}
         {#if classText(rep)}<span>{classText(rep)}</span>{/if}
-        <span class="time">{fmtTime(rep.craftSeconds)}</span>
       </span>
-    </span>
+    {/if}
     <span class="line">
       <span class="mats">
         {#each rep.materials as m, i (i)}
@@ -44,11 +47,13 @@
       </span>
       <span class="marks">
         {#if family.ownedCount > 0}
-          <span class="hue-chip" style="--hue: var(--good)">{n > 1 ? `${family.ownedCount} of ${n} owned` : "owned"}</span>
+          <span class="hue-chip" style="--hue: var(--good)" title={n > 1 ? `${family.ownedCount} of ${n} variants owned` : "Owned"}
+            ><Check size={10} />{n > 1 ? `${family.ownedCount}/${n}` : ""}</span
+          >
         {/if}
-        {#if family.wantBlueprint}<span class="hue-chip" style="--hue: var(--hue-sky)">wants blueprint</span>{/if}
-        {#if family.wantItem}<span class="hue-chip" style="--hue: var(--hue-rose)">wants item</span>{/if}
-        {#if family.craftable}<span class="hue-chip" style="--hue: var(--hue-teal)">craftable</span>{/if}
+        {#if family.wantBlueprint}<span class="hue-chip" style="--hue: var(--hue-sky)" title="You want this blueprint"><Flag size={10} /></span>{/if}
+        {#if family.wantItem}<span class="hue-chip" style="--hue: var(--hue-rose)" title="You want this item"><Heart size={10} /></span>{/if}
+        {#if family.craftable}<span class="hue-chip" style="--hue: var(--hue-teal)" title="You can craft this now"><Hammer size={10} /></span>{/if}
       </span>
     </span>
   </span>
@@ -111,7 +116,7 @@
   }
   .name {
     font-family: var(--font-display);
-    font-size: 1.04rem;
+    font-size: 1rem;
     font-weight: var(--weight-bold);
     line-height: 1.15;
     color: var(--text-strong);
@@ -132,7 +137,7 @@
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
-    /* Long recipes fade out under the chips instead of cutting a word. */
+    /* A long recipe fades out instead of cutting a word. */
     mask-image: linear-gradient(to right, black calc(100% - 18px), transparent);
     font-size: var(--text-small);
     color: var(--text-dim);
@@ -148,8 +153,8 @@
     border-radius: 50%;
   }
   .facts {
-    flex: 0 0 auto;
-    margin-left: auto;
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: baseline;
     gap: 9px;
@@ -158,7 +163,7 @@
     white-space: nowrap;
   }
   .maker {
-    max-width: 90px;
+    max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
     font-family: var(--font-mono);
@@ -166,12 +171,15 @@
     color: var(--hue-sand);
   }
   .time {
+    flex: 0 0 auto;
+    margin-left: auto;
     font-family: var(--font-mono);
+    font-size: var(--text-small);
     color: var(--text-faint);
   }
   .marks {
     flex: 0 0 auto;
     display: flex;
-    gap: 4px;
+    gap: 3px;
   }
 </style>

@@ -19,7 +19,7 @@
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import BlueprintCard from "$lib/modules/crafting/BlueprintCard.svelte";
   import RecipeSheet from "$lib/modules/crafting/RecipeSheet.svelte";
-  import ChipButton from "$lib/components/items/explorer/ChipButton.svelte";
+  import CategoryRail from "$lib/modules/crafting/CategoryRail.svelte";
   import {
     CLASSES,
     GRADES,
@@ -57,7 +57,7 @@
   let blueprints = $state<BlueprintRowView[]>([]);
   let manufacturers = $state<ManufacturerRowView[]>([]);
   let sheetOpen = $state(true);
-  let sheetWidth = $state<number | null>(460);
+  let sheetWidth = $state<number | null>(430);
 
   const channel = $derived(dataStore.channel);
 
@@ -120,11 +120,11 @@
   ];
   const viewTest = $derived(VIEWS.find(([id]) => id === browse.values.show)?.[2] ?? VIEWS[0][2]);
 
-  // The chip filters: type, then subtype, weight, class and grade. Each row
-  // counts what the other rows leave, so a number is what a click would show.
+  // The category tree: type, then its subtype, weight, class and grade. Each
+  // group counts what the others leave, so a number is what a click would show.
   type Field = "type" | "kind" | "weight" | "class" | "grade";
   const FIELD: Record<Field, (f: Family) => string> = {
-    type: (f) => f.shelf.main,
+    type: (f) => f.shelf.top,
     kind: (f) => f.shelf.kind,
     weight: (f) => f.shelf.weight,
     class: (f) => f.variants[0].class ?? "",
@@ -146,24 +146,15 @@
   const orderBy = (key: (f: Family) => number, pick: (f: Family) => string) => [
     ...new Set([...families].sort((a, b) => key(a) - key(b)).map(pick)),
   ];
-  const typeChips = $derived(chips("type", orderBy((f) => f.shelf.mainOrder, (f) => f.shelf.main)));
-  const kindChips = $derived(browse.values.type ? chips("kind", orderBy((f) => f.shelf.subOrder, (f) => f.shelf.kind)) : []);
+  const typeChips = $derived(chips("type", orderBy((f) => f.shelf.mainOrder, (f) => f.shelf.top)));
+  const kindChips = $derived(
+    browse.values.type ? chips("kind", orderBy((f) => f.shelf.mainOrder * 1000 + f.shelf.subOrder, (f) => f.shelf.kind)) : [],
+  );
   const weightChips = $derived(browse.values.type ? chips("weight", WEIGHTS) : []);
-  const classChips = $derived(chips("class", CLASSES));
-  const gradeChips = $derived(chips("grade", GRADES));
-  /** Picking a type starts its own sub filters fresh; class and grade carry
-   *  over when the new type has them (Military coolers, then Military shields). */
-  function pickType(t: string) {
-    const has = (field: "class" | "grade") =>
-      families.some((f) => (!t || f.shelf.main === t) && FIELD[field](f) === browse.values[field]);
-    browse.setMany({
-      type: t,
-      kind: "",
-      weight: "",
-      class: has("class") ? browse.values.class : "",
-      grade: has("grade") ? browse.values.grade : "",
-    });
-  }
+  const classChips = $derived(browse.values.type ? chips("class", CLASSES) : []);
+  const gradeChips = $derived(browse.values.type ? chips("grade", GRADES) : []);
+  /** Picking a type starts its filters fresh. */
+  const pickType = (t: string) => browse.setMany({ type: t, kind: "", weight: "", class: "", grade: "" });
   const toggle = (field: Field, v: string) => browse.set(field, browse.values[field] === v ? "" : v);
 
   const shelfOrder = $derived(new Map(families.map((f) => [f.shelf.main, f.shelf.mainOrder])));
@@ -257,17 +248,6 @@
   {/if}
 {/snippet}
 
-{#snippet chipRow(label: string, field: Field, list: [string, number][])}
-  {#if list.length > 1}
-    <span class="group">
-      <span class="group-label">{label}</span>
-      {#each list as [v, n] (v)}
-        <ChipButton on={browse.values[field] === v} {n} onclick={() => toggle(field, v)}>{v}</ChipButton>
-      {/each}
-    </span>
-  {/if}
-{/snippet}
-
 {#if ready && !channel}
   <NoGameData />
 {:else}
@@ -297,21 +277,6 @@
       {/if}
     </header>
 
-    <div class="bar">
-      <ChipButton on={!browse.values.type} onclick={() => pickType("")}>All</ChipButton>
-      {#each typeChips as [t, n] (t)}
-        <ChipButton on={browse.values.type === t} {n} onclick={() => pickType(browse.values.type === t ? "" : t)}>{t}</ChipButton>
-      {/each}
-    </div>
-    {#if kindChips.length > 1 || weightChips.length > 1 || classChips.length > 1 || gradeChips.length > 1}
-      <div class="bar sub-bar">
-        {@render chipRow("Subtype", "kind", kindChips)}
-        {@render chipRow("Weight", "weight", weightChips)}
-        {@render chipRow("Class", "class", classChips)}
-        {@render chipRow("Grade", "grade", gradeChips)}
-      </div>
-    {/if}
-
     {#if error}<p class="error">{error}</p>{/if}
     {#if craftingStore.error}<p class="error">{craftingStore.error}</p>{/if}
     {#if blueprintsStore.error}<p class="error">{blueprintsStore.error}</p>{/if}
@@ -325,13 +290,34 @@
         onresize={(w) => (sheetWidth = w)}
       >
         {#snippet main()}
-          <Surface.Root {descriptor} {browse} selected={browse.values.sel || null} class="min-h-0 flex-1">
-            <Surface.List {status} group={section} onselect={(f: Family) => browse.set("sel", f.key)}>
-              {#snippet row(f: Family, isSelected: boolean)}
-                <BlueprintCard family={f} selected={isSelected} onclick={() => browse.set("sel", f.key)} />
-              {/snippet}
-            </Surface.List>
-          </Surface.Root>
+          <div class="browse">
+            <CategoryRail
+              all={families.filter(viewTest).length}
+              tops={typeChips}
+              kinds={kindChips}
+              weights={weightChips}
+              classes={classChips}
+              grades={gradeChips}
+              values={{
+                type: browse.values.type,
+                kind: browse.values.kind,
+                weight: browse.values.weight,
+                class: browse.values.class,
+                grade: browse.values.grade,
+              }}
+              ontype={pickType}
+              ontoggle={toggle}
+            />
+            <div class="list">
+              <Surface.Root {descriptor} {browse} selected={browse.values.sel || null} class="min-h-0 flex-1">
+                <Surface.List {status} group={section} onselect={(f: Family) => browse.set("sel", f.key)}>
+                  {#snippet row(f: Family, isSelected: boolean)}
+                    <BlueprintCard family={f} selected={isSelected} onclick={() => browse.set("sel", f.key)} />
+                  {/snippet}
+                </Surface.List>
+              </Surface.Root>
+            </div>
+          </div>
         {/snippet}
         {#snippet pane()}
           {#if selected && channel}
@@ -359,27 +345,19 @@
     margin: 0;
     padding: 0;
   }
-  .bar {
+  .browse {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 5px;
+    gap: 10px;
+    height: 100%;
+    min-height: 0;
+    padding-right: 10px;
   }
-  .sub-bar {
-    gap: 5px 16px;
-  }
-  .group {
-    display: inline-flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 5px;
-  }
-  .group-label {
-    font-family: var(--font-mono);
-    font-size: var(--text-badge);
-    color: var(--text-faint);
-    text-transform: var(--label-transform);
-    letter-spacing: var(--label-tracking);
+  .list {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
   .work {
     flex: 1;
