@@ -7,7 +7,21 @@
   import Tag from "./Tag.svelte";
   import { fmtN, fmtTime, nodeIcon, SOURCE } from "./ui";
 
-  let { node, on, bricked, onclick }: { node: Node; on: boolean; bricked: boolean; onclick: () => void } = $props();
+  let {
+    node,
+    on,
+    bricked,
+    sub,
+    onclick,
+  }: {
+    node: Node;
+    on: boolean;
+    bricked: boolean;
+    /** Replaces the contents preview: where the place is, when tiles from
+     *  several locations sit side by side. */
+    sub?: string;
+    onclick: () => void;
+  } = $props();
 
   const Icon = $derived(nodeIcon(node));
   const ship = $derived(node.type === "ship" ? node.ship : null);
@@ -21,7 +35,9 @@
   );
   const carried = $derived(node.kids.filter((k) => k.type === "ship"));
   const preview = $derived(
-    node.type === "ship"
+    sub != null
+      ? sub
+      : node.type === "ship"
       ? ""
       : node.kids
           .filter((k) => visible(k, bricked))

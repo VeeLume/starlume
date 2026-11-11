@@ -5,6 +5,8 @@ import { avgIngredientQuality, statDeltas } from "./crafted";
 import { loadoutOf, offSaved, portLabel, portRows } from "./loadout";
 import { amountOf, fmtAmount, materials, qualityMix } from "./resources";
 import { buildTree, container, isFolder, pathLabel, stowed, units, type ItemNode, type Node } from "./tree";
+import { areasBelow, gearOf, itemsBelow, whereLabel } from "./gear";
+import { suggest } from "./field";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -308,5 +310,99 @@ describe("loadout", () => {
 
   it("labels ports readably", () => {
     expect(portLabel(["hardpoint_mining_arm", "hardpoint_mining_laser"])).toBe("Mining arm › mining laser");
+  });
+});
+
+// ── Your gear ───────────────────────────────────────────────────────────────
+
+describe("gear", () => {
+  const LB = { name: "Lorville", parents: ["Hurston", "Stanton"], key: "lb" };
+  const crafted = { ingredients: [], properties: [] };
+  const piece = (set: string, t: string, p = NB) =>
+    item(kind(`${set} ${t}`, `Char_Armor_${t === "Core" ? "Torso" : t}`, "Heavy"), { place: storage(p) });
+  const full = (set: string, p = NB) => ["Helmet", "Core", "Arms", "Legs"].map((t) => piece(set, t, p));
+
+  it("finds crafted things, full sets and kitted weapons, each once", () => {
+    const rifle = item(kind("P6-LR Sniper Rifle", "WeaponPersonal", "Medium"));
+    const scope = item(kind("Myers (4x Telescopic)", "WeaponAttachment", "IronSight"), {
+      holders: [holder(rifle)],
+    });
+    const kittedCrafted = item(kind("Novian Crossbow", "WeaponPersonal", "Medium"), { crafted });
+    const scope2 = item(kind("Myers (4x Telescopic)", "WeaponAttachment", "IronSight", "myers2"), {
+      holders: [holder(kittedCrafted)],
+    });
+    const plain = item(kind("LH86 Pistol", "WeaponPersonal", "Small"));
+    const t = buildTree([rifle, scope, kittedCrafted, scope2, plain, ...full("Antium"), piece("Monde", "Arms")], []);
+    const g = gearOf(itemsBelow(t.root, () => true));
+    expect(g.crafted.map((s) => s.node.name)).toEqual(["Novian Crossbow"]);
+    // The crafted crossbow is kitted too, but shows once, under Crafted.
+    expect(g.kitted.map((s) => s.node.name)).toEqual(["P6-LR Sniper Rifle"]);
+    expect(g.sets.map((s) => s.name)).toEqual(["Antium"]);
+  });
+
+  it("counts a set full only within one area", () => {
+    const split = [piece("Antium", "Helmet"), piece("Antium", "Core"), piece("Antium", "Arms", LB), piece("Antium", "Legs", LB)];
+    const t = buildTree(split, []);
+    expect(gearOf(itemsBelow(t.root, () => true)).sets).toEqual([]);
+  });
+
+  it("does not look into ships or attachments", () => {
+    const s = ship("Golem");
+    const inShip = item(kind("Crafted pod", "Container"), { crafted, holders: [holder(s)], place: hangar() });
+    const t = buildTree([inShip], [s]);
+    expect(itemsBelow(t.root, () => true)).toEqual([]);
+  });
+
+  it("lists areas below a place biggest first and says where things are", () => {
+    const a = item(kind("Rifle", "WeaponPersonal", "Medium"));
+    const b = item(kind("Pistol", "WeaponPersonal", "Small"), { place: storage(LB) });
+    const c = item(kind("Pistol", "WeaponPersonal", "Small"), { place: storage(LB) });
+    const t = buildTree([a, b, c], []);
+    const areas = areasBelow(t.root, (n) => units(n, () => true));
+    expect(areas.map((x) => [x.area.parent!.name, x.area.name, x.n])).toEqual([
+      ["Lorville", "Storage", 2],
+      ["New Babbage", "Storage", 1],
+    ]);
+    expect(whereLabel(node(t, a))).toBe("New Babbage · Storage");
+  });
+});
+
+// ── The scope field ─────────────────────────────────────────────────────────
+
+describe("scope field", () => {
+  const LB = { name: "Lorville", parents: ["Hurston", "Stanton"], key: "lb" };
+  const build = () => {
+    const a = item(kind("Arrowhead Sniper Rifle", "WeaponPersonal", "Medium"));
+    const b = item(kind("LH86 Pistol", "WeaponPersonal", "Small"));
+    const c = item(kind("P6-LR Sniper Rifle", "WeaponPersonal", "Medium"), { place: storage(LB), crafted: { ingredients: [], properties: [] } });
+    const t = buildTree([a, b, c], []);
+    const nb = node(t, a).parent!;
+    const all = itemsBelow(t.root, () => true);
+    const here = itemsBelow(nb, () => true);
+    const count = (n: Node) => units(n, () => true);
+    return { t, nb, ctx: { tree: t, kindsFrom: here, here, all, count, areas: areasBelow(t.root, count), crafted: 1 } };
+  };
+
+  it("offers gear, places and kinds before you type", () => {
+    const { ctx } = build();
+    const g = suggest("", ctx);
+    expect(g.map((x) => x.title)).toEqual(["Your gear", "Places", "Kinds here"]);
+    expect(g[2].items.map((s) => s.label)).toEqual(["Weapons"]);
+  });
+
+  it("finds kinds, things here, and the same thing elsewhere last", () => {
+    const { ctx } = build();
+    const g = suggest("sni", ctx);
+    expect(g.map((x) => x.title)).toEqual(["Kinds here", "Things here", "Elsewhere"]);
+    expect(g[0].items.map((s) => [s.label, s.n])).toEqual([["Snipers", 1]]);
+    expect(g[1].items.map((s) => s.label)).toEqual(["Arrowhead Sniper Rifle"]);
+    expect(g[2].items.map((s) => [s.label, s.note])).toEqual([["P6-LR Sniper Rifle", "Lorville · Storage"]]);
+  });
+
+  it("finds places by name", () => {
+    const { ctx } = build();
+    const g = suggest("lorv", ctx);
+    expect(g.map((x) => x.title)).toEqual(["Places"]);
+    expect(g[0].items.map((s) => s.label)).toEqual(["Lorville"]);
   });
 });
