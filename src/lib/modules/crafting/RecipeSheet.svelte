@@ -28,13 +28,25 @@
   } from "./model";
   import { lookOf } from "./shelf";
 
-  let { family, channel }: { family: Family; channel: string } = $props();
+  let {
+    family,
+    channel,
+    pick = null,
+  }: {
+    family: Family;
+    channel: string;
+    /** A variant to show, chosen outside (an armour set's colourway grid). */
+    pick?: string | null;
+  } = $props();
 
   let detail = $state<BlueprintDetailView | null>(null);
   let error = $state("");
   let preset = $state<Preset | null>("Base");
   let qualities = $state<number[]>([]);
   let focus = $state<string | null>(null);
+  $effect(() => {
+    if (pick) focus = pick;
+  });
 
   const look = $derived(lookOf(family.shelf.main));
   const Icon = $derived(look.icon);
@@ -61,7 +73,7 @@
       // A variant shares the recipe: the sliders stay where they are.
       if (key !== shownFamily) {
         shownFamily = key;
-        focus = null;
+        focus = pick && family.variants.some((v) => v.guid === pick) ? pick : null;
         apply("Base");
       }
     })();
