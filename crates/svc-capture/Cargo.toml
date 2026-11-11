@@ -9,6 +9,8 @@ description = "Starlume capture service — the game window as a frame, and the 
 
 [dependencies]
 thiserror.workspace = true
+# The grey image type, shared with the pure glyph matcher.
+svc-glyph.workspace = true
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # Whole-image template matching (NCC via FFT) for locating HUD panels.
 rustfft = "6"

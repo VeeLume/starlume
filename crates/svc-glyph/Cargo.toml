@@ -1,0 +1,12 @@
+[package]
+name = "svc-glyph"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume glyph matching — read a line of game text from an ink image against templates passed in as data"
+
+# Pure on purpose: no capture, no IO, no platform code, so the lab can
+# depend on it (by git rev) without Tauri or Windows.
+[dependencies]
