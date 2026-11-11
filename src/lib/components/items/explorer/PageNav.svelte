@@ -1,7 +1,8 @@
 <script lang="ts">
   // The page header, one row (design pass): the title, the three views
   // (Items · Ships · Resources) as a segmented switch with their counts,
-  // the search, then freshness and the refresh. Switching views swaps only
+  // then freshness and the refresh. The search lives in the explorer's
+  // scope field (design pass 2026-11-11). Switching views swaps only
   // what the explorer shows; this header stays put.
   import { Button } from "@veelume/ui";
   import { fmtN, type View } from "./ui";
@@ -11,20 +12,14 @@
     counts,
     updated,
     refreshing,
-    q,
-    placeholder,
     onview,
-    onq,
     onrefresh,
   }: {
     view: View;
     counts: Record<View, number> | null;
     updated: string | null;
     refreshing: boolean;
-    q: string;
-    placeholder: string;
     onview: (v: View) => void;
-    onq: (q: string) => void;
     onrefresh: () => void;
   } = $props();
 
@@ -50,14 +45,6 @@
       >
     {/each}
   </div>
-  <input
-    class="input search"
-    type="search"
-    value={q}
-    {placeholder}
-    aria-label={placeholder}
-    oninput={(e) => onq(e.currentTarget.value)}
-  />
   <span class="grow"></span>
   <span class="updated">{updated ? `Read from the game ${updated}` : "Not read yet"}</span>
   <Button variant="outline" onclick={onrefresh} disabled={refreshing}>{refreshing ? "Reading…" : "Refresh"}</Button>
@@ -88,11 +75,6 @@
     font-family: var(--font-mono);
     font-size: var(--text-small);
     color: var(--text-faint);
-  }
-  .search {
-    flex: 1 1 240px;
-    max-width: 420px;
-    min-width: 0;
   }
   .grow {
     flex: 1;

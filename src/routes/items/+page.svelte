@@ -65,10 +65,7 @@
     {counts}
     {updated}
     refreshing={itemsStore.refreshing}
-    q={browse.values.q}
-    placeholder={view === "ships" ? "Find a ship…" : view === "res" ? "Find a material…" : "Find an item, anywhere…"}
     onview={setView}
-    onq={(q) => browse.set("q", q)}
     onrefresh={refreshItems}
   />
 
