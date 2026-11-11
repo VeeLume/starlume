@@ -142,7 +142,14 @@ impl DossierService {
                 Some((modified, key))
             })
             .collect();
-        builds.sort_by_key(|b| std::cmp::Reverse(b.0));
+        // Two writes inside one timestamp tick tie: the higher build key
+        // (the later changelist) is then the newer one.
+        let num = |k: &str| k.parse::<u64>().ok();
+        builds.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| num(&b.1).cmp(&num(&a.1)))
+                .then_with(|| b.1.cmp(&a.1))
+        });
         builds.into_iter().map(|(_, key)| key).collect()
     }
 

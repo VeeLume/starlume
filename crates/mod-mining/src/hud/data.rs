@@ -19,6 +19,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use svc_capture::vision::Gray;
+use svc_glyph::TemplateSet;
 
 const MAGIC: &[u8] = b"SLHUD1";
 
@@ -40,15 +41,17 @@ pub struct AnchorTemplate {
 
 pub struct Data {
     pub anchors: Vec<AnchorTemplate>,
-    pub glyphs: Vec<(char, Gray)>,
-    pub exemplars: Vec<(char, Gray)>,
+    /// Kinds 2 and 3: what the digits are read against.
+    pub digits: TemplateSet,
 }
 
 static DATA: OnceLock<Data> = OnceLock::new();
 static EMPTY: Data = Data {
     anchors: Vec::new(),
-    glyphs: Vec::new(),
-    exemplars: Vec::new(),
+    digits: TemplateSet {
+        glyphs: Vec::new(),
+        exemplars: Vec::new(),
+    },
 };
 
 /// Load the learned data from `path`, once: later calls keep what loaded.
@@ -83,8 +86,7 @@ pub fn parse(bin: &[u8]) -> Result<Data, String> {
     }
     let mut d = Data {
         anchors: vec![],
-        glyphs: vec![],
-        exemplars: vec![],
+        digits: TemplateSet::default(),
     };
     let mut i = MAGIC.len();
     while i + 7 <= bin.len() {
@@ -102,8 +104,8 @@ pub fn parse(bin: &[u8]) -> Result<Data, String> {
                 feature,
                 t: g,
             }),
-            2 => d.glyphs.push((key as char, g)),
-            3 => d.exemplars.push((key as char, g)),
+            2 => d.digits.glyphs.push((key as char, g)),
+            3 => d.digits.exemplars.push((key as char, g)),
             _ => {}
         }
     }
@@ -130,9 +132,9 @@ mod tests {
         bin.extend(record(3, b'7', 0, 2, 2));
         let d = parse(&bin).unwrap();
         assert_eq!((d.anchors[0].anchor, d.anchors[0].feature), (3, 1));
-        assert_eq!(d.glyphs[0].0, '%');
-        assert_eq!(d.exemplars[0].0, '7');
-        assert_eq!(d.exemplars[0].1.v.len(), 4);
+        assert_eq!(d.digits.glyphs[0].0, '%');
+        assert_eq!(d.digits.exemplars[0].0, '7');
+        assert_eq!(d.digits.exemplars[0].1.v.len(), 4);
     }
 
     #[test]

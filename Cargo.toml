@@ -14,6 +14,7 @@ members = [
     "crates/svc-discovery",
     "crates/svc-data",
     "crates/svc-capture",
+    "crates/svc-glyph",
     "crates/svc-commlinks",
     "crates/svc-dossier",
     "crates/svc-patchnotes",
@@ -52,7 +53,7 @@ sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-
 # The gRPC lab's shipped client: game services, Spectrum, patch notes,
 # comm-links. ONE
 # pin for every service that uses it.
-sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.11.0" }
+sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.14.0" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
@@ -90,6 +91,7 @@ tauri-plugin-sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
 svc-capture = { path = "crates/svc-capture" }
+svc-glyph = { path = "crates/svc-glyph" }
 svc-commlinks = { path = "crates/svc-commlinks" }
 svc-dossier = { path = "crates/svc-dossier" }
 svc-patchnotes = { path = "crates/svc-patchnotes" }
