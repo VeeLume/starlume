@@ -6,6 +6,7 @@ import { loadoutOf, offSaved, portLabel, portRows } from "./loadout";
 import { amountOf, fmtAmount, materials, qualityMix } from "./resources";
 import { buildTree, container, isFolder, pathLabel, stowed, units, type ItemNode, type Node } from "./tree";
 import { areasBelow, gearOf, itemsBelow, whereLabel } from "./gear";
+import { suggest } from "./field";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -363,5 +364,45 @@ describe("gear", () => {
       ["New Babbage", "Storage", 1],
     ]);
     expect(whereLabel(node(t, a))).toBe("New Babbage · Storage");
+  });
+});
+
+// ── The scope field ─────────────────────────────────────────────────────────
+
+describe("scope field", () => {
+  const LB = { name: "Lorville", parents: ["Hurston", "Stanton"], key: "lb" };
+  const build = () => {
+    const a = item(kind("Arrowhead Sniper Rifle", "WeaponPersonal", "Medium"));
+    const b = item(kind("LH86 Pistol", "WeaponPersonal", "Small"));
+    const c = item(kind("P6-LR Sniper Rifle", "WeaponPersonal", "Medium"), { place: storage(LB), crafted: { ingredients: [], properties: [] } });
+    const t = buildTree([a, b, c], []);
+    const nb = node(t, a).parent!;
+    const all = itemsBelow(t.root, () => true);
+    const here = itemsBelow(nb, () => true);
+    const count = (n: Node) => units(n, () => true);
+    return { t, nb, ctx: { tree: t, kindsFrom: here, here, all, count, areas: areasBelow(t.root, count), crafted: 1 } };
+  };
+
+  it("offers gear, places and kinds before you type", () => {
+    const { ctx } = build();
+    const g = suggest("", ctx);
+    expect(g.map((x) => x.title)).toEqual(["Your gear", "Places", "Kinds here"]);
+    expect(g[2].items.map((s) => s.label)).toEqual(["Weapons"]);
+  });
+
+  it("finds kinds, things here, and the same thing elsewhere last", () => {
+    const { ctx } = build();
+    const g = suggest("sni", ctx);
+    expect(g.map((x) => x.title)).toEqual(["Kinds here", "Things here", "Elsewhere"]);
+    expect(g[0].items.map((s) => [s.label, s.n])).toEqual([["Snipers", 1]]);
+    expect(g[1].items.map((s) => s.label)).toEqual(["Arrowhead Sniper Rifle"]);
+    expect(g[2].items.map((s) => [s.label, s.note])).toEqual([["P6-LR Sniper Rifle", "Lorville · Storage"]]);
+  });
+
+  it("finds places by name", () => {
+    const { ctx } = build();
+    const g = suggest("lorv", ctx);
+    expect(g.map((x) => x.title)).toEqual(["Places"]);
+    expect(g[0].items.map((s) => s.label)).toEqual(["Lorville"]);
   });
 });

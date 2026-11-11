@@ -190,14 +190,9 @@
 {/snippet}
 
 {#if part === "bar"}
-  {#if cats.length && (cats.length > 1 || big)}
-    <div class="cat-bar">
-      <ChipButton on={!cat} n={sum(items)} onclick={() => pick("")}>All</ChipButton>
-      {#each cats as c (c)}
-        <ChipButton on={cat === c} n={count(byCat.get(c) ?? [], c)} onclick={() => pick(c)}>{c}</ChipButton>
-      {/each}
-    </div>
-  {/if}
+  <!-- The kind itself is a word in the scope field now (decision 'My Items
+       opens on the few you care about…'); this bar keeps only the open
+       kind's own filters. -->
   {#if cat}
     <div class="sub-bar">
       {#if order.length}<ChipButton on={!filters.sub} onclick={() => onfilter({ sub: "" })}>All</ChipButton>{/if}
@@ -319,19 +314,6 @@
   }
   .grid.wide {
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  }
-  /* One row; it scrolls sideways, fading out, when it doesn't fit. */
-  .cat-bar {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding-right: 32px;
-    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
-    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
-  }
-  .cat-bar > :global(*) {
-    flex: none;
   }
   .sub-bar {
     display: flex;

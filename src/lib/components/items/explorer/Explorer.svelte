@@ -3,18 +3,17 @@
   // category), Ships (where every ship is; a ship opens on its loadout) and
   // Resources (every material below the place, by quality).
   //
-  // Layout (design pass, 2026-10-15): one wide pane, two at most. The
-  // breadcrumb navigates — each crumb's dropdown lists its neighbours, the
-  // trailing "Inside" what the place holds, and Places opens the whole tree
-  // as a popover. The place name, filters and category bar span the full
-  // width and never move; the item sheet (Detail) opens beside the cards
-  // only while something is picked, as tall as they are (✕ or Esc).
+  // Layout (design passes 2026-10-15 and 2026-11-11): one wide pane, two at
+  // most. One field is the scope line (ScopeField): the place, the kind and
+  // a sub kind as words, then free text; it replaced the breadcrumb, the
+  // Places button and the category bar. Every place leads with your gear
+  // (Gear). The item sheet (Detail) opens beside the cards only while
+  // something is picked, as tall as they are (✕ or Esc).
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { Button, Popup } from "@veelume/ui";
-  import { Globe, X } from "lucide-svelte";
-  import Chevron from "$lib/components/Chevron.svelte";
-  import { categoryOf } from "../model/classify";
+  import { X } from "lucide-svelte";
+  import { categoryOf, subcategoryOf, type Category } from "../model/classify";
+  import { itemsBelow } from "../model/gear";
   import { materials } from "../model/resources";
   import { stackIdentical } from "../model/stack";
   import {
@@ -43,8 +42,8 @@
   import ItemCard from "./ItemCard.svelte";
   import ResourceList from "./ResourceList.svelte";
   import SectionHead from "./SectionHead.svelte";
+  import ScopeField from "./ScopeField.svelte";
   import ShipView from "./ShipView.svelte";
-  import TreeNode from "./TreeNode.svelte";
   import { fmtN, nodeIcon, type View } from "./ui";
 
   let { tree, browse }: { tree: Tree; browse: ItemsBrowse } = $props();
@@ -67,14 +66,21 @@
     untrack(() => path.forEach((id) => open.add(id)));
   });
 
-  // The navigation popovers: Places (the tree), or one crumb's menu.
-  let placesOpen = $state(false);
-  let menuFor = $state<string | null>(null);
-
   // ── What counts ──────────────────────────────────────────────────────────
   const matches = (n: Node) =>
     n.type !== "place" && (n.name.toLowerCase().includes(q) || (n.type === "item" && categoryOf(n).toLowerCase().includes(q)));
-  const keepItem = (x: ItemNode) => visible(x, bricked) && (!crafted || !!x.item.crafted) && (!q || matches(x));
+  /** The kind word narrows everything; the sub kind word too where the
+   *  page is a list of hits (a container's own sub filters do it there, and
+   *  must not lose their other options). */
+  const cat = $derived(v.cat as Category | "");
+  const atFlat = $derived(at.type === "place" && (at.level === "root" || at.level === "system" || at.level === "body"));
+  const subInKeep = $derived(!!v.sub && (atFlat || !!q || crafted));
+  const baseKeep = (x: ItemNode) => visible(x, bricked) && (!crafted || !!x.item.crafted);
+  const keepItem = (x: ItemNode) =>
+    baseKeep(x) &&
+    (!cat || categoryOf(x) === cat) &&
+    (!subInKeep || subcategoryOf(x, cat as Category) === v.sub) &&
+    (!q || matches(x));
   const keepShip = (x: ShipNode) => visible(x, bricked) && (!q || matches(x));
   const keepRes = (x: ItemNode) => !!x.item.resource && (!q || matches(x));
   function resBelow(n: Node): ItemNode[] {
@@ -117,19 +123,23 @@
   const isAt = (n: Node) => at === n || soleArea(n) === at;
 
   // ── Navigation ───────────────────────────────────────────────────────────
-  /** Open a place (and select something in it). A container keeps no
-   *  filters from the last one. Opening a ship selects it (its sheet is
-   *  the ship's); a place opens with nothing picked, the sheet closed. */
-  function go(folder: Node, item?: Node) {
-    placesOpen = false;
-    menuFor = null;
+  /** Open a place (and select something in it). The kind words in the
+   *  field stay (they are visible, so going elsewhere with "Weapons" in it
+   *  shows that place's weapons); a container's own toggles reset. Opening
+   *  a ship selects it (its sheet is the ship's); a place opens with
+   *  nothing picked, the sheet closed. */
+  function go(folder: Node, item?: Node, extra: Record<string, string> = {}) {
     const sel = item ?? (folder.type === "ship" ? folder : null);
-    browse.setMany({ at: folder.id, sel: sel?.id ?? "", cat: "", sub: "", w: "", kit: "" });
+    browse.setMany({ at: folder.id, sel: sel?.id ?? "", w: "", kit: "", ...extra });
   }
+  // The field's picks replace the typed text, in the same URL write.
+  const fieldGo = (n: Node) => go(n, undefined, { q: "" });
+  /** A thing picked in the field: where it sits, with it selected. */
+  const openThing = (n: ItemNode) => go(container(n) ?? tree.root, n, { q: "" });
   const select = (n: Node) => browse.set("sel", n.id);
   const closeSheet = () => browse.set("sel", "");
   function onkeydown(e: KeyboardEvent) {
-    if (e.key !== "Escape" || placesOpen || menuFor) return;
+    if (e.key !== "Escape") return;
     const t = e.target as HTMLElement | null;
     if (t?.closest("input, textarea, select")) return;
     if (sel) closeSheet();
@@ -141,8 +151,16 @@
   }
 
   // ── The body ─────────────────────────────────────────────────────────────
-  const filtering = $derived(!!q || crafted);
   const viewNode = $derived(soleArea(at) ?? at);
+  /** A place that holds nothing of its own (Everywhere, a system, a
+   *  planet) lists the areas below it, biggest first: the storage that
+   *  holds most things is one click away, not four (design pass
+   *  2026-11-11). */
+  const flat = $derived(
+    viewNode.type === "place" && (viewNode.level === "root" || viewNode.level === "system" || viewNode.level === "body"),
+  );
+  /** Hits instead of browsing: text, Crafted, or a kind across places. */
+  const filtering = $derived(!!q || crafted || (!!cat && flat));
   const resList = $derived(resMode ? resBelow(viewNode) : []);
   const resMulti = $derived(new Set(resList.map((x) => areaOf(x)?.id)).size > 1);
   const shipGroups = $derived.by(() => {
@@ -198,10 +216,6 @@
         )?.nodes ?? [])
       : [],
   );
-  const crumbs = $derived(ancestors(at));
-  /** A crumb's dropdown: its neighbours (the parent's places). */
-  const menuOf = (k: number) => (k > 0 ? kidsOf(crumbs[k - 1]) : []);
-  const inside = $derived(kidsOf(at));
   const summary = $derived(
     shipsMode
       ? `${fmtN(count(at))} ${count(at) === 1 ? "ship" : "ships"}`
@@ -210,13 +224,6 @@
         : `${fmtN(count(at))} ${count(at) === 1 ? "item" : "items"}`,
   );
   const browsing = $derived(!resMode && !shipsMode && at.type !== "ship" && !filtering);
-  /** A place that holds nothing of its own (Everywhere, a system, a
-   *  planet) lists the areas below it, biggest first: the storage that
-   *  holds most things is one click away, not four (design pass
-   *  2026-11-11). */
-  const flat = $derived(
-    viewNode.type === "place" && (viewNode.level === "root" || viewNode.level === "system" || viewNode.level === "body"),
-  );
   const areas = $derived(flat ? areasBelow(viewNode, count) : []);
   const AREAS_FIRST = 10;
   let areasOpen = $state(false);
@@ -230,83 +237,47 @@
     return up.length ? up.join(" · ") : undefined;
   }
   const craftedCount = $derived(units(tree.root, (x) => visible(x, bricked) && !!x.item.crafted));
-  const placeholder = $derived(shipsMode ? "Find a ship…" : resMode ? "Find a material…" : "Find an item, anywhere…");
+
+  // What the field counts and offers: the place's items of every kind, the
+  // ones within its kind words, every item for hits elsewhere, and the
+  // biggest areas anywhere.
+  const fieldKinds = $derived(view === "items" ? itemsBelow(viewNode, baseKeep) : []);
+  const fieldHere = $derived(
+    cat
+      ? fieldKinds.filter((x) => categoryOf(x) === cat && (!v.sub || subcategoryOf(x, cat as Category) === v.sub))
+      : fieldKinds,
+  );
+  const fieldAll = $derived(view === "items" ? itemsBelow(tree.root, baseKeep) : []);
+  const fieldAreas = $derived(areasBelow(tree.root, count));
 </script>
 
 <svelte:window {onkeydown} />
 
-{#snippet placeMenu(nodes: Node[], label: string)}
-  <div class="menu" role="menu" aria-label={label}>
-    {#each nodes as n (n.id)}
-      {@const Icon = nodeIcon(n)}
-      <button type="button" class="menu-row" class:cur={n === at} role="menuitem" onclick={() => go(n)}>
-        <Icon size={14} /><span class="menu-name">{n.name}</span><span class="menu-n">{fmtN(count(n))}</span>
-      </button>
-    {/each}
-  </div>
-{/snippet}
-
 <div class="explorer">
   <div class="navrow">
-    <div class="anchor">
-      <Button variant="outline" onclick={() => ((placesOpen = !placesOpen), (menuFor = null))}>
-        <Globe size={14} /> Places
-      </Button>
-      <Popup open={placesOpen} onclose={() => (placesOpen = false)} label="Places" class="places-pop">
-        <div role="tree">
-          <TreeNode node={tree.root} depth={0} {open} forceOpen={!!q} {isAt} {count} {kidsOf} ongo={(n) => go(n)} />
-        </div>
-      </Popup>
-    </div>
-    <nav class="crumbs" aria-label="Where">
-      {#each crumbs as c, k (c.id)}
-        {#if k > 0}<span class="sep">›</span>{/if}
-        {@const menu = menuOf(k)}
-        <span class="anchor crumb-wrap">
-          {#if menu.length > 1}
-            <!-- The whole crumb opens the places beside it (style guide: the
-                 trigger is the hit area, never a lone chevron); the place
-                 itself is the menu's first row, so going there stays one click. -->
-            <button
-              type="button"
-              class="crumb"
-              class:cur={c === at}
-              class:open={menuFor === c.id}
-              aria-haspopup="menu"
-              aria-expanded={menuFor === c.id}
-              title="Places beside {c.name}"
-              onclick={() => ((menuFor = menuFor === c.id ? null : c.id), (placesOpen = false))}
-            >
-              {c.name}<Chevron open={menuFor === c.id} size={13} />
-            </button>
-            <Popup open={menuFor === c.id} onclose={() => (menuFor = null)} label="Beside {c.name}" class="menu-pop">
-              {@render placeMenu([c, ...menu.filter((n) => n !== c)], `Beside ${c.name}`)}
-            </Popup>
-          {:else}
-            <button type="button" class="crumb" class:cur={c === at} onclick={() => go(c)}>{c.name}</button>
-          {/if}
-        </span>
-      {/each}
-      {#if inside.length}
-        <span class="sep">›</span>
-        <span class="anchor crumb-wrap">
-          <button
-            type="button"
-            class="crumb inside"
-            onclick={() => ((menuFor = menuFor === "inside" ? null : "inside"), (placesOpen = false))}
-          >
-            Inside <Chevron open={menuFor === "inside"} size={13} />
-          </button>
-          <Popup open={menuFor === "inside"} onclose={() => (menuFor = null)} label="Inside {at.name}" class="menu-pop">
-            {@render placeMenu(inside, `Inside ${at.name}`)}
-          </Popup>
-        </span>
-      {/if}
-    </nav>
-    <span class="grow"></span>
-    {#if view === "items"}
-      <ChipButton on={crafted} n={craftedCount} onclick={() => browse.setMany({ crafted: crafted ? "" : "1", sel: "" })}>Crafted</ChipButton>
-    {/if}
+    <ScopeField
+      {tree}
+      {view}
+      {at}
+      q={v.q}
+      cat={v.cat}
+      sub={v.sub}
+      {crafted}
+      kindsFrom={fieldKinds}
+      here={fieldHere}
+      all={fieldAll}
+      areas={fieldAreas}
+      {craftedCount}
+      {open}
+      {count}
+      {kidsOf}
+      {isAt}
+      ongo={fieldGo}
+      onopen={openThing}
+      onkind={(c, s) => browse.setMany({ cat: c, sub: s, w: "", kit: "", sel: "", q: "" })}
+      oncrafted={(on) => browse.setMany({ crafted: on ? "1" : "", sel: "", q: "" })}
+      onq={(text) => browse.set("q", text)}
+    />
     {#if !resMode}
       <ChipButton on={bricked} onclick={() => browse.set("bricked", bricked ? "" : "1")}>Show bricked</ChipButton>
     {/if}
@@ -436,116 +407,6 @@
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
-  }
-  .anchor {
-    position: relative;
-  }
-  .anchor :global(.places-pop) {
-    width: 300px;
-    max-height: 60vh;
-    overflow-y: auto;
-    padding: 6px;
-    border-radius: var(--radius-lg);
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-panel);
-  }
-  .anchor :global(.menu-pop) {
-    min-width: 240px;
-    max-height: 50vh;
-    overflow-y: auto;
-    padding: 4px;
-    border-radius: var(--radius-lg);
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-panel);
-  }
-  .crumbs {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 2px;
-    min-width: 0;
-  }
-  .crumb-wrap {
-    display: inline-flex;
-    align-items: center;
-  }
-  .crumb {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 6px 4px 8px;
-    border: 0;
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--text-dim);
-    font: inherit;
-    font-size: var(--text-control);
-    cursor: pointer;
-  }
-  .crumb :global(.chev) {
-    color: var(--text-faint);
-  }
-  .crumb:hover,
-  .crumb.open {
-    background: color-mix(in srgb, var(--text) 5%, transparent);
-    color: var(--text);
-  }
-  .crumb.open :global(.chev) {
-    color: var(--accent);
-  }
-  .crumb.cur {
-    color: var(--text-strong);
-    font-weight: var(--weight-semibold);
-  }
-  .crumb.inside {
-    color: var(--text-faint);
-  }
-  .sep {
-    color: var(--text-faint);
-    padding: 0 2px;
-  }
-  .grow {
-    flex: 1;
-  }
-  .menu {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-  .menu-row {
-    display: grid;
-    grid-template-columns: 14px minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
-    padding: 6px 8px;
-    border: 0;
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--text-dim);
-    font: inherit;
-    font-size: var(--text-control);
-    text-align: left;
-    cursor: pointer;
-  }
-  .menu-row:hover {
-    background: color-mix(in srgb, var(--text) 5%, transparent);
-    color: var(--text);
-  }
-  .menu-row.cur {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--text-strong);
-  }
-  .menu-name {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .menu-n {
-    font-family: var(--font-mono);
-    font-size: var(--text-small);
-    color: var(--text-faint);
   }
   .title-row {
     display: flex;
