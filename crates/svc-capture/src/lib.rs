@@ -4,8 +4,9 @@
 //! - [`capture_game`]: one frame of the Star Citizen window (Windows
 //!   Graphics Capture), on demand only.
 //! - [`Frame`]: an RGBA image, from a capture or a screenshot file.
-//! - [`vision`]: grey feature images, resizing, rotation and whole-image
-//!   template matching (NCC via FFT).
+//! - [`vision`]: grey feature images (the [`vision::Gray`] type itself
+//!   lives in svc-glyph), rotation and whole-image template matching
+//!   (NCC via FFT).
 //! - [`gfxfont`]: the game's HUD fonts, read from its own `fonts_en.gfx`
 //!   and rendered, for matching HUD text against exact glyphs.
 //!

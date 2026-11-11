@@ -13,6 +13,8 @@ description = "Starlume mining module — the calculator: a scanned rock against
 svc-data.workspace = true
 # Frames and the OCR engine for reading the scan panel (module rule 1).
 svc-capture.workspace = true
+# The digit reader's matcher (ranked candidates per glyph).
+svc-glyph.workspace = true
 serde.workspace = true
 # The solves' job pool (`par`): built per job, dropped after it.
 rayon = "1.12"

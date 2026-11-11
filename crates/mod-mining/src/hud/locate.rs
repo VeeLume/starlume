@@ -14,7 +14,7 @@
 //! on the other side of the HUD uses the same font, so a single part can
 //! match there, but not all four in this panel's arrangement.
 
-use svc_capture::vision::{Correlator, Gray, peaks};
+use svc_capture::vision::{Correlator, Gray, brightest, peaks};
 
 use super::PanelSpot;
 use super::data::{ANCHOR_OFFSETS, data};
@@ -38,7 +38,7 @@ pub struct Features {
 
 impl Features {
     pub fn of(frame: &svc_capture::Frame) -> Self {
-        let v = Gray::brightest(frame);
+        let v = brightest(frame);
         Self {
             ink: v.ramp(238.0, 252.0),
             shadow: v.blackhat(5, 60.0),

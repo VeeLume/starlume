@@ -2899,6 +2899,7 @@ dependencies = [
  "serde_json",
  "svc-capture",
  "svc-data",
+ "svc-glyph",
  "windows 0.61.3",
 ]
 
@@ -5861,6 +5862,7 @@ version = "0.5.0"
 dependencies = [
  "image",
  "rustfft",
+ "svc-glyph",
  "thiserror 2.0.18",
  "windows 0.61.3",
 ]
@@ -5920,6 +5922,10 @@ dependencies = [
  "tokio",
  "tracing",
 ]
+
+[[package]]
+name = "svc-glyph"
+version = "0.5.0"
 
 [[package]]
 name = "svc-log"
