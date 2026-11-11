@@ -1,0 +1,11 @@
+[package]
+name = "mod-crafting"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume crafting module: which blueprints you own and want, and what you hold to craft them"
+
+[dependencies]
+serde.workspace = true

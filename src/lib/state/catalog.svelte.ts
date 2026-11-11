@@ -15,6 +15,8 @@ import {
   type ResourceRowView,
   type ManufacturerRowView,
   type MissionEntryView,
+  type BlueprintRowView,
+  type BlueprintDetailView,
 } from "$lib/bindings";
 
 /** Per-channel cached reference datasets. */
@@ -24,6 +26,9 @@ type Datasets = {
   resources?: ResourceRowView[];
   manufacturers?: ManufacturerRowView[];
   missions?: MissionEntryView[];
+  blueprints?: BlueprintRowView[];
+  /** Recipes opened so far, by blueprint GUID. */
+  recipes?: Record<string, BlueprintDetailView>;
 };
 
 let _datasets = $state<Record<string, Datasets>>({});
@@ -71,6 +76,23 @@ export function getManufacturers(channel: string) {
 }
 export function getMissions(channel: string) {
   return cached(channel, "missions", async () => unwrap(await commands.dataMissions(channel)));
+}
+
+/** Not prefetched: the catalog stays on disk until Crafting opens. */
+export function getBlueprints(channel: string) {
+  return cached(channel, "blueprints", async () => unwrap(await commands.craftingBlueprints(channel)));
+}
+
+/** One recipe; `null` when the build has no such blueprint. */
+export async function getRecipe(channel: string, guid: string): Promise<BlueprintDetailView | null | string> {
+  const hit = _datasets[channel]?.recipes?.[guid];
+  if (hit) return hit;
+  const r = unwrap(await commands.craftingDetail(channel, guid));
+  if (r && typeof r !== "string") {
+    const d = _datasets[channel];
+    _datasets[channel] = { ...d, recipes: { ...d?.recipes, [guid]: r } };
+  }
+  return r;
 }
 
 /** Kick off every catalog fetch for a channel in the background (startup

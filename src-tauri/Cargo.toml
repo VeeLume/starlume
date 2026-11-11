@@ -76,6 +76,7 @@ mod-devtracker.workspace = true
 mod-langpatch.workspace = true
 mod-mining.workspace = true
 mod-ships.workspace = true
+mod-crafting.workspace = true
 svc-capture.workspace = true
 svc-discovery.workspace = true
 svc-data.workspace = true

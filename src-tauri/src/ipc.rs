@@ -5,9 +5,9 @@ use specta_typescript::Typescript;
 use tauri_specta::{Builder, collect_commands};
 
 use crate::{
-    activity, auth, commlinks, data, devtracker, dossier, friends, groups, items, langpatch,
-    launcher, mining, mining_capture, modules, notify, patchnotes, performance, sc, settings,
-    ships, uex, window,
+    activity, auth, commlinks, crafting, data, devtracker, dossier, friends, groups, items,
+    langpatch, launcher, mining, mining_capture, modules, notify, patchnotes, performance, sc,
+    settings, ships, uex, window,
 };
 
 /// Single source of truth for the IPC command list. Used both by `run()` at
@@ -71,6 +71,11 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         mining_capture::mining_capture,
         mining_capture::mining_read_screenshot,
         mining_capture::mining_scan_ready,
+        crafting::crafting_blueprints,
+        crafting::crafting_detail,
+        crafting::crafting_marks,
+        crafting::crafting_toggle,
+        crafting::crafting_stock,
         ships::ships_list,
         ships::ships_stock,
         ships::ships_view,

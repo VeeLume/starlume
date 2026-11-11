@@ -24,6 +24,7 @@ crates/
 ├── svc-sync/       server client: device-token auth, outbox, reference upload (stub)
 ├── mod-langpatch/  Text Patching
 ├── mod-items/      My Items
+├── mod-crafting/   Crafting: which blueprints you own and want
 ├── mod-devtracker/ dev tracker: content filter, author modes, read state (unreleased)
 └── mod-contracts/  contracts (unreleased)
 src-tauri/          shell: module registry, tray, window, settings, auth, updater
