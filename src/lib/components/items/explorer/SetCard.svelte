@@ -9,7 +9,18 @@
   import Card from "./Card.svelte";
   import Quality from "./Quality.svelte";
 
-  let { set, on, onclick }: { set: ArmourSet; on: boolean; onclick: () => void } = $props();
+  let {
+    set,
+    on,
+    where,
+    onclick,
+  }: {
+    set: ArmourSet;
+    on: boolean;
+    /** Where it sits, for lists that span places (your gear). */
+    where?: string;
+    onclick: () => void;
+  } = $props();
 
   const shown = $derived(PIECES.filter((p) => set.have.has(p) || set.full.includes(p)));
   const bestQ = $derived(
@@ -35,6 +46,7 @@
   {#if bestQ >= 0}
     <span class="meta"><Quality q={bestQ} prefix="avg Q" /><span class="crafted">crafted</span></span>
   {/if}
+  {#if where}<span class="where" title={where}>{where}</span>{/if}
 </Card>
 
 <style>
@@ -74,5 +86,12 @@
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+  .where {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

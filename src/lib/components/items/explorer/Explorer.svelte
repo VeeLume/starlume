@@ -38,6 +38,8 @@
   import ChipButton from "./ChipButton.svelte";
   import Detail from "./Detail.svelte";
   import FolderTile from "./FolderTile.svelte";
+  import Gear from "./Gear.svelte";
+  import { areasBelow } from "../model/gear";
   import ItemCard from "./ItemCard.svelte";
   import ResourceList from "./ResourceList.svelte";
   import SectionHead from "./SectionHead.svelte";
@@ -208,6 +210,25 @@
         : `${fmtN(count(at))} ${count(at) === 1 ? "item" : "items"}`,
   );
   const browsing = $derived(!resMode && !shipsMode && at.type !== "ship" && !filtering);
+  /** A place that holds nothing of its own (Everywhere, a system, a
+   *  planet) lists the areas below it, biggest first: the storage that
+   *  holds most things is one click away, not four (design pass
+   *  2026-11-11). */
+  const flat = $derived(
+    viewNode.type === "place" && (viewNode.level === "root" || viewNode.level === "system" || viewNode.level === "body"),
+  );
+  const areas = $derived(flat ? areasBelow(viewNode, count) : []);
+  const AREAS_FIRST = 10;
+  let areasOpen = $state(false);
+  /** "New Babbage · microTech": where an area is, when areas from several
+   *  locations sit side by side. */
+  function areaSub(a: Node): string | undefined {
+    const up = ancestors(a)
+      .filter((x) => x !== a && !(x.type === "place" && (x.level === "root" || x.level === "system")))
+      .map((x) => x.name)
+      .reverse();
+    return up.length ? up.join(" · ") : undefined;
+  }
   const craftedCount = $derived(units(tree.root, (x) => visible(x, bricked) && !!x.item.crafted));
   const placeholder = $derived(shipsMode ? "Find a ship…" : resMode ? "Find a material…" : "Find an item, anywhere…");
 </script>
@@ -359,6 +380,22 @@
           </div>
         {/each}
       {:else}
+        {#if !v.cat}
+          <Gear view={viewNode} keep={keepItem} selected={sel} onselect={select} />
+        {/if}
+        {#if flat}
+          <SectionHead title="Where the rest is" n={areas.length} />
+          <div class="tiles">
+            {#each areasOpen ? areas : areas.slice(0, AREAS_FIRST) as a (a.area.id)}
+              <FolderTile node={a.area} sub={areaSub(a.area)} bricked={bricked} on={false} onclick={() => go(a.area)} />
+            {/each}
+          </div>
+          {#if areas.length > AREAS_FIRST}
+            <button type="button" class="more" onclick={() => (areasOpen = !areasOpen)}>
+              {areasOpen ? "Show fewer" : `Show all ${fmtN(areas.length)}`}
+            </button>
+          {/if}
+        {:else}
         {#key viewNode.id}
           <Browse
             part="body"
@@ -372,6 +409,7 @@
             onopen={(n) => go(n)}
           />
         {/key}
+        {/if}
       {/if}
     </section>
     {#if shown}
@@ -576,6 +614,25 @@
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 8px;
     margin-top: 6px;
+  }
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .more {
+    margin-top: 6px;
+    padding: 2px;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: var(--text-small);
+    cursor: pointer;
+  }
+  .more:hover {
+    text-decoration: underline;
   }
   .ships {
     display: grid;

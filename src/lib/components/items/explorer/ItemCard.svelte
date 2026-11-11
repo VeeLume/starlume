@@ -13,8 +13,20 @@
   import Delta from "./Delta.svelte";
   import { CATEGORY_ICON, fmtN } from "./ui";
 
-  let { stack, category, on, onclick }: { stack: Stack; category: Category; on: boolean; onclick: () => void } =
-    $props();
+  let {
+    stack,
+    category,
+    on,
+    where,
+    onclick,
+  }: {
+    stack: Stack;
+    category: Category;
+    on: boolean;
+    /** Where it sits, for lists that span places (your gear). */
+    where?: string;
+    onclick: () => void;
+  } = $props();
 
   const n = $derived(stack.node);
   const item = $derived(n.item);
@@ -59,6 +71,7 @@
     {#if item.ownership === "rented"}<Tag label="rented" tone="warning" />{/if}
     {#if item.ownership === "bricked"}<Tag label="bricked" tone="destructive" />{/if}
   </span>
+  {#if where}<span class="where" title={where}>{where}</span>{/if}
 </Card>
 
 <style>
@@ -104,6 +117,13 @@
   }
   .faint {
     color: var(--text-faint);
+  }
+  .where {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .num {
     font-family: var(--font-mono);

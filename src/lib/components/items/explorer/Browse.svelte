@@ -151,21 +151,13 @@
       const s = subcategoryOf(x, c);
       if (s && !subs.has(s)) subs.set(s, count(list.filter((y) => subcategoryOf(y, c) === s), c));
     }
+    // Crafted, full sets and kitted weapons are the gear shelves above the
+    // overview now; only what they don't say stays a note.
     const notes: string[] = [];
-    if (c === "Weapons") {
-      const k = list.filter(isKitted).length;
-      if (k) notes.push(`${k} kitted`);
-    }
-    if (c === "Armour") {
-      const f = armourSets(list).filter(isFull).length;
-      if (f) notes.push(`${f} full sets`);
-    }
     if (c === "Resources") {
       const ms = materials(list);
       notes.push(`${ms.filter((m) => m.best >= 500).length} of ${ms.length} at Q500+`);
     }
-    const crafted = list.filter((x) => x.item.crafted).length;
-    if (crafted) notes.push(`${crafted} crafted`);
     return { n: count(list, c), subs: [...subs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4), notes };
   }
 
@@ -241,7 +233,7 @@
       <FolderTile node={f} bricked={showBricked} on={selected === f} onclick={() => onopen(f)} />
     {/each}
   </div>
-{:else if ships.length}
+{:else if ships.length && !cat}
   <SectionHead title="Ships" n={ships.length} />
   <div class="tiles">
     {#each ships as f (f.id)}
