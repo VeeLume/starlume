@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+Starlume gets a crafting module, and My Items opens on what you care about.
+Game data is rebuilt once on the first start after updating.
+
+- **Crafting** — every blueprint in the game, the ones you own and want
+  marked. One field narrows the catalog by type, kind, weight or class, then
+  by name. Armour is one row per set, with its colourways against its
+  pieces; open a blueprint for its recipe: a quality per material, what the
+  item comes out as, what you hold towards it and the missions that grant
+  it. It reads your game install; which blueprints you own comes from your
+  account when online features and its unofficial-API feature are allowed.
+- **My Items opens on your gear** — every place leads with what you crafted,
+  your full armour sets and your kitted weapons. A place that holds nothing of
+  its own lists the storages below it, biggest first.
+- **One field in My Items** — the place, the kind and your search are words
+  in one field above the list; Backspace steps back out. It replaces the
+  breadcrumb, the Places button and the category bar.
+- **Items as rows** — a kind lists one row per model, the variants you hold
+  named in it, so about twice as much fits on a screen. Its filters stay in a
+  rail beside the list.
+- **Fixed: text patching waited for a game that wasn't running** — the RSI
+  launcher's new shader pre-compile starts the game binary in the
+  background; Starlume no longer mistakes it for the game.
+- **Fixed: patch notes for 4.10.3** — RSI changed its comm-link pages; the
+  newest patch notes and comm-link videos show again.
+
 ## [0.5.0] - 2026-11-09
 
 Your ship on Build is now a hologram of what is actually fitted. Game data is

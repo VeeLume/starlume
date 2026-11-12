@@ -30,6 +30,18 @@ export interface ReleaseGuide {
 
 export const RELEASE_GUIDES: ReleaseGuide[] = [
   {
+    version: "0.6.0",
+    changes: [
+      {
+        kind: "changed",
+        title: "My Items opens on your gear",
+        body: "Every place leads with what you crafted, your full armour sets and your kitted weapons. One field above the list holds the place, the kind and your search: type a word, or Backspace to step back out.",
+        href: "/items",
+        action: "Open My Items",
+      },
+    ],
+  },
+  {
     version: "0.5.0",
     changes: [
       {

@@ -12,8 +12,8 @@
 //!   svc-data's warm — one parse serves the catalogs and the derive),
 //!   config changes from the UI, owned-blueprint changes, game exit. All of
 //!   them go through [`request_reconcile`]: debounced, one run at a time.
-//! - **Write gates:** never while StarCitizen.exe runs (defers to a
-//!   process-exit waiter); foreign files (SC Deutsch Launcher, manual
+//! - **Write gates:** never while the game runs (defers to a process-exit
+//!   waiter; the launcher's shader pre-compile is not the game); foreign files (SC Deutsch Launcher, manual
 //!   edits) pause auto-patching with a "take over" action instead of a
 //!   last-writer-wins war.
 //! - **Degraded fallback:** if a re-patch can't complete and the override
@@ -86,15 +86,10 @@ fn load_overrides(channel_key: &str) -> std::collections::BTreeMap<String, Strin
 
 // ── Game-running gate ───────────────────────────────────────────────────────
 
-/// Is StarCitizen.exe running? Blocking (~10ms process enumeration) — call
-/// via `spawn_blocking`.
+/// Is the game running? The launcher page's check (the shader pre-compile
+/// doesn't count). Blocking — call via `spawn_blocking`.
 fn sc_running_blocking() -> bool {
-    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
-    let mut sys = System::new();
-    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
-    sys.processes()
-        .values()
-        .any(|p| p.name().eq_ignore_ascii_case("StarCitizen.exe"))
+    crate::launcher::game_running_blocking()
 }
 
 async fn sc_running() -> bool {

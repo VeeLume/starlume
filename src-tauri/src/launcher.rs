@@ -62,15 +62,55 @@ fn launcher_exe() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-fn game_running_blocking() -> bool {
-    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+/// Is the game running: `StarCitizen.exe` or its EAC bootstrapper? Blocking
+/// (a process scan, ~10 ms): call via `spawn_blocking`.
+///
+/// The launcher's shader pre-compile (since 4.10.3) starts the same
+/// `StarCitizen.exe` with `-PSOCacheGen` while only the launcher is open.
+/// That is not the game: it holds back nothing (a text patch, the launcher
+/// page's "running"), so it doesn't count.
+pub(crate) fn game_running_blocking() -> bool {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
     let mut sys = System::new();
-    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_cmd(UpdateKind::OnlyIfNotSet),
+    );
     sys.processes().values().any(|p| {
         let name = p.name();
-        name.eq_ignore_ascii_case("StarCitizen.exe")
-            || name.eq_ignore_ascii_case("StarCitizen_Launcher.exe")
+        (name.eq_ignore_ascii_case("StarCitizen.exe")
+            || name.eq_ignore_ascii_case("StarCitizen_Launcher.exe"))
+            && !is_shader_cache_build(p.cmd())
     })
+}
+
+/// The launcher's shader pre-compile: the game binary with `-PSOCacheGen`.
+fn is_shader_cache_build(cmd: &[std::ffi::OsString]) -> bool {
+    cmd.iter()
+        .skip(1)
+        .any(|a| a.to_string_lossy().eq_ignore_ascii_case("-PSOCacheGen"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_shader_cache_build;
+    use std::ffi::OsString;
+
+    fn cmd(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn the_shader_pre_compile_is_not_the_game() {
+        let exe = r"C:\Games\StarCitizen\LIVE\Bin64\StarCitizen.exe";
+        assert!(is_shader_cache_build(&cmd(&[exe, "-PSOCacheGen"])));
+        assert!(is_shader_cache_build(&cmd(&[exe, "-psocachegen"])));
+        assert!(!is_shader_cache_build(&cmd(&[exe])));
+        assert!(!is_shader_cache_build(&cmd(&[exe, "-no_login_dialog"])));
+        // An unreadable command line (another user's process) is the game.
+        assert!(!is_shader_cache_build(&[]));
+    }
 }
 
 /// Whether the launcher is installed and the game runs. Local only: a

@@ -26,7 +26,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Valerie"]
 license = "MIT"
 edition = "2024"
@@ -53,7 +53,7 @@ sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-
 # The gRPC lab's shipped client: game services, Spectrum, patch notes,
 # comm-links. ONE
 # pin for every service that uses it.
-sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.14.0" }
+sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.14.1" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"

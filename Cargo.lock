@@ -85,7 +85,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "app-kit"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "dirs 6.0.0",
  "serde",
@@ -1107,7 +1107,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1328,7 +1328,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2186,7 +2186,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.57.0",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -2848,18 +2848,18 @@ dependencies = [
 
 [[package]]
 name = "mod-contracts"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "mod-crafting"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "mod-devtracker"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "regex",
  "serde",
@@ -2869,7 +2869,7 @@ dependencies = [
 
 [[package]]
 name = "mod-items"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "app-kit",
  "serde",
@@ -2880,7 +2880,7 @@ dependencies = [
 
 [[package]]
 name = "mod-langpatch"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "app-kit",
@@ -2899,7 +2899,7 @@ dependencies = [
 
 [[package]]
 name = "mod-mining"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "rayon",
  "serde",
@@ -2912,7 +2912,7 @@ dependencies = [
 
 [[package]]
 name = "mod-ships"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "app-kit",
  "serde",
@@ -2950,7 +2950,7 @@ dependencies = [
  "png",
  "serde",
  "thiserror 2.0.18",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3024,7 +3024,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3858,7 +3858,7 @@ version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools",
  "log",
  "multimap",
@@ -4056,7 +4056,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4457,7 +4457,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4515,7 +4515,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4590,8 +4590,8 @@ dependencies = [
 
 [[package]]
 name = "sc-dossier"
-version = "0.14.0"
-source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.14.0#3cf52c18186f1683d32ad0b42f8d4daa6c106879"
+version = "0.14.1"
+source = "git+https://github.com/VeeLume/sc-dossier?tag=v0.14.1#5aba2fb633f27381310f0244222b42f3146e94a0"
 dependencies = [
  "aes",
  "cbc",
@@ -5336,7 +5336,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5643,7 +5643,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "starlume"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "app-kit",
@@ -5698,7 +5698,7 @@ dependencies = [
 
 [[package]]
 name = "starlume-server"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5866,7 +5866,7 @@ dependencies = [
 
 [[package]]
 name = "svc-capture"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "image",
  "rustfft",
@@ -5877,7 +5877,7 @@ dependencies = [
 
 [[package]]
 name = "svc-commlinks"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "app-kit",
  "chrono",
@@ -5891,7 +5891,7 @@ dependencies = [
 
 [[package]]
 name = "svc-data"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "app-kit",
@@ -5905,7 +5905,7 @@ dependencies = [
 
 [[package]]
 name = "svc-discovery"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5918,7 +5918,7 @@ dependencies = [
 
 [[package]]
 name = "svc-dossier"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "app-kit",
@@ -5933,15 +5933,15 @@ dependencies = [
 
 [[package]]
 name = "svc-glyph"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "svc-log"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "svc-patchnotes"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "app-kit",
  "chrono",
@@ -5954,7 +5954,7 @@ dependencies = [
 
 [[package]]
 name = "svc-shipstore"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "app-kit",
  "chrono",
@@ -5969,7 +5969,7 @@ dependencies = [
 
 [[package]]
 name = "svc-spectrum"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "app-kit",
  "chrono",
@@ -5984,11 +5984,11 @@ dependencies = [
 
 [[package]]
 name = "svc-sync"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "svc-uex"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "app-kit",
  "reqwest 0.12.28",
@@ -6618,7 +6618,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7123,7 +7123,7 @@ dependencies = [
  "png",
  "serde",
  "thiserror 2.0.18",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7152,7 +7152,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7594,7 +7594,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-quartz-core",
  "raw-window-handle",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
  "windows-version",
 ]
 
