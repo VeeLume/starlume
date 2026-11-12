@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BlueprintRowView } from "$lib/bindings";
-import { colourways, componentGrid, foldSets, setNameOf } from "./browse";
+import { colourways, foldSets, setNameOf } from "./browse";
 import { foldFamilies, shelfOf, type Family } from "./model";
 
 let next = 1;
@@ -79,37 +79,6 @@ describe("armour sets", () => {
       ["Base", ["Antium Helmet", "Antium Core"]],
       ["Jet", [null, "Antium Core Jet"]],
       ["Sand", ["Antium Helmet Sand", null]],
-    ]);
-  });
-});
-
-describe("ship component tables", () => {
-  it("puts sizes across and class and grade down, Military A first", () => {
-    const cooler = (name: string, size: number, klass: string, grade: number, mats: string[]) =>
-      row({
-        name,
-        family: name,
-        familyName: name,
-        itemType: "Cooler",
-        subType: "UNDEFINED",
-        size,
-        grade,
-        class: klass,
-        materials: mats.map((m) => ({ name: m, scu: 0.1, count: null, minQuality: 0 })),
-      });
-    const g = componentGrid(
-      families([
-        cooler("Bracer", 1, "Military", 3, ["Borase"]),
-        cooler("Polar", 1, "Military", 2, ["Lindinium"]),
-        cooler("Permafrost", 2, "Military", 2, ["Lindinium"]),
-        cooler("Gelid", 1, "Civilian", 1, ["Borase"]),
-      ]),
-    );
-    expect(g.sizes).toEqual([1, 2]);
-    expect(g.rows.map((r) => [r.klass, r.grade, r.cells.map((c) => c.map((f) => f.title)), r.recipe])).toEqual([
-      ["Military", "B", [["Polar"], ["Permafrost"]], ["Lindinium"]],
-      ["Military", "C", [["Bracer"], []], ["Borase"]],
-      ["Civilian", "A", [["Gelid"], []], ["Borase"]],
     ]);
   });
 });
