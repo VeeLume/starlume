@@ -3,9 +3,9 @@
   // opens on the few you care about, and one field is its only scope line',
   // 2026-11-11; UX board sketches 3, 4, 7, 8). The field holds a type, a kind
   // and a weight or class as words, then free text. Armour lists one row per
-  // set (its colourways open in the sheet); ship components are one table per
-  // kind, size across and class and grade down; everything else is one row
-  // per item, its colourways folded in. The recipe opens on demand beside
+  // set (its colourways open in the sheet); everything else is one row per
+  // item, its colourways folded in (ship parts too: a table of their own was
+  // too much of a style break, Valerie 2026-11-12). The recipe opens on demand beside
   // the list and closes with ✕ or Esc. What you own, want and hold are
   // overlaid on the cached catalog.
   import { onDestroy, onMount, type Component } from "svelte";
@@ -14,12 +14,11 @@
   import type { BlueprintRowView, ManufacturerRowView } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import WordField, { type FieldGroup, type FieldRow, type FieldWord } from "$lib/components/WordField.svelte";
-  import ComponentTable from "$lib/modules/crafting/ComponentTable.svelte";
   import FamilyRow from "$lib/modules/crafting/FamilyRow.svelte";
   import RecipeSheet from "$lib/modules/crafting/RecipeSheet.svelte";
   import SetRow from "$lib/modules/crafting/SetRow.svelte";
   import SetSheet from "$lib/modules/crafting/SetSheet.svelte";
-  import { COMPONENT_KINDS, foldSets, isComponentKind, type CraftSet } from "$lib/modules/crafting/browse";
+  import { foldSets, type CraftSet } from "$lib/modules/crafting/browse";
   import { CLASSES, WEIGHTS, canCraft, foldFamilies, shelfOf, shelfRank, type Family } from "$lib/modules/crafting/model";
   import { lookOf } from "$lib/modules/crafting/shelf";
   import { blueprintsStore, loadOwnedBlueprints, refreshOwnedBlueprints } from "$lib/state/blueprints.svelte";
@@ -122,17 +121,6 @@
     [f.title, f.shelf.main, f.shelf.sub, f.variants[0].manufacturer ?? "", ...f.variants.map((x) => x.name), ...f.variants[0].materials.map((m) => m.name)]
       .join("\n")
       .toLowerCase();
-  const matchesText = (f: Family) => !q || textOf(f).includes(q);
-
-  /** Ship components show as tables: the type, or one of their kinds. */
-  const tables = $derived(isComponentKind(v.kind) || (v.type === "Ship parts" && !v.kind));
-  const tableKinds = $derived(
-    isComponentKind(v.kind) ? [v.kind] : COMPONENT_KINDS.filter((k) => families.some((f) => f.shelf.kind === k)),
-  );
-  /** Under the tables, the type's other kinds (ship weapons) as rows. */
-  const tableRest = $derived(
-    tables && !v.kind ? families.filter((f) => f.shelf.top === "Ship parts" && !isComponentKind(f.shelf.kind)) : [],
-  );
 
   // The list's entries: armour folds into sets, the rest one row per item.
   type Entry =
@@ -227,7 +215,7 @@
         .map((f) => f.shelf.kind),
     ),
   ];
-  const facetOf = $derived(v.type === "Armour" ? "weight" : v.type === "Ship parts" || isComponentKind(v.kind) ? "class" : "");
+  const facetOf = $derived(v.type === "Armour" ? "weight" : v.type === "Ship parts" ? "class" : "");
   const facetValues = (facet: string) => (facet === "weight" ? WEIGHTS : CLASSES);
   const facetTest = (facet: string, val: string) => (f: Family) =>
     facet === "weight" ? f.shelf.weight === val : (f.variants[0].class ?? "") === val;
@@ -400,32 +388,6 @@
         onresize={(w) => (sheetWidth = w)}
       >
         {#snippet main()}
-          {#if tables}
-            <div class="scroll">
-              {#each tableKinds as k (k)}
-                <ComponentTable
-                  kind={k}
-                  list={families.filter((f) => f.shelf.kind === k)}
-                  keep={(f) => viewTest(f) && matchesText(f)}
-                  klass={v.class}
-                  selected={v.sel || null}
-                  onpick={(f) => pick(f.key)}
-                />
-              {/each}
-              {#if tableRest.length}
-                {@const look = lookOf("Ship weapons")}
-                {@const Icon = iconOf(look.icon)}
-                <div class="shelf" style="--hue: {look.hue}">
-                  <Icon size={15} />
-                  <h2>Ship weapons</h2>
-                  <span class="count">{tableRest.filter((f) => f.ownedCount > 0).length} of {fmtN(tableRest.length)} owned</span>
-                </div>
-                {#each tableRest.filter((f) => viewTest(f) && matchesText(f)) as f (f.key)}
-                  <FamilyRow family={f} selected={v.sel === f.key} onclick={() => pick(f.key)} />
-                {/each}
-              {/if}
-            </div>
-          {:else}
             <Surface.Root {descriptor} {browse} selected={v.sel || null} class="min-h-0 flex-1">
               <Surface.List {status} header={noHeader} group={section} onselect={(e: Entry) => pick(e.key)}>
                 {#snippet row(e: Entry, isSelected: boolean)}
@@ -437,7 +399,6 @@
                 {/snippet}
               </Surface.List>
             </Surface.Root>
-          {/if}
         {/snippet}
         {#snippet pane()}
           {#if selSet && channel}
@@ -473,12 +434,6 @@
   .work {
     flex: 1;
     min-height: 0;
-  }
-  .scroll {
-    height: 100%;
-    overflow-y: auto;
-    padding-right: 10px;
-    scrollbar-width: thin;
   }
   .pagehead {
     display: flex;

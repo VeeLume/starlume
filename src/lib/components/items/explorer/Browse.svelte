@@ -1,15 +1,13 @@
 <script lang="ts">
   // One container's contents (the home storage every patch refills):
   // sub-containers first, then the in-game categories. A big container opens
-  // on an overview card per category; a category has sub filters, armour
-  // folds into sets (or pieces), weapons can narrow to kitted ones, and
-  // resources fold per material.
-  //
-  // Rendered twice by the explorer: `part="bar"` is the category bar (and
-  // the open category's sub filters), full width above the cards so the
-  // sheet opening beside them never moves it; `part="body"` is the cards.
-  // Containers show as tiles only where the place holds no items of its own
-  // (a planet, a station) — elsewhere the breadcrumb's "Inside" lists them.
+  // on an overview card per category. Items list as rows (UX board sketch
+  // 16): one row per model with the variants you hold named in it, what you
+  // crafted or kitted first with its details (model/rows.ts). An open kind
+  // has its sub kinds and toggles in a rail beside the rows that never moves;
+  // an option with nothing in it dims, it never disappears. Armour folds into
+  // sets (or pieces), resources fold per material. Containers show as tiles
+  // only where the place holds no items of its own (a planet, a station).
   import {
     armourSets,
     categoryOf,
@@ -24,18 +22,16 @@
     type Weight,
   } from "../model/classify";
   import { materials } from "../model/resources";
-  import { stackIdentical } from "../model/stack";
+  import { modelRows } from "../model/rows";
   import { isFolder, visible, type ItemNode, type Node } from "../model/tree";
-  import ChipButton from "./ChipButton.svelte";
   import FolderTile from "./FolderTile.svelte";
-  import ItemCard from "./ItemCard.svelte";
+  import ItemRow from "./ItemRow.svelte";
   import ResourceCard from "./ResourceCard.svelte";
   import SectionHead from "./SectionHead.svelte";
-  import SetCard from "./SetCard.svelte";
+  import SetRow from "./SetRow.svelte";
   import { CATEGORY_ICON, fmtN, type BrowseFilters } from "./ui";
 
   let {
-    part,
     view,
     showBricked,
     keep,
@@ -45,7 +41,6 @@
     onselect,
     onopen,
   }: {
-    part: "bar" | "body";
     view: Node;
     showBricked: boolean;
     keep: (n: ItemNode) => boolean;
@@ -114,7 +109,8 @@
   // The open category, narrowed.
   const all = $derived(cat ? (byCat.get(cat) ?? []) : []);
   const order = $derived(cat ? (SUBCATEGORIES[cat] ?? []) : []);
-  const weights = $derived(cat === "Armour" ? WEIGHTS.filter((w) => all.some((x) => weightOf(x) === w)) : []);
+  const weightCount = (w: Weight) =>
+    sum(all.filter((x) => weightOf(x) === w && (!filters.sub || subcategoryOf(x, cat as Category) === filters.sub)));
   const narrowed = $derived(
     all.filter(
       (x) =>
@@ -175,52 +171,28 @@
   );
 </script>
 
-{#snippet cards(list: ItemNode[], c: Category)}
-  <div class="grid" class:wide={c === "Weapons"}>
-    {#if c === "Resources"}
+{#snippet rows(list: ItemNode[], c: Category | null)}
+  {#if c === "Resources"}
+    <div class="grid">
       {#each materials(list).sort((a, b) => b.best - a.best) as m (m.name)}
         <ResourceCard {m} on={isOn(m.nodes)} onclick={() => onselect(m.nodes[0])} />
       {/each}
-    {:else}
-      {#each stackIdentical(list) as s (s.key)}
-        <ItemCard stack={s} category={c} on={isOn(s.nodes)} onclick={() => onselect(s.node)} />
+    </div>
+  {:else}
+    <div class="rows">
+      {#each modelRows(list) as r (r.key)}
+        <ItemRow row={r} category={categoryOf(r.node)} on={isOn(r.nodes)} onclick={() => onselect(r.node)} />
       {/each}
-    {/if}
-  </div>
-{/snippet}
-
-{#if part === "bar"}
-  <!-- The kind itself is a word in the scope field now (decision 'My Items
-       opens on the few you care about…'); this bar keeps only the open
-       kind's own filters. -->
-  {#if cat}
-    <div class="sub-bar">
-      {#if order.length}<ChipButton on={!filters.sub} onclick={() => onfilter({ sub: "" })}>All</ChipButton>{/if}
-      {#each order.filter((s) => subCount(s) > 0) as s (s)}
-        <ChipButton on={filters.sub === s} n={subCount(s)} onclick={() => onfilter({ sub: filters.sub === s ? "" : s })}
-          >{s}</ChipButton
-        >
-      {/each}
-      {#if weights.length}<span class="sep"></span>{/if}
-      {#each weights as w (w)}
-        <ChipButton on={filters.w === w} onclick={() => onfilter({ w: filters.w === w ? "" : w })}
-          >{w === "Other" ? "Flight & other" : w}</ChipButton
-        >
-      {/each}
-      {#if cat === "Armour"}
-        <span class="sep"></span>
-        <ChipButton on={filters.arm !== "pieces"} onclick={() => onfilter({ arm: "" })}>Sets</ChipButton>
-        <ChipButton on={filters.arm === "pieces"} onclick={() => onfilter({ arm: "pieces" })}>Pieces</ChipButton>
-      {/if}
-      {#if cat === "Weapons"}
-        <span class="sep"></span>
-        <ChipButton on={!!filters.kit} n={all.filter(isKitted).length} onclick={() => onfilter({ kit: filters.kit ? "" : "1" })}
-          >Kitted</ChipButton
-        >
-      {/if}
     </div>
   {/if}
-{:else}
+{/snippet}
+
+{#snippet railRow(label: string, n: number, on: boolean, onclick: () => void)}
+  <button type="button" class="rail-row" class:on class:off={!n} disabled={!n && !on} aria-pressed={on} {onclick}
+    ><span>{label}</span><b>{fmtN(n)}</b></button
+  >
+{/snippet}
+
 {#if folders.length && !items.length}
   <SectionHead title={folderHeading} n={folders.length} />
   <div class="tiles">
@@ -259,44 +231,73 @@
   {#each looseCats as c (c)}
     {@const list = loose.filter((x) => categoryOf(x) === c)}
     <SectionHead title={c} n={count(list, c)} />
-    {@render cards(list, c)}
+    {@render rows(list, c)}
   {/each}
   {#each nested as g (g.c.id)}
     <SectionHead title={g.c.name} n={sum(g.list)} onclick={() => onopen(g.c)} />
-    <div class="grid">
-      {#each stackIdentical(g.list) as st (st.key)}
-        <ItemCard stack={st} category={categoryOf(st.node)} on={isOn(st.nodes)} onclick={() => onselect(st.node)} />
-      {/each}
-    </div>
+    {@render rows(g.list, null)}
   {/each}
 {:else if !cat}
   {#each cats as c (c)}
     <SectionHead title={c} n={count(byCat.get(c) ?? [], c)} />
-    {@render cards(byCat.get(c) ?? [], c)}
+    {@render rows(byCat.get(c) ?? [], c)}
   {/each}
 {:else}
-  {#if !narrowed.length}
-    <p class="empty">Nothing here.</p>
-  {:else if showSets}
-    {#each setGroups as g (g.w)}
-      <SectionHead title={g.w === "Other" ? "Flight, racing & other" : `${g.w} armour`} n={g.sets.length} />
-      <div class="grid">
-        {#each g.sets as s (s.key)}
-          <SetCard
-            set={s}
-            on={isOn(s.items)}
-            onclick={() => onselect(s.items.find((n) => n.item.kind.item_type === "Char_Armor_Torso") ?? s.items[0])}
-          />
+  <div class="kind">
+    <div class="kind-main">
+      {#if !narrowed.length}
+        <p class="empty">Nothing here.</p>
+      {:else if showSets}
+        {#each setGroups as g (g.w)}
+          <SectionHead title={g.w === "Other" ? "Flight, racing & other" : `${g.w} armour`} n={g.sets.length} />
+          <div class="rows">
+            {#each g.sets as s (s.key)}
+              <SetRow
+                set={s}
+                on={isOn(s.items)}
+                onclick={() => onselect(s.items.find((n) => n.item.kind.item_type === "Char_Armor_Torso") ?? s.items[0])}
+              />
+            {/each}
+          </div>
         {/each}
-      </div>
-    {/each}
-  {:else}
-    {#each sections as g (g.s)}
-      {#if g.s}<SectionHead title={g.s} n={count(g.list, cat)} />{/if}
-      {@render cards(g.list, cat)}
-    {/each}
-  {/if}
-{/if}
+      {:else}
+        {#each sections as g (g.s)}
+          {#if g.s}<SectionHead title={g.s} n={count(g.list, cat)} />{/if}
+          {@render rows(g.list, cat)}
+        {/each}
+      {/if}
+    </div>
+    <!-- The kind's own filters, beside the rows and never moving: every
+         option stays, an empty one dims. -->
+    <aside class="rail" aria-label="{cat} filters">
+      {#if order.length}
+        {@render railRow(
+          "All",
+          count(all.filter((x) => !filters.w || weightOf(x) === filters.w), cat),
+          !filters.sub,
+          () => onfilter({ sub: "" }),
+        )}
+        {#each order as s (s)}
+          {@render railRow(s, subCount(s), filters.sub === s, () => onfilter({ sub: filters.sub === s ? "" : s }))}
+        {/each}
+      {/if}
+      {#if cat === "Armour"}
+        <span class="rail-sep"></span>
+        {#each WEIGHTS as w (w)}
+          {@render railRow(w === "Other" ? "Flight & other" : w, weightCount(w), filters.w === w, () =>
+            onfilter({ w: filters.w === w ? "" : w }),
+          )}
+        {/each}
+        <span class="rail-sep"></span>
+        {@render railRow("As sets", armourSets(narrowed).length, filters.arm !== "pieces", () => onfilter({ arm: "" }))}
+        {@render railRow("As pieces", sum(narrowed), filters.arm === "pieces", () => onfilter({ arm: "pieces" }))}
+      {/if}
+      {#if cat === "Weapons"}
+        <span class="rail-sep"></span>
+        {@render railRow("Kitted", all.filter(isKitted).length, !!filters.kit, () => onfilter({ kit: filters.kit ? "" : "1" }))}
+      {/if}
+    </aside>
+  </div>
 {/if}
 
 <style>
@@ -312,20 +313,65 @@
     gap: 6px;
     margin-top: 6px;
   }
-  .grid.wide {
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  }
-  .sub-bar {
+  .rows {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin-top: 8px;
+    flex-direction: column;
+    margin-top: 2px;
   }
-  .sep {
-    width: 1px;
-    height: 18px;
-    margin: 0 4px;
+  .kind {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  .kind-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .rail {
+    position: sticky;
+    top: 0;
+    flex: none;
+    width: 170px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding-top: 12px;
+  }
+  .rail-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 10px;
+    border: 0;
+    border-left: 2px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: var(--text-control);
+    text-align: left;
+    cursor: pointer;
+  }
+  .rail-row:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--text) 4%, transparent);
+  }
+  .rail-row.on {
+    border-left-color: var(--accent);
+    color: var(--text-strong);
+  }
+  .rail-row.off {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .rail-row b {
+    font-family: var(--font-mono);
+    font-size: var(--text-small);
+    font-weight: 400;
+    color: var(--text-faint);
+  }
+  .rail-sep {
+    height: 1px;
+    margin: 8px 0;
     background: var(--border);
   }
   .overview {

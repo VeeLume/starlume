@@ -7,6 +7,7 @@ import { amountOf, fmtAmount, materials, qualityMix } from "./resources";
 import { buildTree, container, isFolder, pathLabel, stowed, units, type ItemNode, type Node } from "./tree";
 import { areasBelow, gearOf, itemsBelow, whereLabel } from "./gear";
 import { suggest } from "./field";
+import { modelOf, modelRows, variantsText } from "./rows";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -404,5 +405,36 @@ describe("scope field", () => {
     const g = suggest("lorv", ctx);
     expect(g.map((x) => x.title)).toEqual(["Places"]);
     expect(g[0].items.map((s) => s.label)).toEqual(["Lorville"]);
+  });
+});
+
+// ── Rows ────────────────────────────────────────────────────────────────────
+
+describe("model rows", () => {
+  it("reads the model and the variant from a name", () => {
+    expect(modelOf('Arclight "Executive Edition" Pistol')).toEqual({ model: "Arclight Pistol", variant: "Executive Edition" });
+    expect(modelOf("P8-SC \"Midnight\" SMG")).toEqual({ model: "P8-SC SMG", variant: "Midnight" });
+    expect(modelOf("LH86 Pistol")).toEqual({ model: "LH86 Pistol", variant: null });
+  });
+
+  it("folds variants into one row per model and keeps what you care about apart, first", () => {
+    const pistol = (name: string, o: Partial<OwnedItemView> = {}) => item(kind(name, "WeaponPersonal", "Small", name), o);
+    const t = buildTree(
+      [
+        pistol('Arclight "Glimmer" Pistol'),
+        pistol("Arclight Pistol"),
+        pistol("Arclight Pistol"),
+        pistol('Arclight "Executive Edition" Pistol'),
+        pistol("Coda Pistol", { crafted: { ingredients: [], properties: [] } }),
+        pistol("LH86 Pistol", { stack: 2 }),
+      ],
+      [],
+    );
+    const rows = modelRows(t.items);
+    expect(rows.map((r) => [r.label, r.n, r.cared, variantsText(r)])).toEqual([
+      ["Coda Pistol", 1, true, ""],
+      ["Arclight Pistol", 4, false, "Executive Edition · Glimmer · plain ×2"],
+      ["LH86 Pistol", 2, false, ""],
+    ]);
   });
 });

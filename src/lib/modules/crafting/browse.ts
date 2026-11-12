@@ -1,16 +1,10 @@
 // How the catalog is laid out for browsing (decision 'My Items opens on the
 // few you care about, and one field is its only scope line', 2026-11-11, and
-// the UX board's Crafting sketches 3, 7 and 8): armour as one row per set with
-// its colourways on demand, ship components as one table per kind (size
-// across, class and grade down, one recipe per row), everything else as one
-// row per item. Pure.
+// the UX board's Crafting sketch 7): armour as one row per set with its
+// colourways on demand, everything else as one row per item. Pure.
 
 import type { BlueprintRowView } from "$lib/bindings";
-import { CLASSES, GRADES, WEIGHTS, gradeLetter, type Family } from "./model";
-
-/** The kinds shelved like the shops do: class and grade over size. */
-export const COMPONENT_KINDS = ["Coolers", "Power plants", "Shields", "Quantum drives", "Radars"];
-export const isComponentKind = (kind: string) => COMPONENT_KINDS.includes(kind);
+import { WEIGHTS, type Family } from "./model";
 
 // ── Armour sets ─────────────────────────────────────────────────────────────
 
@@ -110,48 +104,5 @@ export function colourways(set: CraftSet): { pieces: string[]; rows: { name: str
         return null;
       }),
     })),
-  };
-}
-
-// ── Ship components ─────────────────────────────────────────────────────────
-
-export interface GridRow {
-  key: string;
-  klass: string;
-  grade: string;
-  /** Per size column, the items there. */
-  cells: Family[][];
-  /** The materials the row's recipes take (one recipe per row in the data;
-   *  sizes only scale the amounts). */
-  recipe: string[];
-}
-
-/** One kind's table: sizes across, class and grade down, the way the shops
- *  shelve them (Military A first). */
-export function componentGrid(list: Family[]): { sizes: number[]; rows: GridRow[] } {
-  const sizes = [...new Set(list.map((f) => f.variants[0].size))].sort((a, b) => a - b);
-  const m = new Map<string, Family[]>();
-  for (const f of list) {
-    const v = f.variants[0];
-    const k = `${v.class ?? ""}|${gradeLetter(v) || "?"}`;
-    const l = m.get(k);
-    if (l) l.push(f);
-    else m.set(k, [f]);
-  }
-  const rank = (klass: string) => (CLASSES.includes(klass) ? CLASSES.indexOf(klass) : CLASSES.length);
-  return {
-    sizes,
-    rows: [...m.entries()]
-      .map(([key, fams]) => {
-        const [klass, grade] = key.split("|");
-        return {
-          key,
-          klass,
-          grade,
-          cells: sizes.map((s) => fams.filter((f) => f.variants[0].size === s).sort((a, b) => a.title.localeCompare(b.title))),
-          recipe: [...new Set(fams[0].variants[0].materials.map((x) => x.name))],
-        };
-      })
-      .sort((a, b) => rank(a.klass) - rank(b.klass) || GRADES.indexOf(a.grade) - GRADES.indexOf(b.grade)),
   };
 }
