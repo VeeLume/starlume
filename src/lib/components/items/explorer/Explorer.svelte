@@ -39,7 +39,8 @@
   import FolderTile from "./FolderTile.svelte";
   import Gear from "./Gear.svelte";
   import { areasBelow } from "../model/gear";
-  import ItemCard from "./ItemCard.svelte";
+  import ItemRow from "./ItemRow.svelte";
+  import { modelRows } from "../model/rows";
   import ResourceList from "./ResourceList.svelte";
   import SectionHead from "./SectionHead.svelte";
   import ScopeField from "./ScopeField.svelte";
@@ -288,22 +289,6 @@
     <span class="summary">{summary}</span>
   </div>
 
-  {#if browsing}
-    {#key viewNode.id}
-      <Browse
-        part="bar"
-        view={viewNode}
-        showBricked={bricked}
-        keep={keepItem}
-        selected={sel}
-        filters={{ cat: v.cat, sub: v.sub, w: v.w, arm: v.arm, kit: v.kit }}
-        onfilter={(patch) => browse.setMany(patch)}
-        onselect={select}
-        onopen={(n) => go(n)}
-      />
-    {/key}
-  {/if}
-
   <div class="body-row" class:with-sheet={!!shown}>
     <section class="content">
       {#if resMode}
@@ -340,13 +325,17 @@
         {#if !hits.length}<p class="empty">Nothing here matches.</p>{/if}
         {#each hits as g (g.c.id)}
           {@const Icon = nodeIcon(g.c)}
-          {@const stacks = stackIdentical(g.list)}
-          <SectionHead title={pathLabel(g.c)} n={stacks.reduce((s, t) => s + t.n, 0)} onclick={() => go(g.c)}>
+          <SectionHead title={pathLabel(g.c)} n={g.list.reduce((s, x) => s + x.item.stack, 0)} onclick={() => go(g.c)}>
             {#snippet lead()}<Icon size={13} />{/snippet}
           </SectionHead>
-          <div class="grid">
-            {#each stacks as s (s.key)}
-              <ItemCard stack={s} category={categoryOf(s.node)} on={!!shown && s.nodes.includes(shown as ItemNode)} onclick={() => select(s.node)} />
+          <div class="rows">
+            {#each modelRows(g.list) as r (r.key)}
+              <ItemRow
+                row={r}
+                category={categoryOf(r.node)}
+                on={!!shown && r.nodes.includes(shown as ItemNode)}
+                onclick={() => select(r.node)}
+              />
             {/each}
           </div>
         {/each}
@@ -369,7 +358,6 @@
         {:else}
         {#key viewNode.id}
           <Browse
-            part="body"
             view={viewNode}
             showBricked={bricked}
             keep={keepItem}
@@ -470,12 +458,6 @@
     color: var(--text);
     background: color-mix(in srgb, var(--text) 6%, transparent);
   }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 8px;
-    margin-top: 6px;
-  }
   .tiles {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -494,6 +476,11 @@
   }
   .more:hover {
     text-decoration: underline;
+  }
+  .rows {
+    display: flex;
+    flex-direction: column;
+    margin-top: 2px;
   }
   .ships {
     display: grid;
