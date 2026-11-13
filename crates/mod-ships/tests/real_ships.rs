@@ -869,3 +869,58 @@ fn hornet_matches_the_power_screen() {
         }
     }
 }
+
+/// The Drake Marauder's 16 pips (LIVE 4.10.3): power-on leaves one free,
+/// and any pool below its size takes it. Its 7 guns share the weapons
+/// pool's 2 pips at 2/7 each; summed as floats that came to a hair over 2,
+/// which held a whole pip, so no column could take the 16th.
+#[test]
+#[ignore = "needs a real Data.p4k"]
+fn marauder_takes_its_last_pip() {
+    let cooked = cooked();
+    let (guid, _) = cooked
+        .ships
+        .vehicles
+        .iter()
+        .find(|(g, _)| g.to_string() == "16099337-179f-473e-8bc9-545e38ef0a32")
+        .expect("DRAK_Marauder in this build");
+    let input = LoadoutInput {
+        ship: guid.to_string(),
+        edits: Vec::new(),
+    };
+    let power = |levels: Vec<(String, i64)>| {
+        view(
+            &cooked,
+            &input,
+            &PowerInput {
+                levels,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .power
+        .expect("network rules")
+    };
+    let on = power(Vec::new());
+    assert_eq!(on.supply, 16);
+    assert!((on.used - 15.0).abs() < 1e-9, "power-on used {}", on.used);
+    for pool in ["pool:WeaponGun", "pool:FlightController", "pool:Shield"] {
+        let p = power(vec![(pool.to_string(), 3)]);
+        let level = p.columns.iter().find(|c| c.id == pool).unwrap().level;
+        assert!((level - 3.0).abs() < 1e-9, "{pool} stayed at {level}");
+        assert!((p.used - 16.0).abs() < 1e-9, "{pool}: used {}", p.used);
+    }
+    // Weapons at 4 are 4/7 pip per gun; rounded gun by gun that came to a
+    // fifth pip, and the thrusters stopped one short.
+    let p = power(vec![
+        ("item:hardpoint_radar".into(), 1),
+        ("pool:WeaponGun".into(), 4),
+        ("pool:FlightController".into(), 4),
+    ]);
+    let level = |id: &str| p.columns.iter().find(|c| c.id == id).unwrap().level;
+    assert_eq!(
+        (level("pool:WeaponGun"), level("pool:FlightController")),
+        (4.0, 4.0)
+    );
+    assert_eq!(p.used, 16.0);
+}
