@@ -20,6 +20,7 @@ crates/
 ├── svc-spectrum/   RSI Spectrum client: the staff feed, paced + cached (gated)
 ├── svc-patchnotes/ LIVE patch notes from RSI's public pages, paced + cached (online)
 ├── svc-commlinks/  newest comm-links from RSI's public listing, cached + first-seen (online)
+├── svc-telemetry/  the running game's local telemetry stream → current state (own opt-in)
 ├── svc-log/        ONE Game.log tailer broadcasting typed events (stub)
 ├── svc-sync/       server client: device-token auth, outbox, reference upload (stub)
 ├── mod-langpatch/  Text Patching
