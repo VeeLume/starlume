@@ -18,6 +18,8 @@
 //!   carve-out; the trait + enabled-set live here).
 //! - [`notify`] — the global notification funnel (toast/center event +
 //!   native-toast fallback when the window is hidden).
+//! - [`telemetry`] — the game's local telemetry stream: the reader behind
+//!   its own opt-in, the current-state snapshot, the variable install.
 //! - [`error`] — the shared IPC error type.
 
 mod activity;
@@ -47,6 +49,7 @@ mod settings;
 mod ships;
 mod state;
 mod suspend;
+mod telemetry;
 mod uex;
 mod watch;
 mod window;

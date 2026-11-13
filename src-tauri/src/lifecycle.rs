@@ -137,6 +137,10 @@ pub fn run() {
             crate::uex::spawn_refresher(app.handle());
             crate::ships::allow_images(app.handle());
 
+            // The game's local telemetry stream: starts its reader only when
+            // the opt-in is on (loopback; waits for the game, no gate).
+            crate::telemetry::sync(app.handle());
+
             // Watch installs for settled build changes (30s stat-only poll)
             // → InstallChanged on the bus → cache invalidation + re-warm.
             watch::spawn(app.handle());

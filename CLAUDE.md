@@ -22,7 +22,8 @@ migrate in as feature modules over time.
 
 - `crates/app-kit` — paths, atomic IO, JSON persistence. No Tauri, no tokio, no domain types.
 - `crates/svc-*` — shared services. `svc-discovery` (install scan + RSI profiles) and
-  `svc-data` (DCB parse + snapshot cache + reference catalogs incl. missions) are live;
+  `svc-data` (DCB parse + snapshot cache + reference catalogs incl. missions) are live,
+  as is `svc-telemetry` (the game's loopback telemetry stream → a small current state);
   `svc-log` / `svc-sync` are doc-only stubs, filled by carving working code out of
   Hearth, **not** by writing speculative APIs. Reference catalogs are app framework,
   not modules — CONTRIBUTING module rule 4.
@@ -55,6 +56,13 @@ migrate in as feature modules over time.
   **Sole exception: update checks** (`src/lib/updater.ts`) — a legitimate app function
   with no ToS implications; offline-mode users still get (security-)fixed builds. Do not
   add further exceptions without the same level of justification, documented here.
+  **Not an outbound call: the game's local telemetry stream** (`svc-telemetry`,
+  `src-tauri/src/telemetry.rs`). It is loopback (`127.0.0.1:2942`, served by the running
+  game), so it passes neither gate and works with online off. Its gate is its own opt-in,
+  `AppSettings::telemetry_enabled`, off by default; the reader runs only while that is on
+  and connects only while the game runs. Anything that *sends* telemetry-derived data
+  somewhere (Discord Rich Presence, the server) is a network call and takes the gates
+  above plus its own toggle.
 - **Secrets** (the device token) go in the Windows Credential Manager via `keyring`,
   never in JSON.
 - **Data dirs are build-namespaced**: debug → `%APPDATA%\starlume-dev`, release →

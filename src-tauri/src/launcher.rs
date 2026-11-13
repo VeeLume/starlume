@@ -9,6 +9,12 @@
 //! focuses the launcher (single-instance, so a second start just brings it
 //! forward), and the user presses Play there.
 //!
+//! **Telemetry.** With the telemetry opt-in on, the launcher is started with
+//! `GRPC_CLIENT_SERVER_ENABLED=true` in its environment; the game inherits
+//! it and serves its local telemetry stream (`telemetry.rs`). A launcher
+//! that already runs keeps the environment it was started with: it has to
+//! be quit first, or the variable installed for the user.
+//!
 //! **Update needed.** `sc_dossier::auth::library()` lists the channels this
 //! account may play with their current builds — an unofficial API, so it
 //! sits behind `require_unofficial("launcher")`. Cached in memory for
@@ -85,6 +91,17 @@ pub(crate) fn game_running_blocking() -> bool {
     })
 }
 
+/// What Starlume adds to the launcher's environment: with the telemetry
+/// opt-in on, the variable the game needs to serve its stream; else nothing
+/// (the launcher inherits Starlume's environment as it is).
+fn launcher_env(telemetry: bool) -> Vec<(&'static str, &'static str)> {
+    if telemetry {
+        vec![(svc_telemetry::enable::VAR, svc_telemetry::enable::VALUE)]
+    } else {
+        Vec::new()
+    }
+}
+
 /// The launcher's shader pre-compile: the game binary with `-PSOCacheGen`.
 fn is_shader_cache_build(cmd: &[std::ffi::OsString]) -> bool {
     cmd.iter()
@@ -94,11 +111,17 @@ fn is_shader_cache_build(cmd: &[std::ffi::OsString]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_shader_cache_build;
+    use super::{is_shader_cache_build, launcher_env};
     use std::ffi::OsString;
 
     fn cmd(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn the_launcher_gets_the_variable_only_with_the_opt_in() {
+        assert!(launcher_env(false).is_empty());
+        assert_eq!(launcher_env(true), [("GRPC_CLIENT_SERVER_ENABLED", "true")]);
     }
 
     #[test]
@@ -128,15 +151,21 @@ pub(crate) async fn launcher_status() -> LauncherStatusView {
 
 /// Start the RSI launcher, or bring the running one forward (it is
 /// single-instance). No arguments: it ignores them. Local, no network gate —
-/// the launcher is the user's own app and does its own sign-in.
+/// the launcher is the user's own app and does its own sign-in. With the
+/// telemetry opt-in on, it starts with the variable that makes the game
+/// serve its telemetry stream.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn launcher_open() -> Result<(), AppError> {
+pub(crate) fn launcher_open(state: State<'_, AppState>) -> Result<(), AppError> {
     let exe = launcher_exe()
         .ok_or_else(|| AppError::Internal("the RSI launcher is not installed".into()))?;
+    let telemetry = state.settings.lock().unwrap().telemetry_enabled;
     let mut cmd = std::process::Command::new(&exe);
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
+    }
+    for (name, value) in launcher_env(telemetry) {
+        cmd.env(name, value);
     }
     #[cfg(windows)]
     {

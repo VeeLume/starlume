@@ -16,7 +16,9 @@ export const settingsCategories: SettingsCategory[] = [
   {
     id: "game-data",
     label: "Game data",
-    description: "Installs, cached builds, the patch archive",
+    description: SHOW_UNRELEASED
+      ? "Installs, cached builds, the patch archive, live telemetry"
+      : "Installs, cached builds, the patch archive",
     icon: Database,
     path: "/settings/game-data",
   },

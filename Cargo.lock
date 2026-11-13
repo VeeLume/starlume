@@ -5671,6 +5671,7 @@ dependencies = [
  "svc-patchnotes",
  "svc-shipstore",
  "svc-spectrum",
+ "svc-telemetry",
  "svc-uex",
  "sysinfo",
  "tauri",
@@ -5985,6 +5986,19 @@ dependencies = [
 [[package]]
 name = "svc-sync"
 version = "0.6.0"
+
+[[package]]
+name = "svc-telemetry"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "sc-dossier",
+ "serde",
+ "serde_json",
+ "tokio",
+ "windows-sys 0.61.2",
+ "winreg 0.55.0",
+]
 
 [[package]]
 name = "svc-uex"

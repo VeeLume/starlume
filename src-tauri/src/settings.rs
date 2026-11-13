@@ -109,6 +109,14 @@ pub struct AppSettings {
     /// reads no models.
     #[serde(default = "default_true")]
     pub ship_holo: bool,
+    /// Read the running game's local telemetry stream (vehicle, vitals,
+    /// events, the aUEC balance) from `127.0.0.1`. Default OFF, opt-in.
+    /// Loopback, not an outbound call: **not** behind `online_enabled` or the
+    /// unofficial-API switches, and unaffected by them (see CLAUDE.md).
+    /// Turning it on starts the reader (`telemetry::sync`) and makes
+    /// `launcher_open` start the launcher with the variable the game needs;
+    /// the permanent variable install is its own explicit action.
+    pub telemetry_enabled: bool,
 }
 
 /// What an install that finished onboarding before the What's-new guide
@@ -152,6 +160,7 @@ impl Default for AppSettings {
             modules_offered: None,
             guide_seen: None,
             ship_holo: true,
+            telemetry_enabled: false,
         }
     }
 }
@@ -269,7 +278,7 @@ pub(crate) fn get_settings(state: tauri::State<'_, AppState>) -> AppSettings {
 }
 
 /// Replace the settings snapshot: persist to disk, sync side effects
-/// (autostart registration), swap the in-memory copy. Returns the new
+/// (autostart registration, the telemetry reader), swap the in-memory copy. Returns the new
 /// snapshot so the frontend stays consistent without a second call.
 #[tauri::command]
 #[specta::specta]
@@ -305,6 +314,8 @@ pub(crate) fn update_settings(
     crate::patchnotes::nudge();
     crate::commlinks::nudge();
     crate::uex::nudge();
+    // Start or stop the telemetry reader with its opt-in.
+    crate::telemetry::sync(&app);
     // A tighter archive retention applies right away; a looser one only
     // keeps future builds (pruned ones are gone).
     if retention(&settings) != old_retention {
@@ -353,6 +364,18 @@ mod tests {
             Some(&["mining".to_string()][..])
         );
         assert_eq!(seen.guide_seen.as_deref(), Some("0.3.0"));
+    }
+
+    #[test]
+    fn telemetry_is_opt_in_and_old_files_load_without_it() {
+        assert!(!AppSettings::default().telemetry_enabled);
+        let old: AppSettings = serde_json::from_str(r#"{"online_enabled": false}"#).unwrap();
+        assert!(!old.telemetry_enabled);
+        // Its own switch: offline does not turn it off.
+        let on: AppSettings =
+            serde_json::from_str(r#"{"online_enabled": false, "telemetry_enabled": true}"#)
+                .unwrap();
+        assert!(on.telemetry_enabled);
     }
 
     #[test]

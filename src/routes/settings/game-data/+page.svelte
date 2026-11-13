@@ -4,6 +4,8 @@
   // (raw snapshots kept across patches for "what changed") and its
   // retention. The average user never needs this page: the startup warm and
   // the post-patch re-cook keep the catalogs current on their own.
+  // Last, the running game's local telemetry stream: its opt-in, where the
+  // connection stands, and the variable install that makes the game serve it.
   import { onMount } from "svelte";
   import { Button, ConfirmDialog, NumberInput, Settings, Switch } from "@veelume/ui";
   import { settingsStore, applySettings, loadSettings } from "$lib/state/settings.svelte";
@@ -16,6 +18,13 @@
     wipe,
   } from "$lib/state/data.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
+  import { SHOW_UNRELEASED } from "$lib/unreleased";
+  import {
+    installTelemetryEnv,
+    telemetryStore,
+    uninstallTelemetryEnv,
+    watchTelemetry,
+  } from "$lib/state/telemetry.svelte";
 
   const settings = $derived(settingsStore.current);
   let error = $state("");
@@ -27,7 +36,54 @@
     void loadSettings();
     void loadStatus();
     void loadBuilds();
+    return watchTelemetry();
   });
+
+  // The connection in plain words. "no_stream" covers two cases the port
+  // cannot tell apart: the game is still starting, or it runs without the
+  // variable.
+  const telemetryStatus = $derived(
+    {
+      off: "Off.",
+      waiting_for_game: "Waiting for the game to start.",
+      no_stream:
+        "The game is running but not sending telemetry. It starts sending once it has loaded; if this stays, the game was started without the variable below.",
+      connected: "Connected: the game is sending telemetry.",
+    }[telemetryStore.status],
+  );
+
+  // What was last read, as proof the stream works (no consumer shows it yet).
+  const telemetryRead = $derived.by(() => {
+    const snap = telemetryStore.snapshot;
+    if (!snap) return "";
+    const parts: string[] = [];
+    if (snap.balance != null) {
+      parts.push(`${new Intl.NumberFormat().format(snap.balance)} aUEC`);
+    }
+    if (snap.vehicle) parts.push(snap.vehicle.class_name);
+    return parts.join(" · ");
+  });
+
+  const telemetryEnvHint = $derived(
+    {
+      installed:
+        "Installed. GRPC_CLIENT_SERVER_ENABLED=true is set for your Windows user, so the game sends telemetry however you start the launcher. It stays set while the switch above is off; Remove deletes it again.",
+      set_elsewhere:
+        "GRPC_CLIENT_SERVER_ENABLED=true is already set for your Windows user, not by Starlume. Nothing to install, and Starlume leaves it alone.",
+      not_installed:
+        "The game only sends telemetry when the launcher starts with GRPC_CLIENT_SERVER_ENABLED=true. Install sets that as an environment variable for your Windows user (not system-wide, no administrator rights). Without it, start the launcher from Starlume's Home page.",
+    }[telemetryStore.env ?? "not_installed"],
+  );
+
+  let envBusy = $state(false);
+  /** A launcher that already runs keeps its old environment. */
+  let envChanged = $state(false);
+  async function changeEnv(step: () => Promise<void>) {
+    envBusy = true;
+    await step();
+    envBusy = false;
+    envChanged = !telemetryStore.error;
+  }
 
   async function apply(patch: Parameters<typeof applySettings>[0]) {
     error = "";
@@ -176,8 +232,59 @@
     </Settings.Row>
   </Settings.Section>
 
-  {#if error || dataStore.error}
-    <p class="text-sm text-destructive">{error || dataStore.error}</p>
+  <!-- Unreleased: nothing shows what is read yet (wallet, session log). -->
+  {#if settings && SHOW_UNRELEASED}
+    <Settings.Section title="Live telemetry">
+      <Settings.Row
+        label="Read the game's telemetry"
+        hint="The running game can report your ship, your vitals and your aUEC balance to programs on this PC. Starlume reads it from this PC only (127.0.0.1); nothing is sent anywhere, so it works with online features off. Turning this off stops Starlume reading; it does not remove an installed variable (Remove below does), and a launcher already started from Starlume keeps the variable until it exits."
+      >
+        <Switch
+          label="Read the game's telemetry"
+          checked={settings.telemetry_enabled}
+          onchange={(v) => apply({ telemetry_enabled: v })}
+        />
+      </Settings.Row>
+      {#if settings.telemetry_enabled}
+        <Settings.Row label="Status" hint={telemetryStatus}>
+          <span class="tier-note">{telemetryRead}</span>
+        </Settings.Row>
+      {/if}
+      <!-- Shown with the opt-in off too once installed: it must stay removable. -->
+      {#if telemetryStore.env && (settings.telemetry_enabled || telemetryStore.env === "installed")}
+        <Settings.Row label="Make the game send it" hint={telemetryEnvHint}>
+          {#if telemetryStore.env === "installed"}
+            <Button
+              variant="outline"
+              disabled={envBusy}
+              onclick={() => void changeEnv(uninstallTelemetryEnv)}
+            >
+              Remove
+            </Button>
+          {:else if telemetryStore.env === "not_installed"}
+            <Button
+              variant="outline"
+              disabled={envBusy}
+              onclick={() => void changeEnv(installTelemetryEnv)}
+            >
+              Install
+            </Button>
+          {:else}
+            <span class="tier-note">Already set</span>
+          {/if}
+        </Settings.Row>
+        {#if envChanged}
+          <p class="dim empty">
+            A launcher that is already running keeps what it started with, also one started
+            from Starlume: quit it from its tray icon and start it again for this to take effect.
+          </p>
+        {/if}
+      {/if}
+    </Settings.Section>
+  {/if}
+
+  {#if error || dataStore.error || telemetryStore.error}
+    <p class="text-sm text-destructive">{error || dataStore.error || telemetryStore.error}</p>
   {/if}
 </Settings.Page>
 

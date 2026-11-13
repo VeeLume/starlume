@@ -1,0 +1,27 @@
+[package]
+name = "svc-telemetry"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume telemetry service — the running game's local telemetry stream (loopback), reduced to a small current state"
+
+[dependencies]
+# The stream client is sc-dossier's (`telemetry` feature, enabled on the root
+# pin). Loopback only: 127.0.0.1, no launcher session, no outbound call — so
+# no online gate; the caller checks the telemetry opt-in instead.
+sc-dossier.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+tokio.workspace = true
+
+# The per-user environment variable that makes the game serve the stream
+# (HKCU\Environment), its receipt beside it, and the settings-change
+# broadcast after writing it.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+serde_json.workspace = true
