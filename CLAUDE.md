@@ -138,6 +138,10 @@ long-lived state (code comments cite them by name):
   while hidden.)
 - **Parse only on build change** — never on a timer. `InstallChanged` and
   missing/stale snapshots are the only triggers; watchers are stat-only.
+- **One resident poll: is the game running.** While the telemetry opt-in is on
+  and the game is closed, `telemetry.rs` scans the process list every 10 s (the
+  stream cannot be stat-ed). It is the only timer-driven scan; off with the
+  opt-in. A second one needs the same justification, or shares this check.
 - **Disposable frontend** (frontend rule 6) — a suspended webview runs no JS,
   so anything the UI must show after a hide lives Rust-side (e.g. `NotifLog`).
 - **Measure commit size**, not working set, across the app + all
