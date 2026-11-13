@@ -23,6 +23,7 @@ members = [
     "crates/svc-log",
     "crates/svc-spectrum",
     "crates/svc-sync",
+    "crates/svc-telemetry",
 ]
 
 [workspace.package]
@@ -52,8 +53,9 @@ scraper = "0.20"
 sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-holotable/v0.47.2", features = ["installs"] }
 # The gRPC lab's shipped client: game services, Spectrum, patch notes,
 # comm-links. ONE
-# pin for every service that uses it.
-sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.14.1" }
+# pin for every service that uses it. `telemetry` adds the game's local
+# stream (loopback only) for svc-telemetry.
+sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.14.1", features = ["telemetry"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
@@ -100,6 +102,7 @@ svc-uex = { path = "crates/svc-uex" }
 svc-log = { path = "crates/svc-log" }
 svc-spectrum = { path = "crates/svc-spectrum" }
 svc-sync = { path = "crates/svc-sync" }
+svc-telemetry = { path = "crates/svc-telemetry" }
 
 # TOML parsing (mod-langpatch's embedded curated patchers).
 toml = "0.8"
