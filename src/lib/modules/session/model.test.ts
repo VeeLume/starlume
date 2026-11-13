@@ -10,6 +10,7 @@ import {
   requestNote,
   sessionLength,
   signedAuec,
+  sourceName,
   summaryLine,
   timelineRows,
 } from "./model";
@@ -187,5 +188,16 @@ describe("summaryLine", () => {
       net: 0,
     });
     expect(line).toBe("2 h · 2 missions completed · pub_euw1b_13165946_042");
+  });
+});
+
+describe("a session written by a newer version", () => {
+  it("shows kinds and sources this version does not know as rows that say so", () => {
+    const rows = timelineRows(session([entry(0, T0, { type: "unknown" }, "unknown")]));
+    expect(rows[0].title).toBe("Not shown by this version");
+    expect(rows[0].subject).toBeNull();
+    expect(rows[0].stated).toBeNull();
+    expect(sourceName(rows[0].source)).toBe("Unknown");
+    expect(sourceName("log")).toBe("Game.log");
   });
 });

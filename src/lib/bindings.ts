@@ -1142,17 +1142,18 @@ async telemetryEnvUninstall() : Promise<Result<TelemetryEnvState, AppError>> {
 }
 },
 /**
- * The current session. A memory read; the first call of a run also files
- * the session kept from the last one, and the first after the module was
- * switched on takes in the session the log watcher already follows.
- * `async` only to stay off the main thread for that first call's file IO.
+ * The current session. A memory read, after the queue has drained; the
+ * first call of a run also files the session kept from the last one, and
+ * the first after the module was switched on takes in the session the log
+ * watcher already follows.
  */
 async sessionState() : Promise<SessionStateView> {
     return await TAURI_INVOKE("session_state");
 },
 /**
  * The finished sessions, newest first (at most [`HISTORY_CAP`]). One small
- * file read; empty while the module is off.
+ * file read, after the queue has drained (so a session being filed is in
+ * it); empty while the module is off.
  */
 async sessionHistory() : Promise<Result<SessionSummary[], AppError>> {
     try {
@@ -1730,13 +1731,14 @@ export type CargoLegView = { commodity: string | null; commodity_guid: string | 
  */
 export type Cause = 
 /**
- * No log event close enough explains it.
- */
-{ type: "untracked" } | 
-/**
  * The timeline entry with this [`Entry::seq`] explains it.
  */
-{ type: "entry"; seq: number }
+{ type: "entry"; seq: number } | 
+/**
+ * No log event close enough explains it (or a cause this version
+ * does not know).
+ */
+{ type: "untracked" }
 export type ChoiceView = { value: string; label: string }
 export type ClassSharesView = { easy: number; manageable: number; hard: number; tooMuchPower: number; impossible: number }
 export type ClimbStepView = { untilCharge: number; throttle: number }
@@ -2121,7 +2123,11 @@ export type EntryKind =
  * Seated in a vehicle (from the stream's vehicle, not its seat events,
  * which are incomplete).
  */
-{ type: "vehicle_entered"; class_name: string; name: string } | { type: "vehicle_left"; class_name: string; name: string } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" }
+{ type: "vehicle_entered"; class_name: string; name: string } | { type: "vehicle_left"; class_name: string; name: string } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" } | 
+/**
+ * A kind a later version added: kept as a row that says so.
+ */
+{ type: "unknown" }
 export type EvalView = { 
 /**
  * Heaviest breakable mass over the rock's mass: ≥ 1 cracks.
@@ -3245,17 +3251,18 @@ export type RepRewardView = { faction_guid: string | null; amount: number | null
  */
 export type RequestOutcome = 
 /**
- * No answer was seen (the log has none for commodity trades).
- */
-"requested" | 
-/**
  * The server said yes.
  */
 "confirmed" | 
 /**
  * The server said no: nothing was bought.
  */
-"rejected"
+"rejected" | 
+/**
+ * No answer was seen (the log has none for commodity trades), or one
+ * this version does not know.
+ */
+"requested"
 export type ResourceLegalityView = { 
 /**
  * `"drug"` or `"contraband"`.
@@ -3747,7 +3754,11 @@ export type Source =
 /**
  * The telemetry stream.
  */
-"telemetry"
+"telemetry" | 
+/**
+ * A source a later version added.
+ */
+"unknown"
 export type SourceView = { itemType: string; em: number; ir: number }
 /**
  * Which sources fed a session.

@@ -29,6 +29,7 @@
     missingSources,
     sessionLength,
     signedAuec,
+    sourceName,
     timelineRows,
     type TimelineRow,
   } from "$lib/modules/session/model";
@@ -110,7 +111,7 @@
   function facts(r: TimelineRow): Fact[] {
     const out: Fact[] = [
       { label: "When", value: dayTime(r.at) },
-      { label: "Source", value: r.source === "log" ? "Game.log" : "Telemetry" },
+      { label: "Source", value: sourceName(r.source) },
     ];
     const k = r.kind;
     if (k?.type === "trade") {

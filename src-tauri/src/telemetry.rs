@@ -163,6 +163,14 @@ async fn run(app: AppHandle, generation: u64) {
             match svc_telemetry::connect().await {
                 Ok(stream) => {
                     tracing::info!("telemetry: connected");
+                    // A new stream may be another game run (another channel,
+                    // another character): nothing kept from the last one,
+                    // the balance least of all, is a reading of this one.
+                    with_live(generation, |live| {
+                        if let Some(reducer) = live.reducer.as_mut() {
+                            reducer.connected();
+                        }
+                    });
                     set_status(&app, generation, TelemetryStatus::Connected);
                     read(&app, generation, stream).await;
                     tracing::info!("telemetry: the stream ended");
@@ -204,11 +212,7 @@ async fn read(app: &AppHandle, generation: u64, mut stream: TelemetryStream) {
                         // The session log hears real changes only (balance,
                         // vehicle, an event): never the 15 Hz of moving values.
                         let sample = (change == Change::Major).then(|| {
-                            crate::session::sample_of(
-                                r.snapshot(),
-                                &frame.events,
-                                now.timestamp_millis(),
-                            )
+                            crate::session::sample_of(r.snapshot(), &frame, now.timestamp_millis())
                         });
                         (change, sample)
                     })

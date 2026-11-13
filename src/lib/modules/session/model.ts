@@ -2,7 +2,7 @@
 // vitest covers it. The wording is UI text (English, like the rest); numbers
 // and times follow the user's formatting locale.
 
-import type { EntryKind, Session, SessionSummary, WalletChange } from "$lib/bindings";
+import type { Entry, EntryKind, Session, SessionSummary, WalletChange } from "$lib/bindings";
 
 /** "2 h 14 min", "45 min", "under a minute". */
 export function duration(ms: number): string {
@@ -64,6 +64,7 @@ export const ENTRY_GROUPS: { value: EntryGroup; label: string }[] = [
 export function entryGroup(kind: EntryKind): EntryGroup {
   switch (kind.type) {
     case "shard_joined":
+    case "unknown":
       return "session";
     case "location":
     case "jurisdiction":
@@ -140,6 +141,9 @@ export function entryTitle(kind: EntryKind): string {
       return "Respawned";
     case "spawned":
       return "Spawned";
+    case "unknown":
+      // Written by a newer Starlume than this one.
+      return "Not shown by this version";
   }
 }
 
@@ -206,7 +210,7 @@ export interface TimelineRow {
   at: number;
   title: string;
   group: EntryGroup;
-  source: "log" | "telemetry";
+  source: Entry["source"];
   /** Game text or a game name, for RichText. */
   subject: string | null;
   /** What the log says the entry cost or paid. */
@@ -259,6 +263,13 @@ export function timelineRows(session: Session): TimelineRow[] {
   }
   // Stable: rows of one instant keep entries after the change they follow.
   return rows.sort((a, b) => a.at - b.at);
+}
+
+const SOURCE = { log: "Game.log", telemetry: "Telemetry", unknown: "Unknown" } as const;
+
+/** A source's name as the page says it. */
+export function sourceName(source: Entry["source"]): string {
+  return SOURCE[source];
 }
 
 /** Which of the two sources a session is missing, as the page says it. */
