@@ -848,6 +848,7 @@ mod tests {
             required_tags: vec![],
             mass: None,
             inventory: None,
+            occupancy: Default::default(),
         }
     }
 
