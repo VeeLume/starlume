@@ -172,7 +172,6 @@ pub(crate) fn network(
     }
     a.supply = net.supply();
     net.split_pools(&mut a);
-    a.remaining = free_supply(&net, &a, &mode);
     apply_levels(&net, &mut a, &mode, &input.levels);
     (net, a, mode)
 }
@@ -270,7 +269,6 @@ fn apply_levels(
             apply_level(net, a, mode, id, *want, lowering);
         }
     }
-    a.remaining = free_supply(net, a, mode);
 }
 
 /// Set one column; with `lowering`, only when that lowers it.
