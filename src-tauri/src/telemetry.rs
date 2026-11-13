@@ -17,10 +17,12 @@
 //! bytes).
 //!
 //! **The one resident poll.** That look for the game is a full process scan
-//! (`launcher::game_running_blocking`, about 10 ms, its buffers freed after
-//! each) every 10 s for as long as the opt-in is on and the game is closed —
-//! the first timer of that kind in the app, and the price of not spinning on
-//! the port. It stops while connected. Nothing cheaper tells "the game
+//! (`svc_discovery::process`, about 10 ms, its buffers freed after each)
+//! every 10 s for as long as the opt-in is on and the game is closed — the
+//! first timer of that kind in the app, and the price of not spinning on
+//! the port. It asks through the shared `game_running_recent`, so the
+//! Game.log watcher's occasional check rides on this scan instead of adding
+//! its own. It stops while connected. Nothing cheaper tells "the game
 //! runs" from "the launcher's shader build runs": that needs the command
 //! line, so a window or a file check would not do.
 //!
@@ -137,9 +139,13 @@ fn set_status(app: &AppHandle, generation: u64, status: TelemetryStatus) {
 }
 
 async fn game_running() -> bool {
-    tokio::task::spawn_blocking(crate::launcher::game_running_blocking)
-        .await
-        .unwrap_or(false)
+    // Half the wait: every look of this worker scans, and anything else
+    // asking in between (the Game.log watcher) reuses the answer.
+    tokio::task::spawn_blocking(|| {
+        svc_discovery::process::game_running_recent(svc_telemetry::WAIT_FOR_GAME / 2)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// The worker: wait for the game, connect, read until the stream ends, again.

@@ -117,6 +117,12 @@ pub struct AppSettings {
     /// `launcher_open` start the launcher with the variable the game needs;
     /// the permanent variable install is its own explicit action.
     pub telemetry_enabled: bool,
+    /// Follow the game's `Game.log` for what happens in a session (shard,
+    /// location, missions, purchases, refinery orders). Default OFF, opt-in
+    /// (as Hearth's log sensor was). A local file read, not a network call:
+    /// **not** behind `online_enabled`. Turning it on starts the watcher
+    /// (`gamelog::sync`); off, no log is statted or read.
+    pub gamelog_enabled: bool,
 }
 
 /// What an install that finished onboarding before the What's-new guide
@@ -161,6 +167,7 @@ impl Default for AppSettings {
             guide_seen: None,
             ship_holo: true,
             telemetry_enabled: false,
+            gamelog_enabled: false,
         }
     }
 }
@@ -278,7 +285,7 @@ pub(crate) fn get_settings(state: tauri::State<'_, AppState>) -> AppSettings {
 }
 
 /// Replace the settings snapshot: persist to disk, sync side effects
-/// (autostart registration, the telemetry reader), swap the in-memory copy. Returns the new
+/// (autostart registration, the telemetry reader, the Game.log watcher), swap the in-memory copy. Returns the new
 /// snapshot so the frontend stays consistent without a second call.
 #[tauri::command]
 #[specta::specta]
@@ -316,6 +323,8 @@ pub(crate) fn update_settings(
     crate::uex::nudge();
     // Start or stop the telemetry reader with its opt-in.
     crate::telemetry::sync(&app);
+    // Start or stop the Game.log watcher with its opt-in.
+    crate::gamelog::sync(&app);
     // A tighter archive retention applies right away; a looser one only
     // keeps future builds (pruned ones are gone).
     if retention(&settings) != old_retention {
@@ -364,6 +373,17 @@ mod tests {
             Some(&["mining".to_string()][..])
         );
         assert_eq!(seen.guide_seen.as_deref(), Some("0.3.0"));
+    }
+
+    #[test]
+    fn the_game_log_watcher_is_opt_in_and_old_files_load_without_it() {
+        assert!(!AppSettings::default().gamelog_enabled);
+        let old: AppSettings = serde_json::from_str(r#"{"online_enabled": false}"#).unwrap();
+        assert!(!old.gamelog_enabled);
+        // A local file read: offline does not turn it off.
+        let on: AppSettings =
+            serde_json::from_str(r#"{"online_enabled": false, "gamelog_enabled": true}"#).unwrap();
+        assert!(on.gamelog_enabled);
     }
 
     #[test]

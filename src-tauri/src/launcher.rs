@@ -68,29 +68,6 @@ fn launcher_exe() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Is the game running: `StarCitizen.exe` or its EAC bootstrapper? Blocking
-/// (a process scan, ~10 ms): call via `spawn_blocking`.
-///
-/// The launcher's shader pre-compile (since 4.10.3) starts the same
-/// `StarCitizen.exe` with `-PSOCacheGen` while only the launcher is open.
-/// That is not the game: it holds back nothing (a text patch, the launcher
-/// page's "running"), so it doesn't count.
-pub(crate) fn game_running_blocking() -> bool {
-    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-    let mut sys = System::new();
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::All,
-        true,
-        ProcessRefreshKind::nothing().with_cmd(UpdateKind::OnlyIfNotSet),
-    );
-    sys.processes().values().any(|p| {
-        let name = p.name();
-        (name.eq_ignore_ascii_case("StarCitizen.exe")
-            || name.eq_ignore_ascii_case("StarCitizen_Launcher.exe"))
-            && !is_shader_cache_build(p.cmd())
-    })
-}
-
 /// What Starlume adds to the launcher's environment: with the telemetry
 /// opt-in on, the variable the game needs to serve its stream; else nothing
 /// (the launcher inherits Starlume's environment as it is).
@@ -102,37 +79,14 @@ fn launcher_env(telemetry: bool) -> Vec<(&'static str, &'static str)> {
     }
 }
 
-/// The launcher's shader pre-compile: the game binary with `-PSOCacheGen`.
-fn is_shader_cache_build(cmd: &[std::ffi::OsString]) -> bool {
-    cmd.iter()
-        .skip(1)
-        .any(|a| a.to_string_lossy().eq_ignore_ascii_case("-PSOCacheGen"))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{is_shader_cache_build, launcher_env};
-    use std::ffi::OsString;
-
-    fn cmd(args: &[&str]) -> Vec<OsString> {
-        args.iter().map(OsString::from).collect()
-    }
+    use super::launcher_env;
 
     #[test]
     fn the_launcher_gets_the_variable_only_with_the_opt_in() {
         assert!(launcher_env(false).is_empty());
         assert_eq!(launcher_env(true), [("GRPC_CLIENT_SERVER_ENABLED", "true")]);
-    }
-
-    #[test]
-    fn the_shader_pre_compile_is_not_the_game() {
-        let exe = r"C:\Games\StarCitizen\LIVE\Bin64\StarCitizen.exe";
-        assert!(is_shader_cache_build(&cmd(&[exe, "-PSOCacheGen"])));
-        assert!(is_shader_cache_build(&cmd(&[exe, "-psocachegen"])));
-        assert!(!is_shader_cache_build(&cmd(&[exe])));
-        assert!(!is_shader_cache_build(&cmd(&[exe, "-no_login_dialog"])));
-        // An unreadable command line (another user's process) is the game.
-        assert!(!is_shader_cache_build(&[]));
     }
 }
 
@@ -143,9 +97,11 @@ mod tests {
 pub(crate) async fn launcher_status() -> LauncherStatusView {
     LauncherStatusView {
         launcher_found: launcher_exe().is_some(),
-        game_running: tokio::task::spawn_blocking(game_running_blocking)
-            .await
-            .unwrap_or(false),
+        game_running: tokio::task::spawn_blocking(|| {
+            svc_discovery::process::game_running_recent(std::time::Duration::from_secs(2))
+        })
+        .await
+        .unwrap_or(false),
     }
 }
 

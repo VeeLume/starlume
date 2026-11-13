@@ -15,3 +15,6 @@ serde.workspace = true
 tracing.workspace = true
 chrono.workspace = true
 scraper.workspace = true
+# The game-running check (process.rs): the text patch's write gate, the
+# launcher card, the log watcher.
+sysinfo = "0.33"

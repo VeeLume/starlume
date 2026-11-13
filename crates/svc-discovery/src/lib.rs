@@ -13,6 +13,7 @@
 //! Still to come (with their first consumers): Hearth's rename detection
 //! (lands when accounts get real consumers).
 
+pub mod process;
 pub mod profile;
 pub mod watch;
 

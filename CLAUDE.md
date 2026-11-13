@@ -21,11 +21,12 @@ migrate in as feature modules over time.
 ## Workspace shape
 
 - `crates/app-kit` — paths, atomic IO, JSON persistence. No Tauri, no tokio, no domain types.
-- `crates/svc-*` — shared services. `svc-discovery` (install scan + RSI profiles) and
-  `svc-data` (DCB parse + snapshot cache + reference catalogs incl. missions) are live,
-  as is `svc-telemetry` (the game's loopback telemetry stream → a small current state);
-  `svc-log` / `svc-sync` are doc-only stubs, filled by carving working code out of
-  Hearth, **not** by writing speculative APIs. Reference catalogs are app framework,
+- `crates/svc-*` — shared services. `svc-discovery` (install scan + RSI profiles + the
+  game-running check), `svc-data` (DCB parse + snapshot cache + reference catalogs incl.
+  missions), `svc-telemetry` (the game's loopback telemetry stream → a small current
+  state) and `svc-log` (the Game.log tailer + typed events; a parser is added only
+  with a verbatim real log line as its test) are live; `svc-sync` is a doc-only stub,
+  filled by carving working code out of Hearth, **not** by writing speculative APIs. Reference catalogs are app framework,
   not modules — CONTRIBUTING module rule 4.
 - `src-tauri` — the shell: lifecycle (plugins, tray, windows), settings, auth, module
   registry, typed IPC.
@@ -138,10 +139,11 @@ long-lived state (code comments cite them by name):
   while hidden.)
 - **Parse only on build change** — never on a timer. `InstallChanged` and
   missing/stale snapshots are the only triggers; watchers are stat-only.
-- **One resident poll: is the game running.** While the telemetry opt-in is on
-  and the game is closed, `telemetry.rs` scans the process list every 10 s (the
-  stream cannot be stat-ed). It is the only timer-driven scan; off with the
-  opt-in. A second one needs the same justification, or shares this check.
+- **One resident poll: is the game running.** The stream and a log that has
+  gone quiet cannot be stat-ed, so the telemetry worker and the Game.log
+  watcher ask `svc_discovery::process::game_running_recent`, which reuses a
+  young scan: one process scan serves both, and none runs with both opt-ins
+  off. A new consumer shares this check; it never adds its own scan.
 - **Disposable frontend** (frontend rule 6) — a suspended webview runs no JS,
   so anything the UI must show after a hide lives Rust-side (e.g. `NotifLog`).
 - **Measure commit size**, not working set, across the app + all
