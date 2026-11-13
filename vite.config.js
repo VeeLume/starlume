@@ -1,6 +1,7 @@
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, loadEnv } from "vite";
+import { configDefaults } from "vitest/config";
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -79,6 +80,12 @@ export default defineConfig(async ({ mode }) => ({
     ],
   },
 
+  // Session worktrees live under .claude/worktrees: whole checkouts whose
+  // tests are theirs to run, not this checkout's.
+  test: {
+    exclude: [...configDefaults.exclude, ".claude/**"],
+  },
+
   // Vite options for Tauri development
   clearScreen: false,
   server: {
@@ -93,7 +100,7 @@ export default defineConfig(async ({ mode }) => ({
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**", "**/crates/**"],
+      ignored: ["**/src-tauri/**", "**/crates/**", "**/.claude/**"],
     },
   },
 }));

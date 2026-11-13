@@ -330,7 +330,19 @@ fn apply_level(
     }
 }
 
+/// `pips` to the nearest whole segment, so sums of shared-out fractions are
+/// exact: seven guns at 2/7 pip each are a column of 2 pips, not a hair
+/// over (the screen's free pips, `supply - used`, would read 0.99...).
+fn whole_segments(pips: f64) -> f64 {
+    (pips * SEGMENT).round() / SEGMENT
+}
+
 /// Supply not granted to anything that draws in `mode`.
+///
+/// Counted in whole segments, as the client counts power: a pool shares
+/// its target out in fractions of a pip, and summed as floats seven guns at
+/// 2/7 each come to a hair over 2, which took a whole pip (the Drake
+/// Marauder's 16th pip could not be assigned).
 fn free_supply(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> i64 {
     let drawn: f64 = net
         .consumers
@@ -339,7 +351,11 @@ fn free_supply(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> i64 {
         .filter(|(c, _)| c.draws(mode))
         .map(|(_, g)| g)
         .sum();
-    a.supply - drawn.ceil() as i64
+    // The sum to whole segments, then a pip partly drawn is taken. Not
+    // each grant on its own: seven guns at 4/7 pip each would round up to
+    // 4,000,003 segments and take a fifth pip.
+    let drawn = (drawn * SEGMENT).round() as u64;
+    a.supply - drawn.div_ceil(SEGMENT as u64) as i64
 }
 
 fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column> {
@@ -391,12 +407,13 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
                 max,
                 slots,
                 minimums,
-                level: pool
-                    .members
-                    .iter()
-                    .filter(|&&c| net.consumers[c].draws(mode))
-                    .map(|&c| a.granted[c])
-                    .sum(),
+                level: whole_segments(
+                    pool.members
+                        .iter()
+                        .filter(|&&c| net.consumers[c].draws(mode))
+                        .map(|&c| a.granted[c])
+                        .sum(),
+                ),
                 off: on.is_empty(),
                 excluded: !members.iter().any(|c| c.allowed(mode)),
             },
@@ -421,7 +438,11 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
                     .map(|m| m.min((c.request as f64 / SEGMENT).floor() as i64))
                     .into_iter()
                     .collect(),
-                level: if c.draws(mode) { a.granted[i] } else { 0.0 },
+                level: if c.draws(mode) {
+                    whole_segments(a.granted[i])
+                } else {
+                    0.0
+                },
                 off: !c.on,
                 excluded: !c.allowed(mode),
             },
