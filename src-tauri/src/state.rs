@@ -35,6 +35,10 @@ pub struct AppState {
     /// Keeps the svc-discovery watcher thread alive for the app's lifetime
     /// (set once in setup; dropping it stops the thread).
     pub install_watch: Mutex<Option<svc_discovery::watch::WatchHandle>>,
+    /// The svc-log Game.log watcher thread; it also holds the current game
+    /// session's events. `Some` only while `gamelog_enabled` is on (started
+    /// and stopped by `gamelog::sync`, stopped on exit).
+    pub log_watch: Mutex<Option<svc_log::LogWatch>>,
     /// Account-data (gRPC) service + disk cache. Reads are ToS-grey — every
     /// network method is gated by `require_unofficial` at the call site.
     pub dossier: Arc<svc_dossier::DossierService>,
@@ -75,6 +79,7 @@ impl AppState {
             installs: Mutex::new(Vec::new()),
             bus: crate::bus::new_bus(),
             install_watch: Mutex::new(None),
+            log_watch: Mutex::new(None),
             dossier: Arc::new(svc_dossier::DossierService::new(
                 app_kit::app_data_root().join("dossier"),
             )),
@@ -160,6 +165,7 @@ mod tests {
             installs: Mutex::new(Vec::new()),
             bus: crate::bus::new_bus(),
             install_watch: Mutex::new(None),
+            log_watch: Mutex::new(None),
             dossier: Arc::new(svc_dossier::DossierService::new(std::env::temp_dir())),
             spectrum: Arc::new(svc_spectrum::SpectrumService::new(std::env::temp_dir())),
             patchnotes: Arc::new(svc_patchnotes::PatchNotesService::new(std::env::temp_dir())),

@@ -86,10 +86,10 @@ fn load_overrides(channel_key: &str) -> std::collections::BTreeMap<String, Strin
 
 // ── Game-running gate ───────────────────────────────────────────────────────
 
-/// Is the game running? The launcher page's check (the shader pre-compile
+/// Is the game running? The app's one check (the shader pre-compile
 /// doesn't count). Blocking — call via `spawn_blocking`.
 fn sc_running_blocking() -> bool {
-    crate::launcher::game_running_blocking()
+    svc_discovery::process::game_running()
 }
 
 async fn sc_running() -> bool {

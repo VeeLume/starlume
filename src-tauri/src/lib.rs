@@ -32,6 +32,7 @@ mod devtracker;
 mod dossier;
 mod error;
 mod friends;
+mod gamelog;
 mod groups;
 mod ipc;
 mod items;

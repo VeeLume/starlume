@@ -5668,6 +5668,7 @@ dependencies = [
  "svc-data",
  "svc-discovery",
  "svc-dossier",
+ "svc-log",
  "svc-patchnotes",
  "svc-shipstore",
  "svc-spectrum",
@@ -5913,6 +5914,7 @@ dependencies = [
  "sc-holotable",
  "scraper",
  "serde",
+ "sysinfo",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -5939,6 +5941,12 @@ version = "0.6.0"
 [[package]]
 name = "svc-log"
 version = "0.6.0"
+dependencies = [
+ "serde",
+ "specta",
+ "tempfile",
+ "tracing",
+]
 
 [[package]]
 name = "svc-patchnotes"

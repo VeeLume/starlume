@@ -10,7 +10,7 @@ async getSettings() : Promise<AppSettings> {
 },
 /**
  * Replace the settings snapshot: persist to disk, sync side effects
- * (autostart registration, the telemetry reader), swap the in-memory copy. Returns the new
+ * (autostart registration, the telemetry reader, the Game.log watcher), swap the in-memory copy. Returns the new
  * snapshot so the frontend stays consistent without a second call.
  */
 async updateSettings(settings: AppSettings) : Promise<Result<AppSettings, AppError>> {
@@ -1082,6 +1082,23 @@ async launcherLibrary() : Promise<Result<LibraryChannelView[], AppError>> {
 }
 },
 /**
+ * The current game session's events: the live one, or the last one seen.
+ * Empty while the opt-in is off (nothing is read then).
+ * 
+ * When no session was seen since the watcher started (the game was closed
+ * all along), the watcher holds nothing; the last session is then read
+ * from the most recently written `Game.log` and kept until that file
+ * changes or a session starts.
+ */
+async gamelogSession() : Promise<Result<SessionSnapshot, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("gamelog_session") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The status and the current snapshot. A memory read: no network, no gate.
  */
 async telemetryState() : Promise<TelemetryView> {
@@ -1486,7 +1503,15 @@ ship_holo?: boolean;
  * `launcher_open` start the launcher with the variable the game needs;
  * the permanent variable install is its own explicit action.
  */
-telemetry_enabled: boolean }
+telemetry_enabled: boolean; 
+/**
+ * Follow the game's `Game.log` for what happens in a session (shard,
+ * location, missions, purchases, refinery orders). Default OFF, opt-in
+ * (as Hearth's log sensor was). A local file read, not a network call:
+ * **not** behind `online_enabled`. Turning it on starts the watcher
+ * (`gamelog::sync`); off, no log is statted or read.
+ */
+gamelog_enabled: boolean }
 export type AreaRockView = { rockType: string; name: string; 
 /**
  * Share of the area's ship-mineable rocks.
@@ -1742,6 +1767,7 @@ fetched_at: number | null; last_error: string | null;
  * Newest first.
  */
 items: CommLinkView[] }
+export type ContractChange = "Available" | "Accepted" | "Shared" | "Completed" | "Failed" | "Withdrawn"
 export type CraftedPropertyView = { 
 /**
  * `CraftingGameplayPropertyDef` CRC.
@@ -2395,6 +2421,140 @@ export type LoadoutView = { lasers: LaserInputView[]; gadget: string | null;
  * The laser (index) that leads a crew; `null`: the first one you work.
  */
 lead: number | null }
+/**
+ * One event with the timestamp of the log line it came from.
+ */
+export type LogEvent = { 
+/**
+ * The line's own timestamp, as logged: RFC 3339, UTC, milliseconds
+ * (`2026-11-13T16:13:05.561Z`).
+ */
+ts: string; event: LogEventKind }
+/**
+ * What a line said. Requests (`…Requested`) are what the client asked the
+ * server for, not a confirmed outcome: the
+ * [`LogEventKind::ShopFlowResponse`] that follows a shop request is its
+ * answer.
+ */
+export type LogEventKind = 
+/**
+ * The game process began writing this log (its second line).
+ */
+{ type: "SessionStarted" } | 
+/**
+ * The code branch of the running build (`sc-alpha-4.10.0`).
+ */
+{ type: "Branch"; name: string } | 
+/**
+ * The changelist of the running build: the build's identity.
+ */
+{ type: "Changelist"; number: string } | 
+/**
+ * The session's environment tag: `PUB` is the live persistent
+ * universe, anything else (`PTU`, `EPTU`, …) a test environment.
+ */
+{ type: "SessionPlatform"; env_tag: string } | 
+/**
+ * The RSI handle signed in for this session.
+ */
+{ type: "SessionHandle"; handle: string } | 
+/**
+ * The numeric CIG account id of the current character. A handle rename
+ * keeps it; CIG rotated it once (Oct–Dec 2024), so it is a strong hint,
+ * not an absolute key.
+ */
+{ type: "SessionAccountId"; account_id: string } | 
+/**
+ * The player joined the persistent universe on a shard.
+ */
+{ type: "ShardJoined"; shard: string } | 
+/**
+ * The game is quitting (the player quit, or the client shut down).
+ */
+{ type: "SessionEnded"; reason: string } | 
+/**
+ * The client asked for the player's inventory at a location: logged on
+ * arriving somewhere with a local inventory (a city, a station) and on
+ * opening it there. `location` is the game's internal name
+ * (`Nyx_Levski`, `RR_JP_StantonMagnus`, `Stanton4_NewBabbage`).
+ */
+{ type: "LocationInventoryRequested"; location: string } | 
+/**
+ * "Entered … Jurisdiction" on the HUD (`UEE`, `People's Alliance`,
+ * `Hurston Dynamics`, `Ungoverned`). **Locale-dependent.**
+ */
+{ type: "JurisdictionEntered"; jurisdiction: string } | 
+/**
+ * A contract notification on the HUD. `mission_id` is absent on the
+ * ones the game logs with a zero id (`Shared`). **Locale-dependent**
+ * ([`LogEventKind::MissionEnded`] and
+ * [`LogEventKind::MissionMarkerCreated`] are not). `Withdrawn` was last
+ * seen in 4.10.0-hotfix.
+ */
+{ type: "Contract"; change: ContractChange; mission_id: string | null; title: string } | 
+/**
+ * An objective notification on the HUD. **Locale-dependent**
+ * ([`LogEventKind::ObjectiveUpserted`] is not).
+ */
+{ type: "Objective"; change: ObjectiveChange; mission_id: string | null; objective_id: string | null; text: string } | 
+/**
+ * The server pushed an objective's state. Far more frequent than the
+ * HUD notifications, and it covers hidden objectives too.
+ */
+{ type: "ObjectiveUpserted"; mission_id: string; objective_id: string; state: string } | 
+/**
+ * A mission marker was created: the one line that ties a mission id to
+ * its contract (`contract`, `contract_definition_id`) and generator.
+ */
+{ type: "MissionMarkerCreated"; mission_id: string; generator: string; contract: string; contract_definition_id: string; objective_id: string } | 
+/**
+ * A mission ended for the player.
+ */
+{ type: "MissionEnded"; mission_id: string; completion: string; reason: string } | 
+/**
+ * "Awarded N aUEC" / "Fined N UEC" on the HUD. **Locale-dependent.**
+ * Both last seen in 4.10.0; none in the 4.10.0-hotfix to 4.10.3 logs.
+ */
+{ type: "Money"; change: MoneyChange; amount: number } | 
+/**
+ * The client asked a commodity kiosk to buy or sell.
+ * 
+ * **Not seen in any 4.10 log**: a buy was last seen in 4.9.0, a sell
+ * in 4.8.0-hotfix. Unconfirmed for the current game until one shows
+ * up.
+ */
+{ type: "CommodityTradeRequested"; side: TradeSide; shop: string; resource_guid: string; price: number; quantity: number; quantity_unit: string | null } | 
+/**
+ * The client asked a shop to sell the player an item (a kiosk
+ * purchase, or a ship from a dealer). Last seen in 4.10.2; none in the
+ * one 4.10.3 log (nothing was bought in it).
+ */
+{ type: "ShopBuyRequested"; shop: string; item_guid: string; item_name: string; price: number; quantity: number } | 
+/**
+ * The client asked a shop to rent the player an item (a ship rental
+ * kiosk). Seen in 4.10.3.
+ */
+{ type: "ShopRentalRequested"; shop: string; item_guid: string; item_name: string; price: number } | 
+/**
+ * The server answered the last shop request: a
+ * [`ShopBuyRequested`](Self::ShopBuyRequested), a
+ * [`ShopRentalRequested`](Self::ShopRentalRequested) or a
+ * [`CommodityTradeRequested`](Self::CommodityTradeRequested). The line
+ * does not say which, so pair it with the request just before it.
+ */
+{ type: "ShopFlowResponse"; success: boolean; result: string } | 
+/**
+ * "A Refinery Work Order has been Completed at …" on the HUD.
+ * **Locale-dependent.** Last seen in 4.10.2; none in the one 4.10.3
+ * log.
+ */
+{ type: "RefineryOrderCompleted"; location: string } | 
+/**
+ * "Received Blueprint: …" on the HUD. The display name only: the log
+ * never carries the record guid. **Locale-dependent** (and the name is
+ * the localized one).
+ */
+{ type: "BlueprintReceived"; name: string }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
 /**
  * UEX's marketplace average for an item, one side, one quality tier.
@@ -2558,6 +2718,7 @@ export type ModifierRangeView = { additive: boolean; startQuality: number; endQu
  */
 export type ModifiersView = { resistance: number | null; instability: number | null; windowSize: number | null; windowRate: number | null; shatterDamage: number | null; clusterFactor: number | null; catastrophicRate: number | null }
 export type ModuleInfo = { id: string; name: string; description: string; enabled: boolean }
+export type MoneyChange = "Awarded" | "Fined"
 /**
  * A hull mesh node and the damage part it belongs to.
  */
@@ -2590,6 +2751,7 @@ source: string | null;
  * would be noise (see `activity.rs`).
  */
 quiet: boolean }) & { id: number; ts: number }
+export type ObjectiveChange = "New" | "Completed" | "Withdrawn"
 /**
  * A place that sells (or rents) something, from UEX's community prices.
  */
@@ -3107,6 +3269,27 @@ export type SeatsView = { pilot: number; copilot: number; mannedTurrets: number;
  */
 crew: number; passengers: number }
 /**
+ * The current session as the watcher holds it.
+ */
+export type SessionSnapshot = { 
+/**
+ * The game is running and its log is being followed.
+ */
+live: boolean; 
+/**
+ * The log these events came from; `None` when no session was seen
+ * since the app started.
+ */
+log: string | null; 
+/**
+ * Oldest first.
+ */
+events: LogEvent[]; 
+/**
+ * Events dropped from the front to stay within the cap.
+ */
+dropped: number }
+/**
  * The shield generators as one.
  */
 export type ShieldView = { face: string | null; generators: number; maxReallocation: number | null; damagedDelay: number; downedDelay: number; resistance: TypedRangeView | null; absorption: TypedRangeView | null; 
@@ -3495,6 +3678,7 @@ export type TourView = { planet: string; legs: number; gm: number; seconds: numb
  */
 cooling: number }
 export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
+export type TradeSide = "Buy" | "Sell"
 /**
  * Physical, energy, distortion: (min, max).
  */

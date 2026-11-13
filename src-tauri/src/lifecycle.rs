@@ -145,6 +145,11 @@ pub fn run() {
             // → InstallChanged on the bus → cache invalidation + re-warm.
             watch::spawn(app.handle());
 
+            // The game's Game.log: starts its watcher only when the opt-in
+            // is on (a stat per install every 5 s while the game is closed)
+            // → GameSession / GameLog on the bus.
+            crate::gamelog::sync(app.handle());
+
             // No window is built at startup (tauri.conf `create: false`): a
             // companion start stays a tray icon until the window is first
             // shown (see window.rs).
@@ -196,7 +201,10 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, event| {
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                crate::gamelog::stop(app);
+            }
             // A hidden window closes after a minute (window.rs) and the tray
             // app lives on without one. An explicit exit (tray Quit, closing
             // without close-to-tray) carries a code.

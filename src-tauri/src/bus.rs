@@ -3,7 +3,8 @@
 //! `send` and don't care who listens; consumers hold a `Receiver` from
 //! [`AppState::bus`](crate::AppState) and react.
 //!
-//! First producer: the svc-discovery install watcher (see [`crate::watch`]).
+//! Producers: the svc-discovery install watcher (see [`crate::watch`]) and
+//! the svc-log Game.log watcher (see [`crate::gamelog`]).
 //! First consumer: the shell itself (cache invalidation + re-warm). Future
 //! consumers: mod-langpatch's re-patch, per the design doc —
 //! "`mod-langpatch` subscribing to `InstallChanged` *is* the re-patch-before-
@@ -23,6 +24,22 @@ pub enum BusEvent {
     InstallChanged(svc_discovery::InstallInfo),
     /// An SC install disappeared.
     InstallRemoved { channel: String },
+    /// A game session began (`live`) or ended: the game started or quit,
+    /// as its `Game.log` tells it.
+    GameSession { live: bool },
+    /// New `Game.log` events of the session, oldest first. One batch per
+    /// poll, so a busy log cannot flood the channel.
+    ///
+    /// **`replay` batches are history, not news**: the app started while
+    /// the game ran (or the watcher moved to another channel's log) and
+    /// caught up on what was already written, possibly hours ago. A
+    /// consumer that *does* something on an event (a notification, a timer,
+    /// a presence update) must skip them; one that only keeps the session's
+    /// record takes both.
+    GameLog {
+        events: std::sync::Arc<[svc_log::LogEvent]>,
+        replay: bool,
+    },
 }
 
 pub type Bus = broadcast::Sender<BusEvent>;

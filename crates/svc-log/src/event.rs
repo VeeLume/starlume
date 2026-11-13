@@ -1,0 +1,228 @@
+//! The typed events read out of `Game.log`.
+//!
+//! Every variant is grounded in a line seen in a real 4.x log; the line is
+//! quoted on the parser that recognises it ([`crate::parse`]) and used
+//! verbatim as that parser's test fixture.
+//!
+//! # Locale: some events only fire with English game text
+//!
+//! The events read from **HUD notifications** match the notification's
+//! English wording (`Contract Accepted: `, `Awarded … aUEC`, …). The game
+//! writes the localized string into the log, so with a language pack that
+//! translates those strings (Starlume's own Text Patching can install one)
+//! they silently never fire. They are marked **locale-dependent** below:
+//! [`LogEventKind::Contract`], [`LogEventKind::Objective`],
+//! [`LogEventKind::Money`], [`LogEventKind::RefineryOrderCompleted`],
+//! [`LogEventKind::BlueprintReceived`], [`LogEventKind::JurisdictionEntered`].
+//! Everything else is read from engine lines, which are not localized.
+//!
+//! Not solved here. The proper fix: derive the prefixes from the active
+//! `global.ini` instead of hard-coding English, i.e. resolve the
+//! notification's localization keys against the install's current text
+//! (after patching) and hand the parser that table; the engine-side lines
+//! (`<EndMission>`, `<ObjectiveUpserted>`, `<CreateMarker>`) already cover
+//! missions without it.
+//!
+//! # Last seen
+//!
+//! Counted over the maintainer's LIVE logs of 2026 (4.5 to 4.10.3). Where
+//! an event's line was not found in every 4.10 build, its doc says where it
+//! was last seen: an absent line may mean the game stopped writing it, or
+//! only that the thing did not happen in those sessions.
+//!
+//! Money is `f64` because the log prints it that way
+//! (`client_price[19175.000000]`) and TypeScript has one number type; ids
+//! are strings (the account id outgrows nothing today, but it is an id, not
+//! a quantity).
+
+/// One event with the timestamp of the log line it came from.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub struct LogEvent {
+    /// The line's own timestamp, as logged: RFC 3339, UTC, milliseconds
+    /// (`2026-11-13T16:13:05.561Z`).
+    pub ts: String,
+    pub event: LogEventKind,
+}
+
+/// What a line said. Requests (`…Requested`) are what the client asked the
+/// server for, not a confirmed outcome: the
+/// [`LogEventKind::ShopFlowResponse`] that follows a shop request is its
+/// answer.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "type")]
+pub enum LogEventKind {
+    // ── Session ─────────────────────────────────────────────────────────
+    /// The game process began writing this log (its second line).
+    SessionStarted,
+    /// The code branch of the running build (`sc-alpha-4.10.0`).
+    Branch { name: String },
+    /// The changelist of the running build: the build's identity.
+    Changelist { number: String },
+    /// The session's environment tag: `PUB` is the live persistent
+    /// universe, anything else (`PTU`, `EPTU`, …) a test environment.
+    SessionPlatform { env_tag: String },
+    /// The RSI handle signed in for this session.
+    SessionHandle { handle: String },
+    /// The numeric CIG account id of the current character. A handle rename
+    /// keeps it; CIG rotated it once (Oct–Dec 2024), so it is a strong hint,
+    /// not an absolute key.
+    SessionAccountId { account_id: String },
+    /// The player joined the persistent universe on a shard.
+    ShardJoined { shard: String },
+    /// The game is quitting (the player quit, or the client shut down).
+    SessionEnded { reason: String },
+
+    // ── Where ───────────────────────────────────────────────────────────
+    /// The client asked for the player's inventory at a location: logged on
+    /// arriving somewhere with a local inventory (a city, a station) and on
+    /// opening it there. `location` is the game's internal name
+    /// (`Nyx_Levski`, `RR_JP_StantonMagnus`, `Stanton4_NewBabbage`).
+    LocationInventoryRequested { location: String },
+    /// "Entered … Jurisdiction" on the HUD (`UEE`, `People's Alliance`,
+    /// `Hurston Dynamics`, `Ungoverned`). **Locale-dependent.**
+    JurisdictionEntered { jurisdiction: String },
+
+    // ── Missions ────────────────────────────────────────────────────────
+    /// A contract notification on the HUD. `mission_id` is absent on the
+    /// ones the game logs with a zero id (`Shared`). **Locale-dependent**
+    /// ([`LogEventKind::MissionEnded`] and
+    /// [`LogEventKind::MissionMarkerCreated`] are not). `Withdrawn` was last
+    /// seen in 4.10.0-hotfix.
+    Contract {
+        change: ContractChange,
+        mission_id: Option<String>,
+        /// The title as shown, with Starlume's own text-patch tags removed.
+        title: String,
+    },
+    /// An objective notification on the HUD. **Locale-dependent**
+    /// ([`LogEventKind::ObjectiveUpserted`] is not).
+    Objective {
+        change: ObjectiveChange,
+        mission_id: Option<String>,
+        objective_id: Option<String>,
+        text: String,
+    },
+    /// The server pushed an objective's state. Far more frequent than the
+    /// HUD notifications, and it covers hidden objectives too.
+    ObjectiveUpserted {
+        mission_id: String,
+        objective_id: String,
+        /// `MISSION_OBJECTIVE_STATE_INPROGRESS`, `…_COMPLETED`, ….
+        state: String,
+    },
+    /// A mission marker was created: the one line that ties a mission id to
+    /// its contract (`contract`, `contract_definition_id`) and generator.
+    MissionMarkerCreated {
+        mission_id: String,
+        generator: String,
+        contract: String,
+        contract_definition_id: String,
+        objective_id: String,
+    },
+    /// A mission ended for the player.
+    MissionEnded {
+        mission_id: String,
+        /// `Complete`, `Fail`, `Abandon`.
+        completion: String,
+        /// `Mission Ended`, `Player left`.
+        reason: String,
+    },
+
+    // ── Economy ─────────────────────────────────────────────────────────
+    /// "Awarded N aUEC" / "Fined N UEC" on the HUD. **Locale-dependent.**
+    /// Both last seen in 4.10.0; none in the 4.10.0-hotfix to 4.10.3 logs.
+    Money { change: MoneyChange, amount: f64 },
+    /// The client asked a commodity kiosk to buy or sell.
+    ///
+    /// **Not seen in any 4.10 log**: a buy was last seen in 4.9.0, a sell
+    /// in 4.8.0-hotfix. Unconfirmed for the current game until one shows
+    /// up.
+    CommodityTradeRequested {
+        side: TradeSide,
+        /// The shop's internal name (`SCShop_Levski_CargoOffice_Commodities`).
+        shop: String,
+        /// The commodity's resource record guid.
+        resource_guid: String,
+        /// Total price of the request, in aUEC.
+        price: f64,
+        quantity: f64,
+        /// The unit printed with the quantity (`cSCU` on a buy); absent
+        /// when the log prints a bare number (a sell).
+        quantity_unit: Option<String>,
+    },
+    /// The client asked a shop to sell the player an item (a kiosk
+    /// purchase, or a ship from a dealer). Last seen in 4.10.2; none in the
+    /// one 4.10.3 log (nothing was bought in it).
+    ShopBuyRequested {
+        shop: String,
+        item_guid: String,
+        /// The item's class name (`grin_tractor_01`, `ARGO_MOTH`).
+        item_name: String,
+        /// Total price as the client computed it, in aUEC.
+        price: f64,
+        quantity: u32,
+    },
+    /// The client asked a shop to rent the player an item (a ship rental
+    /// kiosk). Seen in 4.10.3.
+    ShopRentalRequested {
+        shop: String,
+        item_guid: String,
+        /// The item's class name (`RSI_Constellation_Andromeda_GS`).
+        item_name: String,
+        /// As the client computed it, in aUEC (`0` at a free event rental).
+        price: f64,
+    },
+    /// The server answered the last shop request: a
+    /// [`ShopBuyRequested`](Self::ShopBuyRequested), a
+    /// [`ShopRentalRequested`](Self::ShopRentalRequested) or a
+    /// [`CommodityTradeRequested`](Self::CommodityTradeRequested). The line
+    /// does not say which, so pair it with the request just before it.
+    ShopFlowResponse {
+        success: bool,
+        /// `Success`, `AuthorityError`, ….
+        result: String,
+    },
+    /// "A Refinery Work Order has been Completed at …" on the HUD.
+    /// **Locale-dependent.** Last seen in 4.10.2; none in the one 4.10.3
+    /// log.
+    RefineryOrderCompleted { location: String },
+    /// "Received Blueprint: …" on the HUD. The display name only: the log
+    /// never carries the record guid. **Locale-dependent** (and the name is
+    /// the localized one).
+    BlueprintReceived { name: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum ContractChange {
+    Available,
+    Accepted,
+    Shared,
+    Completed,
+    Failed,
+    Withdrawn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum ObjectiveChange {
+    New,
+    Completed,
+    Withdrawn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum MoneyChange {
+    Awarded,
+    Fined,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum TradeSide {
+    Buy,
+    Sell,
+}

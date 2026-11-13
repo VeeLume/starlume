@@ -14,14 +14,14 @@ Shared services below, feature modules above, an event bus between them:
 crates/
 ├── app-kit/        data-dir resolution, atomic IO, JSON persistence
 ├── server/         starlume-server: Discord auth + device tokens (grows into the v2 API)
-├── svc-discovery/  SC install discovery, channel selection, build-change events
+├── svc-discovery/  SC install discovery, build-change events, the game-running check
 ├── svc-data/       ONE DataCore parse + snapshot cache per build, reference catalogs
 ├── svc-dossier/    CIG game-services client: blueprints, inventory, loadouts (gated)
 ├── svc-spectrum/   RSI Spectrum client: the staff feed, paced + cached (gated)
 ├── svc-patchnotes/ LIVE patch notes from RSI's public pages, paced + cached (online)
 ├── svc-commlinks/  newest comm-links from RSI's public listing, cached + first-seen (online)
 ├── svc-telemetry/  the running game's local telemetry stream → current state (own opt-in)
-├── svc-log/        ONE Game.log tailer broadcasting typed events (stub)
+├── svc-log/        ONE Game.log tailer: typed events, the current game session
 ├── svc-sync/       server client: device-token auth, outbox, reference upload (stub)
 ├── mod-langpatch/  Text Patching
 ├── mod-items/      My Items

@@ -232,6 +232,22 @@
     </Settings.Row>
   </Settings.Section>
 
+  <!-- Unreleased: nothing shows what is read yet (session log, presence). -->
+  {#if settings && SHOW_UNRELEASED}
+    <Settings.Section title="Game log">
+      <Settings.Row
+        label="Follow the game's log"
+        hint="The game writes what happens in a session to Game.log in its install folder: the shard you joined, where you are, contracts, purchases, refinery orders. Starlume reads that file on this PC only; nothing is sent anywhere, so it works with online features off. While the game is closed it only checks whether the file changed."
+      >
+        <Switch
+          label="Follow the game's log"
+          checked={settings.gamelog_enabled}
+          onchange={(v) => apply({ gamelog_enabled: v })}
+        />
+      </Settings.Row>
+    </Settings.Section>
+  {/if}
+
   <!-- Unreleased: nothing shows what is read yet (wallet, session log). -->
   {#if settings && SHOW_UNRELEASED}
     <Settings.Section title="Live telemetry">

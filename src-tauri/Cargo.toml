@@ -79,6 +79,7 @@ mod-ships.workspace = true
 mod-crafting.workspace = true
 svc-capture.workspace = true
 svc-discovery.workspace = true
+svc-log = { workspace = true, features = ["specta"] }
 svc-data.workspace = true
 svc-dossier.workspace = true
 svc-spectrum.workspace = true
@@ -88,8 +89,8 @@ svc-shipstore.workspace = true
 svc-uex.workspace = true
 svc-telemetry.workspace = true
 
-# Game-running detection (write gate for text patching): a patched
-# global.ini must never be written while StarCitizen.exe is up.
+# Process memory for the performance page. (The game-running check lives
+# in svc-discovery's process.rs; keep the two on one version.)
 sysinfo = "0.33"
 # Capture previews as data URLs (mining scan buttons).
 base64 = "0.22"

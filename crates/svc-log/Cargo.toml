@@ -8,3 +8,15 @@ repository.workspace = true
 description = "Starlume log service — single Game.log tailer broadcasting typed events"
 
 [dependencies]
+serde.workspace = true
+tracing.workspace = true
+# TypeScript bindings for the event types (the shell turns this on; the
+# sc-render pattern). Off by default: the crate itself needs no IPC.
+specta = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[features]
+default = []
+specta = ["dep:specta"]

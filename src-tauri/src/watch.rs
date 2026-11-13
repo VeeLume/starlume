@@ -52,6 +52,15 @@ pub fn spawn(app: &AppHandle) {
                     let _ = data::refresh_installs(&app).await;
                     data::emit_changed(&app);
                 }
+                // The Game.log watcher's events: the shell only notes them
+                // (their consumers, the session log and presence, subscribe
+                // for themselves).
+                Ok(BusEvent::GameSession { live }) => {
+                    tracing::info!(live, "game session changed");
+                }
+                Ok(BusEvent::GameLog { events, replay }) => {
+                    tracing::debug!(count = events.len(), replay, "Game.log events");
+                }
                 // Missed events — resync from current state.
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                     let _ = data::refresh_installs(&app).await;
