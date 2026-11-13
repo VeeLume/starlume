@@ -27,11 +27,24 @@
 //!
 //! A change is explained by a log event at most [`ATTRIBUTION_WINDOW`]
 //! away in time (either order: the stream is instant, the log is polled),
-//! each event explaining one change. Preference: the same amount; then an
-//! event that pays an unknown amount (a completed mission) for a gain; then
-//! the same direction within [`NEAR_PERCENT`] of the amount (a shop request
-//! carries the client's price, which the server may round). Nearest in time
-//! wins among equals. Everything else is [`Cause::Untracked`].
+//! each event explaining one change. The pairing is worked out again
+//! whenever an event or a change arrives, over everything still in the
+//! window, so the order in which they arrive does not matter. Three passes,
+//! each taking the pairs nearest in time first:
+//!
+//! 1. **The same amount.** An award, a fine, a purchase or a sale whose
+//!    amount is the change.
+//! 2. **Nearly the same amount**, same direction, within [`NEAR_PERCENT`]
+//!    (a shop request carries the client's price, which the server may
+//!    round).
+//! 3. **An unknown amount**: a completed mission, which the log never
+//!    prices. It gets only a *gain* that the first two passes left over,
+//!    and only one seen no earlier than [`UNKNOWN_LEAD`] before it: a
+//!    reward does not arrive before its mission ends.
+//!
+//! Everything else is [`Cause::Untracked`]. Pass 3 is a guess by nature: a
+//! mission that paid nothing can still be given an unrelated gain that
+//! follows it within the window, if nothing with an amount explains it.
 
 use std::collections::VecDeque;
 
@@ -42,8 +55,13 @@ use crate::time::Millis;
 pub const ATTRIBUTION_WINDOW: Millis = 30_000;
 /// How far an event's amount may be off the change and still explain it.
 pub const NEAR_PERCENT: i64 = 5;
+/// How long before an event of unknown amount its gain may have been seen
+/// (slack between the stream's arrival time and the log line's own).
+pub const UNKNOWN_LEAD: Millis = 5_000;
 /// Most open explanations kept.
 const MAX_EXPLANATIONS: usize = 64;
+/// The attribution passes (see the module docs).
+const PASSES: u8 = 3;
 
 /// A log event that moves money.
 #[derive(Debug, Clone, Copy)]
@@ -52,20 +70,24 @@ struct Explanation {
     seq: u32,
     /// Signed aUEC; `None` = a gain of unknown size.
     amount: Option<i64>,
-    claimed: bool,
 }
 
-/// How well `amount` explains `delta`: lower is better, `None` is not at all.
-fn rank(amount: Option<i64>, delta: i64) -> Option<u8> {
-    match amount {
+/// The pass in which `e` may explain `change`; `None` = never.
+fn pass_of(e: &Explanation, change: &WalletChange) -> Option<u8> {
+    let after = change.at - e.at;
+    if after.abs() > ATTRIBUTION_WINDOW {
+        return None;
+    }
+    let delta = change.delta;
+    match e.amount {
         Some(a) if a == delta => Some(0),
-        None if delta > 0 => Some(1),
         Some(a)
             if a.signum() == delta.signum()
                 && (a - delta).abs() * 100 <= a.abs() * NEAR_PERCENT =>
         {
-            Some(2)
+            Some(1)
         }
+        None if delta > 0 && after >= -UNKNOWN_LEAD => Some(2),
         _ => None,
     }
 }
@@ -74,26 +96,80 @@ fn rank(amount: Option<i64>, delta: i64) -> Option<u8> {
 /// the reducer: rebuilt with the session, never stored.
 #[derive(Debug, Default)]
 pub(crate) struct Ledger {
+    /// In arrival order, which is time order: a log is read front to back.
     explanations: VecDeque<Explanation>,
 }
 
 impl Ledger {
-    /// The best unclaimed explanation for `delta` at `at`, claimed.
-    fn claim(&mut self, at: Millis, delta: i64) -> Option<u32> {
-        let best = self
-            .explanations
-            .iter_mut()
-            .filter(|e| !e.claimed && (e.at - at).abs() <= ATTRIBUTION_WINDOW)
-            .filter_map(|e| rank(e.amount, delta).map(|r| ((r, (e.at - at).abs()), e)))
-            .min_by_key(|(key, _)| *key)
-            .map(|(_, e)| e)?;
-        best.claimed = true;
-        Some(best.seq)
+    fn knows(&self, seq: u32) -> bool {
+        self.explanations.iter().any(|e| e.seq == seq)
+    }
+
+    /// Work the pairing out again for every change the open explanations
+    /// can reach. Changes explained by an event that is no longer open keep
+    /// their cause. Returns whether any cause changed.
+    fn settle(&self, wallet: &mut Wallet) -> bool {
+        let Some(oldest) = self.explanations.iter().map(|e| e.at).min() else {
+            return false;
+        };
+        let horizon = oldest - ATTRIBUTION_WINDOW;
+        let start = wallet
+            .changes
+            .iter()
+            .rposition(|c| c.at < horizon)
+            .map_or(0, |i| i + 1);
+        let open = &mut wallet.changes[start..];
+        let before: Vec<Cause> = open.iter().map(|c| c.cause).collect();
+
+        for change in open.iter_mut() {
+            if let Cause::Entry { seq } = change.cause
+                && self.knows(seq)
+            {
+                change.cause = Cause::Untracked;
+            }
+        }
+        let mut used = vec![false; self.explanations.len()];
+        for pass in 0..PASSES {
+            // (how far apart, explanation, change), nearest first.
+            let mut pairs: Vec<(Millis, usize, usize)> = Vec::new();
+            for (ei, e) in self.explanations.iter().enumerate() {
+                if used[ei] {
+                    continue;
+                }
+                for (ci, change) in open.iter().enumerate() {
+                    if change.cause == Cause::Untracked && pass_of(e, change) == Some(pass) {
+                        pairs.push(((change.at - e.at).abs(), ei, ci));
+                    }
+                }
+            }
+            pairs.sort_unstable();
+            for (_, ei, ci) in pairs {
+                if !used[ei] && open[ci].cause == Cause::Untracked {
+                    open[ci].cause = Cause::Entry {
+                        seq: self.explanations[ei].seq,
+                    };
+                    used[ei] = true;
+                }
+            }
+        }
+        open.iter().map(|c| c.cause).ne(before)
+    }
+
+    /// An open event near `at` that spends exactly `balance` and explains
+    /// no change yet.
+    fn spends_all(&self, wallet: &Wallet, at: Millis, balance: i64) -> bool {
+        self.explanations.iter().any(|e| {
+            e.amount == Some(-balance)
+                && (e.at - at).abs() <= ATTRIBUTION_WINDOW
+                && !wallet
+                    .changes
+                    .iter()
+                    .any(|c| c.cause == (Cause::Entry { seq: e.seq }))
+        })
     }
 
     /// A log event moved money: `amount` signed aUEC, `None` for a gain of
-    /// unknown size. Explains a change already recorded if one fits, else
-    /// waits for one. Returns whether the wallet changed.
+    /// unknown size. Returns whether the wallet changed.
     pub(crate) fn explain(
         &mut self,
         wallet: &mut Wallet,
@@ -101,47 +177,29 @@ impl Ledger {
         seq: u32,
         amount: Option<i64>,
     ) -> bool {
-        let mut explanation = Explanation {
-            at,
-            seq,
-            amount,
-            claimed: false,
-        };
-        let mut changed = false;
+        // An event two windows older than this one can reach no change that
+        // is still to come: the stream is never behind the log.
+        while self
+            .explanations
+            .front()
+            .is_some_and(|e| e.at < at - 2 * ATTRIBUTION_WINDOW)
+            || self.explanations.len() >= MAX_EXPLANATIONS
+        {
+            self.explanations.pop_front();
+        }
+        self.explanations.push_back(Explanation { at, seq, amount });
 
         // A held-back 0 that this event accounts for in full.
+        let mut changed = false;
         if let (Some(zero_at), Some(latest)) = (wallet.zero_since, wallet.latest)
             && amount == Some(-latest.balance)
             && (zero_at - at).abs() <= ATTRIBUTION_WINDOW
         {
-            wallet.record(zero_at, 0, Cause::Entry { seq });
+            wallet.record(zero_at, 0);
             wallet.zero_since = None;
-            explanation.claimed = true;
             changed = true;
         }
-
-        if !explanation.claimed {
-            let best = wallet
-                .changes
-                .iter_mut()
-                .rev()
-                .take_while(|c| c.at >= at - ATTRIBUTION_WINDOW)
-                .filter(|c| c.cause == Cause::Untracked && (c.at - at).abs() <= ATTRIBUTION_WINDOW)
-                .filter_map(|c| rank(amount, c.delta).map(|r| ((r, (c.at - at).abs()), c)))
-                .min_by_key(|(key, _)| *key)
-                .map(|(_, c)| c);
-            if let Some(change) = best {
-                change.cause = Cause::Entry { seq };
-                explanation.claimed = true;
-                changed = true;
-            }
-        }
-
-        self.explanations.push_back(explanation);
-        if self.explanations.len() > MAX_EXPLANATIONS {
-            self.explanations.pop_front();
-        }
-        changed
+        self.settle(wallet) || changed
     }
 
     /// The request behind entry `seq` was rejected: it explains nothing.
@@ -155,20 +213,22 @@ impl Ledger {
                 changed = true;
             }
         }
-        changed
+        // What it had taken may belong to another event.
+        self.settle(wallet) || changed
     }
 }
 
 impl Wallet {
-    /// Append a change to `to` and move `latest` there.
-    fn record(&mut self, at: Millis, to: i64, cause: Cause) {
+    /// Append an (as yet unexplained) change to `to` and move `latest`
+    /// there.
+    fn record(&mut self, at: Millis, to: i64) {
         let Some(latest) = self.latest else { return };
         self.changes.push(WalletChange {
             at,
             from: latest.balance,
             to,
             delta: to - latest.balance,
-            cause,
+            cause: Cause::Untracked,
         });
         if self.changes.len() > MAX_WALLET_CHANGES {
             self.changes.remove(0);
@@ -204,27 +264,18 @@ impl Wallet {
                 return false;
             }
             // Trusted only when a log event spent exactly everything.
-            let spent_all = ledger
-                .explanations
-                .iter_mut()
-                .filter(|e| !e.claimed && (e.at - at).abs() <= ATTRIBUTION_WINDOW)
-                .find(|e| e.amount == Some(-latest.balance));
-            match spent_all {
-                Some(e) => {
-                    e.claimed = true;
-                    let seq = e.seq;
-                    self.record(at, 0, Cause::Entry { seq });
-                }
-                None => self.zero_since = Some(at),
+            if ledger.spends_all(self, at, latest.balance) {
+                self.record(at, 0);
+                ledger.settle(self);
+            } else {
+                self.zero_since = Some(at);
             }
             return true;
         }
 
         self.zero_since = None;
-        let cause = ledger
-            .claim(at, balance - latest.balance)
-            .map_or(Cause::Untracked, |seq| Cause::Entry { seq });
-        self.record(at, balance, cause);
+        self.record(at, balance);
+        ledger.settle(self);
         true
     }
 
@@ -246,10 +297,10 @@ impl Wallet {
             .is_some_and(|l| l.balance != their_opening.balance)
         {
             // The balance moved while nothing was watching.
-            self.record(their_opening.at, their_opening.balance, Cause::Untracked);
+            self.record(their_opening.at, their_opening.balance);
         }
         for change in &later.changes {
-            self.record(change.at, change.to, Cause::Untracked);
+            self.record(change.at, change.to);
         }
         self.changes_dropped = self.changes_dropped.saturating_add(later.changes_dropped);
         if let Some(latest) = later.latest {
@@ -273,6 +324,17 @@ mod tests {
         let mut ledger = Ledger::default();
         assert!(wallet.observe(1_000, balance, &mut ledger));
         (wallet, ledger)
+    }
+
+    fn causes(wallet: &Wallet) -> Vec<Option<u32>> {
+        wallet
+            .changes
+            .iter()
+            .map(|c| match c.cause {
+                Cause::Entry { seq } => Some(seq),
+                Cause::Untracked => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -360,7 +422,7 @@ mod tests {
         ledger.explain(&mut wallet, 4_000, 7, Some(-19_175));
         assert!(wallet.observe(5_000, 0, &mut ledger));
         assert_eq!(wallet.zero_since, None);
-        assert_eq!(wallet.changes[0].cause, Cause::Entry { seq: 7 });
+        assert_eq!(causes(&wallet), [Some(7)]);
         assert_eq!(wallet.latest.unwrap().balance, 0);
         assert_eq!(wallet.net, -19_175);
         // From a trusted 0, income is a change like any other.
@@ -374,7 +436,7 @@ mod tests {
         assert!(ledger.explain(&mut wallet, 6_500, 3, Some(-19_175)));
         assert_eq!(wallet.zero_since, None);
         assert_eq!(wallet.changes[0].at, 5_000);
-        assert_eq!(wallet.changes[0].cause, Cause::Entry { seq: 3 });
+        assert_eq!(causes(&wallet), [Some(3)]);
     }
 
     #[test]
@@ -383,18 +445,18 @@ mod tests {
         let (mut wallet, mut ledger) = wallet_with(125_000);
         assert!(!ledger.explain(&mut wallet, 10_000, 1, Some(-6_500)));
         wallet.observe(12_000, 118_500, &mut ledger);
-        assert_eq!(wallet.changes[0].cause, Cause::Entry { seq: 1 });
+        assert_eq!(causes(&wallet), [Some(1)]);
 
         // Stream first.
         wallet.observe(50_000, 119_000, &mut ledger);
-        assert_eq!(wallet.changes[1].cause, Cause::Untracked);
+        assert_eq!(causes(&wallet), [Some(1), None]);
         assert!(ledger.explain(&mut wallet, 51_500, 2, Some(500)));
-        assert_eq!(wallet.changes[1].cause, Cause::Entry { seq: 2 });
+        assert_eq!(causes(&wallet), [Some(1), Some(2)]);
 
         // Too far apart.
         wallet.observe(200_000, 119_500, &mut ledger);
         assert!(!ledger.explain(&mut wallet, 200_000 + ATTRIBUTION_WINDOW + 1, 3, Some(500)));
-        assert_eq!(wallet.changes[2].cause, Cause::Untracked);
+        assert_eq!(causes(&wallet), [Some(1), Some(2), None]);
     }
 
     #[test]
@@ -403,33 +465,73 @@ mod tests {
         ledger.explain(&mut wallet, 2_000, 1, Some(500));
         wallet.observe(3_000, 10_500, &mut ledger);
         wallet.observe(4_000, 11_000, &mut ledger);
-        assert_eq!(wallet.changes[0].cause, Cause::Entry { seq: 1 });
-        assert_eq!(wallet.changes[1].cause, Cause::Untracked);
+        assert_eq!(causes(&wallet), [Some(1), None], "the nearer one");
     }
 
     #[test]
-    fn the_same_amount_wins_over_an_unknown_one_and_a_near_one() {
+    fn the_exact_amount_wins_whatever_the_order_in_the_batch() {
+        // One poll's batch: a mission completes (unknown reward), then a
+        // sale of exactly the gain. The gain is the sale's.
         let (mut wallet, mut ledger) = wallet_with(10_000);
-        // A completed mission (unknown reward), a near amount, the amount.
+        wallet.observe(20_000, 58_000, &mut ledger);
+        ledger.explain(&mut wallet, 19_000, 1, None);
+        assert_eq!(causes(&wallet), [Some(1)], "all there is so far");
+        ledger.explain(&mut wallet, 19_500, 2, Some(48_000));
+        assert_eq!(causes(&wallet), [Some(2)]);
+
+        // The mission's own reward, when it comes, is the mission's.
+        wallet.observe(21_000, 70_000, &mut ledger);
+        assert_eq!(causes(&wallet), [Some(2), Some(1)]);
+    }
+
+    #[test]
+    fn the_passes_are_exact_then_near_then_unknown() {
+        let (mut wallet, mut ledger) = wallet_with(10_000);
         ledger.explain(&mut wallet, 2_000, 1, None);
         ledger.explain(&mut wallet, 2_100, 2, Some(49_000));
         ledger.explain(&mut wallet, 9_000, 3, Some(48_000));
+        // Three gains of 48 000.
         wallet.observe(3_000, 58_000, &mut ledger);
-        assert_eq!(wallet.changes[0].cause, Cause::Entry { seq: 3 });
-        // Next best for another gain: the unknown amount, then the near one.
         wallet.observe(3_500, 106_000, &mut ledger);
-        assert_eq!(wallet.changes[1].cause, Cause::Entry { seq: 1 });
-        wallet.observe(4_000, 154_000, &mut ledger);
-        assert_eq!(wallet.changes[2].cause, Cause::Entry { seq: 2 });
+        wallet.observe(8_000, 154_000, &mut ledger);
+        // Exact: event 3 takes the gain nearest to it. Near: event 2 takes
+        // the nearest of the rest. Unknown: event 1 gets what is left.
+        assert_eq!(causes(&wallet), [Some(2), Some(1), Some(3)]);
+    }
+
+    #[test]
+    fn an_unknown_amount_explains_only_a_gain_that_follows_it() {
+        let (mut wallet, mut ledger) = wallet_with(10_000);
+        // A loss, and a gain well before the mission ended.
+        wallet.observe(2_000, 9_000, &mut ledger);
+        wallet.observe(3_000, 9_500, &mut ledger);
+        assert!(!ledger.explain(&mut wallet, 20_000, 1, None));
+        assert_eq!(causes(&wallet), [None, None]);
+        // A gain the stream showed a moment before the log line's time.
+        wallet.observe(19_000, 12_000, &mut ledger);
+        assert_eq!(causes(&wallet), [None, None, Some(1)]);
     }
 
     #[test]
     fn direction_and_size_must_fit() {
-        assert_eq!(rank(Some(-500), 500), None, "a fine is not a gain");
-        assert_eq!(rank(None, -500), None, "a mission reward is not a loss");
-        assert_eq!(rank(Some(1_000), 1_051), None, "more than 5 % off");
-        assert_eq!(rank(Some(1_000), 1_050), Some(2));
-        assert_eq!(rank(Some(-19_175), -19_175), Some(0));
+        let change = |delta| WalletChange {
+            at: 1_000,
+            from: 0,
+            to: delta,
+            delta,
+            cause: Cause::Untracked,
+        };
+        let event = |amount| Explanation {
+            at: 1_000,
+            seq: 0,
+            amount,
+        };
+        assert_eq!(pass_of(&event(Some(-500)), &change(500)), None);
+        assert_eq!(pass_of(&event(None), &change(-500)), None);
+        assert_eq!(pass_of(&event(Some(1_000)), &change(1_051)), None);
+        assert_eq!(pass_of(&event(Some(1_000)), &change(1_050)), Some(1));
+        assert_eq!(pass_of(&event(Some(-19_175)), &change(-19_175)), Some(0));
+        assert_eq!(pass_of(&event(None), &change(500)), Some(2));
     }
 
     #[test]
@@ -437,15 +539,28 @@ mod tests {
         let (mut wallet, mut ledger) = wallet_with(10_000);
         ledger.explain(&mut wallet, 2_000, 1, Some(-500));
         wallet.observe(3_000, 9_500, &mut ledger);
-        assert_eq!(wallet.changes[0].cause, Cause::Entry { seq: 1 });
+        assert_eq!(causes(&wallet), [Some(1)]);
         assert!(ledger.retract(&mut wallet, 1));
-        assert_eq!(wallet.changes[0].cause, Cause::Untracked);
+        assert_eq!(causes(&wallet), [None]);
 
         // Rejected before any change: the next change finds nothing.
         ledger.explain(&mut wallet, 100_000, 2, Some(-500));
         assert!(!ledger.retract(&mut wallet, 2));
         wallet.observe(101_000, 9_000, &mut ledger);
-        assert_eq!(wallet.changes[1].cause, Cause::Untracked);
+        assert_eq!(causes(&wallet), [None, None]);
+    }
+
+    #[test]
+    fn a_cause_outlives_its_event_leaving_the_ledger() {
+        let (mut wallet, mut ledger) = wallet_with(10_000);
+        ledger.explain(&mut wallet, 2_000, 1, Some(500));
+        wallet.observe(3_000, 10_500, &mut ledger);
+        // Much later events push the first one out.
+        for i in 0..(MAX_EXPLANATIONS as i64 + 5) {
+            ledger.explain(&mut wallet, 1_000_000 + i, 100 + i as u32, Some(-1));
+        }
+        assert!(!ledger.knows(1));
+        assert_eq!(causes(&wallet), [Some(1)]);
     }
 
     #[test]

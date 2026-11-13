@@ -38,9 +38,12 @@ use crate::model::{
 use crate::time::{Millis, parse_ts, session_id};
 use crate::wallet::Ledger;
 
-/// A telemetry sample arriving this soon after a log session ended belongs
-/// to the game that is shutting down, not to a new session.
-pub const LINGER: Millis = 60_000;
+/// With telemetry alone, a session interrupted by an app restart carries on
+/// when the stream is back within this long of its last recorded moment.
+/// Past it the stream opens a new session. (Nothing but the log can tell a
+/// game that kept running from one that was restarted, so a game restarted
+/// inside this window, while Starlume was closed too, joins the old session.)
+pub const RESUME_WITHIN: Millis = 10 * 60_000;
 /// Most missions remembered at once (titles, and which already ended).
 const MAX_MISSIONS: usize = 512;
 
@@ -110,9 +113,20 @@ struct Mission {
 pub struct Reducer {
     /// The live session, or the last one that ended.
     current: Option<Session>,
-    /// An ended session set aside when telemetry began a new one: taken
-    /// back in if the log then turns out to be the same game run.
+    /// An ended, log-built session set aside when telemetry began a new
+    /// one: taken back in if the log then turns out to be the same game
+    /// run. One slot, emptied when a log session begins and when the
+    /// stream stops, so it never outlives the game it could belong to.
     shelved: Option<Session>,
+    /// `current` was closed because the app stopped, not the game
+    /// ([`Reducer::restore`]): the one case telemetry may reopen it.
+    interrupted: bool,
+    /// A sample arrived since the stream last stopped.
+    stream_live: bool,
+    /// A logged session ended while the stream was live: that stream is
+    /// the game shutting down (or idling after its quit line), and opens
+    /// no session of its own until it has stopped.
+    await_stream_end: bool,
     /// A log session was announced (its channel inside); its first batch
     /// starts it.
     announced: Option<Option<String>>,
@@ -182,6 +196,23 @@ fn adopt(session: &mut Session, old: &Session) {
     session.last_activity_at = session.last_activity_at.max(old.last_activity_at);
 }
 
+/// The vehicle the session's timeline leaves the player seated in.
+fn seated_in(session: &Session) -> Option<Vehicle> {
+    session
+        .timeline
+        .iter()
+        .rev()
+        .find_map(|e| match &e.kind {
+            EntryKind::VehicleEntered { class_name, name } => Some(Some(Vehicle {
+                class_name: class_name.clone(),
+                name: name.clone(),
+            })),
+            EntryKind::VehicleLeft { .. } => Some(None),
+            _ => None,
+        })
+        .flatten()
+}
+
 fn finish(session: &mut Session, ended_at: Millis) -> Session {
     let ended_at = ended_at.max(session.started_at);
     session.live = false;
@@ -213,21 +244,34 @@ impl Reducer {
     /// Put back the session kept from the last run of the app. It was live
     /// when the app stopped, so it is closed at its last recorded moment
     /// and returned for filing. If the game still runs, the log's replay
-    /// rebuilds it under the same id and takes its telemetry half back in.
+    /// rebuilds it under the same id and takes its telemetry half back in;
+    /// with telemetry alone, the stream reopens it if it is back within
+    /// [`RESUME_WITHIN`].
     pub fn restore(&mut self, mut session: Session) -> Session {
         if session.live || session.ended_at.is_none() {
             let at = session.last_activity_at;
             finish(&mut session, at);
         }
         self.current = Some(session.clone());
+        self.interrupted = true;
         session
+    }
+
+    /// Forget everything: both sources are off, or the module is. Nothing
+    /// stays in memory; what was finished is already filed.
+    pub fn clear(&mut self) {
+        *self = Self::default();
     }
 
     // ── Game.log ────────────────────────────────────────────────────────
 
     /// The watcher follows a log (svc-log's `SessionStarted` signal).
     /// `channel` is the install the log belongs to. The session itself
-    /// starts with the first batch, whose first line dates it.
+    /// starts with the first batch, which must begin at the log's first
+    /// line: the log's own start line dates the session and so names it.
+    /// (A caller holding only a later part of the log reads the whole log
+    /// first; a batch without the start line is dated by its first event,
+    /// which makes a different id.)
     pub fn log_session_started(&mut self, channel: Option<String>) {
         self.announced = Some(channel);
     }
@@ -236,7 +280,10 @@ impl Reducer {
     pub fn log_events(&mut self, events: &[LogEvent], replay: bool) -> Outcome {
         let mut changed = false;
         if let Some(channel) = self.announced.take() {
-            let Some(started_at) = events.iter().find_map(|e| parse_ts(&e.ts)) else {
+            let start_line = events
+                .iter()
+                .filter(|e| matches!(e.event, LogEventKind::SessionStarted));
+            let Some(started_at) = start_line.chain(events).find_map(|e| parse_ts(&e.ts)) else {
                 // Nothing datable yet: wait for a batch that is.
                 self.announced = Some(channel);
                 return Outcome::default();
@@ -285,7 +332,14 @@ impl Reducer {
             adopt(&mut session, old);
         }
 
+        // Seated when this run was last seen (an app restart, a log picked
+        // up again): the next sample must not enter the same ship twice.
+        if self.vehicle.is_none() {
+            self.vehicle = seated_in(&session);
+        }
         self.current = Some(session);
+        self.interrupted = false;
+        self.await_stream_end = false;
         self.ledger = Ledger::default();
         self.missions.clear();
         self.last_request = None;
@@ -310,6 +364,8 @@ impl Reducer {
         };
         let finished = finish(session, ended_at);
         self.vehicle = None;
+        self.interrupted = false;
+        self.await_stream_end = self.stream_live;
         Outcome {
             changed: true,
             finished: Some(finished),
@@ -682,31 +738,42 @@ impl Reducer {
 
     // ── Telemetry ───────────────────────────────────────────────────────
 
-    /// A telemetry sample. Starts a telemetry-only session when no session
-    /// is live.
+    /// A telemetry sample. With no session live it starts a telemetry-only
+    /// one, or reopens the one an app restart interrupted; right after a
+    /// logged session ended it does neither until the stream has stopped.
     pub fn telemetry(&mut self, sample: &TelemetrySample) -> Outcome {
         let mut changed = false;
+        self.stream_live = true;
         if !self.current.as_ref().is_some_and(|s| s.live) {
-            if let Some(last) = &self.current {
-                let lingering = last.sources.log
-                    && last
-                        .ended_at
-                        .is_some_and(|end| (0..LINGER).contains(&(sample.at - end)));
-                if lingering {
-                    return Outcome::default();
-                }
+            if self.await_stream_end {
+                return Outcome::default();
             }
-            let mut session = Session {
-                id: session_id(sample.at),
-                started_at: sample.at,
-                last_activity_at: sample.at,
-                live: true,
-                ..Session::default()
-            };
-            session.sources.telemetry = true;
-            // The ended one may be this same game run (the app restarted):
-            // the log decides, if it comes.
-            self.shelved = self.current.replace(session);
+            let resumable = self.interrupted
+                && self.current.as_ref().is_some_and(|s| {
+                    !s.sources.log
+                        && (0..=RESUME_WITHIN).contains(&(sample.at - s.last_activity_at))
+                });
+            self.interrupted = false;
+            if resumable {
+                let session = self.current.as_mut().expect("checked above");
+                session.live = true;
+                session.ended_at = None;
+                if self.vehicle.is_none() {
+                    self.vehicle = seated_in(session);
+                }
+            } else {
+                let mut session = Session {
+                    id: session_id(sample.at),
+                    started_at: sample.at,
+                    last_activity_at: sample.at,
+                    live: true,
+                    ..Session::default()
+                };
+                session.sources.telemetry = true;
+                // An ended session the log built may be this same game run
+                // (the app restarted): the log decides, if it comes.
+                self.shelved = self.current.replace(session).filter(|s| s.sources.log);
+            }
             changed = true;
         }
         let session = self.current.as_mut().expect("a live session");
@@ -769,6 +836,10 @@ impl Reducer {
     /// telemetry-only session; one the log defines ends with its log.
     pub fn telemetry_stopped(&mut self, now: Millis) -> Outcome {
         self.vehicle = None;
+        self.stream_live = false;
+        self.await_stream_end = false;
+        // No stream, so no log replay of the same run is still to come.
+        self.shelved = None;
         let Some(session) = self.current.as_mut().filter(|s| s.live && !s.sources.log) else {
             return Outcome::default();
         };
@@ -827,13 +898,13 @@ mod tests {
             ev(
                 "2026-11-13T16:11:30.000Z",
                 LogEventKind::SessionHandle {
-                    handle: "SomePilot".into(),
+                    handle: "TestPilot".into(),
                 },
             ),
             ev(
                 "2026-11-13T16:11:31.000Z",
                 LogEventKind::SessionAccountId {
-                    account_id: "4400123".into(),
+                    account_id: "0000001".into(),
                 },
             ),
         ]
@@ -904,7 +975,7 @@ mod tests {
         );
         let json = serde_json::to_string(s).unwrap();
         assert!(
-            !json.contains("SomePilot") && !json.contains("4400123"),
+            !json.contains("TestPilot") && !json.contains("0000001"),
             "the handle and the account id are not kept"
         );
 
@@ -1580,6 +1651,171 @@ mod tests {
         assert_eq!(s.id, "2026-11-14T10-00-00.000Z");
         assert_eq!(s.wallet.opening, None);
         assert!(!s.sources.telemetry);
+    }
+
+    #[test]
+    fn a_stream_that_outlives_the_quit_line_opens_no_session() {
+        let mut r = started(&header(), false);
+        r.telemetry(&sample("2026-11-13T16:14:00.000Z", 125_000));
+        r.log_events(&[quit("2026-11-13T18:00:00.000Z")], false);
+        r.log_session_ended(ms("2026-11-13T18:00:05.000Z"));
+
+        // Minutes after the quit line the process still streams, seated.
+        let mut idle = sample("2026-11-13T18:05:00.000Z", 125_000);
+        idle.vehicle = stingray();
+        assert_eq!(r.telemetry(&idle), Outcome::default());
+        assert!(!r.current().unwrap().live);
+        assert!(r.shelved.is_none());
+
+        // The stream stops; the next run, with telemetry alone, is a session.
+        assert_eq!(
+            r.telemetry_stopped(ms("2026-11-13T18:06:00.000Z")),
+            Outcome::default()
+        );
+        assert!(
+            r.telemetry(&sample("2026-11-13T19:00:00.000Z", 125_000))
+                .changed
+        );
+        let s = r.current().unwrap();
+        assert_eq!(s.id, "2026-11-13T19-00-00.000Z");
+        assert!(s.timeline.is_empty(), "nothing of the idle stream");
+    }
+
+    #[test]
+    fn a_stream_starting_after_a_logged_session_without_telemetry_is_a_session() {
+        let mut r = started(&header(), false);
+        r.log_session_ended(ms("2026-11-13T18:00:05.000Z"));
+        // No stream was live at the end, so there is none to wait out.
+        assert!(
+            r.telemetry(&sample("2026-11-13T18:30:00.000Z", 125_000))
+                .changed
+        );
+        assert!(r.current().unwrap().live);
+    }
+
+    #[test]
+    fn with_telemetry_alone_an_app_restart_keeps_one_session() {
+        let mut before = Reducer::default();
+        let mut seated = sample("2026-11-13T16:14:00.000Z", 125_000);
+        seated.vehicle = stingray();
+        before.telemetry(&seated);
+        let kept = before.current().unwrap().clone();
+
+        let mut r = Reducer::default();
+        let filed = r.restore(kept);
+        assert!(!filed.live);
+        // The telemetry worker reports "waiting" once at startup.
+        assert_eq!(
+            r.telemetry_stopped(ms("2026-11-13T16:15:00.000Z")),
+            Outcome::default()
+        );
+
+        let mut back = sample("2026-11-13T16:20:00.000Z", 126_000);
+        back.vehicle = stingray();
+        assert!(r.telemetry(&back).changed);
+        let s = r.current().unwrap();
+        assert_eq!(s.id, filed.id, "the same session, reopened");
+        assert!(s.live);
+        assert_eq!(s.ended_at, None);
+        assert_eq!(s.timeline.len(), 1, "still seated: not entered twice");
+        assert_eq!(s.wallet.net, 1_000);
+        assert!(r.shelved.is_none());
+    }
+
+    #[test]
+    fn a_stream_back_long_after_a_restart_is_a_new_session() {
+        let mut before = Reducer::default();
+        before.telemetry(&sample("2026-11-13T16:14:00.000Z", 125_000));
+        before.telemetry(&sample("2026-11-13T16:15:00.000Z", 126_000));
+        let kept = before.current().unwrap().clone();
+
+        let mut r = Reducer::default();
+        let filed = r.restore(kept);
+        let late = filed.last_activity_at + RESUME_WITHIN + 1;
+        r.telemetry(&TelemetrySample {
+            at: late,
+            balance: Some(90_000),
+            ..TelemetrySample::default()
+        });
+        let s = r.current().unwrap();
+        assert_ne!(s.id, filed.id);
+        assert_eq!(s.wallet.opening.unwrap().balance, 90_000);
+        assert!(
+            r.shelved.is_none(),
+            "a telemetry-only session is not held for a log that cannot come"
+        );
+
+        // Only a restart reopens: a session the game's end closed stays closed.
+        let mut r = Reducer::default();
+        r.telemetry(&sample("2026-11-13T16:14:00.000Z", 125_000));
+        r.telemetry(&sample("2026-11-13T16:15:00.000Z", 126_000));
+        let done = r
+            .telemetry_stopped(ms("2026-11-13T16:16:00.000Z"))
+            .finished
+            .unwrap();
+        r.telemetry(&sample("2026-11-13T16:17:00.000Z", 126_000));
+        assert_ne!(r.current().unwrap().id, done.id);
+    }
+
+    #[test]
+    fn a_log_replay_after_a_restart_does_not_enter_the_vehicle_twice() {
+        let mut before = started(&header(), false);
+        let mut seated = sample("2026-11-13T16:14:00.000Z", 125_000);
+        seated.vehicle = stingray();
+        before.telemetry(&seated);
+        let kept = before.current().unwrap().clone();
+
+        let mut r = Reducer::default();
+        r.restore(kept);
+        r.log_session_started(Some("LIVE".into()));
+        r.log_events(&header(), true);
+        let mut back = sample("2026-11-13T16:25:00.000Z", 125_000);
+        back.vehicle = stingray();
+        r.telemetry(&back);
+
+        let entered = |s: &Session| {
+            s.timeline
+                .iter()
+                .filter(|e| matches!(e.kind, EntryKind::VehicleEntered { .. }))
+                .count()
+        };
+        assert_eq!(entered(r.current().unwrap()), 1);
+
+        // Left the ship while Starlume was closed: that is recorded.
+        let mut r = Reducer::default();
+        r.restore(before.current().unwrap().clone());
+        r.log_session_started(Some("LIVE".into()));
+        r.log_events(&header(), true);
+        r.telemetry(&sample("2026-11-13T16:25:00.000Z", 125_000));
+        assert!(matches!(
+            r.current().unwrap().timeline.last().unwrap().kind,
+            EntryKind::VehicleLeft { .. }
+        ));
+    }
+
+    #[test]
+    fn the_logs_start_line_names_the_session() {
+        // Whatever comes first in the batch, the start line dates it.
+        let mut r = Reducer::default();
+        r.log_session_started(Some("LIVE".into()));
+        r.log_events(
+            &[
+                joined("2026-11-13T16:13:05.561Z", "pub_euw1b_13165946_100"),
+                ev(START, LogEventKind::SessionStarted),
+            ],
+            true,
+        );
+        assert_eq!(r.current().unwrap().id, "2026-11-13T16-10-48.019Z");
+    }
+
+    #[test]
+    fn clearing_forgets_everything() {
+        let mut r = started(&header(), false);
+        r.telemetry(&sample("2026-11-13T16:14:00.000Z", 125_000));
+        r.clear();
+        assert!(r.current().is_none());
+        assert!(r.shelved.is_none());
+        assert_eq!(r.log_session_ended(0), Outcome::default());
     }
 
     #[test]
