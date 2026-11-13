@@ -1142,8 +1142,10 @@ async telemetryEnvUninstall() : Promise<Result<TelemetryEnvState, AppError>> {
 }
 },
 /**
- * The current session. A memory read; the first call after the module was
- * switched on also takes in the session the log watcher already follows.
+ * The current session. A memory read; the first call of a run also files
+ * the session kept from the last one, and the first after the module was
+ * switched on takes in the session the log watcher already follows.
+ * `async` only to stay off the main thread for that first call's file IO.
  */
 async sessionState() : Promise<SessionStateView> {
     return await TAURI_INVOKE("session_state");

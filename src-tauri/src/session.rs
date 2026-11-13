@@ -380,11 +380,13 @@ pub struct SessionStateView {
     pub current: Option<Session>,
 }
 
-/// The current session. A memory read; the first call after the module was
-/// switched on also takes in the session the log watcher already follows.
+/// The current session. A memory read; the first call of a run also files
+/// the session kept from the last one, and the first after the module was
+/// switched on takes in the session the log watcher already follows.
+/// `async` only to stay off the main thread for that first call's file IO.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn session_state(app: AppHandle) -> SessionStateView {
+pub(crate) async fn session_state(app: AppHandle) -> SessionStateView {
     let state = app.state::<AppState>();
     let (log_enabled, telemetry_enabled) = {
         let settings = state.settings.lock().unwrap();
