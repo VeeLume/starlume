@@ -10,7 +10,7 @@ async getSettings() : Promise<AppSettings> {
 },
 /**
  * Replace the settings snapshot: persist to disk, sync side effects
- * (autostart registration), swap the in-memory copy. Returns the new
+ * (autostart registration, the telemetry reader), swap the in-memory copy. Returns the new
  * snapshot so the frontend stays consistent without a second call.
  */
 async updateSettings(settings: AppSettings) : Promise<Result<AppSettings, AppError>> {
@@ -1056,7 +1056,9 @@ async launcherStatus() : Promise<LauncherStatusView> {
 /**
  * Start the RSI launcher, or bring the running one forward (it is
  * single-instance). No arguments: it ignores them. Local, no network gate —
- * the launcher is the user's own app and does its own sign-in.
+ * the launcher is the user's own app and does its own sign-in. With the
+ * telemetry opt-in on, it starts with the variable that makes the game
+ * serve its telemetry stream.
  */
 async launcherOpen() : Promise<Result<null, AppError>> {
     try {
@@ -1074,6 +1076,49 @@ async launcherOpen() : Promise<Result<null, AppError>> {
 async launcherLibrary() : Promise<Result<LibraryChannelView[], AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("launcher_library") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The status and the current snapshot. A memory read: no network, no gate.
+ */
+async telemetryState() : Promise<TelemetryView> {
+    return await TAURI_INVOKE("telemetry_state");
+},
+/**
+ * Is `GRPC_CLIENT_SERVER_ENABLED=true` set for this Windows user? A registry
+ * read (`HKCU\Environment`).
+ */
+async telemetryEnvStatus() : Promise<Result<TelemetryEnvState, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("telemetry_env_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Set `GRPC_CLIENT_SERVER_ENABLED=true` for this Windows user
+ * (`HKCU\Environment`; never machine-wide, no elevation), so the game
+ * serves telemetry however the launcher is started. An explicit user
+ * action, never a side effect of the opt-in.
+ */
+async telemetryEnvInstall() : Promise<Result<TelemetryEnvState, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("telemetry_env_install") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Undo [`telemetry_env_install`]: removes only what it set.
+ */
+async telemetryEnvUninstall() : Promise<Result<TelemetryEnvState, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("telemetry_env_uninstall") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1431,7 +1476,17 @@ guide_seen: string | null;
  * Draw the fitted ship in 3D on Build. Off, Build shows its picture and
  * reads no models.
  */
-ship_holo?: boolean }
+ship_holo?: boolean; 
+/**
+ * Read the running game's local telemetry stream (vehicle, vitals,
+ * events, the aUEC balance) from `127.0.0.1`. Default OFF, opt-in.
+ * Loopback, not an outbound call: **not** behind `online_enabled` or the
+ * unofficial-API switches, and unaffected by them (see CLAUDE.md).
+ * Turning it on starts the reader (`telemetry::sync`) and makes
+ * `launcher_open` start the launcher with the variable the game needs;
+ * the permanent variable install is its own explicit action.
+ */
+telemetry_enabled: boolean }
 export type AreaRockView = { rockType: string; name: string; 
 /**
  * Share of the area's ship-mineable rocks.
@@ -3296,6 +3351,120 @@ export type SupportRowView = { laser: string; modules: string[]; eval: EvalView 
  * What a port's contents belong to.
  */
 export type SystemView = "weapons" | "turrets" | "missiles" | "countermeasures" | "shields" | "powerPlants" | "coolers" | "quantum" | "radar" | "lifeSupport" | "fuel" | "thrusters" | "docked" | "other"
+export type TelemetryActorView = { 
+/**
+ * 0–100.
+ */
+health: TelemetryGauge; 
+/**
+ * 0–1.
+ */
+oxygen: TelemetryGauge; hunger: TelemetryGauge; thirst: TelemetryGauge; 
+/**
+ * °C.
+ */
+body_temperature: TelemetryGauge; locomotion: TelemetryLocomotion; crew_role: TelemetryCrewRole; 
+/**
+ * Seat entity name; empty on foot.
+ */
+seat_name: string; breathable: boolean; 
+/**
+ * °C; -273.15 in vacuum.
+ */
+external_temperature: number }
+export type TelemetryCrewRole = "none" | "pilot" | "gunner" | "crew"
+/**
+ * Whether the variable that makes the game serve the stream is set for the
+ * Windows user, and by whom.
+ */
+export type TelemetryEnvState = "not_installed" | 
+/**
+ * Starlume set it; uninstall removes it.
+ */
+"installed" | 
+/**
+ * Set, but not by Starlume: left alone.
+ */
+"set_elsewhere"
+export type TelemetryEventKind = "spawn" | "dead" | "enter_seat" | "leave_seat" | "respawn" | "downed" | 
+/**
+ * A type this version doesn't know.
+ */
+"other"
+export type TelemetryEventView = { kind: TelemetryEventKind; 
+/**
+ * Unix seconds.
+ */
+at: number }
+export type TelemetryGauge = { current: number; max: number }
+export type TelemetryLocomotion = "unknown" | "on_foot" | "eva" | "seated"
+export type TelemetrySnapshotView = { 
+/**
+ * aUEC (a number: specta exports no i64; a balance fits a double).
+ */
+balance: number | null; vehicle: TelemetryVehicleView | null; actor: TelemetryActorView | null; 
+/**
+ * The last events, newest last. The game's events are incomplete.
+ */
+events: TelemetryEventView[]; 
+/**
+ * When the last frame arrived, Unix seconds.
+ */
+updated_at: number | null }
+/**
+ * Where the stream stands.
+ */
+export type TelemetryStatus = 
+/**
+ * The opt-in is off: nothing runs.
+ */
+"off" | 
+/**
+ * On, the game is not running.
+ */
+"waiting_for_game" | 
+/**
+ * The game runs but nothing answers on the port: it is still starting,
+ * or it was started without the variable.
+ */
+"no_stream" | 
+/**
+ * Reading.
+ */
+"connected"
+export type TelemetryVehicleKind = "unknown" | "spaceship" | "ground" | "gravlev" | "boat"
+export type TelemetryVehicleView = { 
+/**
+ * The class key (`KRIG_S65_Stingray`): look the ship up by this.
+ */
+class_name: string; 
+/**
+ * Entity name with an id suffix.
+ */
+name: string; manufacturer: string; kind: TelemetryVehicleKind; landed: boolean | null; 
+/**
+ * m/s. Wrong in quantum travel (the game's value freezes).
+ */
+speed: number | null; 
+/**
+ * 0–1.
+ */
+hydrogen_fuel: number | null; 
+/**
+ * m above the body's datum; `null` away from a body.
+ */
+altitude: number | null; 
+/**
+ * Degrees 0–360; `null` away from a body.
+ */
+heading: number | null; powered: boolean | null; doors_open: boolean | null; doors_locked: boolean | null }
+export type TelemetryView = { status: TelemetryStatus; 
+/**
+ * `None` while the opt-in is off. With it on, the last known state: the
+ * vehicle and the actor are live only while `status` is `connected`,
+ * the balance and the events stay as last read.
+ */
+snapshot: TelemetrySnapshotView | null }
 /**
  * One thruster.
  */
