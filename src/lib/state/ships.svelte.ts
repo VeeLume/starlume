@@ -545,7 +545,7 @@ export function setLevel(column: string, pips: number): void {
   // an old ask past them can't later claim pips a newer setting freed.
   const power = _page?.ship === ship ? _page.power : null;
   const col = power?.columns.find((c) => c.id === column);
-  if (power && col && pips > col.level) pips = Math.min(pips, Math.floor(col.level + Math.max(power.supply - power.used, 0)));
+  if (power && col && pips > col.level) pips = Math.min(pips, col.level + Math.max(power.supply - power.used, 0));
   const levels = (shipsUi.levels[ship] ?? []).filter((l) => l.column !== column);
   shipsUi.levels[ship] = [...levels, { column, pips }];
   persist(ship);

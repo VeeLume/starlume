@@ -1698,7 +1698,16 @@ export type ColumnView = { id: string; itemType: string; items: string[]; max: n
 /**
  * Slots drawn; those above `max` are hollow, never filled.
  */
-slots: number; minimums: number[]; level: number; off: boolean; excluded: boolean }
+slots: number; minimums: number[]; 
+/**
+ * Pips it holds: what the pool or item is charged.
+ */
+level: number; 
+/**
+ * Of `level`, the pips its items run on; below it when a pip is set
+ * that powers nothing (a member's minimum does not fit).
+ */
+powered: number; off: boolean; excluded: boolean }
 /**
  * One bar of a distribution's masses, its rolls counted by class.
  */
@@ -2980,7 +2989,11 @@ levels: LevelView[] }
 /**
  * The power network after the player's settings.
  */
-export type PowerView = { mode: ModeView; supply: number; used: number; columns: ColumnView[]; cooling: number | null; coolantMade: number; coolantAsked: number; em: number; ir: number; shieldRegen: number; 
+export type PowerView = { mode: ModeView; supply: number; 
+/**
+ * Pips taken; `supply - used` are free (negative: overspent).
+ */
+used: number; columns: ColumnView[]; cooling: number | null; coolantMade: number; coolantAsked: number; em: number; ir: number; shieldRegen: number; 
 /**
  * Power plants by port path, and whether each is on.
  */

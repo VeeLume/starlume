@@ -169,7 +169,7 @@ pub struct ShieldSummary {
     pub ratio: f32,
     /// The shield column's pips now and its most; `None` without a power
     /// network.
-    pub pips: Option<(f64, i64)>,
+    pub pips: Option<(i64, i64)>,
 }
 
 /// The hull's structure.
@@ -895,11 +895,11 @@ pub fn view(
     // The shield column's pips over its most: resistance follows it.
     let pips = power.as_ref().and_then(|p| {
         let c = p.columns.iter().find(|c| c.id == "pool:Shield")?;
-        Some((if c.excluded { 0.0 } else { c.level }, c.max))
+        Some((if c.excluded { 0 } else { c.level }, c.max))
     });
     let ratio = pips.map_or(1.0, |(level, max)| {
         if max > 0 {
-            (level / max as f64).clamp(0.0, 1.0) as f32
+            (level as f64 / max as f64).clamp(0.0, 1.0) as f32
         } else {
             0.0
         }

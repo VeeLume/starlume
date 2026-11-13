@@ -316,7 +316,11 @@ pub struct ColumnView {
     /// Slots drawn; those above `max` are hollow, never filled.
     pub slots: i32,
     pub minimums: Vec<i32>,
-    pub level: f64,
+    /// Pips it holds: what the pool or item is charged.
+    pub level: i32,
+    /// Of `level`, the pips its items run on; below it when a pip is set
+    /// that powers nothing (a member's minimum does not fit).
+    pub powered: i32,
     pub off: bool,
     pub excluded: bool,
 }
@@ -327,7 +331,8 @@ pub struct ColumnView {
 pub struct PowerView {
     pub mode: ModeView,
     pub supply: i32,
-    pub used: f64,
+    /// Pips taken; `supply - used` are free (negative: overspent).
+    pub used: i32,
     pub columns: Vec<ColumnView>,
     pub cooling: Option<f64>,
     pub coolant_made: f64,
@@ -365,7 +370,7 @@ impl From<Power> for PowerView {
                 Mode::Nav => ModeView::Nav,
             },
             supply: p.supply as i32,
-            used: p.used,
+            used: p.used as i32,
             columns: p
                 .columns
                 .into_iter()
@@ -376,7 +381,8 @@ impl From<Power> for PowerView {
                     max: c.max as i32,
                     slots: c.slots as i32,
                     minimums: c.minimums.into_iter().map(|m| m as i32).collect(),
-                    level: c.level,
+                    level: c.level as i32,
+                    powered: c.powered as i32,
                     off: c.off,
                     excluded: c.excluded,
                 })
@@ -603,7 +609,7 @@ pub struct ShieldView {
     /// inferred).
     pub ratio: f32,
     /// The shield column's pips now and its most.
-    pub pips: Option<(f64, i32)>,
+    pub pips: Option<(i32, i32)>,
 }
 
 /// The hull's structure.
@@ -724,7 +730,7 @@ impl From<ShipView> for ShipPageView {
                     resistance: h.resistance.map(Into::into),
                     absorption: h.absorption.map(Into::into),
                     ratio: h.ratio,
-                    pips: h.pips.map(|(l, m)| (l, m as i32)),
+                    pips: h.pips.map(|(l, m)| (l as i32, m as i32)),
                 }),
                 hull: HullView {
                     dimensions: s.hull.dimensions.map(|d| (d[0], d[1], d[2])),
@@ -864,7 +870,7 @@ impl From<Stat> for StatView {
 #[serde(rename_all = "camelCase")]
 pub struct ImpactView {
     pub supply: Option<i32>,
-    pub free: Option<f64>,
+    pub free: Option<i32>,
     pub cooling: Option<f64>,
     pub em: Option<f64>,
     pub ir: Option<f64>,
@@ -994,7 +1000,7 @@ impl From<Candidate> for CandidateView {
             fitted: c.fitted,
             impact: ImpactView {
                 supply: c.impact.supply.map(|s| s as i32),
-                free: c.impact.free,
+                free: c.impact.free.map(|f| f as i32),
                 cooling: c.impact.cooling,
                 em: c.impact.em,
                 ir: c.impact.ir,
