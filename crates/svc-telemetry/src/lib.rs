@@ -60,9 +60,48 @@ pub const IDLE_AFTER: Duration = Duration::from_secs(5);
 /// (speed, fuel, vitals).
 pub const MINOR_GAP: Duration = Duration::from_secs(1);
 
-/// Open the stream on the game's default loopback address. Fails fast (two
-/// seconds at most) when nothing listens: the game is closed, still starting,
-/// or was started without [`enable::VAR`].
+/// The longest [`connect`] waits for the game to answer.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Open the stream on the game's default loopback address. Fails fast when
+/// nothing listens (the game is closed, still starting, or was started
+/// without [`enable::VAR`]), and after [`CONNECT_TIMEOUT`] when the port
+/// accepts but the stream's response never comes (a game still loading): the
+/// library bounds only the TCP connect, not the wait for the response
+/// headers, and a caller must get back to its retry cadence either way.
 pub async fn connect() -> anyhow::Result<TelemetryStream> {
-    Ok(sc_dossier::telemetry::connect(DEFAULT_ADDR).await?)
+    connect_to(DEFAULT_ADDR, CONNECT_TIMEOUT).await
+}
+
+async fn connect_to(addr: &str, timeout: Duration) -> anyhow::Result<TelemetryStream> {
+    match tokio::time::timeout(timeout, sc_dossier::telemetry::connect(addr)).await {
+        Ok(stream) => Ok(stream?),
+        Err(_) => {
+            anyhow::bail!("{addr} accepted the connection but did not answer in {timeout:?}")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A port that accepts and then says nothing (the game while loading)
+    /// must not hold the caller: it gets an error after the timeout.
+    #[tokio::test]
+    async fn a_port_that_never_answers_times_out() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = format!("http://{}", listener.local_addr().unwrap());
+        // Accept and hold the socket open without speaking HTTP/2.
+        let held = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            drop(socket);
+        });
+        let started = std::time::Instant::now();
+        let result = connect_to(&addr, Duration::from_millis(300)).await;
+        assert!(result.is_err());
+        assert!(started.elapsed() < Duration::from_secs(5));
+        held.abort();
+    }
 }

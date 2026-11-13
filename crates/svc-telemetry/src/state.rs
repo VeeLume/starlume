@@ -10,6 +10,13 @@ pub const EVENTS_KEPT: usize = 16;
 /// What the app knows from the stream right now. Small on purpose: it lives
 /// Rust-side for as long as the opt-in is on (a suspended webview runs no
 /// JS), and a consumer that needs more of a frame adds the field here.
+///
+/// **Numbers are quantised** on the way in (the step is on each field): the
+/// game's floats jitter in their last digits every frame, and a snapshot
+/// that kept them raw would "change" fifteen times a second while nothing a
+/// person can see moves. A value that is not finite (NaN, infinity) reads as
+/// not sent: `None` where the field is optional, 0 where it is not — so two
+/// snapshots always compare, and the JSON never carries a NaN.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Snapshot {
     /// aUEC, as last sent. Kept when the stream ends: the last known balance
@@ -38,13 +45,13 @@ pub struct VehicleState {
     pub kind: t::VehicleKind,
     /// On the ground. `None` when the frame has no flight block.
     pub landed: Option<bool>,
-    /// m/s. Wrong in quantum travel (the game's value freezes).
+    /// m/s, to 1. Wrong in quantum travel (the game's value freezes).
     pub speed: Option<f32>,
-    /// 0–1.
+    /// 0–1, to 0.001.
     pub hydrogen_fuel: Option<f32>,
-    /// m above the body's datum; `None` away from a body.
+    /// m above the body's datum, to 1; `None` away from a body.
     pub altitude: Option<f32>,
-    /// Degrees 0–360; `None` away from a body.
+    /// Degrees 0–360, to 1; `None` away from a body.
     pub heading: Option<f32>,
     /// Power plants on. `None` when the frame has no power block.
     pub powered: Option<bool>,
@@ -63,18 +70,22 @@ pub struct Gauge {
 /// The player character.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ActorState {
+    /// 0–100, to 0.1.
     pub health: Gauge,
+    /// 0–1, to 0.001.
     pub oxygen: Gauge,
+    /// 0–100, to 0.1.
     pub hunger: Gauge,
+    /// 0–100, to 0.1.
     pub thirst: Gauge,
-    /// °C.
+    /// °C, to 0.1.
     pub body_temperature: Gauge,
     pub locomotion: t::Locomotion,
     pub crew_role: t::CrewRole,
     /// Seat entity name; empty on foot.
     pub seat_name: String,
     pub breathable: bool,
-    /// °C; -273.15 in vacuum.
+    /// °C, to 0.1; absolute zero in vacuum.
     pub external_temperature: f32,
 }
 
@@ -190,35 +201,43 @@ fn vehicle_state(v: &t::Vehicle) -> VehicleState {
         manufacturer: v.manufacturer.clone(),
         kind: v.kind,
         landed: v.flight.as_ref().map(|f| f.landed),
-        speed: instruments.map(|i| i.speed),
-        hydrogen_fuel: instruments.map(|i| i.hydrogen_fuel),
-        altitude: instruments.and_then(|i| i.altitude),
-        heading: instruments.and_then(|i| i.heading),
+        speed: instruments.and_then(|i| quantise(i.speed, 1.0)),
+        hydrogen_fuel: instruments.and_then(|i| quantise(i.hydrogen_fuel, 0.001)),
+        altitude: instruments.and_then(|i| quantise(i.altitude?, 1.0)),
+        heading: instruments.and_then(|i| quantise(i.heading?, 1.0)),
         powered: v.power.as_ref().map(|p| p.powerplants),
         doors_open: v.doors.as_ref().and_then(|d| d.open),
         doors_locked: v.doors.as_ref().and_then(|d| d.locked),
     }
 }
 
-fn gauge(g: t::Gauge) -> Gauge {
+/// `v` to the nearest multiple of `step`; `None` when it is not finite.
+/// Rounded in f64 and from the multiple count, so a step like 0.001 gives
+/// the same f32 for the same count every time.
+fn quantise(v: f32, step: f64) -> Option<f32> {
+    v.is_finite()
+        .then(|| ((f64::from(v) / step).round() * step) as f32)
+}
+
+fn gauge(g: t::Gauge, step: f64) -> Gauge {
     Gauge {
-        current: g.current,
-        max: g.max,
+        current: quantise(g.current, step).unwrap_or(0.0),
+        max: quantise(g.max, step).unwrap_or(0.0),
     }
 }
 
 fn actor_state(a: &t::Actor) -> ActorState {
     ActorState {
-        health: gauge(a.health),
-        oxygen: gauge(a.oxygen),
-        hunger: gauge(a.hunger),
-        thirst: gauge(a.thirst),
-        body_temperature: gauge(a.body_temperature),
+        health: gauge(a.health, 0.1),
+        oxygen: gauge(a.oxygen, 0.001),
+        hunger: gauge(a.hunger, 0.1),
+        thirst: gauge(a.thirst, 0.1),
+        body_temperature: gauge(a.body_temperature, 0.1),
         locomotion: a.locomotion,
         crew_role: a.crew_role,
         seat_name: a.seat_name.clone(),
         breathable: a.breathable,
-        external_temperature: a.external_temperature,
+        external_temperature: quantise(a.external_temperature, 0.1).unwrap_or(0.0),
     }
 }
 
@@ -308,6 +327,48 @@ mod tests {
         let v = r.snapshot().vehicle.as_ref().unwrap();
         assert_eq!((v.speed, v.landed), (Some(120.0), Some(false)));
         assert_eq!(v.class_name, "KRIG_S65_Stingray");
+    }
+
+    #[test]
+    fn float_jitter_is_not_a_change() {
+        let mut r = Reducer::default();
+        let seated = |speed: f32, health: f32| {
+            let mut a = actor(1, "Seated");
+            merge(
+                &mut a,
+                serde_json::json!({ "health": { "current": health, "max": 100.0 } }),
+            );
+            frame(serde_json::json!({
+                "actor": a,
+                "vehicle": vehicle("Stingray_1", speed, false),
+            }))
+        };
+        r.apply(&seated(120.02, 99.98), 1);
+        // The last digits move every frame; nothing a person sees does.
+        assert_eq!(r.apply(&seated(119.97, 100.0), 2), Change::None);
+        assert_eq!(r.apply(&seated(120.31, 100.01), 3), Change::None);
+        let s = r.snapshot();
+        assert_eq!(s.vehicle.as_ref().unwrap().speed, Some(120.0));
+        assert_eq!(s.actor.as_ref().unwrap().health.current, 100.0);
+        // A real move still is one.
+        assert_eq!(r.apply(&seated(123.0, 100.0), 4), Change::Minor);
+        assert_eq!(r.apply(&seated(123.0, 97.4), 5), Change::Minor);
+    }
+
+    #[test]
+    fn values_that_are_not_finite_read_as_not_sent() {
+        assert_eq!(quantise(f32::NAN, 1.0), None);
+        assert_eq!(quantise(f32::INFINITY, 1.0), None);
+        assert_eq!(quantise(0.4996, 0.001), quantise(0.5004, 0.001));
+        assert_eq!(quantise(36.54, 0.1), Some(36.5));
+
+        // A NaN in a frame is the same snapshot twice, not a change forever
+        // (NaN != NaN would make every frame differ).
+        let mut nan = t::Gauge::default();
+        nan.current = f32::NAN;
+        nan.max = f32::NAN;
+        assert_eq!(gauge(nan, 0.1), gauge(nan, 0.1));
+        assert_eq!(gauge(nan, 0.1).current, 0.0);
     }
 
     #[test]

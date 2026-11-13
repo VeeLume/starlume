@@ -67,7 +67,7 @@
   const telemetryEnvHint = $derived(
     {
       installed:
-        "Installed. GRPC_CLIENT_SERVER_ENABLED=true is set for your Windows user, so the game sends telemetry however you start the launcher. Remove deletes it again.",
+        "Installed. GRPC_CLIENT_SERVER_ENABLED=true is set for your Windows user, so the game sends telemetry however you start the launcher. It stays set while the switch above is off; Remove deletes it again.",
       set_elsewhere:
         "GRPC_CLIENT_SERVER_ENABLED=true is already set for your Windows user, not by Starlume. Nothing to install, and Starlume leaves it alone.",
       not_installed:
@@ -237,7 +237,7 @@
     <Settings.Section title="Live telemetry">
       <Settings.Row
         label="Read the game's telemetry"
-        hint="The running game can report your ship, your vitals and your aUEC balance to programs on this PC. Starlume reads it from this PC only (127.0.0.1); nothing is sent anywhere, so it works with online features off."
+        hint="The running game can report your ship, your vitals and your aUEC balance to programs on this PC. Starlume reads it from this PC only (127.0.0.1); nothing is sent anywhere, so it works with online features off. Turning this off stops Starlume reading; it does not remove an installed variable (Remove below does), and a launcher already started from Starlume keeps the variable until it exits."
       >
         <Switch
           label="Read the game's telemetry"
@@ -275,8 +275,8 @@
         </Settings.Row>
         {#if envChanged}
           <p class="dim empty">
-            A launcher that is already running keeps its old settings: quit it from its tray
-            icon and start it again for this to take effect.
+            A launcher that is already running keeps what it started with, also one started
+            from Starlume: quit it from its tray icon and start it again for this to take effect.
           </p>
         {/if}
       {/if}

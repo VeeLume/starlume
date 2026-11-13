@@ -16,6 +16,14 @@
 //! connected it holds one HTTP/2 connection and a [`Reducer`] (a few hundred
 //! bytes).
 //!
+//! **The one resident poll.** That look for the game is a full process scan
+//! (`launcher::game_running_blocking`, about 10 ms, its buffers freed after
+//! each) every 10 s for as long as the opt-in is on and the game is closed —
+//! the first timer of that kind in the app, and the price of not spinning on
+//! the port. It stops while connected. Nothing cheaper tells "the game
+//! runs" from "the launcher's shader build runs": that needs the command
+//! line, so a window or a file check would not do.
+//!
 //! **What the frontend hears.** The state lives here, Rust-side (a suspended
 //! webview runs no JS). `telemetry:changed` goes out on a status change, at
 //! once for a real change (balance, vehicle, seat, an event) and at most once
@@ -28,7 +36,7 @@
 use std::sync::Mutex;
 use std::time::Instant;
 
-use svc_telemetry::enable::{InstallState, Installer, RegistryEnv};
+use svc_telemetry::enable::{InstallState, Installer, RegistryEnv, RegistryReceipts};
 use svc_telemetry::{Change, Reducer, Snapshot, TelemetryStream, Throttle};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -431,18 +439,20 @@ impl From<InstallState> for TelemetryEnvState {
     }
 }
 
-fn installer() -> Installer<RegistryEnv> {
-    Installer::new(
-        RegistryEnv,
-        app_kit::app_data_root().join("telemetry-env.json"),
-    )
+/// The receipt lives in the user's registry beside the variable, not under
+/// `app_data_root()`: one variable per Windows user, so every build (debug,
+/// release, a dev profile) must see the same install and be able to undo it.
+type EnvInstaller = Installer<RegistryEnv, RegistryReceipts>;
+
+fn installer() -> EnvInstaller {
+    Installer::new(RegistryEnv, RegistryReceipts)
 }
 
-/// Run one installer step off the async threads (a registry write waits on
-/// the settings-change broadcast).
+/// Run one installer step off the async threads (registry reads and writes
+/// block; the settings-change broadcast after a write is not waited for).
 async fn env_step(
     what: &'static str,
-    step: fn(&Installer<RegistryEnv>) -> std::io::Result<InstallState>,
+    step: fn(&EnvInstaller) -> std::io::Result<InstallState>,
 ) -> Result<TelemetryEnvState, AppError> {
     tokio::task::spawn_blocking(move || step(&installer()))
         .await
