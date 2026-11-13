@@ -125,7 +125,7 @@ impl Store {
         let mut index = self.index();
         index.retain(|s| s.id != session.id);
         index.push(session.summary());
-        index.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        index.sort_by_key(|s| std::cmp::Reverse(s.started_at));
         for dropped in index.drain(HISTORY_CAP.min(index.len())..) {
             if let Some(old) = self.session_path(&dropped.id) {
                 let _ = std::fs::remove_file(old);
