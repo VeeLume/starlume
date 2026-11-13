@@ -46,6 +46,7 @@ pub mod notify;
 mod patchnotes;
 mod performance;
 mod sc;
+mod session;
 mod settings;
 mod ships;
 mod state;

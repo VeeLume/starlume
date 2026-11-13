@@ -16,8 +16,10 @@
 //! `svc_discovery::process::game_running_recent`, the app's one check.
 //!
 //! Two ways out, for two kinds of listener:
-//! - **Rust consumers** (session log, presence, the refinery timer, when
-//!   they land) subscribe to the bus: `GameSession` and `GameLog`.
+//! - **Rust consumers** (presence, the refinery timer, when they land)
+//!   subscribe to the bus: `GameSession` and `GameLog`. The session log
+//!   (`session.rs`) is called directly from the signal callback instead:
+//!   it must see every signal, in order, with the log's path.
 //! - **The webview** gets [`GAMELOG_CHANGED_EVENT`] with the same batch,
 //!   and re-reads [`gamelog_session`] on focus: a suspended webview misses
 //!   events, so the session itself is held Rust-side ("disposable
@@ -88,6 +90,9 @@ pub(crate) fn sync(app: &AppHandle) {
             drop(watch);
             drop(stopped);
             forget_last_session();
+            // The thread is gone without an end signal: the session log
+            // closes its session here.
+            crate::session::on_log_stopped(app);
             tracing::info!("Game.log watcher stopped");
             let _ = app.emit(
                 GAMELOG_CHANGED_EVENT,
@@ -112,6 +117,10 @@ fn start(app: &AppHandle) -> svc_log::LogWatch {
         let app = app.clone();
         let bus = app.state::<AppState>().bus.clone();
         move |signal: WatchSignal| {
+            // The session log is fed here, not from the bus: it needs the
+            // signals in order and the log's path, and a lagged receiver
+            // would lose part of a session.
+            crate::session::on_log_signal(&app, &signal);
             let change = match signal {
                 WatchSignal::SessionStarted { .. } => {
                     // The on-demand copy of the last session is stale now.

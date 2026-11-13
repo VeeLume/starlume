@@ -116,6 +116,10 @@ pub(crate) fn sync(app: &AppHandle) {
             }
         }
     }
+    // Off, or on with no game seen yet: either way no stream is being read,
+    // so a session only telemetry fed is over.
+    let status = LIVE.lock().unwrap().status;
+    crate::session::on_telemetry_status(app, status);
     emit(app);
 }
 
@@ -134,6 +138,7 @@ fn set_status(app: &AppHandle, generation: u64, status: TelemetryStatus) {
         std::mem::replace(&mut live.status, status) != status
     });
     if changed == Some(true) {
+        crate::session::on_telemetry_status(app, status);
         emit(app);
     }
 }
@@ -192,12 +197,28 @@ async fn read(app: &AppHandle, generation: u64, mut stream: TelemetryStream) {
             // Quiet (menus, loading): let a held change out.
             Err(_) => throttle.flush(Instant::now()),
             Ok(Ok(Some(frame))) => {
-                let now = chrono::Utc::now().timestamp();
-                let change = with_live(generation, |live| {
-                    live.reducer.as_mut().map(|r| r.apply(&frame, now))
+                let now = chrono::Utc::now();
+                let (change, sample) = with_live(generation, |live| {
+                    live.reducer.as_mut().map(|r| {
+                        let change = r.apply(&frame, now.timestamp());
+                        // The session log hears real changes only (balance,
+                        // vehicle, an event): never the 15 Hz of moving values.
+                        let sample = (change == Change::Major).then(|| {
+                            crate::session::sample_of(
+                                r.snapshot(),
+                                &frame.events,
+                                now.timestamp_millis(),
+                            )
+                        });
+                        (change, sample)
+                    })
                 })
                 .flatten()
-                .unwrap_or(Change::None);
+                .unwrap_or((Change::None, None));
+                // Outside the telemetry lock: the session log has its own.
+                if let Some(sample) = sample {
+                    crate::session::on_telemetry(app, sample);
+                }
                 throttle.offer(change, Instant::now())
             }
             Ok(Ok(None)) => return,
