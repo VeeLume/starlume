@@ -978,9 +978,25 @@ fn every_ship_takes_its_free_pips() {
                 .iter()
                 .filter(|c| !c.excluded && !c.off && c.level < c.max)
             {
-                let q = at(vec![(c.id.clone(), c.level + 1)]).unwrap();
+                // The screen's next step: the next minimum block whole,
+                // or one pip above the blocks.
+                let mut next = 0;
+                for m in &c.minimums {
+                    if next > c.level {
+                        break;
+                    }
+                    next += m;
+                }
+                if next <= c.level {
+                    next = c.level + 1;
+                }
+                let step = next - c.level;
+                if step > p.supply - p.used || next > c.max {
+                    continue;
+                }
+                let q = at(vec![(c.id.clone(), next)]).unwrap();
                 let now = q.columns.iter().find(|x| x.id == c.id).unwrap();
-                if now.level == c.level + 1 && q.used == p.used + 1 {
+                if now.level == next && now.powered == next && q.used == p.used + step {
                     raised += 1;
                 } else {
                     stuck.push(format!(

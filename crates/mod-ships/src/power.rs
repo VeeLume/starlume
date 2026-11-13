@@ -287,10 +287,57 @@ fn apply_levels(
     }
 }
 
-/// Set one column as the client sets a player's pips; with `lowering`,
-/// only when that lowers it, else only when it raises it. The library
-/// clamps the ask (a pool to its size, an item to its request), caps a
-/// raise by the free supply and snaps nothing to minimums.
+/// The minimum blocks at the bottom of a pool's column, in pips: one per
+/// member the pool counts that is on, in the client's order. The power
+/// screen draws each as one block and sets it whole (a MOLE's three mining
+/// heads of minimum 2: three blocks, 2 pips a click; a shield generator of
+/// minimum 2 asking 4: one block, then single pips). A fixed pool splits
+/// its target by ratio and has none.
+fn pool_minimums(net: &PowerNetwork, pool: usize) -> Vec<i64> {
+    let counted = match net.pools[pool].size {
+        PoolSize::Dynamic { max_items: Some(n) } => usize::try_from(n).unwrap_or(0),
+        PoolSize::Dynamic { max_items: None } => usize::MAX,
+        _ => return Vec::new(),
+    };
+    net.pools[pool]
+        .members
+        .iter()
+        .map(|&c| &net.consumers[c])
+        .filter(|c| c.on)
+        .take(counted)
+        .map(|c| (c.minimum as f64 / SEGMENT).round() as i64)
+        .filter(|&m| m > 0)
+        .collect()
+}
+
+/// A loose item's minimum block, in pips; none when it has no minimum.
+fn item_minimum(c: &svc_data::ships::Consumer) -> Option<i64> {
+    let request = (c.request as f64 / SEGMENT).floor() as i64;
+    Some((c.minimum as f64 / SEGMENT).ceil() as i64)
+        .filter(|&m| m > 0)
+        .map(|m| m.min(request))
+}
+
+/// `level` as the screen can hold it: a level inside a minimum block falls
+/// to the block's foot, since a block is set whole or not at all.
+fn whole_blocks(level: i64, minimums: &[i64]) -> i64 {
+    let mut foot = 0;
+    for m in minimums {
+        if level >= foot + m {
+            foot += m;
+        } else {
+            return foot;
+        }
+    }
+    level
+}
+
+/// Set one column as the power screen does; with `lowering`, only when
+/// that lowers it, else only when it raises it. The library clamps the ask
+/// (a pool to its size, an item to its request) and caps a raise by the
+/// free supply, as the server does; the screen only ever asks for whole
+/// minimum blocks, so a level the supply leaves inside one falls back to
+/// the block's foot.
 fn apply_level(
     net: &PowerNetwork,
     a: &mut Allocation,
@@ -304,7 +351,12 @@ fn apply_level(
             return;
         };
         if (want < a.pool_targets[p]) == lowering {
-            net.set_pool_target(a, p, want, mode);
+            let minimums = pool_minimums(net, p);
+            let got = net.set_pool_target(a, p, whole_blocks(want, &minimums), mode);
+            let held = whole_blocks(got, &minimums);
+            if held != got {
+                net.set_pool_target(a, p, held, mode);
+            }
         }
     } else if let Some(path) = id.strip_prefix("item:") {
         let Some(i) = net
@@ -316,7 +368,11 @@ fn apply_level(
         };
         // The client truncates the grant to whole segments.
         if (want < a.granted[i] as i64) == lowering {
-            net.set_grant(a, i, want, mode);
+            let minimum: Vec<i64> = item_minimum(&net.consumers[i]).into_iter().collect();
+            let got = net.set_grant(a, i, whole_blocks(want, &minimum), mode);
+            if got.is_some_and(|got| whole_blocks(got, &minimum) != got) {
+                net.set_grant(a, i, 0, mode);
+            }
         }
     }
 }
@@ -350,22 +406,9 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
         }
         let members: Vec<_> = pool.members.iter().map(|&c| &net.consumers[c]).collect();
         let on: Vec<_> = members.iter().filter(|c| c.on).collect();
-        // The members the pool counts: the first `max_items` of those on, in
-        // the client's order. One past them only widens the pool (a third
+        // A member past those the pool counts only widens it (a third
         // shield generator: its slots hollow, no minimum block).
-        let counted = match pool.size {
-            PoolSize::Dynamic { max_items: Some(n) } => usize::try_from(n).unwrap_or(0),
-            _ => usize::MAX,
-        };
-        let minimums: Vec<i64> = if pool.item_type == EItemType::Shield {
-            on.iter()
-                .take(counted)
-                .map(|c| (c.minimum as f64 / SEGMENT).round() as i64)
-                .filter(|&m| m > 0)
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let minimums = pool_minimums(net, p);
         let max = net.pool_size(p);
         // The hollow slots, as the game draws them:
         // - A fixed pool draws its size. Members asking less leave the rest
@@ -420,14 +463,10 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
                 slots: (c.request as f64 / SEGMENT).floor() as i64,
                 // Its minimum, the bottom block of its column, as the game
                 // draws it (a cooler's or radar's floor).
-                minimums: Some((c.minimum as f64 / SEGMENT).ceil() as i64)
-                    .filter(|&m| m > 0)
-                    .map(|m| m.min((c.request as f64 / SEGMENT).floor() as i64))
-                    .into_iter()
-                    .collect(),
+                minimums: item_minimum(c).into_iter().collect(),
                 level,
-                // What an item does with a grant below its minimum is not
-                // read (sc-vehicles' `set_grant`): taken as powered.
+                // The screen sets its minimum block whole, so a level it
+                // holds is powered.
                 powered: level,
                 off: !c.on,
                 excluded: !c.allowed(mode),
@@ -595,10 +634,12 @@ mod tests {
 
     const MINING: &str = "pool:WeaponMining";
 
-    /// Two heads of minimum 2 in a dynamic pool: a target of 3 is kept and
-    /// charged, but only one head runs, at 2; the third pip powers nothing.
+    /// Two heads of minimum 2 asking 4 in a dynamic pool: each minimum is
+    /// one block, set whole, then single pips (the game's power screen: a
+    /// MOLE's mining column goes 23 -> 21 -> 19 -> 17 of 23, a column with
+    /// one minimum block 23 -> 21 -> 20 -> 19).
     #[test]
-    fn dynamic_pool_keeps_a_target_its_members_cannot_use() {
+    fn dynamic_pool_sets_minimum_blocks_whole() {
         let supply = COOLER + 8 + 2;
         let net = network(
             supply as i32,
@@ -608,18 +649,68 @@ mod tests {
                 PoolSize::Dynamic { max_items: None },
             )],
         );
-        let s = see(&net, levels(&[(MINING, 3)]));
-        let m = s.col(MINING);
-        assert_eq!((m.level, m.powered), (3, 2));
-        assert_eq!(s.free, supply - COOLER - 3);
-        // Every target is kept; what runs follows the minimums.
-        let powered = [0, 0, 2, 2, 4, 5, 6, 7, 8];
-        for (t, want) in powered.into_iter().enumerate() {
+        assert_eq!(
+            see(&net, PowerInput::default()).col(MINING).minimums,
+            [2, 2]
+        );
+        // An ask inside a block falls to the block's foot; above the
+        // blocks every pip is its own.
+        let held = [0, 0, 2, 2, 4, 5, 6, 7, 8];
+        for (t, want) in held.into_iter().enumerate() {
             let s = see(&net, levels(&[(MINING, t as i64)]));
             let m = s.col(MINING);
-            assert_eq!((m.level, m.powered), (t as i64, want), "target {t}");
-            assert_eq!(s.free, supply - COOLER - t as i64, "target {t}");
+            assert_eq!((m.level, m.powered), (want, want), "ask {t}");
+            assert_eq!(s.free, supply - COOLER - want, "ask {t}");
         }
+    }
+
+    /// Three heads asking exactly their minimum of 2 (the MOLE): the column
+    /// is three blocks and nothing else, 2 pips a click.
+    #[test]
+    fn heads_asking_their_minimum_are_all_blocks() {
+        let members = (1..=3)
+            .map(|i| {
+                consumer(
+                    &format!("head_{i}"),
+                    EItemType::WeaponMining,
+                    2 * SEG,
+                    2 * SEG,
+                )
+            })
+            .collect();
+        let net = network(
+            (COOLER + 6) as i32,
+            members,
+            &[(
+                EItemType::WeaponMining,
+                PoolSize::Dynamic { max_items: None },
+            )],
+        );
+        for (ask, want) in [(1, 0), (2, 2), (3, 2), (4, 4), (5, 4), (6, 6)] {
+            let s = see(&net, levels(&[(MINING, ask)]));
+            let m = s.col(MINING);
+            assert_eq!((m.minimums.as_slice(), m.max), ([2, 2, 2].as_slice(), 6));
+            assert_eq!(
+                (m.level, m.powered, s.free),
+                (want, want, 6 - want),
+                "ask {ask}"
+            );
+        }
+    }
+
+    /// The supply reaches only into a block: the block stays unset.
+    #[test]
+    fn a_block_the_supply_cannot_fill_stays_unset() {
+        let net = network(
+            (COOLER + 3) as i32,
+            heads(),
+            &[(
+                EItemType::WeaponMining,
+                PoolSize::Dynamic { max_items: None },
+            )],
+        );
+        let s = see(&net, levels(&[(MINING, 4)]));
+        assert_eq!((s.col(MINING).level, s.free), (2, 1));
     }
 
     /// A head switched off shrinks the pool to the one left: the pool is
@@ -696,14 +787,16 @@ mod tests {
         }
     }
 
-    /// An item outside a pool is set to whole pips, not snapped to its
-    /// minimum, and a raise takes only the free supply.
+    /// An item outside a pool: its minimum is one block, set whole or not
+    /// at all, and a raise takes only the free supply.
     #[test]
-    fn item_grant_takes_free_supply_only() {
+    fn item_minimum_is_one_block() {
         let mut net = network(COOLER as i32 + 1, Vec::new(), &[]);
         net.consumers[0].minimum = 2 * SEG;
         let s = see(&net, levels(&[("item:cooler", 1)]));
-        assert_eq!((s.col("item:cooler").level, s.free), (1, COOLER));
+        assert_eq!((s.col("item:cooler").level, s.free), (0, COOLER + 1));
+        let s = see(&net, levels(&[("item:cooler", 2)]));
+        assert_eq!((s.col("item:cooler").level, s.free), (2, COOLER - 1));
         // Asked for more than it requests: its whole request, no more.
         let s = see(&net, levels(&[("item:cooler", 9)]));
         assert_eq!((s.col("item:cooler").level, s.free), (COOLER, 1));
