@@ -9,6 +9,7 @@ members = [
     "crates/mod-items",
     "crates/mod-langpatch",
     "crates/mod-mining",
+    "crates/mod-session",
     "crates/mod-ships",
     "crates/server",
     "crates/svc-discovery",
@@ -87,6 +88,7 @@ mod-devtracker = { path = "crates/mod-devtracker" }
 mod-items = { path = "crates/mod-items" }
 mod-langpatch = { path = "crates/mod-langpatch" }
 mod-mining = { path = "crates/mod-mining" }
+mod-session = { path = "crates/mod-session" }
 mod-ships = { path = "crates/mod-ships" }
 sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.6.3" }
 tauri-plugin-sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.6.3" }

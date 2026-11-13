@@ -2911,6 +2911,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-session"
+version = "0.6.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "specta",
+ "svc-log",
+]
+
+[[package]]
 name = "mod-ships"
 version = "0.6.0"
 dependencies = [
