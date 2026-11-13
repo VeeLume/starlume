@@ -6,9 +6,13 @@
 //! sc-vehicles models the client's network ([`PowerNetwork`]): its
 //! power-on distribution per mode, how a pool shares its target out, and
 //! the readout. This adds the player's hand on it: items switched off, a
-//! column set to a level. A pool column sets the pool's target (then the
-//! pool shares it out, [`PowerNetwork::split_pools`]); an item column sets
-//! that item's grant. Levels never exceed what the plants have left.
+//! column set to a level. A pool column sets the pool's target
+//! ([`PowerNetwork::set_pool_target`]); an item column sets that item's
+//! grant ([`PowerNetwork::set_grant`]). Both work in whole segments, as the
+//! client does: a raise takes only the free supply, nothing snaps a level
+//! to the members' minimums. Levels and free supply are read back from the
+//! library ([`PowerNetwork::pool_level`], [`PowerNetwork::free_supply`]),
+//! never re-summed from the members' fractional grants.
 
 use std::collections::HashMap;
 
@@ -70,8 +74,15 @@ pub struct Column {
     /// bottom of the column (one per shield generator). Empty when the
     /// column has none worth drawing.
     pub minimums: Vec<i64>,
-    /// Pips it holds now.
-    pub level: f64,
+    /// Pips it holds now: a pool's target as the client charges it
+    /// ([`PowerNetwork::pool_level`]), an item's grant; 0 when it takes no
+    /// power in this mode.
+    pub level: i64,
+    /// Of `level`, the pips its items run on, whole. Below `level` when a
+    /// pip is set but powers nothing: a pool's members get less than its
+    /// target when a member's minimum does not fit (mining heads of
+    /// minimum 2 at a target of 3 run at 2), yet the pool takes all of it.
+    pub powered: i64,
     /// Every item it powers is switched off.
     pub off: bool,
     /// It takes no power in this mode (shields and weapons in NAV, the
@@ -85,8 +96,10 @@ pub struct Power {
     pub mode: Mode,
     /// What the plants that are on make, pips.
     pub supply: i64,
-    /// Pips assigned to columns that take power in this mode.
-    pub used: f64,
+    /// Pips taken in this mode: `supply` less the network's
+    /// [`free_supply`](PowerNetwork::free_supply). Above `supply` when the
+    /// settings ask for more than the plants make.
+    pub used: i64,
     pub columns: Vec<Column>,
     /// Coolant asked over coolant made; `None` without coolers.
     pub cooling: Option<f64>,
@@ -144,6 +157,13 @@ pub(crate) fn network(
     input: &PowerInput,
 ) -> (PowerNetwork, Allocation, EMasterMode) {
     let mut net = PowerNetwork::build(loadout, container, vehicles, items, profiles, params);
+    let (a, mode) = settle(&mut net, input);
+    (net, a, mode)
+}
+
+/// `net` under `input`: items switched off, the power-on distribution in
+/// the mode, then the hand-set columns.
+fn settle(net: &mut PowerNetwork, input: &PowerInput) -> (Allocation, EMasterMode) {
     // Switching a mount off (a turret) switches off what it carries.
     let off = |path: &str| {
         input.off.iter().any(|p| {
@@ -172,9 +192,8 @@ pub(crate) fn network(
     }
     a.supply = net.supply();
     net.split_pools(&mut a);
-    a.remaining = free_supply(&net, &a, &mode);
-    apply_levels(&net, &mut a, &mode, &input.levels);
-    (net, a, mode)
+    apply_levels(net, &mut a, &mode, &input.levels);
+    (a, mode)
 }
 
 /// What the screen shows of `net` under `a`, on `vehicle` in `armor`.
@@ -189,11 +208,7 @@ pub(crate) fn power_of(
     let readout = net.readout(a, mode);
     let ship = ShipSignature::compute(&readout, vehicle, armor);
     let columns = columns(net, a, mode);
-    let used = columns
-        .iter()
-        .filter(|c| !c.excluded)
-        .map(|c| c.level)
-        .sum();
+    let used = a.supply - net.free_supply(a, mode);
     Power {
         mode: m,
         supply: a.supply,
@@ -270,10 +285,12 @@ fn apply_levels(
             apply_level(net, a, mode, id, *want, lowering);
         }
     }
-    a.remaining = free_supply(net, a, mode);
 }
 
-/// Set one column; with `lowering`, only when that lowers it.
+/// Set one column as the client sets a player's pips; with `lowering`,
+/// only when that lowers it, else only when it raises it. The library
+/// clamps the ask (a pool to its size, an item to its request), caps a
+/// raise by the free supply and snaps nothing to minimums.
 fn apply_level(
     net: &PowerNetwork,
     a: &mut Allocation,
@@ -286,76 +303,43 @@ fn apply_level(
         let Some(p) = net.pools.iter().position(|p| p.item_type.as_dcb_str() == t) else {
             return;
         };
-        let size = net.pool_size(p);
-        let min = net.pool_minimum(p);
-        let now = a.pool_targets[p];
-        let target = want.clamp(min.min(size), size);
-        if lowering && target > now {
-            return;
+        if (want < a.pool_targets[p]) == lowering {
+            net.set_pool_target(a, p, want, mode);
         }
-        let free = free_supply(net, a, mode) + now;
-        // More than the plants have left: as far as they reach, never
-        // below where it was.
-        a.pool_targets[p] = target.min(free.max(now));
-        net.split_pools(a);
     } else if let Some(path) = id.strip_prefix("item:") {
-        let Some(i) = net.consumers.iter().position(|c| c.path == path) else {
+        let Some(i) = net
+            .consumers
+            .iter()
+            .position(|c| c.path == path && c.pool.is_none())
+        else {
             return;
         };
-        let c = &net.consumers[i];
-        let full = (c.request as f64 / SEGMENT).floor();
-        let min = (c.minimum as f64 / SEGMENT).ceil().min(full);
-        let now = a.granted[i];
-        // An item runs at its minimum or above (the power screen draws
-        // the minimum as one block): asking for less than the minimum
-        // gets the minimum, asking for nothing switches it to 0.
-        let level = if want <= 0 {
-            0.0
-        } else {
-            (want as f64).max(min).min(full)
-        };
-        if lowering && level > now {
-            return;
+        // The client truncates the grant to whole segments.
+        if (want < a.granted[i] as i64) == lowering {
+            net.set_grant(a, i, want, mode);
         }
-        let free = (free_supply(net, a, mode) as f64 + now).floor();
-        // More than the plants have left: as far as they reach, never
-        // below where it was.
-        a.granted[i] = if level <= free {
-            level
-        } else if free >= min {
-            free.max(now)
-        } else {
-            now
-        };
     }
 }
 
-/// `pips` to the nearest whole segment, so sums of shared-out fractions are
-/// exact: seven guns at 2/7 pip each are a column of 2 pips, not a hair
-/// over (the screen's free pips, `supply - used`, would read 0.99...).
-fn whole_segments(pips: f64) -> f64 {
-    (pips * SEGMENT).round() / SEGMENT
-}
-
-/// Supply not granted to anything that draws in `mode`.
-///
-/// Counted in whole segments, as the client counts power: a pool shares
-/// its target out in fractions of a pip, and summed as floats seven guns at
-/// 2/7 each come to a hair over 2, which took a whole pip (the Drake
-/// Marauder's 16th pip could not be assigned).
-fn free_supply(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> i64 {
-    let drawn: f64 = net
-        .consumers
+/// The pips a pool's members run on, whole: what they were granted,
+/// rounded up to the segment (a fixed pool's members can take a fraction
+/// of its last pip), at most the pool's `level`. The grants are summed in
+/// micro-units first, so float noise (seven guns at 2/7 each) is no pip.
+fn pool_powered(
+    net: &PowerNetwork,
+    a: &Allocation,
+    pool: usize,
+    mode: &EMasterMode,
+    level: i64,
+) -> i64 {
+    let granted: f64 = net.pools[pool]
+        .members
         .iter()
-        .zip(&a.granted)
-        .filter(|(c, _)| c.draws(mode))
-        .map(|(_, g)| g)
+        .filter(|&&c| net.consumers[c].draws(mode))
+        .map(|&c| a.granted[c])
         .sum();
-    // The sum to whole segments, then a pip partly drawn is taken. Not
-    // each grant on its own: seven guns at 4/7 pip each would round up to
-    // 4,000,003 segments and take a fifth pip.
-    let drawn = (drawn * SEGMENT).round() as u64;
-    a.supply - drawn.div_ceil(SEGMENT as u64) as i64
+    let micro = (granted * SEGMENT).round().max(0.0) as u64;
+    (micro.div_ceil(SEGMENT as u64) as i64).min(level)
 }
 
 fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column> {
@@ -398,6 +382,7 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
             }
             PoolSize::Plain => max,
         };
+        let level = net.pool_level(a, p, mode);
         out.push((
             rank(&pool.item_type),
             Column {
@@ -407,13 +392,8 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
                 max,
                 slots,
                 minimums,
-                level: whole_segments(
-                    pool.members
-                        .iter()
-                        .filter(|&&c| net.consumers[c].draws(mode))
-                        .map(|&c| a.granted[c])
-                        .sum(),
-                ),
+                level,
+                powered: pool_powered(net, a, p, mode, level),
                 off: on.is_empty(),
                 excluded: !members.iter().any(|c| c.allowed(mode)),
             },
@@ -423,6 +403,13 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
         if c.pool.is_some() || c.request <= 0 {
             continue;
         }
+        // A loose item's grant is whole segments; rounded as the library's
+        // free supply counts it.
+        let level = if c.draws(mode) {
+            a.granted[i].round() as i64
+        } else {
+            0
+        };
         out.push((
             rank(&c.item_type),
             Column {
@@ -438,11 +425,10 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
                     .map(|m| m.min((c.request as f64 / SEGMENT).floor() as i64))
                     .into_iter()
                     .collect(),
-                level: if c.draws(mode) {
-                    whole_segments(a.granted[i])
-                } else {
-                    0.0
-                },
+                level,
+                // What an item does with a grant below its minimum is not
+                // read (sc-vehicles' `set_grant`): taken as powered.
+                powered: level,
                 off: !c.on,
                 excluded: !c.allowed(mode),
             },
@@ -450,4 +436,294 @@ fn columns(net: &PowerNetwork, a: &Allocation, mode: &EMasterMode) -> Vec<Column
     }
     out.sort_by_key(|(r, _)| *r);
     out.into_iter().map(|(_, c)| c).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use svc_data::Guid;
+    use svc_data::ships::{Consumer, DistributionDefaults, Plant, Pool, Signals};
+
+    const SEG: i64 = 1_000_000;
+    /// The cooler every test network carries: power-on tops it up to its
+    /// whole request, and nothing here sets it.
+    const COOLER: i64 = 3;
+
+    fn consumer(path: &str, item_type: EItemType, request: i64, minimum: i64) -> Consumer {
+        Consumer {
+            path: path.into(),
+            item: Guid::default(),
+            item_type,
+            request,
+            minimum,
+            coolant: 0.0,
+            shield: 0.0,
+            pool: None,
+            on: true,
+            excluded_in: Vec::new(),
+            signals: Signals::default(),
+        }
+    }
+
+    /// One plant making `supply`, a cooler of [`COOLER`] outside any pool,
+    /// then `members`, pooled by item type into `pools`.
+    fn network(
+        supply: i32,
+        members: Vec<Consumer>,
+        pools: &[(EItemType, PoolSize)],
+    ) -> PowerNetwork {
+        let mut cooler = consumer("cooler", EItemType::Cooler, COOLER * SEG, 0);
+        cooler.coolant = 40.0;
+        let mut consumers = vec![cooler];
+        consumers.extend(members);
+        let mut pools: Vec<Pool> = pools
+            .iter()
+            .map(|(t, size)| Pool {
+                item_type: t.clone(),
+                size: *size,
+                members: Vec::new(),
+            })
+            .collect();
+        for (i, c) in consumers.iter_mut().enumerate() {
+            if let Some(p) = pools.iter().position(|p| p.item_type == c.item_type) {
+                c.pool = Some(p);
+                pools[p].members.push(i);
+            }
+        }
+        PowerNetwork {
+            plants: vec![Plant {
+                path: "plant".into(),
+                item: Guid::default(),
+                units: supply,
+                modifier: 0,
+                on: true,
+                signals: Signals::default(),
+            }],
+            consumers,
+            pools,
+            max_default_distribution: false,
+            defaults: DistributionDefaults {
+                pools_fill_min: true,
+                cooler_min: 1.0,
+                pools_proportion: 1.0,
+                weapons: 0.5,
+                engines: 0.5,
+                shields: 0.5,
+            },
+        }
+    }
+
+    struct Seen {
+        columns: Vec<Column>,
+        free: i64,
+        used: i64,
+    }
+
+    impl Seen {
+        fn col(&self, id: &str) -> &Column {
+            self.columns.iter().find(|c| c.id == id).unwrap()
+        }
+    }
+
+    fn see(net: &PowerNetwork, input: PowerInput) -> Seen {
+        let mut net = net.clone();
+        let (a, mode) = settle(&mut net, &input);
+        let free = net.free_supply(&a, &mode);
+        Seen {
+            columns: columns(&net, &a, &mode),
+            free,
+            used: a.supply - free,
+        }
+    }
+
+    fn levels(levels: &[(&str, i64)]) -> PowerInput {
+        PowerInput {
+            levels: levels.iter().map(|(c, l)| (c.to_string(), *l)).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// Guns asking 1.2 pips each in a fixed pool smaller than their total:
+    /// each gets a fraction of a pip (3 guns t/3, 7 guns t/7, the Marauder's
+    /// case). The pool is charged its whole target at every step, and the
+    /// supply's last pip goes to it.
+    #[test]
+    fn fixed_pool_charges_its_whole_target() {
+        for (guns, size) in [(3, 3), (7, 7)] {
+            let members = (0..guns)
+                .map(|i| consumer(&format!("gun_{i}"), EItemType::WeaponGun, 1_200_000, 0))
+                .collect();
+            let supply = COOLER + size;
+            let net = network(
+                supply as i32,
+                members,
+                &[(EItemType::WeaponGun, PoolSize::Fixed(size as i32))],
+            );
+            for t in 0..=size {
+                let s = see(&net, levels(&[("pool:WeaponGun", t)]));
+                let w = s.col("pool:WeaponGun");
+                assert_eq!((w.level, w.powered), (t, t), "{guns} guns at {t}");
+                assert_eq!(s.free, supply - COOLER - t, "{guns} guns at {t}");
+                assert_eq!(s.used, COOLER + t, "{guns} guns at {t}");
+            }
+            // From power-on, one pip at a time up to the last.
+            let on = see(&net, PowerInput::default());
+            let mut level = on.col("pool:WeaponGun").level;
+            assert!(level < size);
+            while level < size {
+                let s = see(&net, levels(&[("pool:WeaponGun", level + 1)]));
+                assert_eq!(s.col("pool:WeaponGun").level, level + 1);
+                level += 1;
+                assert_eq!(s.free, supply - COOLER - level);
+            }
+            assert_eq!(see(&net, levels(&[("pool:WeaponGun", size)])).free, 0);
+        }
+    }
+
+    fn heads() -> Vec<Consumer> {
+        (1..=2)
+            .map(|i| {
+                consumer(
+                    &format!("head_{i}"),
+                    EItemType::WeaponMining,
+                    4 * SEG,
+                    2 * SEG,
+                )
+            })
+            .collect()
+    }
+
+    const MINING: &str = "pool:WeaponMining";
+
+    /// Two heads of minimum 2 in a dynamic pool: a target of 3 is kept and
+    /// charged, but only one head runs, at 2; the third pip powers nothing.
+    #[test]
+    fn dynamic_pool_keeps_a_target_its_members_cannot_use() {
+        let supply = COOLER + 8 + 2;
+        let net = network(
+            supply as i32,
+            heads(),
+            &[(
+                EItemType::WeaponMining,
+                PoolSize::Dynamic { max_items: None },
+            )],
+        );
+        let s = see(&net, levels(&[(MINING, 3)]));
+        let m = s.col(MINING);
+        assert_eq!((m.level, m.powered), (3, 2));
+        assert_eq!(s.free, supply - COOLER - 3);
+        // Every target is kept; what runs follows the minimums.
+        let powered = [0, 0, 2, 2, 4, 5, 6, 7, 8];
+        for (t, want) in powered.into_iter().enumerate() {
+            let s = see(&net, levels(&[(MINING, t as i64)]));
+            let m = s.col(MINING);
+            assert_eq!((m.level, m.powered), (t as i64, want), "target {t}");
+            assert_eq!(s.free, supply - COOLER - t as i64, "target {t}");
+        }
+    }
+
+    /// A head switched off shrinks the pool to the one left: the pool is
+    /// charged no more than that, whether power-on or the player set it.
+    #[test]
+    fn switched_off_members_shrink_the_charge() {
+        let supply = COOLER + 8 + 2;
+        let net = network(
+            supply as i32,
+            heads(),
+            &[(
+                EItemType::WeaponMining,
+                PoolSize::Dynamic { max_items: None },
+            )],
+        );
+        let on = see(&net, PowerInput::default());
+        assert_eq!(on.col(MINING).level, 8);
+        for set in [vec![], vec![(MINING.to_string(), 8)]] {
+            let s = see(
+                &net,
+                PowerInput {
+                    off: vec!["head_2".into()],
+                    levels: set,
+                    ..Default::default()
+                },
+            );
+            let m = s.col(MINING);
+            assert_eq!((m.level, m.powered, m.max), (4, 4, 4));
+            assert_eq!(s.free, supply - COOLER - 4);
+        }
+        let s = see(
+            &net,
+            PowerInput {
+                off: vec!["head_1".into(), "head_2".into()],
+                ..Default::default()
+            },
+        );
+        assert!(s.col(MINING).off);
+        assert_eq!((s.col(MINING).level, s.free), (0, supply - COOLER));
+    }
+
+    /// Shields excluded in NAV: their pool keeps its target on record but
+    /// is charged nothing, and setting it there changes nothing.
+    #[test]
+    fn excluded_pool_charges_nothing() {
+        let supply = COOLER + 8;
+        let shields = (1..=2)
+            .map(|i| {
+                let mut s = consumer(&format!("shield_{i}"), EItemType::Shield, 4 * SEG, 2 * SEG);
+                s.excluded_in = vec![EMasterMode::Navigation];
+                s
+            })
+            .collect();
+        let net = network(
+            supply as i32,
+            shields,
+            &[(EItemType::Shield, PoolSize::Dynamic { max_items: Some(2) })],
+        );
+        let scm = see(&net, PowerInput::default());
+        assert!(scm.col("pool:Shield").level > 0);
+        for set in [vec![], vec![("pool:Shield".to_string(), 8)]] {
+            let s = see(
+                &net,
+                PowerInput {
+                    mode: Mode::Nav,
+                    levels: set,
+                    ..Default::default()
+                },
+            );
+            let c = s.col("pool:Shield");
+            assert!(c.excluded);
+            assert_eq!((c.level, c.powered), (0, 0));
+            assert_eq!((s.free, s.used), (supply - COOLER, COOLER));
+        }
+    }
+
+    /// An item outside a pool is set to whole pips, not snapped to its
+    /// minimum, and a raise takes only the free supply.
+    #[test]
+    fn item_grant_takes_free_supply_only() {
+        let mut net = network(COOLER as i32 + 1, Vec::new(), &[]);
+        net.consumers[0].minimum = 2 * SEG;
+        let s = see(&net, levels(&[("item:cooler", 1)]));
+        assert_eq!((s.col("item:cooler").level, s.free), (1, COOLER));
+        // Asked for more than it requests: its whole request, no more.
+        let s = see(&net, levels(&[("item:cooler", 9)]));
+        assert_eq!((s.col("item:cooler").level, s.free), (COOLER, 1));
+    }
+
+    /// A raise past the free supply goes as far as it reaches.
+    #[test]
+    fn raise_is_capped_by_free_supply() {
+        let net = network(
+            (COOLER + 4) as i32,
+            heads(),
+            &[(
+                EItemType::WeaponMining,
+                PoolSize::Dynamic { max_items: None },
+            )],
+        );
+        let s = see(&net, levels(&[(MINING, 8)]));
+        assert_eq!((s.col(MINING).level, s.free), (4, 0));
+        // The cooler gives up a pip, the heads take it: lowerings go first.
+        let s = see(&net, levels(&[(MINING, 8), ("item:cooler", 2)]));
+        assert_eq!((s.col(MINING).level, s.free), (5, 0));
+    }
 }

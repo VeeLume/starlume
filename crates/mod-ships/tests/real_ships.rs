@@ -132,7 +132,7 @@ fn centaurus_stock_slots() {
         .unwrap();
         let p = v.power.as_ref().expect("network rules");
         eprintln!(
-            "\n{mode:?}: supply {} used {:.2}, cooling {:?} ({:.2}/{:.2}), EM {:.0}, IR {:.0}, shield {:.0}/s",
+            "\n{mode:?}: supply {} used {}, cooling {:?} ({:.2}/{:.2}), EM {:.0}, IR {:.0}, shield {:.0}/s",
             p.supply,
             p.used,
             p.cooling,
@@ -144,10 +144,11 @@ fn centaurus_stock_slots() {
         );
         for c in &p.columns {
             eprintln!(
-                "  {:<40} {:<22} {:>5.2} / {:>2} min {:?}{}{}",
+                "  {:<40} {:<22} {:>2} ({:>2} powered) / {:>2} min {:?}{}{}",
                 c.id,
                 c.item_type,
                 c.level,
+                c.powered,
                 c.max,
                 c.minimums,
                 if c.off { " off" } else { "" },
@@ -166,7 +167,7 @@ fn centaurus_stock_slots() {
     }
     // Switching a part off frees its pips and moves no other column (a
     // power-on without the part used to deal its pips to the shields).
-    let levels = |input: &PowerInput| -> Vec<(String, f64)> {
+    let levels = |input: &PowerInput| -> Vec<(String, i64)> {
         let v = view(
             &cooked,
             &LoadoutInput {
@@ -191,17 +192,16 @@ fn centaurus_stock_slots() {
     for ((id, a), (_, b)) in before.iter().zip(&after) {
         if id == "item:hardpoint_cooler_02" {
             assert!(
-                *b == 0.0 && *a > 0.0,
+                *b == 0 && *a > 0,
                 "the cooler did not switch off: {a} to {b}"
             );
         } else {
-            assert!(
-                (a - b).abs() < 1e-6,
-                "{id}: {a} became {b} with a cooler off"
-            );
+            assert_eq!(a, b, "{id}: {a} became {b} with a cooler off");
         }
     }
-    // A cooler runs at its minimum (3 of 4) or above: asking for 2 gets 3.
+    // Nothing snaps a player's pips to an item's minimum (3 of 4 for this
+    // cooler): only power-on does, so asking for 2 gets 2 (sc-holotable
+    // v0.48, `set_grant`).
     let two = levels(&PowerInput {
         levels: vec![("item:hardpoint_cooler_01".into(), 2)],
         ..Default::default()
@@ -211,7 +211,7 @@ fn centaurus_stock_slots() {
         .find(|(id, _)| id == "item:hardpoint_cooler_01")
         .unwrap()
         .1;
-    assert!((c1 - 3.0).abs() < 1e-6, "cooler at 2 gave {c1}");
+    assert_eq!(c1, 2, "cooler at 2 gave {c1}");
 
     // The settings replay on power-on, lowerings first: the weapons keep
     // the pips the radar gave up whatever order the two were set in (the
@@ -240,8 +240,8 @@ fn centaurus_stock_slots() {
         .find(|(id, _)| id == "pool:WeaponGun")
         .unwrap()
         .1;
-    assert!(
-        (guns - 4.0).abs() < 1e-6,
+    assert_eq!(
+        guns, 4,
         "the weapons got {guns} of 4 after the radar gave up its pips"
     );
 
@@ -489,10 +489,10 @@ fn centaurus_stock_slots() {
     let p = view(&cooked, &input, &more).unwrap().power.unwrap();
     let w = p.columns.iter().find(|c| c.id == "pool:WeaponGun").unwrap();
     eprintln!(
-        "weapons set to 4: level {:.2}, used {:.2} of {}",
+        "weapons set to 4: level {}, used {} of {}",
         w.level, p.used, p.supply
     );
-    assert!(p.used <= p.supply as f64 + 1e-6);
+    assert!(p.used <= p.supply);
 }
 
 /// How many listed hulls find a store picture by name. Needs the store list
@@ -818,10 +818,10 @@ fn hornet_matches_the_power_screen() {
             "thrusters off",
             vec![cooler.clone(), "hardpoint_controller_flight".to_string()],
             w4s4,
-            7.0,
+            7,
             [5.0, 16.0, 9.0],
         ),
-        ("thrusters 4", vec![cooler], t4, 3.0, [6.0, 18.1, 9.0]),
+        ("thrusters 4", vec![cooler], t4, 3, [6.0, 18.1, 9.0]),
     ] {
         let v = view(
             &cooked,
@@ -843,15 +843,15 @@ fn hornet_matches_the_power_screen() {
         let ours = [k(p.ir), k(p.em), k(cs)];
         eprintln!(
             "{label}: {}/{} free | IR {:.0} EM {:.0} CS {cs:.0} | ours {ours:?}, screen {screen:?}",
-            p.supply as f64 - p.used,
+            p.supply - p.used,
             p.supply,
             p.ir,
             p.em,
         );
         // Fixed at 4: no hollow slots, though the guns ask for 6.2.
         assert_eq!(
-            (col("WeaponGun").level.round(), col("WeaponGun").slots),
-            (4.0, 4),
+            (col("WeaponGun").level, col("WeaponGun").slots),
+            (4, 4),
             "{label}"
         );
         // 2 generators counted (a minimum block each), the third hollow.
@@ -861,7 +861,7 @@ fn hornet_matches_the_power_screen() {
             (4, 6, vec![1, 1]),
             "{label}"
         );
-        assert_eq!(p.supply as f64 - p.used, free, "{label}");
+        assert_eq!(p.supply - p.used, free, "{label}");
         assert_eq!(ours[0], screen[0], "{label}: IR");
         assert_eq!(ours[2], screen[2], "{label}: CS");
         if label == "thrusters 4" {
@@ -903,12 +903,12 @@ fn marauder_takes_its_last_pip() {
     };
     let on = power(Vec::new());
     assert_eq!(on.supply, 16);
-    assert!((on.used - 15.0).abs() < 1e-9, "power-on used {}", on.used);
+    assert_eq!(on.used, 15, "power-on used {}", on.used);
     for pool in ["pool:WeaponGun", "pool:FlightController", "pool:Shield"] {
         let p = power(vec![(pool.to_string(), 3)]);
         let level = p.columns.iter().find(|c| c.id == pool).unwrap().level;
-        assert!((level - 3.0).abs() < 1e-9, "{pool} stayed at {level}");
-        assert!((p.used - 16.0).abs() < 1e-9, "{pool}: used {}", p.used);
+        assert_eq!(level, 3, "{pool} stayed at {level}");
+        assert_eq!(p.used, 16, "{pool}: used {}", p.used);
     }
     // Weapons at 4 are 4/7 pip per gun; rounded gun by gun that came to a
     // fifth pip, and the thrusters stopped one short.
@@ -920,7 +920,85 @@ fn marauder_takes_its_last_pip() {
     let level = |id: &str| p.columns.iter().find(|c| c.id == id).unwrap().level;
     assert_eq!(
         (level("pool:WeaponGun"), level("pool:FlightController")),
-        (4.0, 4.0)
+        (4, 4)
     );
-    assert_eq!(p.used, 16.0);
+    assert_eq!(p.used, 16);
+}
+
+/// Every stock ship in both modes, at power-on: `used` is the columns'
+/// levels together (every pip a column holds is charged, no fraction left
+/// over), and every column below its most that may take power takes one
+/// more pip while one is free.
+#[test]
+#[ignore = "needs a real Data.p4k"]
+fn every_ship_takes_its_free_pips() {
+    let cooked = cooked();
+    let (mut ships_seen, mut raised) = (0, 0);
+    let mut stuck = Vec::new();
+    for row in ships(&cooked) {
+        let input = LoadoutInput {
+            ship: row.guid.clone(),
+            edits: Vec::new(),
+        };
+        for mode in [Mode::Scm, Mode::Nav] {
+            let at = |levels: Vec<(String, i64)>| {
+                view(
+                    &cooked,
+                    &input,
+                    &PowerInput {
+                        mode,
+                        levels,
+                        ..Default::default()
+                    },
+                )
+                .ok()
+                .and_then(|v| v.power)
+            };
+            let Some(p) = at(Vec::new()) else {
+                continue;
+            };
+            ships_seen += 1;
+            let levels: i64 = p.columns.iter().map(|c| c.level).sum();
+            assert_eq!(p.used, levels, "{} {mode:?}: used vs columns", row.name);
+            for c in &p.columns {
+                assert!(
+                    (0..=c.level).contains(&c.powered),
+                    "{} {mode:?} {}: powered {} of {}",
+                    row.name,
+                    c.id,
+                    c.powered,
+                    c.level
+                );
+            }
+            if p.supply - p.used <= 0 {
+                continue;
+            }
+            for c in p
+                .columns
+                .iter()
+                .filter(|c| !c.excluded && !c.off && c.level < c.max)
+            {
+                let q = at(vec![(c.id.clone(), c.level + 1)]).unwrap();
+                let now = q.columns.iter().find(|x| x.id == c.id).unwrap();
+                if now.level == c.level + 1 && q.used == p.used + 1 {
+                    raised += 1;
+                } else {
+                    stuck.push(format!(
+                        "{} {mode:?} {}: {} -> {} of {} (used {} -> {}, supply {})",
+                        row.name, c.id, c.level, now.level, c.max, p.used, q.used, p.supply
+                    ));
+                }
+            }
+        }
+    }
+    eprintln!("{ships_seen} ship-modes, {raised} columns raised by a pip");
+    for s in &stuck {
+        eprintln!("  stuck: {s}");
+    }
+    assert!(ships_seen > 200);
+    assert!(
+        stuck.is_empty(),
+        "{} columns could not take a free pip",
+        stuck.len()
+    );
 }

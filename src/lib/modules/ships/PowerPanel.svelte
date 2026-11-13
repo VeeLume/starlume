@@ -51,12 +51,15 @@
     Cooler: "Cooler",
   };
 
-  const free = $derived(Math.round((power.supply - power.used) * 10) / 10);
+  const free = $derived(power.supply - power.used);
   const coolPct = $derived(power.cooling === null ? null : Math.round(power.cooling * 100));
   // Cut to 0.1k, not rounded, as the ship's screen does (5,067 reads 5.0K).
   const k = (v: number) => (v >= 1000 ? `${(Math.floor(v / 100) / 10).toFixed(1)}k` : Math.round(v).toLocaleString("en-US"));
 
-  type Block = { kind: "min" | "pip" | "hollow"; size: number; lit: boolean; level: number };
+  /** `set`: the column's level reaches into it; `powered`: its parts run
+   *  on it (a pip can be set and power nothing, as in game: a member's
+   *  minimum that does not fit). */
+  type Block = { kind: "min" | "pip" | "hollow"; size: number; set: boolean; powered: boolean; level: number };
 
   /** A column's blocks, bottom up: the minimum blocks (each a member's
    *  minimum, drawn as one), one per remaining pip, then the hollow slots
@@ -66,10 +69,10 @@
     let at = 0;
     for (const m of c.minimums) {
       at += m;
-      out.push({ kind: "min", size: m, lit: c.level >= at - 0.01, level: at });
+      out.push({ kind: "min", size: m, set: c.level > at - m, powered: c.powered >= at, level: at });
     }
-    for (let p = at; p < c.max; p++) out.push({ kind: "pip", size: 1, lit: c.level >= p + 0.99, level: p + 1 });
-    for (let p = Math.max(at, c.max); p < c.slots; p++) out.push({ kind: "hollow", size: 1, lit: false, level: p + 1 });
+    for (let p = at; p < c.max; p++) out.push({ kind: "pip", size: 1, set: c.level > p, powered: c.powered > p, level: p + 1 });
+    for (let p = Math.max(at, c.max); p < c.slots; p++) out.push({ kind: "hollow", size: 1, set: false, powered: false, level: p + 1 });
     return out;
   }
 
@@ -136,7 +139,7 @@
     {#each power.columns as c, i (c.id)}
       {@const name = label(c, i)}
       <div class="col">
-        <span class="n">{c.level > 0 && !c.excluded ? Math.round(c.level * 10) / 10 : ""}</span>
+        <span class="n">{c.level > 0 && !c.excluded ? c.level : ""}</span>
         <div class="stack">
           {#each blocks(c) as b (b.level)}
             {#if b.kind === "hollow"}
@@ -146,12 +149,14 @@
               type="button"
               class="blk"
               class:min={b.kind === "min"}
-              class:on={b.lit && !c.excluded && !c.off}
+              class:on={b.set && !c.excluded && !c.off}
+              class:idle={b.set && !b.powered && !c.excluded && !c.off}
               class:dead={c.excluded || c.off}
               style:height="{b.size * 11 + (b.size - 1) * 3}px"
               disabled={c.excluded || c.off}
+              title={b.set && !b.powered && !c.excluded && !c.off ? `${name}: set, but powers nothing (a part's minimum does not fit)` : undefined}
               aria-label="{name}: {b.level} pips"
-              onclick={() => onlevel(c.id, b.lit && Math.abs(c.level - b.level) < 0.01 ? b.level - b.size : b.level)}
+              onclick={() => onlevel(c.id, b.set && c.level === b.level ? b.level - b.size : b.level)}
               >{b.kind === "min" ? b.size : ""}</button
             >
             {/if}
@@ -365,8 +370,12 @@
     border-style: dashed;
     cursor: default;
   }
-  .blk.dead {
+  /* Set but powering nothing: lit, at the switched-off columns' strength. */
+  .blk.dead,
+  .blk.idle {
     opacity: 0.35;
+  }
+  .blk.dead {
     cursor: default;
   }
   .ico {

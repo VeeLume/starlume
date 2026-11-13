@@ -33,7 +33,9 @@ pub struct Stat {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Impact {
     pub supply: Option<i64>,
-    pub free: Option<f64>,
+    /// Pips free, whole; negative when the settings ask for more than
+    /// the plants make.
+    pub free: Option<i64>,
     /// Coolant asked over made.
     pub cooling: Option<f64>,
     pub em: Option<f64>,
@@ -122,7 +124,7 @@ pub fn candidates(
                 .ok()
                 .map_or_else(Impact::default, |v| Impact {
                     supply: v.power.as_ref().map(|p| p.supply),
-                    free: v.power.as_ref().map(|p| p.supply as f64 - p.used),
+                    free: v.power.as_ref().map(|p| p.supply - p.used),
                     cooling: v.power.as_ref().and_then(|p| p.cooling),
                     em: v.power.as_ref().map(|p| p.em),
                     ir: v.power.as_ref().map(|p| p.ir),
