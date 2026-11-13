@@ -26,6 +26,9 @@ Game data is rebuilt once on the first start after updating.
   background; Starlume no longer mistakes it for the game.
 - **Fixed: patch notes for 4.10.3** — RSI changed its comm-link pages; the
   newest patch notes and comm-link videos show again.
+- **Fixed: the Drake Marauder's power plants** — its two power plant ports
+  accepted no power plant, not even the stock one; they take the S1 power
+  plants again.
 
 ## [0.5.0] - 2026-11-09
 
