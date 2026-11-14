@@ -239,9 +239,17 @@
     { id: "damage", of: (c) => (c.itemType === "WeaponGun" ? damageType(c.stats) : ""), order: ["Ballistic", "Energy", "Distortion"] },
   ];
   let picked = $state<Record<string, string>>({});
-  /** Owned copies free to fit (My Items' snapshot), and the narrowing to
-   *  them; shown only when the snapshot has any of these parts. */
+  /** Copies lying loose in your own storage, free to fit (My Items'
+   *  snapshot), and the narrowing to them; shown only when the snapshot has
+   *  any of these parts. */
   const ownedOf = (c: CandidateView) => (c.owned ?? []).reduce((n, o) => n + o.count, 0);
+  /** Where they are, in the row: the place holding most (the list comes
+   *  most first), and how many more places; the hover lists every one. */
+  const ownedAt = (c: CandidateView) => {
+    const at = c.owned ?? [];
+    return at.length === 0 ? "" : at.length === 1 ? at[0].place : `${at[0].place} +${at.length - 1}`;
+  };
+  const ownedList = (c: CandidateView) => (c.owned ?? []).map((o) => `${o.count} at ${o.place}`).join("\n");
   const anyOwned = $derived((list ?? []).some((c) => ownedOf(c) > 0));
   let mine = $state("");
   const facets = $derived(
@@ -407,8 +415,8 @@
           <span class="nm"
             ><b>{c.name}</b>{#if kind === "WeaponGun" && damageType(c.stats)}<small class="dt">{damageType(c.stats)}</small>{/if}{#if c.fitted}<small
                 class="fit">fitted</small
-              >{/if}{#if own}<small class="own" title={(c.owned ?? []).map((o) => `${o.count} at ${o.place}`).join("\n")}
-                >{own} owned</small
+              >{/if}{#if own}<small class="own" title={ownedList(c)}>{own} owned</small><small class="at" title={ownedList(c)}
+                >{ownedAt(c)}</small
               >{/if}</span
           >
           {#if showSize}<span class="v">S{c.size}</span>{/if}
@@ -613,6 +621,20 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--good);
+  }
+  /* Where those copies are. In a narrow name column the place gives way
+   * first, then the name; the marks never do. */
+  .fit,
+  .own {
+    flex: none;
+  }
+  .at {
+    flex: 0 100 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.72rem;
+    color: var(--text-dim);
   }
   /* A gun's damage type, beside its name. */
   .dt {

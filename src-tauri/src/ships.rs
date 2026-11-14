@@ -892,9 +892,13 @@ pub struct ImpactView {
     pub gun_power: Option<f64>,
 }
 
-/// Owned copies of a part that are free to fit: in a place's storage, not
-/// on a port, not inside a ship or container, owned (not rented, not
-/// bricked). The inventory has no insurance or claim state.
+/// Copies of a part the player has that are free to fit: lying loose in
+/// one of their own inventories (a place's storage, a hangar, on the
+/// character), not on a port, not inside a ship or container, and neither
+/// rented nor bricked. "Owned" here is where the part is, not the game's
+/// ownership mark: only pledge-bound items carry that mark, and a part
+/// bought or looted in game is the player's all the same. The inventory has
+/// no insurance or claim state.
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct OwnedPartView {
@@ -1019,15 +1023,18 @@ impl From<Candidate> for CandidateView {
     }
 }
 
-/// Free owned copies per part GUID (see [`OwnedPartView`]), from the cached
-/// inventory: no network.
+/// Free copies per part GUID (see [`OwnedPartView`]), by place, most first,
+/// from the cached inventory: no network.
+///
+/// A row counts whatever its ownership mark, unless that mark is rented or
+/// bricked: the finder's rows all come from the player's own inventories, so
+/// an unmarked part in a stash (bought or looted in game) is theirs. No
+/// place is left out, for the same reason.
 fn owned_free(finder: &mod_items::Finder) -> HashMap<String, Vec<OwnedPartView>> {
+    use mod_items::OwnershipState::{Bricked, Rented};
     let mut by: HashMap<String, HashMap<String, u32>> = HashMap::new();
     for row in &finder.items {
-        if row.fitted
-            || !row.holders.is_empty()
-            || row.ownership != mod_items::OwnershipState::Owned
-        {
+        if row.fitted || !row.holders.is_empty() || matches!(row.ownership, Bricked | Rented) {
             continue;
         }
         *by.entry(row.kind.guid.clone())
@@ -1915,4 +1922,85 @@ pub(crate) fn ships_delete_loadout(ship: String, id: String) -> Result<ShipLoado
         l.delete(&id);
         loadouts_view(l, &ship)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mod_items::{Holder, ItemKind, ItemRow, OwnershipState, Place, PlaceKind};
+
+    const SHIELD: &str = "00000000-0000-0000-0000-00000000a001";
+    const COOLER: &str = "00000000-0000-0000-0000-00000000a002";
+
+    fn row(geid: u64, guid: &str, place: &str, ownership: OwnershipState) -> ItemRow {
+        ItemRow {
+            geid,
+            kind: ItemKind {
+                guid: guid.into(),
+                name: "Test part".into(),
+                item_type: "Shield".into(),
+                sub_type: String::new(),
+                size: 1,
+                grade: 1,
+            },
+            place: Place {
+                name: place.into(),
+                parents: Vec::new(),
+                kind: PlaceKind::Storage,
+                key: String::new(),
+            },
+            holders: Vec::new(),
+            fitted: false,
+            ownership,
+            stack: 1,
+            ammo: None,
+            resource: None,
+            crafted: None,
+            stock: None,
+            set: None,
+        }
+    }
+
+    #[test]
+    fn owned_free_counts_loose_parts_whatever_the_mark() {
+        let ship = Holder {
+            geid: 900,
+            name: "Test ship".into(),
+            item_type: "Vehicle".into(),
+        };
+        let finder = mod_items::Finder {
+            items: vec![
+                // Bought or looted in game: no mark, still the player's.
+                row(1, SHIELD, "Test Station", OwnershipState::Unowned),
+                row(2, SHIELD, "Test Station", OwnershipState::Unowned),
+                // Pledge-bound, somewhere else.
+                row(3, SHIELD, "Test City", OwnershipState::Owned),
+                // Not usable, or not the player's to keep.
+                row(4, SHIELD, "Test Station", OwnershipState::Bricked),
+                row(5, SHIELD, "Test Station", OwnershipState::Rented),
+                // On a port of a ship.
+                ItemRow {
+                    fitted: true,
+                    holders: vec![ship.clone()],
+                    ..row(6, SHIELD, "Test Station", OwnershipState::Unowned)
+                },
+                // Stowed inside a ship.
+                ItemRow {
+                    holders: vec![ship],
+                    ..row(7, SHIELD, "Test Station", OwnershipState::Owned)
+                },
+                // Only unusable copies: the part is not listed at all.
+                row(8, COOLER, "Test Station", OwnershipState::Bricked),
+            ],
+            ..Default::default()
+        };
+
+        let owned = owned_free(&finder);
+        let shield: Vec<(&str, u32)> = owned[SHIELD]
+            .iter()
+            .map(|o| (o.place.as_str(), o.count))
+            .collect();
+        assert_eq!(shield, [("Test Station", 2), ("Test City", 1)]);
+        assert!(!owned.contains_key(COOLER));
+    }
 }
