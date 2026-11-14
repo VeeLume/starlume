@@ -14,9 +14,11 @@
   // over unsaved changes asks first; deleting one asks too. Esc or a click
   // outside closes.
   import { untrack } from "svelte";
+  import { goto } from "$app/navigation";
   import { ConfirmDialog } from "@veelume/ui";
-  import { ArrowUpRight, Check, ChevronDown, Pencil, Trash2 } from "lucide-svelte";
+  import { ArrowUpRight, Check, ChevronDown, Pencil, Target, Trash2 } from "lucide-svelte";
   import { copyHeadings, FITTED, myItemsShipHref, NO_READ, SAVED } from "$lib/ownedShips";
+  import { addLoadoutPlan, loadPlans, plansStore } from "$lib/state/plans.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
   import {
     changesOf,
@@ -59,6 +61,12 @@
   const read = $derived(owned?.readAt ? `read ${ago(owned.readAt)}` : "");
   /** My Items is a module of its own: no way there while it is off. */
   const myItems = $derived(settingsStore.current?.enabled_modules.includes("items") ?? false);
+
+  /** Plans is a module of its own too: its mark shows only while it is on. */
+  const plans = $derived(settingsStore.current?.enabled_modules.includes("plans") ?? false);
+  $effect(() => {
+    if (plans && plansStore.plans === null) void loadPlans();
+  });
 
   /** "Stock" is the menu's value for no base. */
   const STOCK = "stock";
@@ -247,6 +255,19 @@
                 </button>
               {:else}
                 <button type="button" class="name" onclick={() => pick(s.id)}><span>{s.name}</span></button>
+                {#if plans}
+                  {@const planned = !!plansStore.loadoutOf(s.id)}
+                  <button
+                    type="button"
+                    class="icon"
+                    class:planned
+                    title={planned ? "In your plans: open Plans" : "Add to plan: what it takes to have this fitted"}
+                    aria-label={planned ? `${s.name} is in your plans: open Plans` : `Add ${s.name} to your plans`}
+                    onclick={() => (planned ? void goto("/plans") : void addLoadoutPlan(s.id))}
+                  >
+                    <Target size={14} />
+                  </button>
+                {/if}
                 <button type="button" class="icon" title="Rename" aria-label="Rename {s.name}" onclick={() => startRename(s.id, s.name)}>
                   <Pencil size={14} />
                 </button>
@@ -498,6 +519,10 @@
   .icon:hover:not(:disabled) {
     color: var(--text-strong);
     background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+  .row .icon.planned {
+    opacity: 1;
+    color: var(--accent);
   }
   .icon.bad:hover {
     color: var(--bad);

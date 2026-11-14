@@ -45,6 +45,7 @@ mod modules;
 pub mod notify;
 mod patchnotes;
 mod performance;
+mod plans;
 mod sc;
 mod session;
 mod session_names;

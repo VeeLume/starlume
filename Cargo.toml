@@ -9,6 +9,7 @@ members = [
     "crates/mod-items",
     "crates/mod-langpatch",
     "crates/mod-mining",
+    "crates/mod-plans",
     "crates/mod-session",
     "crates/mod-ships",
     "crates/server",
@@ -88,6 +89,7 @@ mod-devtracker = { path = "crates/mod-devtracker" }
 mod-items = { path = "crates/mod-items" }
 mod-langpatch = { path = "crates/mod-langpatch" }
 mod-mining = { path = "crates/mod-mining" }
+mod-plans = { path = "crates/mod-plans" }
 mod-session = { path = "crates/mod-session" }
 mod-ships = { path = "crates/mod-ships" }
 sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "v0.6.3" }

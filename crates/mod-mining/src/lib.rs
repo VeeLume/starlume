@@ -21,9 +21,9 @@ pub mod state;
 pub use catalog::{Catalog, LaserItem, Named, SHIP_RULESET};
 pub use generate::{
     Area, AreaRock, ClassShares, Comfort, ComfortBar, GenerateError, GenerateRequest, Generated,
-    MassBucket, MassRange, OreOdds, Pick, Place, PlaceGroup, PlaceNode, PlaceSystem, RockClass,
-    RockClasses, Sources, areas, by_share, class_table, comfort, generate, grade, grade_share,
-    place_tree,
+    MassBucket, MassRange, OreOdds, OreSite, Pick, Place, PlaceGroup, PlaceNode, PlaceSystem,
+    RockClass, RockClasses, Sources, areas, by_share, class_table, comfort, generate, grade,
+    grade_share, ore_sites, place_tree,
 };
 pub use guide::{Category, ClimbStep, JumpRow, ThrottleGuide, category, throttle_guide};
 pub use hud::{

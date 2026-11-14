@@ -64,6 +64,28 @@ impl ShipRow {
     }
 }
 
+/// One ship's name as [`ships`] gives it, without building the list: the
+/// locale's `vehicleName`, else the record name. `None` for a GUID that is
+/// no vehicle.
+pub fn ship_name(cooked: &CookedData, guid: &str) -> Option<String> {
+    let guid: svc_data::Guid = guid.parse().ok()?;
+    let index = &cooked.ships;
+    let vehicle = index.vehicles.get(&guid)?;
+    vehicle
+        .name_key
+        .as_ref()
+        .and_then(|k| cooked.locale.resolve(k))
+        .filter(|n| !n.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            index
+                .listed
+                .iter()
+                .find(|e| e.guid == guid)
+                .map(|e| e.record_name.clone())
+        })
+}
+
 /// Every ship a player can own, sorted by name.
 pub fn ships(cooked: &CookedData) -> Vec<ShipRow> {
     let index = &cooked.ships;

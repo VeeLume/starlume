@@ -2911,6 +2911,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-plans"
+version = "0.6.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "specta",
+]
+
+[[package]]
 name = "mod-session"
 version = "0.6.0"
 dependencies = [
@@ -5665,6 +5674,7 @@ dependencies = [
  "mod-items",
  "mod-langpatch",
  "mod-mining",
+ "mod-plans",
  "mod-session",
  "mod-ships",
  "reqwest 0.12.28",
