@@ -15,6 +15,7 @@ import { miningModule } from "./mining/descriptor";
 import { shipsModule } from "./ships/descriptor";
 import { craftingModule } from "./crafting/descriptor";
 import { sessionModule } from "./session/descriptor";
+import { plansModule } from "./plans/descriptor";
 import { SHOW_UNRELEASED } from "$lib/unreleased";
 
 export const moduleRegistry: ModuleDescriptor[] = [
@@ -26,7 +27,7 @@ export const moduleRegistry: ModuleDescriptor[] = [
   miningModule,
   shipsModule,
   craftingModule,
-  ...(SHOW_UNRELEASED ? [contractsModule, sessionModule] : []),
+  ...(SHOW_UNRELEASED ? [contractsModule, sessionModule, plansModule] : []),
 ];
 
 export function moduleById(id: string): ModuleDescriptor | undefined {
