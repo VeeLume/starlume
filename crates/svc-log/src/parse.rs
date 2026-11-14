@@ -77,6 +77,11 @@ fn parse_body(rest: &str) -> Option<LogEventKind> {
             "Legacy login response" => session_handle(body),
             "AccountLoginCharacterStatus_Character" => session_account_id(body),
             "SystemQuit" => session_ended(body),
+            "Player Selected Quantum Target - Local" => quantum_target_selected(body),
+            "Calculate Route" => quantum_route(body),
+            "Quantum Drive Arrived - Arrived at Final Destination" => quantum_arrived(body),
+            "AttachmentReceived" => held_item_received(body),
+            "EquipItem" => attachment_requested(body),
             _ => None,
         };
     }
@@ -201,6 +206,135 @@ fn session_ended(body: &str) -> Option<LogEventKind> {
 fn location_inventory(body: &str) -> Option<LogEventKind> {
     Some(LogEventKind::LocationInventoryRequested {
         location: owned(bracket(body, "Location[")?)?,
+    })
+}
+
+// ── Quantum travel ──────────────────────────────────────────────────────
+
+/// The parts of a navigation line, which are `|`-separated:
+///
+/// ```text
+/// <…> [Notice] <Tag> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::Function|Message [Team_CGP4][QuantumTravel]
+/// ```
+///
+/// → (the entity's class, the message). The class is the entity name
+/// without its `_<entity id>`; `None` for `NULL ENTITY`.
+fn navigation(body: &str) -> Option<(Option<String>, &str)> {
+    let mut parts = body.rsplit('|');
+    let message = parts.next()?;
+    let _function = parts.next()?;
+    let entity = parts.next()?.trim();
+    let message = message[..message.rfind(" [Team_").unwrap_or(message.len())].trim();
+    let name = &entity[..entity.find('[').unwrap_or(entity.len())];
+    let class = match name.rsplit_once('_') {
+        Some((class, id)) if !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) => class,
+        _ => name,
+    };
+    let class = (!class.contains(' ')).then(|| owned(class)).flatten();
+    Some((class, message))
+}
+
+/// ```text
+/// <…> [Notice] <Player Selected Quantum Target - Local> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::OnPlayerSelectedQuantumTarget|Player has selected point Orison_LOC as their destination, routing locally [Team_CGP4][QuantumTravel]
+/// ```
+///
+/// The `<Player Requested Fuel to Quantum Target - …>` lines beside it are
+/// the star map asking what a destination would cost while the player
+/// browses: not a selection, not an event.
+fn quantum_target_selected(body: &str) -> Option<LogEventKind> {
+    let (vehicle_class, message) = navigation(body)?;
+    let destination = message
+        .strip_prefix("Player has selected point ")?
+        .split(" as their destination")
+        .next()?;
+    Some(LogEventKind::QuantumTargetSelected {
+        vehicle_class,
+        destination: owned(destination)?,
+    })
+}
+
+/// ```text
+/// <…> [Notice] <Calculate Route> [ItemNavigation][CL][41200] | NOT AUTH | RSI_…[…]|CSCItemNavigation::CalculateRoute|Projected Start Location is Nyx Gateway for route to destination Orison_LOC [Team_CGP4][QuantumTravel]
+/// ```
+///
+/// The same tag's `Successfully calculated route to … fuel estimate …`
+/// line, and `<Calculate Route!>` (`Adding surface location …`), add
+/// nothing to it and are not events.
+fn quantum_route(body: &str) -> Option<LogEventKind> {
+    let (_, message) = navigation(body)?;
+    let rest = message.strip_prefix("Projected Start Location is ")?;
+    // The origin is a display name and may hold anything; the destination
+    // is an internal name without spaces, so split at the last separator.
+    let (origin, destination) = rest.rsplit_once(" for route to destination ")?;
+    Some(LogEventKind::QuantumRouteCalculated {
+        origin: owned(origin)?,
+        destination: owned(destination)?,
+    })
+}
+
+/// ```text
+/// <…> [Notice] <Quantum Drive Arrived - Arrived at Final Destination> [ItemNavigation][CL][41200] | NOT AUTH | RSI_…[…]|CSCItemNavigation::OnQuantumDriveArrived|Quantum Drive has arrived at final destination [Team_CGP4][QuantumTravel]
+/// ```
+fn quantum_arrived(body: &str) -> Option<LogEventKind> {
+    let (vehicle_class, _) = navigation(body)?;
+    Some(LogEventKind::QuantumArrived { vehicle_class })
+}
+
+// ── Gear ────────────────────────────────────────────────────────────────
+
+/// A slot of the player that holds a weapon or a tool: what an attachment
+/// port hangs off (`wep_stocked_2`, `wep_sidearm`,
+/// `weapon_attach_hand_right`, `utility_attach_1`).
+fn holds_a_weapon(port: &str) -> bool {
+    ["wep_", "weapon_attach_", "utility_attach_"]
+        .iter()
+        .any(|prefix| port.starts_with(prefix))
+}
+
+/// ```text
+/// <…> [Notice] <AttachmentReceived> Player[VeeLume] Attachment[lbco_rifle_energy_01_mr01_930000000002, lbco_rifle_energy_01_mr01, 930000000002] Status[persistent] Port[wep_stocked_2] Elapsed[0.000056] [Team_CoreGameplayFeatures][Inventory]
+/// ```
+///
+/// Logged for every item on the player (hundreds per session); only the
+/// ones landing in a weapon or tool slot are events. `Status[local]` is the
+/// client's placeholder before the server's answer and is skipped.
+fn held_item_received(body: &str) -> Option<LogEventKind> {
+    if bracket(body, "Status[")? != "persistent" {
+        return None;
+    }
+    let port = bracket(body, " Port[")?;
+    if !holds_a_weapon(port) {
+        return None;
+    }
+    // `Attachment[<entity name>, <class>, <entity id>]`.
+    let class = bracket(body, "Attachment[")?.split(',').nth(1)?;
+    Some(LogEventKind::HeldItemReceived {
+        item_class: owned(class)?,
+        port: port.to_owned(),
+    })
+}
+
+/// ```text
+/// <…> [Notice] <EquipItem> Request[25] equip from Inventory[200000000001:Location:3700000001] Class[arma_barrel_supp_s2] Rank[amsabcdefghin] Port[Body_ItemPort:Armor_Undersuit:Armor_Torso:backpack:wep_stocked_2:barrel_attach] DependentRequest[4294967295] PostAction[None] [Team_CoreGameplayFeatures][Inventory]
+/// ```
+///
+/// Every equip request has this shape (armor, magazines into the armor's
+/// pouches, medpens); an attachment is the one whose port hangs off a
+/// weapon or tool slot. The tag's other shapes (`Equip looting entity[…] to
+/// port[…]`, the `cannot store` refusals) carry no port path and are not
+/// events.
+fn attachment_requested(body: &str) -> Option<LogEventKind> {
+    let path = bracket(body, " Port[")?;
+    let mut ports = path.rsplit(':');
+    let port = ports.next()?;
+    let holder_port = ports.next()?;
+    if !holds_a_weapon(holder_port) {
+        return None;
+    }
+    Some(LogEventKind::AttachmentRequested {
+        item_class: owned(bracket(body, " Class[")?)?,
+        holder_port: holder_port.to_owned(),
+        port: owned(port)?,
     })
 }
 
@@ -896,6 +1030,123 @@ mod tests {
                 result: "AuthorityError".into()
             })
         );
+    }
+
+    // The quantum and gear fixtures are from the LIVE log of 2026-11-14
+    // (4.10.3). Made up in them: the ship's and the items' entity ids, the
+    // player's inventory id, the client number after `[CL]` and the
+    // inventory rank strings.
+
+    #[test]
+    fn a_quantum_target_is_selected() {
+        let line = r#"<2026-11-14T15:03:23.593Z> [Notice] <Player Selected Quantum Target - Local> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::OnPlayerSelectedQuantumTarget|Player has selected point Orison_LOC as their destination, routing locally [Team_CGP4][QuantumTravel]"#;
+        assert_eq!(
+            kind(line),
+            Some(LogEventKind::QuantumTargetSelected {
+                vehicle_class: Some("RSI_Constellation_Mk5_Centaurus".into()),
+                destination: "Orison_LOC".into(),
+            })
+        );
+        // A jump point's name has a `-` and digits of its own.
+        let jump = r#"<2026-11-14T14:54:49.930Z> [Notice] <Player Selected Quantum Target - Local> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::OnPlayerSelectedQuantumTarget|Player has selected point rs_ext_nyx-castra_jp1 as their destination, routing locally [Team_CGP4][QuantumTravel]"#;
+        assert_eq!(
+            kind(jump),
+            Some(LogEventKind::QuantumTargetSelected {
+                vehicle_class: Some("RSI_Constellation_Mk5_Centaurus".into()),
+                destination: "rs_ext_nyx-castra_jp1".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn browsing_the_star_map_selects_nothing() {
+        // The map asks what a destination would cost before one is set.
+        let fuel = r#"<2026-11-14T15:03:21.723Z> [Notice] <Player Requested Fuel to Quantum Target - Server Routing> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::OnPlayerRequestFuelToQuantumTarget|Player has requested fuel calculation to destination Orison_LOC [Team_CGP4][QuantumTravel]"#;
+        assert_eq!(kind(fuel), None);
+        let no_route = r#"<2026-11-14T15:03:14.965Z> [Notice] <Failed to get starmap route data!> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::GetStarmapRouteSegmentData|No Route loaded! [Team_CGP4][QuantumTravel]"#;
+        assert_eq!(kind(no_route), None);
+    }
+
+    #[test]
+    fn a_quantum_route_names_where_it_starts() {
+        // The origin is a display name, here one with a space.
+        let line = r#"<2026-11-14T15:03:23.595Z> [Notice] <Calculate Route> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::CalculateRoute|Projected Start Location is Nyx Gateway for route to destination Orison_LOC [Team_CGP4][QuantumTravel]"#;
+        assert_eq!(
+            kind(line),
+            Some(LogEventKind::QuantumRouteCalculated {
+                origin: "Nyx Gateway".into(),
+                destination: "Orison_LOC".into(),
+            })
+        );
+        // The lines that follow it say nothing more.
+        let surface = r#"<2026-11-14T15:03:23.595Z> [Notice] <Calculate Route!> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::CalculateRoute|Adding surface location Orison_LOC to end of route. New final index 1 [Team_CGP4][QuantumTravel]"#;
+        let fuel = r#"<2026-11-14T15:03:23.595Z> [Notice] <Calculate Route> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::CalculateRoute|Successfully calculated route to Orison_LOC fuel estimate 1198718.500000 [Team_CGP4][QuantumTravel]"#;
+        assert_eq!(kind(surface), None);
+        assert_eq!(kind(fuel), None);
+    }
+
+    #[test]
+    fn the_quantum_drive_arrives() {
+        let line = r#"<2026-11-14T15:08:19.338Z> [Notice] <Quantum Drive Arrived - Arrived at Final Destination> [ItemNavigation][CL][41200] | NOT AUTH | RSI_Constellation_Mk5_Centaurus_930000000001[930000000001]|CSCItemNavigation::OnQuantumDriveArrived|Quantum Drive has arrived at final destination [Team_CGP4][QuantumTravel]"#;
+        assert_eq!(
+            kind(line),
+            Some(LogEventKind::QuantumArrived {
+                vehicle_class: Some("RSI_Constellation_Mk5_Centaurus".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn an_item_arrives_in_a_weapon_slot() {
+        let rifle = r#"<2026-11-14T14:21:27.876Z> [Notice] <AttachmentReceived> Player[VeeLume] Attachment[lbco_rifle_energy_01_mr01_930000000002, lbco_rifle_energy_01_mr01, 930000000002] Status[persistent] Port[wep_stocked_2] Elapsed[38.246002] [Team_CoreGameplayFeatures][Inventory]"#;
+        assert_eq!(
+            kind(rifle),
+            Some(LogEventKind::HeldItemReceived {
+                item_class: "lbco_rifle_energy_01_mr01".into(),
+                port: "wep_stocked_2".into(),
+            })
+        );
+        // Its magazine, logged beside it, sits on the rifle, not in a slot.
+        let magazine = r#"<2026-11-14T14:21:27.876Z> [Notice] <AttachmentReceived> Player[VeeLume] Attachment[lbco_rifle_energy_01_mag_930000000003, lbco_rifle_energy_01_mag, 930000000003] Status[persistent] Port[magazine_attach] Elapsed[38.246113] [Team_CoreGameplayFeatures][Inventory]"#;
+        assert_eq!(kind(magazine), None);
+        // The client's placeholder while an equip request is under way.
+        let placeholder = r#"<2026-11-14T14:24:50.086Z> [Notice] <AttachmentReceived> Player[VeeLume] Attachment[Inventory_LocalAttach_Item, Default, 6963] Status[local] Port[underbarrel_attach] Elapsed[0.047715] [Team_CoreGameplayFeatures][Inventory]"#;
+        assert_eq!(kind(placeholder), None);
+    }
+
+    #[test]
+    fn an_attachment_is_put_on_a_weapon() {
+        let barrel = r#"<2026-11-14T14:25:50.369Z> [Notice] <EquipItem> Request[25] equip from Inventory[200000000001:Location:3700000001] Class[arma_barrel_supp_s2] Rank[amsabcdefghin] Port[Body_ItemPort:Armor_Undersuit:Armor_Torso:backpack:wep_stocked_2:barrel_attach] DependentRequest[4294967295] PostAction[None] [Team_CoreGameplayFeatures][Inventory]"#;
+        assert_eq!(
+            kind(barrel),
+            Some(LogEventKind::AttachmentRequested {
+                item_class: "arma_barrel_supp_s2".into(),
+                holder_port: "wep_stocked_2".into(),
+                port: "barrel_attach".into(),
+            })
+        );
+        let optics = r#"<2026-11-14T14:25:58.313Z> [Notice] <EquipItem> Request[26] equip from Inventory[200000000001:Location:3700000001] Class[hdgw_optics_tsco_x4_s2] Rank[amsabcdefghjn] Port[Body_ItemPort:Armor_Undersuit:Armor_Torso:backpack:wep_stocked_2:optics_attach] DependentRequest[4294967295] PostAction[None] [Team_CoreGameplayFeatures][Inventory]"#;
+        assert_eq!(
+            kind(optics),
+            Some(LogEventKind::AttachmentRequested {
+                item_class: "hdgw_optics_tsco_x4_s2".into(),
+                holder_port: "wep_stocked_2".into(),
+                port: "optics_attach".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn other_equip_requests_are_not_attachments() {
+        // A magazine into the armor's pouch: the same line, another port.
+        let pouch = r#"<2026-11-14T14:26:15.929Z> [Notice] <EquipItem> Request[33] equip from Inventory[200000000001:Location:3700000001] Class[lbco_rifle_energy_01_mag] Rank[amsabcdefghkn] Port[Body_ItemPort:Armor_Undersuit:Armor_Torso:magazine_attach_1] DependentRequest[4294967295] PostAction[None] [Team_CoreGameplayFeatures][Inventory]"#;
+        assert_eq!(kind(pouch), None);
+        // The weapon itself, picked up to carry.
+        let carried = r#"<2026-11-14T14:20:49.632Z> [Notice] <EquipItem> Request[15] equip from Inventory[200000000001:Location:3700000001] Class[lbco_rifle_energy_01_mr01] Rank[amsabcdefghln] Port[Body_ItemPort:inventory_pocket] DependentRequest[4294967295] PostAction[Carry] [Team_CoreGameplayFeatures][Inventory]"#;
+        assert_eq!(kind(carried), None);
+        // Equipping straight from a loot screen has no port path.
+        let looted = r#"<2026-11-14T14:42:55.479Z> [Notice] <EquipItem> Equip looting entity[behr_gren_frag_01_930000000004] to port[grenade_attach_1] [Team_CoreGameplayFeatures][Inventory]"#;
+        assert_eq!(kind(looted), None);
     }
 
     #[test]

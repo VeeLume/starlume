@@ -33,7 +33,8 @@ use std::collections::HashMap;
 use svc_log::{ContractChange, LogEvent, LogEventKind, MoneyChange, TradeSide};
 
 use crate::model::{
-    Entry, EntryKind, MAX_TIMELINE, MissionOutcome, RequestOutcome, Session, ShardStay, Source,
+    AttachedItem, Entry, EntryKind, MAX_TIMELINE, MissionOutcome, RequestOutcome, Session,
+    ShardStay, Source,
 };
 use crate::time::{Millis, parse_ts, session_id};
 use crate::wallet::Ledger;
@@ -46,6 +47,17 @@ use crate::wallet::Ledger;
 pub const RESUME_WITHIN: Millis = 10 * 60_000;
 /// Most missions remembered at once (titles, and which already ended).
 const MAX_MISSIONS: usize = 512;
+/// An arrival belongs to the destination set before it when it comes within
+/// this long. Later, the drive got somewhere the log never named (a route
+/// set another way) and the arrival is dropped rather than pinned on an old
+/// destination. Long: the trip includes aligning and spooling, and a
+/// crossing of Pyro alone runs past twenty minutes.
+pub const QT_ARRIVES_WITHIN: Millis = 60 * 60_000;
+/// Attachments put on the same weapon fold into one entry while each
+/// follows the one before it within this long.
+pub const ATTACH_FOLD_WITHIN: Millis = 3 * 60_000;
+/// Most weapon and tool slots remembered (the game has a handful).
+const MAX_HELD: usize = 32;
 
 /// What the stream said, reduced to what the session keeps. The shell maps
 /// svc-telemetry's snapshot onto this.
@@ -108,6 +120,25 @@ struct Mission {
     ended: Option<u32>,
 }
 
+/// A quantum destination that was set and not yet arrived at.
+#[derive(Debug)]
+struct Trip {
+    /// The `seq` of its `QuantumTravel` entry.
+    seq: u32,
+    set_at: Millis,
+    to: String,
+    vehicle: Option<String>,
+}
+
+/// The `Attachments` entry further requests may still fold into.
+#[derive(Debug)]
+struct AttachRun {
+    seq: u32,
+    holder_port: String,
+    weapon: Option<String>,
+    last_at: Millis,
+}
+
 /// Folds both sources into the current session. See the module docs.
 #[derive(Debug, Default)]
 pub struct Reducer {
@@ -136,6 +167,12 @@ pub struct Reducer {
     last_request: Option<u32>,
     last_location: Option<String>,
     last_jurisdiction: Option<String>,
+    /// The quantum destination set last, until the drive arrives.
+    trip: Option<Trip>,
+    /// What sits in each weapon and tool slot (port to item class), as the
+    /// log last said: names the weapon an attachment goes on.
+    held: HashMap<String, String>,
+    attach_run: Option<AttachRun>,
     /// The vehicle of the last sample: stream state, kept across sessions
     /// so a new one does not re-enter the ship the player sits in.
     vehicle: Option<Vehicle>,
@@ -345,6 +382,9 @@ impl Reducer {
         self.last_request = None;
         self.last_location = None;
         self.last_jurisdiction = None;
+        self.trip = None;
+        self.held.clear();
+        self.attach_run = None;
         self.quit_at = None;
         self.replay_only = true;
     }
@@ -613,6 +653,139 @@ impl Reducer {
                     }) => *outcome = answer,
                     _ => return false,
                 }
+            }
+            E::QuantumTargetSelected {
+                vehicle_class,
+                destination,
+            } => {
+                // A destination replaced before the drive arrived was never
+                // flown to (or the log cannot tell): its entry goes.
+                if let Some(old) = self.trip.take()
+                    && let Some(pos) = session.timeline.iter().rposition(|e| e.seq == old.seq)
+                {
+                    session.timeline.remove(pos);
+                }
+                let seq = log(
+                    session,
+                    false,
+                    EntryKind::QuantumTravel {
+                        from: None,
+                        to: destination.clone(),
+                        vehicle: vehicle_class.clone(),
+                        arrived_at: None,
+                    },
+                );
+                self.trip = Some(Trip {
+                    seq,
+                    set_at: at,
+                    to: destination.clone(),
+                    vehicle: vehicle_class.clone(),
+                });
+            }
+            E::QuantumRouteCalculated {
+                origin,
+                destination,
+            } => {
+                // The first route to the destination just set starts where
+                // the ship is; one recalculated under way does not.
+                let Some(trip) = self.trip.as_ref().filter(|t| &t.to == destination) else {
+                    return false;
+                };
+                match session
+                    .timeline
+                    .iter_mut()
+                    .rev()
+                    .find(|e| e.seq == trip.seq)
+                {
+                    Some(Entry {
+                        kind: EntryKind::QuantumTravel { from, .. },
+                        ..
+                    }) if from.is_none() => *from = Some(origin.clone()),
+                    _ => return false,
+                }
+            }
+            E::QuantumArrived { vehicle_class } => {
+                let same_ship = |trip: &Trip| match (&trip.vehicle, vehicle_class) {
+                    (Some(set_in), Some(arrived_in)) => set_in == arrived_in,
+                    _ => true,
+                };
+                // Another ship's drive leaves the trip waiting for its own.
+                let Some(trip) = self.trip.take_if(|trip| same_ship(trip)) else {
+                    // Or a route the log never named (none was selected).
+                    return false;
+                };
+                if at - trip.set_at > QT_ARRIVES_WITHIN {
+                    // Its entry stays, as a course set and not arrived at.
+                    return false;
+                }
+                match session
+                    .timeline
+                    .iter_mut()
+                    .rev()
+                    .find(|e| e.seq == trip.seq)
+                {
+                    Some(Entry {
+                        kind: EntryKind::QuantumTravel { arrived_at, .. },
+                        ..
+                    }) => *arrived_at = Some(at),
+                    _ => return false,
+                }
+                session.last_activity_at = session.last_activity_at.max(at);
+            }
+            E::HeldItemReceived { item_class, port } => {
+                if self.held.len() >= MAX_HELD && !self.held.contains_key(port) {
+                    self.held.clear();
+                }
+                self.held.insert(port.clone(), item_class.clone());
+                return false;
+            }
+            E::AttachmentRequested {
+                item_class,
+                holder_port,
+                port,
+            } => {
+                let weapon = self.held.get(holder_port).cloned();
+                let item = AttachedItem {
+                    item: item_class.clone(),
+                    port: port.clone(),
+                    at,
+                };
+                let run = self.attach_run.as_mut().filter(|run| {
+                    &run.holder_port == holder_port
+                        && run.weapon == weapon
+                        && (0..=ATTACH_FOLD_WITHIN).contains(&(at - run.last_at))
+                });
+                let folded = run.and_then(|run| {
+                    let entry = session
+                        .timeline
+                        .iter_mut()
+                        .rev()
+                        .find(|e| e.seq == run.seq)?;
+                    let EntryKind::Attachments { items, .. } = &mut entry.kind else {
+                        return None;
+                    };
+                    items.push(item.clone());
+                    run.last_at = at;
+                    Some(())
+                });
+                if folded.is_none() {
+                    let seq = log(
+                        session,
+                        false,
+                        EntryKind::Attachments {
+                            weapon: weapon.clone(),
+                            holder_port: holder_port.clone(),
+                            items: vec![item],
+                        },
+                    );
+                    self.attach_run = Some(AttachRun {
+                        seq,
+                        holder_port: holder_port.clone(),
+                        weapon,
+                        last_at: at,
+                    });
+                }
+                session.last_activity_at = session.last_activity_at.max(at);
             }
             E::RefineryOrderCompleted { location } => {
                 log(
@@ -1873,5 +2046,313 @@ mod tests {
         let old: Session = serde_json::from_str(r#"{"id":"x","started_at":5}"#).unwrap();
         assert_eq!(old.started_at, 5);
         assert!(old.timeline.is_empty());
+    }
+
+    /// Not a unit test: reduces a real `Game.log` (read by svc-log) and
+    /// prints the quantum trips and attachment entries it gives, with class
+    /// and place names only (no ids).
+    /// `cargo test -p mod-session real_log -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads a real Game.log; set STARLUME_REAL_GAME_LOG or use the default path"]
+    fn real_log_reduces() {
+        let path = std::env::var("STARLUME_REAL_GAME_LOG")
+            .unwrap_or_else(|_| r"C:\Games\StarCitizen\LIVE\Game.log".into());
+        let events = svc_log::read_log(std::path::Path::new(&path)).unwrap();
+        let r = started(&events, true);
+        let s = r.current().unwrap();
+        println!("{} events, {} entries", events.len(), s.timeline.len());
+        for e in &s.timeline {
+            let clock = |at: Millis| {
+                let secs = at / 1000 % 86_400;
+                format!("{:02}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60)
+            };
+            match &e.kind {
+                EntryKind::QuantumTravel {
+                    from,
+                    to,
+                    vehicle,
+                    arrived_at,
+                } => println!(
+                    "{} quantum: {from:?} -> {to} in {vehicle:?}, arrived {:?} ({:?} s)",
+                    clock(e.at),
+                    arrived_at.map(clock),
+                    arrived_at.map(|a| (a - e.at) / 1000),
+                ),
+                EntryKind::Attachments { weapon, items, .. } => println!(
+                    "{} attachments on {weapon:?}: {:?}",
+                    clock(e.at),
+                    items
+                        .iter()
+                        .map(|i| format!("{} @ {}", i.item, i.port))
+                        .collect::<Vec<_>>(),
+                ),
+                _ => {}
+            }
+        }
+    }
+
+    const SHIP: &str = "VEGA_Courier_Mk2";
+
+    fn target(ts: &str, destination: &str) -> LogEvent {
+        ev(
+            ts,
+            LogEventKind::QuantumTargetSelected {
+                vehicle_class: Some(SHIP.into()),
+                destination: destination.into(),
+            },
+        )
+    }
+
+    fn route(ts: &str, origin: &str, destination: &str) -> LogEvent {
+        ev(
+            ts,
+            LogEventKind::QuantumRouteCalculated {
+                origin: origin.into(),
+                destination: destination.into(),
+            },
+        )
+    }
+
+    fn arrived(ts: &str) -> LogEvent {
+        ev(
+            ts,
+            LogEventKind::QuantumArrived {
+                vehicle_class: Some(SHIP.into()),
+            },
+        )
+    }
+
+    fn trip(from: Option<&str>, to: &str, arrived_at: Option<&str>) -> EntryKind {
+        EntryKind::QuantumTravel {
+            from: from.map(str::to_owned),
+            to: to.into(),
+            vehicle: Some(SHIP.into()),
+            arrived_at: arrived_at.map(ms),
+        }
+    }
+
+    #[test]
+    fn a_quantum_trip_is_one_entry_from_the_set_course_to_the_arrival() {
+        let mut events = header();
+        events.extend([
+            target("2026-11-13T16:20:00.000Z", "NewCorvo_LOC"),
+            route("2026-11-13T16:20:00.001Z", "Tarn Gateway", "NewCorvo_LOC"),
+            // Recalculated under way: the trip still started at the gateway.
+            route("2026-11-13T16:22:00.000Z", "Aremis", "NewCorvo_LOC"),
+        ]);
+        let mut r = started(&events, false);
+        assert_eq!(
+            kinds(r.current().unwrap()),
+            [&trip(Some("Tarn Gateway"), "NewCorvo_LOC", None)],
+            "under way"
+        );
+
+        assert!(
+            r.log_events(&[arrived("2026-11-13T16:24:30.000Z")], false)
+                .changed
+        );
+        let s = r.current().unwrap();
+        assert_eq!(
+            kinds(s),
+            [&trip(
+                Some("Tarn Gateway"),
+                "NewCorvo_LOC",
+                Some("2026-11-13T16:24:30.000Z")
+            )]
+        );
+        assert_eq!(s.timeline[0].at, ms("2026-11-13T16:20:00.000Z"));
+        assert!(!s.timeline[0].locale_dependent);
+        assert_eq!(s.last_activity_at, ms("2026-11-13T16:24:30.000Z"));
+        // One arrival per trip.
+        assert!(
+            !r.log_events(&[arrived("2026-11-13T16:24:31.000Z")], false)
+                .changed
+        );
+    }
+
+    #[test]
+    fn a_destination_replaced_before_arriving_leaves_no_entry() {
+        let mut events = header();
+        events.extend([
+            target("2026-11-13T16:20:00.000Z", "Tarnhold_LOC"),
+            route("2026-11-13T16:20:00.001Z", "Tarn Gateway", "Tarnhold_LOC"),
+            buy("2026-11-13T16:20:05.000Z", 300.0),
+            target("2026-11-13T16:20:13.000Z", "NewCorvo_LOC"),
+            route("2026-11-13T16:20:13.001Z", "Tarn Gateway", "NewCorvo_LOC"),
+            arrived("2026-11-13T16:25:00.000Z"),
+        ]);
+        let r = started(&events, false);
+        let s = r.current().unwrap();
+        assert_eq!(s.timeline.len(), 2);
+        assert!(matches!(s.timeline[0].kind, EntryKind::ShopPurchase { .. }));
+        assert_eq!(
+            s.timeline[1].kind,
+            trip(
+                Some("Tarn Gateway"),
+                "NewCorvo_LOC",
+                Some("2026-11-13T16:25:00.000Z")
+            )
+        );
+    }
+
+    #[test]
+    fn an_arrival_without_its_trip_is_not_pinned_on_another() {
+        // No destination was set at all (the log names none for some routes).
+        let mut events = header();
+        events.push(arrived("2026-11-13T16:25:00.000Z"));
+        let mut r = started(&events, false);
+        assert!(r.current().unwrap().timeline.is_empty());
+
+        // A destination set long ago, never flown to.
+        r.log_events(
+            &[
+                target("2026-11-13T16:30:00.000Z", "NewCorvo_LOC"),
+                arrived("2026-11-13T17:30:00.001Z"),
+            ],
+            false,
+        );
+        assert_eq!(
+            kinds(r.current().unwrap()),
+            [&trip(None, "NewCorvo_LOC", None)]
+        );
+
+        // Another ship's drive is not this trip's arrival; its own is. The
+        // old course stays as one never arrived at.
+        r.log_events(
+            &[
+                target("2026-11-13T17:40:00.000Z", "Tarnhold_LOC"),
+                ev(
+                    "2026-11-13T17:41:00.000Z",
+                    LogEventKind::QuantumArrived {
+                        vehicle_class: Some("VEGA_Hauler".into()),
+                    },
+                ),
+            ],
+            false,
+        );
+        assert_eq!(
+            kinds(r.current().unwrap()),
+            [
+                &trip(None, "NewCorvo_LOC", None),
+                &trip(None, "Tarnhold_LOC", None)
+            ]
+        );
+        r.log_events(&[arrived("2026-11-13T17:44:00.000Z")], false);
+        assert_eq!(
+            r.current().unwrap().timeline[1].kind,
+            trip(None, "Tarnhold_LOC", Some("2026-11-13T17:44:00.000Z"))
+        );
+    }
+
+    fn held(ts: &str, item: &str, port: &str) -> LogEvent {
+        ev(
+            ts,
+            LogEventKind::HeldItemReceived {
+                item_class: item.into(),
+                port: port.into(),
+            },
+        )
+    }
+
+    fn attach(ts: &str, item: &str, holder: &str, port: &str) -> LogEvent {
+        ev(
+            ts,
+            LogEventKind::AttachmentRequested {
+                item_class: item.into(),
+                holder_port: holder.into(),
+                port: port.into(),
+            },
+        )
+    }
+
+    #[test]
+    fn attachments_put_on_one_weapon_fold_into_one_entry() {
+        let mut events = header();
+        events.extend([
+            held("2026-11-13T16:20:00.000Z", "tnkr_pistol_01", "wep_sidearm"),
+            held("2026-11-13T16:20:01.000Z", "tnkr_rifle_01", "wep_stocked_2"),
+            attach(
+                "2026-11-13T16:24:50.000Z",
+                "tnkr_ubarrel_lasr_s1",
+                "wep_stocked_2",
+                "underbarrel_attach",
+            ),
+            attach(
+                "2026-11-13T16:25:50.000Z",
+                "tnkr_barrel_supp_s2",
+                "wep_stocked_2",
+                "barrel_attach",
+            ),
+            // Another weapon in between is its own entry.
+            attach(
+                "2026-11-13T16:25:55.000Z",
+                "tnkr_optics_x1_s1",
+                "wep_sidearm",
+                "optics_attach",
+            ),
+            attach(
+                "2026-11-13T16:25:58.000Z",
+                "tnkr_optics_x4_s2",
+                "wep_stocked_2",
+                "optics_attach",
+            ),
+            // Long after: a new entry for the same weapon.
+            attach(
+                "2026-11-13T16:40:00.000Z",
+                "tnkr_optics_x8_s3",
+                "wep_stocked_2",
+                "optics_attach",
+            ),
+        ]);
+        let r = started(&events, false);
+        let s = r.current().unwrap();
+        let read: Vec<(Option<&str>, Vec<&str>)> = s
+            .timeline
+            .iter()
+            .map(|e| match &e.kind {
+                EntryKind::Attachments { weapon, items, .. } => (
+                    weapon.as_deref(),
+                    items.iter().map(|i| i.item.as_str()).collect(),
+                ),
+                other => panic!("not attachments: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            read,
+            [
+                (
+                    Some("tnkr_rifle_01"),
+                    vec!["tnkr_ubarrel_lasr_s1", "tnkr_barrel_supp_s2"]
+                ),
+                (Some("tnkr_pistol_01"), vec!["tnkr_optics_x1_s1"]),
+                (Some("tnkr_rifle_01"), vec!["tnkr_optics_x4_s2"]),
+                (Some("tnkr_rifle_01"), vec!["tnkr_optics_x8_s3"]),
+            ]
+        );
+        assert_eq!(s.timeline[0].at, ms("2026-11-13T16:24:50.000Z"));
+        match &s.timeline[0].kind {
+            EntryKind::Attachments { items, .. } => {
+                assert_eq!(items[1].port, "barrel_attach");
+                assert_eq!(items[1].at, ms("2026-11-13T16:25:50.000Z"));
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn an_attachment_on_a_weapon_the_log_never_named_still_counts() {
+        let mut events = header();
+        events.push(attach(
+            "2026-11-13T16:24:50.000Z",
+            "tnkr_optics_x4_s2",
+            "weapon_attach_hand_right",
+            "optics_attach",
+        ));
+        let r = started(&events, false);
+        assert!(matches!(
+            &r.current().unwrap().timeline[0].kind,
+            EntryKind::Attachments { weapon: None, holder_port, .. }
+                if holder_port == "weapon_attach_hand_right"
+        ));
     }
 }
