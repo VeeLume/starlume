@@ -1175,6 +1175,14 @@ async sessionGet(id: string) : Promise<Result<Session | null, AppError>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Display names for a session's internal names. Never fails: without game
+ * data (not loaded, no install for the channel) every name is the cleaned
+ * internal one and `data_loaded` says so.
+ */
+async sessionNames(query: SessionNameQuery) : Promise<SessionNames> {
+    return await TAURI_INVOKE("session_names", { query });
+},
 async authStatus() : Promise<AuthStatus> {
     return await TAURI_INVOKE("auth_status");
 },
@@ -2054,6 +2062,18 @@ meanDanger: number;
  */
 inWindow: number }
 /**
+ * One name for the page.
+ */
+export type DisplayName = { name: string; 
+/**
+ * For a place: what it lies in, nearest first (planet, system).
+ */
+parents: string[]; 
+/**
+ * From the game data. `false`: a cleaned internal name.
+ */
+resolved: boolean }
+/**
  * Doors of one kind.
  */
 export type DoorView = { name: string; count: number; hp: number; 
@@ -2442,6 +2462,14 @@ ship_weapon: ShipWeaponStatsView | null;
 missile: MissileStatsView | null }
 export type ItemKindView = { guid: string; name: string; item_type: string; sub_type: string; size: number; grade: number }
 export type ItemPageView = { total: number; rows: ItemRowView[] }
+/**
+ * An item as a purchase names it.
+ */
+export type ItemRef = { guid: string; 
+/**
+ * The item's class: what is cleaned when the GUID is unknown.
+ */
+class_name: string }
 export type ItemRewardView = { entity_guid: string; name: string | null; amount: number }
 export type ItemRowView = { guid: string; name: string; item_type: string; item_sub_type: string; size: number; grade: number }
 export type ItemTypeFacetView = { item_type: string; count: number }
@@ -3491,6 +3519,53 @@ timeline_dropped: number; wallet: Wallet;
  * The next [`Entry::seq`].
  */
 next_seq: number }
+/**
+ * What the page wants named. Every list holds internal names as the
+ * session stores them.
+ */
+export type SessionNameQuery = { 
+/**
+ * The session's install channel (`LIVE`): whose game data to ask.
+ * `None` (a telemetry-only session): the default channel.
+ */
+channel: string | null; 
+/**
+ * `EntryKind::Location::location`, refinery locations.
+ */
+places: string[]; 
+/**
+ * `shop` of purchases and trades.
+ */
+shops: string[]; 
+/**
+ * Vehicle class names.
+ */
+vehicles: string[]; items: ItemRef[]; 
+/**
+ * Resource GUIDs of commodity trades.
+ */
+resources: string[]; 
+/**
+ * Contracts' internal names (`MissionEnded::contract`).
+ */
+contracts: string[] }
+/**
+ * The names, each keyed by the internal name (or GUID) it was asked by.
+ */
+export type SessionNames = { 
+/**
+ * The channel's game data was there to ask. `false`: everything is a
+ * cleaned name, and asking again after `data:changed` may do better.
+ */
+data_loaded: boolean; places: Partial<{ [key in string]: DisplayName }>; shops: Partial<{ [key in string]: DisplayName }>; vehicles: Partial<{ [key in string]: DisplayName }>; 
+/**
+ * By item GUID.
+ */
+items: Partial<{ [key in string]: DisplayName }>; 
+/**
+ * By resource GUID.
+ */
+resources: Partial<{ [key in string]: DisplayName }>; contracts: Partial<{ [key in string]: DisplayName }> }
 /**
  * The current session as the watcher holds it.
  */

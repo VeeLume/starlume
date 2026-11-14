@@ -47,6 +47,7 @@ mod patchnotes;
 mod performance;
 mod sc;
 mod session;
+mod session_names;
 mod settings;
 mod ships;
 mod state;
