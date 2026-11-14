@@ -12,5 +12,6 @@
 
 pub mod ledger;
 mod model;
+pub mod steps;
 
 pub use model::{CraftGoal, Goal, LoadoutGoal, Plan, PlansState};
