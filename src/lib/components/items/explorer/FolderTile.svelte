@@ -5,7 +5,7 @@
   import { offSaved } from "../model/loadout";
   import { stowed, units, visible, type Node } from "../model/tree";
   import Tag from "./Tag.svelte";
-  import { fmtN, fmtTime, nodeIcon, SOURCE } from "./ui";
+  import { fmtN, nodeIcon, rentalEnd, SOURCE } from "./ui";
 
   let {
     node,
@@ -56,7 +56,7 @@
   {#if preview}<span class="sub">{preview}</span>{/if}
   <span class="meta">
     {#if ship}
-      {#if ship.rental_expiry}<span class="ends"><Clock size={10} />ends {fmtTime(ship.rental_expiry)}</span>{/if}
+      {#if ship.rental_expiry}<span class="ends"><Clock size={10} />ends {rentalEnd(ship.rental_expiry)}</span>{/if}
       {#if ship.ownership === "bricked"}<Tag label="bricked" tone="destructive" />{/if}
       {#if off != null}<Tag label={off ? `${off} off saved` : "as saved"} tone={off ? "warning" : "success"} />{/if}
       {#if inside > 0}<span>{fmtN(inside)} stored</span>{/if}

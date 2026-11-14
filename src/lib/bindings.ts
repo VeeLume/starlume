@@ -1828,6 +1828,14 @@ fetched_at: number | null; last_error: string | null;
  */
 items: CommLinkView[] }
 export type ContractChange = "Available" | "Accepted" | "Shared" | "Completed" | "Failed" | "Withdrawn"
+/**
+ * How a copy of a ship came to the player (My Items' sources).
+ */
+export type CopySourceView = "pledge" | "in_game" | "rental" | "unknown"
+/**
+ * Whose a copy is (My Items' ownership states a ship can have).
+ */
+export type CopyStateView = "owned" | "rented" | "bricked"
 export type CraftedPropertyView = { 
 /**
  * `CraftingGameplayPropertyDef` CRC.
@@ -2850,6 +2858,22 @@ export type ModifiersView = { resistance: number | null; instability: number | n
 export type ModuleInfo = { id: string; name: string; description: string; enabled: boolean }
 export type MoneyChange = "Awarded" | "Fined"
 /**
+ * Why a copy has no read of what is fitted (see `mod_ships::NoRead`).
+ */
+export type NoReadView = 
+/**
+ * Never spawned: there is no instance.
+ */
+"not_spawned" | 
+/**
+ * An instance exists, in no storage the inventory read.
+ */
+"away" | 
+/**
+ * The instance is a bricked leftover.
+ */
+"bricked"
+/**
  * A hull mesh node and the damage part it belongs to.
  */
 export type NodePart = { node: string; part: string }
@@ -2968,29 +2992,51 @@ set: ArmourSetView | null }
 export type OwnedPartView = { place: string; count: number }
 /**
  * One ship you own and its loadouts in the game.
+ * 
+ * The pages call the two loadouts "Saved" and "Fitted now". The fields
+ * keep `insured` and `live`: loadout ids built from them are in drafts on
+ * disk (`insured:<urn>`, `live:<urn>`).
  */
 export type OwnedShipView = { 
 /**
- * The entitlement's URN: the loadout select's key.
+ * The entitlement's URN: the loadout menu's key, and My Items' key
+ * for the same ship.
  */
-urn: string; 
+urn: string; source: CopySourceView; 
 /**
- * Where it is ("Area 18 hangar"); null when it isn't in any stash.
+ * When a rental ends, Unix seconds.
+ */
+rentalExpiry: number | null; ownership: CopyStateView; 
+/**
+ * Where it is ("Area 18 hangar", "in Test Carrier"); null when it
+ * isn't in any stash.
  */
 place: string | null; 
 /**
- * The insured loadout (what a claim restores) as edits on stock;
+ * The saved loadout (what a claim restores) as edits on stock;
  * empty: stock.
  */
 insured: EditView[]; 
 /**
- * What is fitted on it now; null when it isn't in any stash.
+ * What is fitted on it now; null when there is no read of it.
  */
-live: EditView[] | null }
+live: EditView[] | null; 
+/**
+ * Why `live` is null; null when it is there.
+ */
+noRead: NoReadView | null }
 /**
  * One owned ship class.
  */
-export type OwnedView = { ship: string; count: number; rented: boolean }
+export type OwnedView = { ship: string; 
+/**
+ * How many copies the account holds.
+ */
+count: number; 
+/**
+ * How many of those are rentals.
+ */
+rented: number }
 /**
  * A patch-note thread and what its title says.
  */

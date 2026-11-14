@@ -34,9 +34,8 @@ mod sets;
 pub use sets::ArmourSet;
 use sets::ArmourSets;
 use svc_dossier::inventory::{
-    ContextRecord, CraftedRecord, EntitlementRecord, EntitlementSourceRecord,
-    EntitlementStatusRecord, IngredientKindRecord, ItemRecord, LoadoutItemRecord, LoadoutRecord,
-    LoadoutSlotRecord, OwnershipRecord,
+    ContextRecord, CraftedRecord, EntitlementRecord, EntitlementSourceRecord, IngredientKindRecord,
+    ItemRecord, LoadoutItemRecord, LoadoutRecord, LoadoutSlotRecord, OwnershipRecord,
 };
 
 /// The finder's two views over one inventory fetch.
@@ -492,18 +491,6 @@ fn resolve(locale: &LocaleMap, key: &str) -> String {
     locale.resolve(key).unwrap_or(key).to_string()
 }
 
-/// Entitlements that are the player's to keep (or rent): not transient
-/// grants, not revoked or failed deliveries.
-fn counts(e: &EntitlementRecord) -> bool {
-    !matches!(
-        e.source,
-        EntitlementSourceRecord::IngameNonpersistent | EntitlementSourceRecord::ArenaCommander
-    ) && !matches!(
-        e.status,
-        EntitlementStatusRecord::Revoked | EntitlementStatusRecord::Failed
-    )
-}
-
 /// Where an instance came from: its entitlement's source, else the URN's
 /// namespace — the entitlement list misses some pledged items (a Perseus,
 /// a Prospector) whose instances carry a `urn:sc:platform:` URN.
@@ -785,7 +772,7 @@ fn ships(
     // Owned vehicles with no instance in any stash: never materialised, or
     // somewhere the stash walk doesn't reach.
     for e in &inventory.entitlements {
-        if !counts(e) || seen_urns.contains(e.urn.as_str()) {
+        if !e.held() || seen_urns.contains(e.urn.as_str()) {
             continue;
         }
         let Some(kind) = names.by_guid_str(&e.class_guid) else {
@@ -871,7 +858,7 @@ mod tests {
         EntitlementRecord {
             urn: "urn:sc:global:entitlement:uuid:x".into(),
             source,
-            status: EntitlementStatusRecord::Delivered,
+            status: svc_dossier::inventory::EntitlementStatusRecord::Delivered,
             class_guid: String::new(),
             geid: None,
             stack_size: 1,
@@ -925,16 +912,5 @@ mod tests {
         assert!(abbreviates("ARC", "ArcCorp"));
         assert!(!abbreviates("CRU", "Hurston"));
         assert!(!abbreviates("ARC", "Ar"));
-    }
-
-    #[test]
-    fn transient_and_failed_grants_dont_count() {
-        assert!(counts(&entitlement(EntitlementSourceRecord::Platform)));
-        assert!(!counts(&entitlement(
-            EntitlementSourceRecord::IngameNonpersistent
-        )));
-        let mut failed = entitlement(EntitlementSourceRecord::Platform);
-        failed.status = EntitlementStatusRecord::Failed;
-        assert!(!counts(&failed));
     }
 }

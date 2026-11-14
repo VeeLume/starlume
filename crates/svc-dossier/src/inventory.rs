@@ -181,6 +181,27 @@ pub struct EntitlementRecord {
     pub rental_expiry: Option<i64>,
 }
 
+impl EntitlementRecord {
+    /// The player's to keep or rent in the persistent universe: the one
+    /// rule for "do you have this", shared by My Items and Ships.
+    ///
+    /// Out: revoked and failed deliveries; transient in-game grants; and
+    /// Arena Commander grants. An Arena Commander entitlement is the
+    /// loaner the mode hands out: it exists for that mode only (the wire
+    /// keeps its loadout in a field of its own, apart from the stock and
+    /// saved ones), so it sits in no hangar or storage and a claim never
+    /// returns it. Counting it would list a ship the player can not spawn.
+    pub fn held(&self) -> bool {
+        !matches!(
+            self.source,
+            EntitlementSourceRecord::IngameNonpersistent | EntitlementSourceRecord::ArenaCommander
+        ) && !matches!(
+            self.status,
+            EntitlementStatusRecord::Revoked | EntitlementStatusRecord::Failed
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntitlementSourceRecord {
@@ -383,6 +404,38 @@ impl From<&sc_dossier::Loadout> for LoadoutRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entitlement(
+        source: EntitlementSourceRecord,
+        status: EntitlementStatusRecord,
+    ) -> EntitlementRecord {
+        EntitlementRecord {
+            urn: "urn:sc:global:entitlement:uuid:test".into(),
+            source,
+            status,
+            class_guid: String::new(),
+            geid: None,
+            stack_size: 1,
+            real_money: false,
+            rental_expiry: None,
+        }
+    }
+
+    #[test]
+    fn held_is_what_the_player_keeps_or_rents() {
+        use EntitlementSourceRecord as Src;
+        use EntitlementStatusRecord as St;
+        for src in [Src::Platform, Src::IngamePersistent, Src::Rental] {
+            assert!(entitlement(src, St::Delivered).held(), "{src:?}");
+            // Bought, not handed over yet: still the player's.
+            assert!(entitlement(src, St::Packaged).held(), "{src:?}");
+            assert!(!entitlement(src, St::Revoked).held(), "{src:?}");
+            assert!(!entitlement(src, St::Failed).held(), "{src:?}");
+        }
+        // Grants that end with the mode or the session.
+        assert!(!entitlement(Src::ArenaCommander, St::Delivered).held());
+        assert!(!entitlement(Src::IngameNonpersistent, St::Delivered).held());
+    }
 
     #[test]
     fn records_roundtrip_through_json() {

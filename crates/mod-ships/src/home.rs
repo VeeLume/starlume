@@ -19,8 +19,8 @@ pub struct Owned {
     pub ship: String,
     /// How many of it the account holds.
     pub count: u32,
-    /// All of them are rentals.
-    pub rented: bool,
+    /// How many of those are rentals.
+    pub rented: u32,
 }
 
 /// An entitlement as the shell reads it from the inventory snapshot.
@@ -52,17 +52,19 @@ pub fn home(ships: &[ShipRow], entitlements: Option<&[Entitlement]>, state: &Shi
         match owned.iter_mut().find(|o| o.ship == key) {
             Some(o) => {
                 o.count += 1;
-                o.rented &= e.rental;
+                o.rented += u32::from(e.rental);
             }
             None => owned.push(Owned {
                 ship: key,
                 count: 1,
-                rented: e.rental,
+                rented: u32::from(e.rental),
             }),
         }
     }
+    // Classes you only rent come last.
+    let only_rented = |o: &Owned| o.rented == o.count;
     owned.sort_by(|a, b| {
-        a.rented.cmp(&b.rented).then_with(|| {
+        only_rented(a).cmp(&only_rented(b)).then_with(|| {
             known[a.ship.as_str()]
                 .name
                 .cmp(&known[b.ship.as_str()].name)
@@ -87,5 +89,62 @@ pub fn home(ships: &[ShipRow], entitlements: Option<&[Entitlement]>, state: &Shi
             .filter(|s| known.contains_key(s.as_str()))
             .cloned()
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(guid: &str, name: &str) -> ShipRow {
+        ShipRow {
+            guid: guid.into(),
+            record_name: name.into(),
+            name: name.into(),
+            manufacturer: None,
+            manufacturer_code: None,
+            career: None,
+            role: None,
+            crew: 1,
+            seats: Default::default(),
+            base: None,
+            ground: false,
+            reward: false,
+            cargo: None,
+            deflection: None,
+        }
+    }
+
+    fn copy(class: &str, rental: bool) -> Entitlement {
+        Entitlement {
+            class: class.into(),
+            rental,
+        }
+    }
+
+    #[test]
+    fn a_class_counts_its_copies_and_how_many_are_rented() {
+        let ships = [
+            row("aa", "Zephyr"),
+            row("bb", "Albatross"),
+            row("cc", "Mule"),
+        ];
+        let held = [
+            // A pledged and a rented Zephyr; the class GUID in either case.
+            copy("AA", false),
+            copy("aa", true),
+            copy("bb", true),
+            copy("cc", false),
+            // Not a ship of this build: a part, a paint.
+            copy("dd", false),
+        ];
+        let home = home(&ships, Some(&held), &ShipsState::default());
+        let got: Vec<(&str, u32, u32)> = home
+            .owned
+            .iter()
+            .map(|o| (o.ship.as_str(), o.count, o.rented))
+            .collect();
+        // By name, the class that is only rented last.
+        assert_eq!(got, [("cc", 1, 0), ("aa", 2, 1), ("bb", 1, 1)]);
     }
 }

@@ -26,7 +26,7 @@ pub use catalog::{ShipRow, ships};
 pub use crew::{Seats, seats};
 pub use home::{Entitlement, Home, Owned, home};
 pub use loadouts::{Draft, Loadouts, SavedLoadout};
-pub use owned::{OwnedLoadouts, owned_loadouts};
+pub use owned::{NoRead, OwnedLoadouts, owned_loadouts};
 pub use power::{Column, Mode, Power, PowerInput, Source};
 pub use routes::{Place, Places, places};
 pub use state::ShipsState;

@@ -97,11 +97,8 @@ export const SECTION_ICON: Record<LoadoutSection, IconComponent> = {
 
 export const fmtN = (n: number) => n.toLocaleString("en-US");
 
-export function fmtTime(epochSeconds: number): string {
-  return new Date(epochSeconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-export const SOURCE: Record<string, string> = { pledge: "Pledge", in_game: "In-game", rental: "Rental" };
+// A ship's source and its rental end are said the same way on Ships.
+export { rentalEnd, SOURCE } from "$lib/ownedShips";
 
 /** The container browse's URL-backed filters. */
 export interface BrowseFilters {

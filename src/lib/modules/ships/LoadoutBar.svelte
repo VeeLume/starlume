@@ -1,15 +1,23 @@
 <script lang="ts">
   // The open ship's loadout, in the page bar: one control for which one is
-  // open and everything done to it. The button says which (Stock, your
-  // ship's Insured or Live loadout in the game, or a saved one) and how far
-  // the edits are from it. The menu lists them, with rename and delete on
-  // each saved one, and Revert / Save as new / Save at its foot while there
-  // are edits. The game's loadouts are read-only (the inventory My Items
-  // last read): a try-out against one saves as a new loadout. Names are
-  // typed in place, no dialog. Opening another loadout over unsaved changes
-  // asks first; deleting one asks too. Esc or a click outside closes.
+  // open and everything done to it. The button says which (Stock, a copy
+  // you own as Saved or Fitted now, or a loadout saved here) and how far
+  // the edits are from it. The menu lists them: Stock, then each copy you
+  // own under a heading that says what it is ("Pledge, Area 18 hangar",
+  // "Rental, ends 16 Nov 14:00") with its Saved and Fitted now beneath and
+  // the way to the same ship in My Items, then the loadouts saved here with
+  // rename and delete, and Revert / Save as new / Save at the foot while
+  // there are edits. A copy with nothing fitted to read keeps its Fitted
+  // now line, off, with the reason. The game's loadouts are read-only (the
+  // inventory My Items last read): a try-out against one saves as a new
+  // loadout. Names are typed in place, no dialog. Opening another loadout
+  // over unsaved changes asks first; deleting one asks too. Esc or a click
+  // outside closes.
+  import { untrack } from "svelte";
   import { ConfirmDialog } from "@veelume/ui";
-  import { Check, ChevronDown, Pencil, Trash2 } from "lucide-svelte";
+  import { ArrowUpRight, Check, ChevronDown, Pencil, Trash2 } from "lucide-svelte";
+  import { copyHeadings, FITTED, myItemsShipHref, NO_READ, SAVED } from "$lib/ownedShips";
+  import { settingsStore } from "$lib/state/settings.svelte";
   import {
     changesOf,
     deleteLoadout,
@@ -33,25 +41,40 @@
     const h = (Date.now() / 1000 - t) / 3600;
     return h < 1 ? "just now" : h < 24 ? `${Math.floor(h)} h ago` : `${Math.floor(h / 24)} d ago`;
   };
-  /** Your copies' loadouts in the game: Insured always (stock until it was
-   *  changed), Live when the copy is in a stash. Several copies: each named
-   *  by where it is. */
-  const gameOptions = $derived.by(() => {
+  /** Your copies of the open ship, each under what it is. Saved is always
+   *  there (stock until it was changed); Fitted now only with a read of the
+   *  copy, else the reason it has none. */
+  const copies = $derived.by(() => {
     const ships = owned?.ships ?? [];
-    return ships.flatMap((o, i) => {
-      const which = ships.length > 1 ? ` · ${o.place ?? `copy ${i + 1}`}` : "";
-      const read = owned?.readAt ? `, read ${ago(owned.readAt)}` : "";
-      return [
-        { value: `insured:${o.urn}`, label: `Insured${which}` },
-        ...(o.live ? [{ value: `live:${o.urn}`, label: `Live${which}${read}` }] : []),
-      ];
-    });
+    const heads = copyHeadings(ships);
+    return ships.map((o, i) => ({
+      urn: o.urn,
+      head: heads[i],
+      saved: `insured:${o.urn}`,
+      fitted: o.live ? `live:${o.urn}` : null,
+      why: o.noRead ? NO_READ[o.noRead] : "",
+      href: myItemsShipHref(o.urn, o.ownership === "bricked"),
+    }));
   });
+  const read = $derived(owned?.readAt ? `read ${ago(owned.readAt)}` : "");
+  /** My Items is a module of its own: no way there while it is off. */
+  const myItems = $derived(settingsStore.current?.enabled_modules.includes("items") ?? false);
 
   /** "Stock" is the menu's value for no base. */
   const STOCK = "stock";
-  const fixed = $derived([{ value: STOCK, label: "Stock" }, ...gameOptions]);
-  const options = $derived([...fixed, ...saved.map((s) => ({ value: s.id, label: s.name }))]);
+  /** Every loadout that can be open, by the name the button gives it: one
+   *  copy needs no more than "Saved"; several say which. */
+  const options = $derived([
+    { value: STOCK, label: "Stock" },
+    ...copies.flatMap((c) => {
+      const which = copies.length > 1 ? `, ${c.head}` : "";
+      return [
+        { value: c.saved, label: `${SAVED}${which}` },
+        ...(c.fitted ? [{ value: c.fitted, label: `${FITTED}${which}` }] : []),
+      ];
+    }),
+    ...saved.map((s) => ({ value: s.id, label: s.name })),
+  ]);
   /** What the draft is measured against: a saved loadout or one in the
    *  game; null: stock. */
   const based = $derived.by(() => {
@@ -85,6 +108,18 @@
     if (changes > 0) asking = { kind: "open", id, label: options.find((o) => o.value === value)?.label ?? "it" };
     else void openLoadout(id);
   }
+
+  // A loadout asked for from My Items ("Open in Ships"): opened like a
+  // pick from the menu, so unsaved changes are asked about first. A copy
+  // the inventory no longer has is dropped without a word.
+  $effect(() => {
+    const w = shipsUi.wanted;
+    if (!w || w.ship !== ship || !owned) return;
+    untrack(() => {
+      shipsUi.wanted = null;
+      if (options.some((o) => o.value === w.id)) pick(w.id);
+    });
+  });
 
   function startNaming() {
     newName = based && !based.game ? `${based.name} 2` : `${shipName} loadout`;
@@ -169,9 +204,30 @@
     {#if open}
       <div class="pop" role="dialog" aria-label="Loadouts">
         <div class="list">
-          {#each fixed as o (o.value)}
-            <div class="row" class:sel={o.value === current}>
-              <button type="button" class="name" onclick={() => pick(o.value)}><span>{o.label}</span></button>
+          <div class="row" class:sel={current === STOCK}>
+            <button type="button" class="name" onclick={() => pick(STOCK)}><span>Stock</span></button>
+          </div>
+          {#each copies as c (c.urn)}
+            <div class="copy" role="group" aria-label={c.head}>
+              <p class="head">{c.head}</p>
+              <div class="row" class:sel={c.saved === current}>
+                <button type="button" class="name" onclick={() => pick(c.saved)}><span>{SAVED}</span></button>
+              </div>
+              {#if c.fitted}
+                {@const id = c.fitted}
+                <div class="row" class:sel={id === current}>
+                  <button type="button" class="name" onclick={() => pick(id)}>
+                    <span>{FITTED}</span>{#if read}<small>{read}</small>{/if}
+                  </button>
+                </div>
+              {:else}
+                <div class="row off">
+                  <button type="button" class="name" disabled><span>{FITTED}</span><small>{c.why}</small></button>
+                </div>
+              {/if}
+              {#if myItems}
+                <a class="jump" href={c.href} onclick={close}>Show in My Items<ArrowUpRight size={13} /></a>
+              {/if}
             </div>
           {/each}
           {#if saved.length}<hr />{/if}
@@ -292,8 +348,10 @@
     position: absolute;
     z-index: 20;
     top: calc(100% + 6px);
-    left: 0;
-    right: 0;
+    /* A little wider than the button: a copy's heading and the reason
+     * beside a Fitted now line need the room. */
+    left: -20px;
+    right: -20px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -352,6 +410,67 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  /* A copy you own: what it is, then its two loadouts and the way to it
+   * in My Items, set in from the heading. */
+  .copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+  }
+  .head {
+    margin: 0;
+    padding: 2px 10px 3px;
+    font-size: var(--text-small);
+    line-height: 1.35;
+    color: var(--text-dim);
+  }
+  .copy .name {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding-left: 20px;
+  }
+  .copy .name span {
+    flex: none;
+  }
+  /* Beside the loadout's name, as its own quieter element: when it was
+   * read, or why there is nothing to read. */
+  .name small {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--text-small);
+    font-weight: var(--weight-regular, 400);
+    color: var(--text-faint);
+    text-align: right;
+  }
+  .row.off:hover {
+    background: none;
+  }
+  .row.off .name {
+    color: var(--text-faint);
+    cursor: default;
+  }
+  .jump {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 10px 5px 20px;
+    border-radius: var(--radius);
+    font-size: var(--text-small);
+    color: var(--text-dim);
+    text-decoration: none;
+  }
+  .jump:hover {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+  }
+  .jump:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .row.sel .name {
     color: var(--text-strong);

@@ -4,7 +4,8 @@
   // hue with its glyph), then the landing pad, the maker, CIG's career and
   // role, crew and cargo, and what it costs: in game the cheapest shop
   // (UEX), else the cheapest rental, and the pledge store's price beside
-  // it. `note` marks the card (owned ×2, rented, new in 4.10.2).
+  // it. `note` marks the card (owned ×2, new in 4.10.2); `rent` says how
+  // many of your copies are rentals, as a mark of its own beside it.
   import type { ShipRowView } from "$lib/bindings";
   import { shipsImages, shipsMarket } from "$lib/state/ships.svelte";
   import { careerLook } from "./careers";
@@ -14,11 +15,13 @@
     ship,
     note = "",
     tone = "",
+    rent = "",
     onopen,
   }: {
     ship: ShipRowView;
     note?: string;
-    tone?: "" | "new" | "rent";
+    tone?: "" | "new";
+    rent?: string;
     onopen: (guid: string) => void;
   } = $props();
 
@@ -48,7 +51,12 @@
     {:else}
       <span class="glyph"><Icon size={34} /></span>
     {/if}
-    {#if note}<span class="note" class:new={tone === "new"} class:rent={tone === "rent"}>{note}</span>{/if}
+    {#if note || rent}
+      <span class="notes">
+        {#if note}<span class="note" class:new={tone === "new"}>{note}</span>{/if}
+        {#if rent}<span class="note rent">{rent}</span>{/if}
+      </span>
+    {/if}
     <span class="title"><b>{short}</b></span>
   </span>
   <span class="body">
@@ -142,10 +150,14 @@
     text-overflow: ellipsis;
     text-shadow: 0 1px 3px color-mix(in srgb, var(--bg-sunk) 80%, transparent);
   }
-  .note {
+  .notes {
     position: absolute;
     top: 8px;
     right: 8px;
+    display: flex;
+    gap: 5px;
+  }
+  .note {
     font: 600 0.62rem var(--font-mono);
     letter-spacing: 0.05em;
     text-transform: uppercase;
