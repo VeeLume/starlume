@@ -109,6 +109,10 @@ export interface Names {
   item(guid: string): DisplayName;
   resource(guid: string): DisplayName;
   contract(internal: string): DisplayName;
+  /** A quantum destination. */
+  destination(internal: string): DisplayName;
+  /** An item the log names by class only (an attachment, its weapon). */
+  itemClass(className: string): DisplayName;
 }
 
 /** The lookup over what Rust has answered so far (`null`: nothing yet). */
@@ -122,6 +126,8 @@ export function namesFrom(book: SessionNames | null | undefined): Names {
     item: (k) => pick(book?.items, k),
     resource: (k) => pick(book?.resources, k),
     contract: (k) => pick(book?.contracts, k),
+    destination: (k) => pick(book?.destinations, k),
+    itemClass: (k) => pick(book?.item_classes, k),
   };
 }
 
@@ -133,6 +139,8 @@ export function nameQuery(session: Session): SessionNameQuery {
   const items = new Map<string, string>();
   const resources = new Set<string>();
   const contracts = new Set<string>();
+  const destinations = new Set<string>();
+  const itemClasses = new Set<string>();
   for (const { kind } of session.timeline) {
     switch (kind.type) {
       case "location":
@@ -154,6 +162,14 @@ export function nameQuery(session: Session): SessionNameQuery {
       case "mission_ended":
         if (kind.contract) contracts.add(kind.contract);
         break;
+      case "quantum_travel":
+        destinations.add(kind.to);
+        if (kind.vehicle) vehicles.add(kind.vehicle);
+        break;
+      case "attachments":
+        if (kind.weapon) itemClasses.add(kind.weapon);
+        for (const item of kind.items) itemClasses.add(item.item);
+        break;
     }
   }
   return {
@@ -164,6 +180,8 @@ export function nameQuery(session: Session): SessionNameQuery {
     items: [...items].map(([guid, class_name]) => ({ guid, class_name })),
     resources: [...resources],
     contracts: [...contracts],
+    destinations: [...destinations],
+    item_classes: [...itemClasses],
   };
 }
 
@@ -183,6 +201,8 @@ export function unanswered(
     items: query.items.filter((i) => lacks(book?.items, i.guid)),
     resources: query.resources.filter((k) => lacks(book?.resources, k)),
     contracts: query.contracts.filter((k) => lacks(book?.contracts, k)),
+    destinations: query.destinations.filter((k) => lacks(book?.destinations, k)),
+    item_classes: query.item_classes.filter((k) => lacks(book?.item_classes, k)),
   };
   const empty =
     rest.places.length +
@@ -190,7 +210,9 @@ export function unanswered(
       rest.vehicles.length +
       rest.items.length +
       rest.resources.length +
-      rest.contracts.length ===
+      rest.contracts.length +
+      rest.destinations.length +
+      rest.item_classes.length ===
     0;
   return empty ? null : rest;
 }
@@ -205,6 +227,8 @@ export function mergeNames(into: SessionNames | null | undefined, more: SessionN
     items: { ...into?.items, ...more.items },
     resources: { ...into?.resources, ...more.resources },
     contracts: { ...into?.contracts, ...more.contracts },
+    destinations: { ...into?.destinations, ...more.destinations },
+    item_classes: { ...into?.item_classes, ...more.item_classes },
   };
 }
 
@@ -339,6 +363,12 @@ function sourcesLine(sources: Session["sources"]): string {
   if (sources.log) return "Game.log only";
   if (sources.telemetry) return "telemetry only";
   return "no source";
+}
+
+/** A weapon's port as a label: `underbarrel_attach` → Underbarrel. */
+function attachmentPort(port: string): string {
+  const words = port.replace(/_attach$/, "").replaceAll("_", " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "Attachment";
 }
 
 function saidBy(entry: Entry): string {
@@ -656,6 +686,65 @@ export function readSession(session: Session, names: Names, now: number): Sessio
         const r = row(`e${entry.seq}`, entry.at, "life", title[kind.type]);
         if (place) r.meta = [{ text: place.name.name }];
         r.sources = [{ label: "Seen", value: saidBy(entry) }];
+        rows.push(r);
+        break;
+      }
+      case "quantum_travel": {
+        const to = names.destination(kind.to).name;
+        const arrived = kind.arrived_at;
+        // Without an arrival the log only says a course was set.
+        const r = row(
+          `e${entry.seq}`,
+          entry.at,
+          "ship",
+          arrived != null ? `Quantum travel to ${to}` : `Course set for ${to}`,
+        );
+        if (kind.from) r.meta.push({ text: `from ${kind.from}` });
+        const ship = kind.vehicle ? names.vehicle(kind.vehicle).name : null;
+        if (ship) r.meta.push({ text: ship });
+        if (arrived == null) r.meta.push({ text: "no arrival seen" });
+        r.facets = ["travel"];
+        if (kind.from) r.facts.push({ label: "From", value: kind.from });
+        r.facts.push({ label: "To", value: to });
+        if (ship) r.facts.push({ label: "Ship", value: ship });
+        r.facts.push({ label: "Course set", value: clockSeconds(entry.at), mono: true });
+        r.sources = [{ label: "Course set", value: saidBy(entry) }];
+        if (arrived != null) {
+          r.took = arrived - entry.at;
+          r.facts.push(
+            { label: "Arrived", value: clockSeconds(arrived), mono: true },
+            // The log has no line for the jump itself.
+            { label: "Course set to arrival", value: duration(arrived - entry.at) },
+          );
+          r.sources.push({ label: "Arrived", value: `${clockSeconds(arrived)}, from Game.log` });
+        }
+        rows.push(r);
+        break;
+      }
+      case "attachments": {
+        const fitted = kind.items.map((item) => ({
+          name: names.itemClass(item.item).name,
+          port: attachmentPort(item.port),
+        }));
+        const weapon = kind.weapon ? names.itemClass(kind.weapon).name : null;
+        const r = row(
+          `e${entry.seq}`,
+          entry.at,
+          "other",
+          fitted.length === 1 ? `Fitted ${fitted[0].name}` : `Fitted ${fitted.length} attachments`,
+        );
+        if (weapon) r.meta.push({ text: `on ${weapon}` });
+        if (fitted.length > 1) r.meta.push(...fitted.map((f) => ({ text: f.name })));
+        if (weapon) r.facts.push({ label: "Weapon", value: weapon });
+        r.facts.push(...fitted.map((f) => ({ label: f.port, value: f.name })));
+        const where = whereFact();
+        if (where) r.facts.push(where);
+        // The inventory's request: the log has no answer line for it.
+        r.sources = [{ label: "Asked for", value: saidBy(entry) }];
+        const last = kind.items.at(-1);
+        if (last && last.at > entry.at) {
+          r.sources.push({ label: "Last one", value: `${clockSeconds(last.at)}, from Game.log` });
+        }
         rows.push(r);
         break;
       }

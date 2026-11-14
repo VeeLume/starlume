@@ -84,6 +84,63 @@ pub enum LogEventKind {
     /// `Hurston Dynamics`, `Ungoverned`). **Locale-dependent.**
     JurisdictionEntered { jurisdiction: String },
 
+    // ── Quantum travel ──────────────────────────────────────────────────
+    // The log has no line for spooling or for the jump itself: a trip is
+    // "a target was selected" and, later, "the drive arrived". The arrival
+    // names no destination, so it is paired with the selection before it.
+    /// The player set a quantum destination on the star map.
+    QuantumTargetSelected {
+        /// The class of the ship doing the routing
+        /// (`RSI_Constellation_Mk5_Centaurus`): the logged entity name
+        /// without its entity id. `None` when the line names no entity.
+        vehicle_class: Option<String>,
+        /// The destination's internal name: the entity the route ends at
+        /// (`Orison_LOC`, `ObjectContainer_Lorville_City`,
+        /// `rs_ext_nyx-castra_jp1`), not a star-map record name. A mission
+        /// beacon's ends in its entity id.
+        destination: String,
+    },
+    /// A route was calculated to `destination`. Logged with every
+    /// [`QuantumTargetSelected`](Self::QuantumTargetSelected) (and again
+    /// when the route is recalculated under way).
+    QuantumRouteCalculated {
+        /// Where the route starts, **as the game names it for display**
+        /// (`Nyx Gateway`, `Hurston`, `CRU-L1 Ambitious Dream Station`):
+        /// the one part of these lines that is a name rather than an
+        /// internal id, so it most likely follows the game's language. The
+        /// line around it is engine text and parses in any language.
+        origin: String,
+        destination: String,
+    },
+    /// The quantum drive arrived at the route's final destination.
+    QuantumArrived { vehicle_class: Option<String> },
+
+    // ── Gear ────────────────────────────────────────────────────────────
+    /// An item arrived in one of the player's weapon or tool slots: what
+    /// now sits in `port`. Only the slots an attachment can be put on
+    /// through (`wep_stocked_2`, `wep_sidearm`, `weapon_attach_hand_right`,
+    /// `utility_attach_1`); the log has one such line for every piece of
+    /// gear, the rest are not events.
+    HeldItemReceived {
+        /// The item's class (`lbco_rifle_energy_01_mr01`).
+        item_class: String,
+        port: String,
+    },
+    /// The client asked to put an attachment on a weapon or tool the
+    /// player carries (the inventory's equip request). The line names the
+    /// attachment and the port path, not the weapon: pair `holder_port`
+    /// with the last [`HeldItemReceived`](Self::HeldItemReceived) for it.
+    /// **The log has no line for taking an attachment off.**
+    AttachmentRequested {
+        /// The attachment's class (`arma_barrel_supp_s2`).
+        item_class: String,
+        /// The slot the weapon sits in (`wep_stocked_2`).
+        holder_port: String,
+        /// The weapon's port it goes on (`barrel_attach`, `optics_attach`,
+        /// `underbarrel_attach`, a multitool's `module_attach`).
+        port: String,
+    },
+
     // ── Missions ────────────────────────────────────────────────────────
     /// A contract notification on the HUD. `mission_id` is absent on the
     /// ones the game logs with a zero id (`Shared`). **Locale-dependent**

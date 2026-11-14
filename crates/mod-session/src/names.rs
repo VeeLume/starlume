@@ -86,6 +86,70 @@ pub fn clean_place(internal: &str) -> CleanPlace {
     }
 }
 
+/// `Orison_LOC` → Orison; `ObjectContainer_Lorville_City` → Lorville;
+/// `rs_ext_nyx-castra_jp1` → Nyx Castra jump point; a mission beacon
+/// (`MISSION_QT_Bounty_Beacon_<entity id>`) → Bounty Beacon.
+///
+/// A quantum destination is named by the entity the route ends at, not by
+/// a star-map record, so no catalog knows it by this name: what the entity
+/// name says besides the place (its kind of container, its id) goes.
+pub fn clean_destination(internal: &str) -> String {
+    const LEAD: [&str; 8] = [
+        "LOC",
+        "ObjectContainer",
+        "OOC",
+        "MISSION",
+        "QT",
+        "rs",
+        "ext",
+        "RR",
+    ];
+    const TRAIL: [&str; 4] = ["LOC", "OC", "City", "ObjectContainer"];
+    let is = |token: &str, set: &[&str]| set.iter().any(|s| s.eq_ignore_ascii_case(token));
+    let all: Vec<&str> = internal.split('_').filter(|t| !t.is_empty()).collect();
+    let mut tokens = all.as_slice();
+    while let [first, rest @ ..] = tokens
+        && !rest.is_empty()
+        && is(first, &LEAD)
+    {
+        tokens = rest;
+    }
+    while let [rest @ .., last] = tokens
+        && !rest.is_empty()
+        && (is(last, &TRAIL) || is_number(last))
+    {
+        tokens = rest;
+    }
+    // `…_jp`, `…_jp1`: a jump point, named by the two systems it joins.
+    let jump_point = match tokens {
+        [rest @ .., last] if !rest.is_empty() => {
+            let lower = last.to_ascii_lowercase();
+            lower
+                .strip_prefix("jp")
+                .is_some_and(|n| n.chars().all(|c| c.is_ascii_digit()))
+                .then_some(rest)
+        }
+        _ => None,
+    };
+    let named: Vec<String> = without_counter(words(&jump_point.unwrap_or(tokens).join("_")))
+        .into_iter()
+        .map(|word| {
+            // The entity names of open space are all lower case.
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) if word.chars().all(|c| !c.is_uppercase()) => {
+                    first.to_uppercase().chain(chars).collect()
+                }
+                _ => word,
+            }
+        })
+        .collect();
+    match jump_point {
+        Some(_) => format!("{} jump point", named.join(" ")),
+        None => named.join(" "),
+    }
+}
+
 /// The last `_` token of a place's internal name: what a shop's name ends
 /// with when it carries its place (`Stanton2_Orison` → `Orison`).
 fn place_token(place: &str) -> Option<&str> {
@@ -181,6 +245,47 @@ mod tests {
         assert_eq!(jp.system, None);
         // A rest stop keeps its own name.
         assert_eq!(clean_place("RR_HUR_L1").name, "HUR L1");
+    }
+
+    #[test]
+    fn a_quantum_destination_loses_what_its_entity_name_adds() {
+        assert_eq!(clean_destination("Orison_LOC"), "Orison");
+        assert_eq!(clean_destination("NewBabbage_LOC"), "New Babbage");
+        assert_eq!(
+            clean_destination("ObjectContainer_Lorville_City"),
+            "Lorville"
+        );
+        assert_eq!(clean_destination("Area18_City_objectContainer"), "Area18");
+        assert_eq!(clean_destination("ObjectContainer_RestStop"), "Rest Stop");
+        assert_eq!(
+            clean_destination("OOC_Stanton_2_Crusader"),
+            "Stanton 2 Crusader"
+        );
+        assert_eq!(clean_destination("GrimHEX_OC"), "Grim HEX");
+        // A mission beacon ends in its entity id.
+        assert_eq!(
+            clean_destination("MISSION_QT_Bounty_Beacon_900000000001"),
+            "Bounty Beacon"
+        );
+        // Never cleaned down to nothing.
+        assert_eq!(clean_destination("LOC"), "LOC");
+        assert_eq!(clean_destination("pyro3"), "Pyro3");
+    }
+
+    #[test]
+    fn a_jump_point_destination_names_its_two_systems() {
+        assert_eq!(
+            clean_destination("rs_ext_nyx-castra_jp1"),
+            "Nyx Castra jump point"
+        );
+        assert_eq!(
+            clean_destination("LOC_rs_ext_stan-magnus_jp1"),
+            "Stan Magnus jump point"
+        );
+        assert_eq!(
+            clean_destination("rs_ext_pyro-nyx_jp"),
+            "Pyro Nyx jump point"
+        );
     }
 
     #[test]

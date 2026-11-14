@@ -242,10 +242,52 @@ pub enum EntryKind {
     Downed,
     Respawned,
     Spawned,
+    /// One quantum trip: a destination was set on the star map (the
+    /// entry's time) and, if `arrived_at` says so, the drive got there. The
+    /// log has no line for the jump's start, so the time between the two
+    /// includes aligning and spooling. A destination set and replaced
+    /// before any arrival leaves no entry.
+    QuantumTravel {
+        /// Where the route started, as the game names it for display
+        /// (`Nyx Gateway`): shown as it is, never looked up.
+        from: Option<String>,
+        /// The destination's internal name (`Orison_LOC`).
+        to: String,
+        /// The ship's class, when the log named one.
+        vehicle: Option<String>,
+        /// `None`: no arrival was seen (still under way, given up, or the
+        /// session ended first).
+        #[cfg_attr(feature = "specta", specta(type = Option<f64>))]
+        arrived_at: Option<Millis>,
+    },
+    /// Attachments put on one carried weapon or tool in one go (requests
+    /// close together fold into one entry; the entry's time is the first).
+    /// What the client asked for: the log has no answer line, and none for
+    /// taking an attachment off.
+    Attachments {
+        /// The weapon's class, when the log said what sits in the slot.
+        weapon: Option<String>,
+        /// The slot the weapon sits in (`wep_stocked_2`).
+        holder_port: String,
+        items: Vec<AttachedItem>,
+    },
     /// A kind a later version added: kept as a row that says so.
     #[default]
     #[serde(other)]
     Unknown,
+}
+
+/// One attachment of an [`EntryKind::Attachments`] entry.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(default)]
+pub struct AttachedItem {
+    /// The attachment's class (`arma_barrel_supp_s2`).
+    pub item: String,
+    /// The weapon's port it went on (`barrel_attach`).
+    pub port: String,
+    #[cfg_attr(feature = "specta", specta(type = f64))]
+    pub at: Millis,
 }
 
 /// How a mission ended.
@@ -440,6 +482,27 @@ mod tests {
         assert_eq!(old.started_at, 5);
         assert_eq!(old.shards[0].joined_at, 0);
         assert_eq!(old.timeline[0].kind, EntryKind::Died);
+        // The kinds added since, with only the fields they cannot do without.
+        let sparse: Session = serde_json::from_str(
+            r#"{"timeline":[
+                 {"seq":1,"kind":{"type":"quantum_travel","to":"NewCorvo_LOC"}},
+                 {"seq":2,"kind":{"type":"attachments","holder_port":"wep_sidearm",
+                                  "items":[{"item":"tnkr_optics_x1_s1"}]}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            sparse.timeline[0].kind,
+            EntryKind::QuantumTravel {
+                from: None,
+                to: "NewCorvo_LOC".into(),
+                vehicle: None,
+                arrived_at: None,
+            }
+        );
+        assert!(matches!(
+            &sparse.timeline[1].kind,
+            EntryKind::Attachments { weapon: None, items, .. } if items[0].port.is_empty()
+        ));
         assert_eq!(old.timeline[0].source, Source::Unknown);
         assert_eq!(old.wallet.opening.unwrap().balance, 10);
         assert_eq!(old.wallet.changes[0].cause, Cause::Untracked);
@@ -510,6 +573,21 @@ mod tests {
             EntryKind::Money {
                 change: MoneyChange::Fined,
                 amount: 72_000,
+            },
+            EntryKind::QuantumTravel {
+                from: Some("Tarn Gateway".into()),
+                to: "NewCorvo_LOC".into(),
+                vehicle: None,
+                arrived_at: Some(9),
+            },
+            EntryKind::Attachments {
+                weapon: Some("tnkr_rifle_01".into()),
+                holder_port: "wep_stocked_2".into(),
+                items: vec![AttachedItem {
+                    item: "tnkr_optics_x4_s2".into(),
+                    port: "optics_attach".into(),
+                    at: 7,
+                }],
             },
         ];
         for kind in kinds {
