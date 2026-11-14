@@ -156,7 +156,10 @@
 
   <section>
     <div class="head">
-      <h3>{many ? `Blueprints · ${family.ownedCount} of ${family.variants.length} owned` : "Blueprint"}</h3>
+      <h3>
+        {many ? "Blueprints" : "Blueprint"}
+        {#if many}<span class="owned-count">{family.ownedCount} of {family.variants.length} owned</span>{/if}
+      </h3>
       <!-- A plan is for the variant in view: its steps and materials are
            worked out on Plans, where count and quality are set too. -->
       {#if plans}
@@ -374,6 +377,15 @@
     color: var(--text-dim);
     text-transform: var(--label-transform);
     letter-spacing: var(--label-tracking);
+  }
+  /* The count beside a heading: its own quiet element, not joined on. */
+  .owned-count {
+    margin-left: 8px;
+    font-family: var(--font-sans);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-faint);
   }
   .head {
     display: flex;

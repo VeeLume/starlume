@@ -38,20 +38,53 @@ fn state_path() -> std::path::PathBuf {
     app_kit::app_data_root().join("plans").join("plans.json")
 }
 
-/// The plans. A file that no longer parses is moved aside, never
-/// overwritten: it is the player's own work.
+/// Read the plans file. A missing file is an empty start; a file that
+/// cannot be read or does not parse is an error, never an empty state: the
+/// plans are the player's own work, and "empty" would be written back over
+/// them by the next change.
+fn read_state_at(path: &std::path::Path) -> Result<PlansState, AppError> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(PlansState::default()),
+        Err(e) => {
+            return Err(AppError::Internal(format!(
+                "your plans could not be read ({e}); nothing was changed"
+            )));
+        }
+    };
+    serde_json::from_slice(&bytes).map_err(|e| {
+        AppError::Internal(format!(
+            "your plans file does not parse ({e}); nothing was changed"
+        ))
+    })
+}
+
+/// Read, change and write the plans file. Nothing is written when the read
+/// failed.
+fn change_at(
+    path: &std::path::Path,
+    f: impl FnOnce(&mut PlansState),
+) -> Result<Vec<Plan>, AppError> {
+    let mut state = read_state_at(path)?;
+    f(&mut state);
+    app_kit::save_json(path, &state)?;
+    Ok(state.plans)
+}
+
+/// The plans, for showing. A file that cannot be read shows as no plans
+/// (logged); it is left as it is, and a change then reports the error.
 fn load_state() -> PlansState {
     let _lock = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    app_kit::load_json_or_set_aside(&state_path())
+    read_state_at(&state_path()).unwrap_or_else(|e| {
+        tracing::warn!("plans: {e}");
+        PlansState::default()
+    })
 }
 
 fn change(app: &AppHandle, f: impl FnOnce(&mut PlansState)) -> Result<Vec<Plan>, AppError> {
     let plans = {
         let _lock = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let mut state: PlansState = app_kit::load_json_or_set_aside(&state_path());
-        f(&mut state);
-        app_kit::save_json(&state_path(), &state)?;
-        state.plans
+        change_at(&state_path(), f)?
     };
     let _ = app.emit(PLANS_CHANGED_EVENT, ());
     Ok(plans)
@@ -768,5 +801,59 @@ impl Gathered<'_> {
                 sites: found,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn craft(blueprint: &str) -> Goal {
+        Goal::Craft(CraftGoal {
+            blueprint: blueprint.into(),
+            count: 1,
+            quality: 0,
+        })
+    }
+
+    #[test]
+    fn a_missing_file_is_an_empty_start_and_the_first_change_creates_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plans").join("plans.json");
+        assert_eq!(read_state_at(&path).unwrap(), PlansState::default());
+        let plans = change_at(&path, |s| {
+            s.add("", craft("bp-a"));
+        })
+        .unwrap();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(read_state_at(&path).unwrap().plans, plans);
+    }
+
+    #[test]
+    fn a_file_that_does_not_parse_is_an_error_and_is_left_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plans.json");
+        let kept = br#"{"plans":[{"id":"p1","goal":{"kind":"craft","blueprint":"bp-a"}}"#;
+        std::fs::write(&path, kept).unwrap();
+        let result = change_at(&path, |s| {
+            s.add("", craft("bp-b"));
+        });
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), kept);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_an_error_and_nothing_is_written() {
+        // A directory where the file should be: the read fails with
+        // something other than "not found".
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plans.json");
+        std::fs::create_dir(&path).unwrap();
+        let result = change_at(&path, |s| {
+            s.add("", craft("bp-a"));
+        });
+        assert!(result.is_err());
+        assert!(path.is_dir());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }
