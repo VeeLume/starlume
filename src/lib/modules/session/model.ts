@@ -1,8 +1,28 @@
 // Session log: how a session reads on the page. Pure (no stores, no IPC), so
 // vitest covers it. The wording is UI text (English, like the rest); numbers
 // and times follow the user's formatting locale.
+//
+// A session's timeline is what the log and the stream said, entry by entry.
+// The page shows fewer, larger things: `readSession` folds the entries into
+// rows (a mission with its objectives is one row, a vehicle's enter and
+// leave are one stay, jurisdiction changes are words on a place) and into
+// the status strip's "what is true now".
+//
+// Names: a session stores the game's internal names. The page gets display
+// names from Rust (`session_names`); `Names` is that lookup. A name that
+// has not arrived yet reads as `PENDING`, never as the internal one.
 
-import type { Entry, EntryKind, Session, SessionSummary, WalletChange } from "$lib/bindings";
+import type {
+  DisplayName,
+  Entry,
+  Session,
+  SessionNameQuery,
+  SessionNames,
+  SessionSummary,
+  WalletChange,
+} from "$lib/bindings";
+
+// ── Formatting ──────────────────────────────────────────────────────────────
 
 /** "2 h 14 min", "45 min", "under a minute". */
 export function duration(ms: number): string {
@@ -24,19 +44,34 @@ export function sessionLength(
 
 const whole = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 
+/** "125,000". */
+export function amount(value: number): string {
+  return whole.format(value);
+}
+
+/** "+25,000" / "−825" / "±0". */
+export function signed(value: number): string {
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "±";
+  return `${sign}${whole.format(Math.abs(value))}`;
+}
+
 /** "125,000 aUEC". */
-export function auec(amount: number): string {
-  return `${whole.format(amount)} aUEC`;
+export function auec(value: number): string {
+  return `${amount(value)} aUEC`;
 }
 
 /** "+25,000 aUEC" / "−825 aUEC" / "±0 aUEC". */
-export function signedAuec(amount: number): string {
-  const sign = amount > 0 ? "+" : amount < 0 ? "−" : "±";
-  return `${sign}${whole.format(Math.abs(amount))} aUEC`;
+export function signedAuec(value: number): string {
+  return `${signed(value)} aUEC`;
 }
 
-/** The time of day ("14:23:05"). */
+/** The time of day ("14:23"). */
 export function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/** The time of day to the second ("14:23:05"), for a row's details. */
+export function clockSeconds(ms: number): string {
   return new Date(ms).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -49,245 +84,843 @@ export function dayTime(ms: number): string {
   return new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
-/** What the timeline's "Show" filter sorts entries into. */
-export type EntryGroup = "session" | "places" | "missions" | "money" | "vehicles" | "life";
+/** The day ("13 Nov 2026"). */
+export function day(ms: number): string {
+  return new Date(ms).toLocaleDateString([], { dateStyle: "medium" });
+}
 
-export const ENTRY_GROUPS: { value: EntryGroup; label: string }[] = [
+/** "1 shard" / "3 shards". */
+export function count(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+// ── Names ───────────────────────────────────────────────────────────────────
+
+/** What a name reads as until Rust has answered. */
+export const PENDING = "…";
+
+const pending: DisplayName = { name: PENDING, parents: [], resolved: false };
+
+/** Display names by internal name. */
+export interface Names {
+  place(internal: string): DisplayName;
+  shop(internal: string): DisplayName;
+  vehicle(className: string): DisplayName;
+  item(guid: string): DisplayName;
+  resource(guid: string): DisplayName;
+  contract(internal: string): DisplayName;
+}
+
+/** The lookup over what Rust has answered so far (`null`: nothing yet). */
+export function namesFrom(book: SessionNames | null | undefined): Names {
+  const pick = (map: Partial<Record<string, DisplayName>> | undefined, key: string) =>
+    map?.[key] ?? pending;
+  return {
+    place: (k) => pick(book?.places, k),
+    shop: (k) => pick(book?.shops, k),
+    vehicle: (k) => pick(book?.vehicles, k),
+    item: (k) => pick(book?.items, k),
+    resource: (k) => pick(book?.resources, k),
+    contract: (k) => pick(book?.contracts, k),
+  };
+}
+
+/** Every internal name a session holds, for `session_names`. */
+export function nameQuery(session: Session): SessionNameQuery {
+  const places = new Set<string>();
+  const shops = new Set<string>();
+  const vehicles = new Set<string>();
+  const items = new Map<string, string>();
+  const resources = new Set<string>();
+  const contracts = new Set<string>();
+  for (const { kind } of session.timeline) {
+    switch (kind.type) {
+      case "location":
+      case "refinery_order_completed":
+        places.add(kind.location);
+        break;
+      case "shop_purchase":
+        shops.add(kind.shop);
+        items.set(kind.item_guid, kind.item_name);
+        break;
+      case "trade":
+        shops.add(kind.shop);
+        resources.add(kind.resource_guid);
+        break;
+      case "vehicle_entered":
+      case "vehicle_left":
+        vehicles.add(kind.class_name);
+        break;
+      case "mission_ended":
+        if (kind.contract) contracts.add(kind.contract);
+        break;
+    }
+  }
+  return {
+    channel: session.channel,
+    places: [...places],
+    shops: [...shops],
+    vehicles: [...vehicles],
+    items: [...items].map(([guid, class_name]) => ({ guid, class_name })),
+    resources: [...resources],
+    contracts: [...contracts],
+  };
+}
+
+/** The part of `query` that `book` has no answer for; `null` when it has
+ *  them all. */
+export function unanswered(
+  query: SessionNameQuery,
+  book: SessionNames | null | undefined,
+): SessionNameQuery | null {
+  const lacks = (map: Partial<Record<string, DisplayName>> | undefined, key: string) =>
+    !map || !(key in map);
+  const rest: SessionNameQuery = {
+    channel: query.channel,
+    places: query.places.filter((k) => lacks(book?.places, k)),
+    shops: query.shops.filter((k) => lacks(book?.shops, k)),
+    vehicles: query.vehicles.filter((k) => lacks(book?.vehicles, k)),
+    items: query.items.filter((i) => lacks(book?.items, i.guid)),
+    resources: query.resources.filter((k) => lacks(book?.resources, k)),
+    contracts: query.contracts.filter((k) => lacks(book?.contracts, k)),
+  };
+  const empty =
+    rest.places.length +
+      rest.shops.length +
+      rest.vehicles.length +
+      rest.items.length +
+      rest.resources.length +
+      rest.contracts.length ===
+    0;
+  return empty ? null : rest;
+}
+
+/** `into` with the answers of `more` added (newer answers win). */
+export function mergeNames(into: SessionNames | null | undefined, more: SessionNames): SessionNames {
+  return {
+    data_loaded: more.data_loaded,
+    places: { ...into?.places, ...more.places },
+    shops: { ...into?.shops, ...more.shops },
+    vehicles: { ...into?.vehicles, ...more.vehicles },
+    items: { ...into?.items, ...more.items },
+    resources: { ...into?.resources, ...more.resources },
+    contracts: { ...into?.contracts, ...more.contracts },
+  };
+}
+
+// ── Rows ────────────────────────────────────────────────────────────────────
+
+/** What a row is about: its hue on the page. */
+export type RowKind = "session" | "place" | "ship" | "mission" | "buy" | "money" | "life" | "other";
+
+/** The log's "Show" filter. A row can be in several (a mission that paid). */
+export type Facet = "missions" | "money" | "travel";
+
+export const FACETS: { value: Facet; label: string }[] = [
   { value: "missions", label: "Missions" },
   { value: "money", label: "Money" },
-  { value: "places", label: "Places" },
-  { value: "vehicles", label: "Vehicles" },
-  { value: "life", label: "Deaths and respawns" },
-  { value: "session", label: "Shards" },
+  { value: "travel", label: "Travel" },
 ];
 
-export function entryGroup(kind: EntryKind): EntryGroup {
-  switch (kind.type) {
-    case "shard_joined":
-    case "unknown":
-      return "session";
-    case "location":
-    case "jurisdiction":
-      return "places";
-    case "mission_accepted":
-    case "objective":
-    case "mission_ended":
-    case "blueprint_received":
-      return "missions";
-    case "refinery_order_completed":
-    case "trade":
-    case "shop_purchase":
-    case "money":
-      return "money";
-    case "vehicle_entered":
-    case "vehicle_left":
-      return "vehicles";
-    case "died":
-    case "downed":
-    case "respawned":
-    case "spawned":
-      return "life";
-  }
+/** One quiet fact beside a row's title: its own element on the page. */
+export interface MetaPart {
+  text: string;
+  /** Outlined, like a tag (a jurisdiction). */
+  chip?: boolean;
+}
+
+/** One objective of a mission. */
+export interface Step {
+  at: number;
+  /** Game text (for RichText). */
+  text: string;
+  state: "done" | "current" | "open" | "withdrawn";
+}
+
+/** A label and a value in a row's details. */
+export interface DetailFact {
+  label: string;
+  value: string;
+  mono?: boolean;
+}
+
+/** One row of the log. */
+export interface LogRow {
+  key: string;
+  at: number;
+  kind: RowKind;
+  /** What happened. A name or game text, never an internal id. */
+  title: string;
+  meta: MetaPart[];
+  /** How long it took (a stay, a mission); `null` = nothing to time. */
+  took: number | null;
+  /** Still going: `took` counts up to now. */
+  running: boolean;
+  /** What it did to the balance, or what the log says it cost. */
+  amount: number | null;
+  facets: Facet[];
+  steps: Step[];
+  facts: DetailFact[];
+  /** Which source said what, and when. */
+  sources: DetailFact[];
+  /** Extra text the search looks at. */
+  search: string[];
+}
+
+/** The status strip: what is true now (or was, when the session ended). */
+export interface StatusNow {
+  where: {
+    name: string;
+    /** The outermost place it lies in (the system). */
+    system: string | null;
+    jurisdictions: string[];
+    arrivedAt: number;
+  } | null;
+  ship: {
+    /** The vehicle sat in right now (a running session only). */
+    aboard: { name: string; since: number } | null;
+    last: { name: string; leftAt: number; took: number } | null;
+    stays: number;
+  };
+  mission: {
+    running: {
+      title: string;
+      objective: string | null;
+      objectiveNo: number;
+      objectiveSince: number | null;
+      acceptedAt: number | null;
+    } | null;
+    last: { title: string; outcome: string; endedAt: number; amount: number | null } | null;
+    count: number;
+  };
+}
+
+export interface SessionReading {
+  /** Oldest first. */
+  rows: LogRow[];
+  status: StatusNow;
+  /** Timeline entries read (what the rows were folded from). */
+  entries: number;
+  /** Balance changes, and how many of them a row explains. */
+  changes: number;
+  explained: number;
 }
 
 const OUTCOME = {
-  completed: "Mission completed",
-  failed: "Mission failed",
-  abandoned: "Mission abandoned",
-  withdrawn: "Mission withdrawn",
-  ended: "Mission ended",
+  completed: "completed",
+  failed: "failed",
+  abandoned: "abandoned",
+  withdrawn: "withdrawn",
+  ended: "ended",
 } as const;
 
-const OBJECTIVE = {
-  New: "New objective",
-  Completed: "Objective completed",
-  Withdrawn: "Objective withdrawn",
-} as const;
+const SOURCE = { log: "Game.log", telemetry: "telemetry", unknown: "an unknown source" } as const;
 
-/** The row's heading: what kind of thing happened. Never game text. */
-export function entryTitle(kind: EntryKind): string {
-  switch (kind.type) {
-    case "shard_joined":
-      return "Joined shard";
-    case "location":
-      return "Arrived";
-    case "jurisdiction":
-      return "Entered jurisdiction";
-    case "mission_accepted":
-      return "Mission accepted";
-    case "objective":
-      return OBJECTIVE[kind.change];
-    case "mission_ended":
-      return OUTCOME[kind.outcome];
-    case "blueprint_received":
-      return "Blueprint received";
-    case "refinery_order_completed":
-      return "Refinery order completed";
-    case "trade":
-      return kind.side === "Buy" ? "Bought cargo" : "Sold cargo";
-    case "shop_purchase":
-      return kind.rental ? "Rented" : "Bought";
-    case "money":
-      return kind.change === "Awarded" ? "Awarded" : "Fined";
-    case "vehicle_entered":
-      return "Entered vehicle";
-    case "vehicle_left":
-      return "Left vehicle";
-    case "died":
-      return "Died";
-    case "downed":
-      return "Downed";
-    case "respawned":
-      return "Respawned";
-    case "spawned":
-      return "Spawned";
-    case "unknown":
-      // Written by a newer Starlume than this one.
-      return "Not shown by this version";
+function row(key: string, at: number, kind: RowKind, title: string): LogRow {
+  return {
+    key,
+    at,
+    kind,
+    title,
+    meta: [],
+    took: null,
+    running: false,
+    amount: null,
+    facets: [],
+    steps: [],
+    facts: [],
+    sources: [],
+    search: [],
+  };
+}
+
+function sourcesLine(sources: Session["sources"]): string {
+  if (sources.log && sources.telemetry) return "Game.log and telemetry";
+  if (sources.log) return "Game.log only";
+  if (sources.telemetry) return "telemetry only";
+  return "no source";
+}
+
+function saidBy(entry: Entry): string {
+  const hud = entry.locale_dependent ? ", English HUD text" : "";
+  return `${clockSeconds(entry.at)}, from ${SOURCE[entry.source]}${hud}`;
+}
+
+interface PlaceState {
+  row: LogRow;
+  name: DisplayName;
+  jurisdictions: string[];
+  arrivedAt: number;
+}
+
+interface StayState {
+  row: LogRow;
+  name: string;
+  className: string;
+  enteredAt: number;
+  from: string | null;
+}
+
+interface MissionState {
+  row: LogRow;
+  title: string | null;
+  acceptedAt: number | null;
+  ended: { at: number; outcome: keyof typeof OUTCOME } | null;
+  change: WalletChange | null;
+  said: Entry;
+}
+
+/** Fold a session into rows and the status strip. `now` times what still
+ *  runs; it matters only for a live session. */
+export function readSession(session: Session, names: Names, now: number): SessionReading {
+  const end = session.ended_at ?? (session.live ? now : session.last_activity_at);
+  const open = session.live;
+  const byEntry = new Map<number, WalletChange>();
+  const onTimeline = new Set(session.timeline.map((e) => e.seq));
+  const rows: LogRow[] = [];
+  let explained = 0;
+
+  for (const change of session.wallet.changes) {
+    if (change.cause.type === "entry" && onTimeline.has(change.cause.seq)) {
+      byEntry.set(change.cause.seq, change);
+      explained++;
+      continue;
+    }
+    const r = row(`w${change.at}:${change.to}`, change.at, "money", "Balance changed");
+    r.meta = [{ text: "no log entry explains it" }];
+    r.amount = change.delta;
+    r.facets = ["money"];
+    r.facts = [
+      { label: "Before", value: auec(change.from), mono: true },
+      { label: "After", value: auec(change.to), mono: true },
+    ];
+    r.sources = [{ label: "Seen", value: `${clockSeconds(change.at)}, from the telemetry balance` }];
+    rows.push(r);
+  }
+
+  // The session's own first row.
+  const start = row("start", session.started_at, "session", "Session started");
+  if (session.shards.length > 0) start.meta.push({ text: "joined a shard" });
+  if (session.channel) start.meta.push({ text: session.channel });
+  start.meta.push({ text: sourcesLine(session.sources) });
+  start.facts = [{ label: "Started", value: dayTime(session.started_at) }];
+  if (session.branch) start.facts.push({ label: "Branch", value: session.branch, mono: true });
+  if (session.build) start.facts.push({ label: "Build", value: session.build, mono: true });
+  if (session.shards[0]) start.facts.push({ label: "Shard", value: session.shards[0].shard, mono: true });
+  rows.push(start);
+
+  let place: PlaceState | null = null;
+  const places: PlaceState[] = [];
+  let stay: StayState | null = null;
+  let stays = 0;
+  let lastStay: StatusNow["ship"]["last"] = null;
+  let jurisdiction: string | null = null;
+  let shardJoins = 0;
+  const missions: MissionState[] = [];
+  const missionById = new Map<string, MissionState>();
+
+  const mission = (id: string | null, entry: Entry): MissionState => {
+    // An objective without an id belongs to the mission still open.
+    const known = id ? missionById.get(id) : [...missions].reverse().find((m) => !m.ended);
+    if (known) return known;
+    const m: MissionState = {
+      row: row(`e${entry.seq}`, entry.at, "mission", "Mission"),
+      title: null,
+      acceptedAt: null,
+      ended: null,
+      change: null,
+      said: entry,
+    };
+    m.row.facets = ["missions"];
+    missions.push(m);
+    if (id) missionById.set(id, m);
+    rows.push(m.row);
+    return m;
+  };
+
+  const whereFact = (): DetailFact | null =>
+    place ? { label: "Where", value: [place.name.name, ...place.name.parents].join(", ") } : null;
+
+  for (const entry of session.timeline) {
+    const kind = entry.kind;
+    switch (kind.type) {
+      case "shard_joined": {
+        if (++shardJoins === 1) break; // The first join is the start row's.
+        const r = row(`e${entry.seq}`, entry.at, "session", "Changed shard");
+        r.facts = [{ label: "Shard", value: kind.shard, mono: true }];
+        r.sources = [{ label: "Joined", value: saidBy(entry) }];
+        rows.push(r);
+        break;
+      }
+      case "jurisdiction": {
+        jurisdiction = kind.jurisdiction;
+        // On foot at a place, a change is that place's (Levski has two).
+        // In a ship it is the way to the next one; without telemetry there
+        // is no telling, so only the one at arrival is kept.
+        if (place && !stay && session.sources.telemetry) {
+          if (!place.jurisdictions.includes(kind.jurisdiction)) {
+            place.jurisdictions.push(kind.jurisdiction);
+          }
+        }
+        break;
+      }
+      case "location": {
+        const name = names.place(kind.location);
+        const r = row(`e${entry.seq}`, entry.at, "place", name.name);
+        r.facets = ["travel"];
+        r.sources = [{ label: "Arrived", value: saidBy(entry) }];
+        place = {
+          row: r,
+          name,
+          jurisdictions: jurisdiction ? [jurisdiction] : [],
+          arrivedAt: entry.at,
+        };
+        places.push(place);
+        rows.push(r);
+        break;
+      }
+      case "mission_accepted": {
+        const m = mission(kind.mission_id, entry);
+        m.title = kind.title;
+        m.acceptedAt = entry.at;
+        m.row.at = entry.at;
+        break;
+      }
+      case "objective": {
+        const m = mission(kind.mission_id, entry);
+        const steps = m.row.steps;
+        const same = [...steps].reverse().find((s) => s.text === kind.text && s.state === "open");
+        if (kind.change === "New") {
+          steps.push({ at: entry.at, text: kind.text, state: "open" });
+        } else {
+          const state = kind.change === "Completed" ? "done" : "withdrawn";
+          if (same) same.state = state;
+          else steps.push({ at: entry.at, text: kind.text, state });
+        }
+        break;
+      }
+      case "mission_ended": {
+        const m = mission(kind.mission_id, entry);
+        m.ended = { at: entry.at, outcome: kind.outcome };
+        m.title = kind.title ?? m.title ?? (kind.contract ? names.contract(kind.contract).name : null);
+        m.change = byEntry.get(entry.seq) ?? null;
+        m.said = entry;
+        break;
+      }
+      case "blueprint_received": {
+        const r = row(`e${entry.seq}`, entry.at, "mission", "Blueprint received");
+        r.meta = [{ text: kind.name }];
+        r.facets = ["missions"];
+        r.sources = [{ label: "Received", value: saidBy(entry) }];
+        rows.push(r);
+        break;
+      }
+      case "refinery_order_completed": {
+        const at = names.place(kind.location);
+        const r = row(`e${entry.seq}`, entry.at, "other", "Refinery order ready");
+        r.meta = [{ text: at.name }, ...at.parents.map((text) => ({ text }))];
+        r.sources = [{ label: "Reported", value: saidBy(entry) }];
+        rows.push(r);
+        break;
+      }
+      case "shop_purchase": {
+        const item = names.item(kind.item_guid).name;
+        const shop = names.shop(kind.shop).name;
+        const change = byEntry.get(entry.seq) ?? null;
+        const r = row(
+          `e${entry.seq}`,
+          entry.at,
+          "buy",
+          kind.quantity > 1 ? `${kind.quantity} × ${item}` : item,
+        );
+        r.meta = [{ text: shop }];
+        if (place) r.meta.push({ text: place.name.name });
+        if (kind.rental) r.meta.push({ text: "rented" });
+        if (kind.outcome === "rejected") r.meta.push({ text: "refused" });
+        if (kind.outcome === "requested") r.meta.push({ text: "not confirmed" });
+        r.amount = kind.outcome === "rejected" ? null : (change?.delta ?? -kind.price);
+        r.facets = ["money"];
+        r.facts = [{ label: "Quantity", value: String(kind.quantity), mono: true }];
+        if (kind.quantity > 1) {
+          r.facts.push({ label: "Each", value: auec(Math.round(kind.price / kind.quantity)), mono: true });
+        }
+        r.facts.push(
+          { label: kind.outcome === "rejected" ? "Asked" : "Paid", value: signedAuec(-kind.price), mono: true },
+          { label: "Shop", value: shop },
+        );
+        const where = whereFact();
+        if (where) r.facts.push(where);
+        r.sources = [{ label: kind.rental ? "Rented" : "Bought", value: saidBy(entry) }];
+        if (change) {
+          r.sources.push({
+            label: "Charged",
+            value: `${clockSeconds(change.at)}, from the telemetry balance`,
+          });
+        }
+        rows.push(r);
+        break;
+      }
+      case "trade": {
+        const resource = names.resource(kind.resource_guid).name;
+        const shop = names.shop(kind.shop).name;
+        const change = byEntry.get(entry.seq) ?? null;
+        const bought = kind.side === "Buy";
+        const unit = kind.quantity_unit ? ` ${kind.quantity_unit}` : "";
+        const r = row(
+          `e${entry.seq}`,
+          entry.at,
+          "buy",
+          `${bought ? "Bought" : "Sold"} ${kind.quantity}${unit} ${resource}`,
+        );
+        r.meta = [{ text: shop }];
+        if (place) r.meta.push({ text: place.name.name });
+        if (kind.outcome === "rejected") r.meta.push({ text: "refused" });
+        // The log has no answer line for commodity trades.
+        if (kind.outcome === "requested" && !change) r.meta.push({ text: "not confirmed" });
+        const stated = bought ? -kind.price : kind.price;
+        r.amount = kind.outcome === "rejected" ? null : (change?.delta ?? stated);
+        r.facets = ["money"];
+        r.facts = [
+          { label: "Quantity", value: `${kind.quantity}${unit}`, mono: true },
+          { label: bought ? "Asked to pay" : "Asked for", value: signedAuec(stated), mono: true },
+          { label: "Shop", value: shop },
+        ];
+        const where = whereFact();
+        if (where) r.facts.push(where);
+        r.sources = [{ label: bought ? "Bought" : "Sold", value: saidBy(entry) }];
+        if (change) {
+          r.sources.push({
+            label: bought ? "Charged" : "Paid out",
+            value: `${clockSeconds(change.at)}, from the telemetry balance`,
+          });
+        }
+        rows.push(r);
+        break;
+      }
+      case "money": {
+        const awarded = kind.change === "Awarded";
+        const change = byEntry.get(entry.seq) ?? null;
+        const r = row(`e${entry.seq}`, entry.at, "money", awarded ? "Awarded" : "Fined");
+        r.amount = change?.delta ?? (awarded ? kind.amount : -kind.amount);
+        r.facets = ["money"];
+        r.sources = [{ label: awarded ? "Awarded" : "Fined", value: saidBy(entry) }];
+        if (change) {
+          r.sources.push({
+            label: "Balance",
+            value: `${clockSeconds(change.at)}, from the telemetry balance`,
+          });
+        }
+        rows.push(r);
+        break;
+      }
+      case "vehicle_entered": {
+        const name = names.vehicle(kind.class_name).name;
+        const r = row(`e${entry.seq}`, entry.at, "ship", name);
+        r.facets = ["travel"];
+        r.sources = [{ label: "Entered", value: saidBy(entry) }];
+        stay = {
+          row: r,
+          name,
+          className: kind.class_name,
+          enteredAt: entry.at,
+          from: place?.name.name ?? null,
+        };
+        stays++;
+        rows.push(r);
+        break;
+      }
+      case "vehicle_left": {
+        const name = names.vehicle(kind.class_name).name;
+        if (!stay) {
+          // Entered before this session's timeline begins.
+          const r = row(`e${entry.seq}`, entry.at, "ship", name);
+          r.meta = [{ text: "left" }];
+          r.facets = ["travel"];
+          r.sources = [{ label: "Left", value: saidBy(entry) }];
+          rows.push(r);
+          stays++;
+          lastStay = { name, leftAt: entry.at, took: 0 };
+          break;
+        }
+        closeStay(stay, entry.at, place?.name.name ?? null, `until ${clock(entry.at)}`);
+        stay.row.sources.push({ label: "Left", value: saidBy(entry) });
+        lastStay = { name: stay.name, leftAt: entry.at, took: entry.at - stay.enteredAt };
+        stay = null;
+        break;
+      }
+      case "died":
+      case "downed":
+      case "respawned":
+      case "spawned": {
+        const title = { died: "Died", downed: "Downed", respawned: "Respawned", spawned: "Spawned" };
+        const r = row(`e${entry.seq}`, entry.at, "life", title[kind.type]);
+        if (place) r.meta = [{ text: place.name.name }];
+        r.sources = [{ label: "Seen", value: saidBy(entry) }];
+        rows.push(r);
+        break;
+      }
+      case "unknown": {
+        // Written by a newer Starlume than this one.
+        rows.push(row(`e${entry.seq}`, entry.at, "other", "Not shown by this version"));
+        break;
+      }
+    }
+  }
+
+  // A place's jurisdiction words can grow until the next place, so its
+  // quiet parts are written now: what it lies in, then its jurisdictions.
+  for (const p of places) {
+    p.row.meta = [
+      ...p.name.parents.map((text) => ({ text })),
+      ...p.jurisdictions.map((text) => ({ text, chip: true })),
+    ];
+    if (p.name.parents.length > 0) {
+      p.row.facts.push({ label: "Lies in", value: p.name.parents.join(", ") });
+    }
+    if (p.jurisdictions.length > 0) {
+      p.row.facts.push({ label: "Jurisdiction", value: p.jurisdictions.join(", ") });
+    }
+  }
+
+  let aboard: StatusNow["ship"]["aboard"] = null;
+  if (stay) {
+    if (open) {
+      stay.row.running = true;
+      stay.row.took = now - stay.enteredAt;
+      stay.row.meta = [{ text: "aboard" }];
+      if (stay.from) stay.row.meta.push({ text: `from ${stay.from}` });
+      aboard = { name: stay.name, since: stay.enteredAt };
+    } else {
+      closeStay(stay, end, place?.name.name ?? null, "until the session ended");
+      lastStay = { name: stay.name, leftAt: end, took: end - stay.enteredAt };
+    }
+  }
+
+  for (const m of missions) finishMission(m, open, now);
+
+  if (!open) {
+    const ended = row("end", end, "session", "Session ended");
+    ended.meta = [{ text: duration(end - session.started_at) }];
+    if (session.shards.length > 0) ended.meta.push({ text: count(session.shards.length, "shard") });
+    ended.facts = [{ label: "Ended", value: dayTime(end) }];
+    if (session.end_reason) ended.facts.push({ label: "Reason", value: session.end_reason });
+    else ended.facts.push({ label: "Reason", value: "the game was no longer seen" });
+    rows.push(ended);
+  }
+
+  // Stable: rows of one instant keep the order they were read in.
+  rows.sort((a, b) => a.at - b.at);
+  for (const r of rows) {
+    r.search = [...r.meta.map((m) => m.text), ...r.steps.map((s) => s.text), ...r.facts.map((f) => f.value)];
+  }
+
+  const running = open ? [...missions].reverse().find((m) => !m.ended) : undefined;
+  const lastEnded = missions
+    .filter((m) => m.ended)
+    .sort((a, b) => b.ended!.at - a.ended!.at)[0];
+  const current = running
+    ? ([...running.row.steps].reverse().find((s) => s.state === "current") ?? null)
+    : null;
+
+  return {
+    rows,
+    entries: session.timeline.length,
+    changes: session.wallet.changes.length,
+    explained,
+    status: {
+      where: place
+        ? {
+            name: place.name.name,
+            system: place.name.parents.at(-1) ?? null,
+            jurisdictions: place.jurisdictions,
+            arrivedAt: place.arrivedAt,
+          }
+        : null,
+      ship: { aboard, last: lastStay, stays },
+      mission: {
+        running: running
+          ? {
+              title: running.row.title,
+              objective: current?.text ?? null,
+              objectiveNo: running.row.steps.length,
+              objectiveSince: current?.at ?? null,
+              acceptedAt: running.acceptedAt,
+            }
+          : null,
+        last: lastEnded
+          ? {
+              title: lastEnded.row.title,
+              outcome: OUTCOME[lastEnded.ended!.outcome],
+              endedAt: lastEnded.ended!.at,
+              amount: lastEnded.change?.delta ?? null,
+            }
+          : null,
+        count: missions.length,
+      },
+    },
+  };
+
+  // ── helpers that close what the loop opened ──
+
+  function closeStay(s: StayState, at: number, to: string | null, until: string) {
+    s.row.took = at - s.enteredAt;
+    s.row.meta = [{ text: until }];
+    const route = s.from && to && s.from !== to ? `${s.from} → ${to}` : (to ?? s.from);
+    if (route) s.row.meta.push({ text: route });
+    s.row.facts = [
+      { label: "Entered", value: clockSeconds(s.enteredAt), mono: true },
+      { label: "Left", value: clockSeconds(at), mono: true },
+      { label: "In it", value: duration(at - s.enteredAt) },
+    ];
+    if (s.from) s.row.facts.push({ label: "Boarded at", value: s.from });
+    if (to && to !== s.from) s.row.facts.push({ label: "Left at", value: to });
   }
 }
 
-/** The row's subject: the game's own text or name for it (a mission title,
- *  a place, an item class). Rendered through RichText. `null` = none. */
-export function entrySubject(kind: EntryKind): string | null {
-  switch (kind.type) {
-    case "shard_joined":
-      return kind.shard;
-    case "location":
-      return kind.location;
-    case "jurisdiction":
-      return kind.jurisdiction;
-    case "mission_accepted":
-      return kind.title;
-    case "objective":
-      return kind.text;
-    case "mission_ended":
-      return kind.title ?? kind.contract;
-    case "blueprint_received":
-      return kind.name;
-    case "refinery_order_completed":
-      return kind.location;
-    case "trade":
-      return kind.shop;
-    case "shop_purchase":
-      return kind.quantity > 1 ? `${kind.quantity} × ${kind.item_name}` : kind.item_name;
-    case "vehicle_entered":
-    case "vehicle_left":
-      return kind.class_name;
-    default:
-      return null;
+function finishMission(m: MissionState, open: boolean, now: number) {
+  const r = m.row;
+  const steps = r.steps;
+  r.title = m.title ?? "Mission";
+  steps.forEach((step, i) => {
+    if (step.state !== "open") return;
+    const last = i === steps.length - 1;
+    // A new objective follows the one before it: that one is done.
+    if (!last) step.state = "done";
+    else if (m.ended) step.state = m.ended.outcome === "completed" ? "done" : "open";
+    else if (open) step.state = "current";
+  });
+  const started = m.acceptedAt ?? r.at;
+  if (m.ended) {
+    r.meta = [{ text: OUTCOME[m.ended.outcome] }];
+    if (steps.length > 0) r.meta.push({ text: count(steps.length, "objective") });
+    r.took = m.ended.at - started;
+    r.amount = m.change?.delta ?? null;
+    if (r.amount != null) r.facets = ["missions", "money"];
+  } else if (open) {
+    r.meta = [{ text: "running" }];
+    if (steps.length > 0) r.meta.push({ text: `objective ${steps.length}` });
+    r.took = now - started;
+    r.running = true;
+  } else {
+    r.meta = [{ text: "open when the session ended" }];
+    if (steps.length > 0) r.meta.push({ text: count(steps.length, "objective") });
+  }
+  r.facts = [];
+  if (m.acceptedAt != null) r.facts.push({ label: "Accepted", value: clock(m.acceptedAt), mono: true });
+  if (m.ended) {
+    r.facts.push(
+      { label: "Ended", value: clock(m.ended.at), mono: true },
+      { label: "Took", value: duration(m.ended.at - started), mono: true },
+      { label: "Outcome", value: OUTCOME[m.ended.outcome] },
+      {
+        label: "Reward",
+        value: m.change ? signedAuec(m.change.delta) : "no payment seen",
+        mono: m.change != null,
+      },
+    );
+  } else if (open) {
+    r.facts.push(
+      { label: "Running", value: duration(now - started), mono: true },
+      { label: "Reward", value: "shows when it pays" },
+    );
+  }
+  r.sources = [{ label: "Read from", value: SOURCE[m.said.source] }];
+  if (m.said.locale_dependent || steps.length > 0) {
+    r.sources.push({ label: "Needs", value: "the game's English HUD text" });
+  }
+  if (m.change) {
+    r.sources.push({
+      label: "Paid",
+      value: `${clockSeconds(m.change.at)}, from the telemetry balance`,
+    });
   }
 }
 
-/** The amount the log states for an entry, signed for the wallet; `null`
- *  when it states none. What the client asked for, not what was charged. */
-export function entryAmount(kind: EntryKind): number | null {
-  switch (kind.type) {
-    case "money":
-      return kind.change === "Awarded" ? kind.amount : -kind.amount;
-    case "trade":
-      return kind.side === "Buy" ? -kind.price : kind.price;
-    case "shop_purchase":
-      return -kind.price;
-    default:
-      return null;
-  }
+// ── The wallet line ─────────────────────────────────────────────────────────
+
+/** A tick under the wallet line. */
+export interface Tick {
+  label: string;
+  /** 0..1 along the session. */
+  pos: number;
 }
 
-/** Why a request's row needs a word: it was refused, or nothing confirmed
- *  it. `null` for a confirmed one and for entries that are not requests. */
-export function requestNote(kind: EntryKind): string | null {
-  if (kind.type !== "trade" && kind.type !== "shop_purchase") return null;
-  if (kind.outcome === "rejected") return "refused";
-  // The log has no answer line for commodity trades.
-  if (kind.outcome === "requested") return "not confirmed";
+/** The balance over the session as a step line, in a `width` × `height`
+ *  box (SVG user units). */
+export interface WalletLine {
+  /** The step line. */
+  step: string;
+  /** The area between the line and the opening balance. */
+  area: string;
+  /** The opening balance's height. */
+  base: number;
+  ticks: Tick[];
+}
+
+/** A round time near the middle of the span, when one exists. */
+function middleTick(start: number, end: number): Tick | null {
+  const span = end - start;
+  if (span < 3 * 60_000) return null;
+  const mid = start + span / 2;
+  // Local wall-clock rounding: the zone's offset at the midpoint.
+  const offset = new Date(mid).getTimezoneOffset() * 60_000;
+  for (const minutes of [120, 60, 30, 15, 10, 5, 1]) {
+    const unit = minutes * 60_000;
+    const at = Math.round((mid - offset) / unit) * unit + offset;
+    const pos = (at - start) / span;
+    if (pos >= 0.3 && pos <= 0.7) return { label: clock(at), pos };
+  }
   return null;
 }
 
-/** One row of the timeline: an entry, or a balance change no entry explains. */
-export interface TimelineRow {
-  key: string;
-  at: number;
-  title: string;
-  group: EntryGroup;
-  source: Entry["source"];
-  /** Game text or a game name, for RichText. */
-  subject: string | null;
-  /** What the log says the entry cost or paid. */
-  stated: number | null;
-  /** The balance change the entry explains (or, for an untracked row, is). */
-  change: WalletChange | null;
-  note: string | null;
-  localeDependent: boolean;
-  kind: EntryKind | null;
+/** The wallet's step line and its (at most three) time ticks. `null` when
+ *  no balance was read. */
+export function walletLine(
+  session: Session,
+  now: number,
+  width: number,
+  height: number,
+): WalletLine | null {
+  const wallet = session.wallet;
+  const first = wallet.changes[0]?.from ?? wallet.opening?.balance ?? wallet.latest?.balance;
+  if (first == null) return null;
+  const start = session.started_at;
+  const end = Math.max(session.ended_at ?? (session.live ? now : session.last_activity_at), start + 1);
+  const balances = [first, ...wallet.changes.map((c) => c.to)];
+  const max = Math.max(...balances);
+  const min = Math.min(...balances);
+  const pad = 2;
+  const x = (at: number) => +(Math.min(1, Math.max(0, (at - start) / (end - start))) * width).toFixed(1);
+  // A flat line sits in the middle; otherwise the range fills the box.
+  const y = (balance: number) =>
+    +(max === min ? height / 2 : pad + ((max - balance) / (max - min)) * (height - 2 * pad)).toFixed(1);
+  const base = y(first);
+  let step = `M0 ${base}`;
+  for (const change of wallet.changes) step += ` H${x(change.at)} V${y(change.to)}`;
+  step += ` H${width}`;
+  const ticks: Tick[] = [{ label: clock(start), pos: 0 }];
+  const middle = middleTick(start, end);
+  if (middle) ticks.push(middle);
+  ticks.push({ label: session.live ? `now ${clock(end)}` : clock(end), pos: 1 });
+  return { step, area: `${step} V${base} H0 Z`, base, ticks };
 }
 
-/** The session as timeline rows, oldest first: every entry with the balance
- *  change it explains, plus one row per change nothing explains. */
-export function timelineRows(session: Session): TimelineRow[] {
-  const explained = new Map<number, WalletChange>();
-  const rows: TimelineRow[] = [];
-  for (const change of session.wallet.changes) {
-    if (change.cause.type === "entry") {
-      explained.set(change.cause.seq, change);
-    } else {
-      rows.push({
-        key: `w${change.at}:${change.to}`,
-        at: change.at,
-        title: "Balance changed",
-        group: "money",
-        source: "telemetry",
-        subject: null,
-        stated: null,
-        change,
-        note: "untracked",
-        localeDependent: false,
-        kind: null,
-      });
-    }
-  }
-  for (const entry of session.timeline) {
-    rows.push({
-      key: `e${entry.seq}`,
-      at: entry.at,
-      title: entryTitle(entry.kind),
-      group: entryGroup(entry.kind),
-      source: entry.source,
-      subject: entrySubject(entry.kind),
-      stated: entryAmount(entry.kind),
-      change: explained.get(entry.seq) ?? null,
-      note: requestNote(entry.kind),
-      localeDependent: entry.locale_dependent,
-      kind: entry.kind,
-    });
-  }
-  // Stable: rows of one instant keep entries after the change they follow.
-  return rows.sort((a, b) => a.at - b.at);
-}
-
-const SOURCE = { log: "Game.log", telemetry: "Telemetry", unknown: "Unknown" } as const;
-
-/** A source's name as the page says it. */
-export function sourceName(source: Entry["source"]): string {
-  return SOURCE[source];
-}
+// ── History ─────────────────────────────────────────────────────────────────
 
 /** Which of the two sources a session is missing, as the page says it. */
 export function missingSources(sources: { log: boolean; telemetry: boolean }): string | null {
   if (!sources.log && !sources.telemetry) return null;
-  if (!sources.log) return "Telemetry only: no shards, places, missions or purchases.";
-  if (!sources.telemetry) return "Game.log only: no wallet, vehicles or deaths.";
+  if (!sources.log) return "telemetry only";
+  if (!sources.telemetry) return "Game.log only";
   return null;
 }
 
-/** A history row's one-line summary. */
-export function summaryLine(s: SessionSummary): string {
+/** A history row's quiet facts, each its own element. */
+export function summaryParts(s: SessionSummary): string[] {
   const parts = [duration(sessionLength(s, s.started_at))];
   if (s.missions_completed > 0) {
-    parts.push(
-      s.missions_completed === 1 ? "1 mission completed" : `${s.missions_completed} missions completed`,
-    );
+    parts.push(`${count(s.missions_completed, "mission")} completed`);
   }
-  if (s.shards.length > 0) parts.push(s.shards[s.shards.length - 1]);
-  return parts.join(" · ");
+  if (s.shards.length > 0) parts.push(count(s.shards.length, "shard"));
+  return parts;
 }

@@ -6,8 +6,9 @@
   import { goto } from "$app/navigation";
   import { Surface, Expand, createBrowseState, type Status } from "@veelume/ui";
   import type { SessionSummary } from "$lib/bindings";
+  import { channelHue } from "$lib/channels";
   import { sessionStore, watchSession } from "$lib/state/session.svelte";
-  import { dayTime, signedAuec, summaryLine } from "$lib/modules/session/model";
+  import { dayTime, missingSources, signed, summaryParts } from "$lib/modules/session/model";
 
   type HistoryRow = SessionSummary & { key: string; title: string };
 
@@ -42,7 +43,7 @@
 
 <div class="flex h-full min-h-0 flex-col gap-3">
   <header class="head-line">
-    <h1>Past sessions</h1>
+    <h1>Past Sessions</h1>
     <a class="back" href="/session">Current session</a>
   </header>
   {#if sessionStore.error}
@@ -54,22 +55,24 @@
       {#snippet row(r: HistoryRow)}
         <Expand.Row
           title={r.title}
-          subtitle={summaryLine(r)}
           onselect={() => goto(`/session?s=${encodeURIComponent(r.id)}`)}
         >
           {#snippet meta()}
-            {#if r.channel}
-              <span class="badge">{r.channel}</span>
-            {/if}
-            {#if !r.sources.telemetry}
-              <span class="badge">no telemetry</span>
-            {:else if !r.sources.log}
-              <span class="badge">no Game.log</span>
-            {/if}
+            <span class="parts">
+              {#each summaryParts(r) as part (part)}
+                <span>{part}</span>
+              {/each}
+              {#if r.channel}
+                <span class="hue-chip" style:--hue={channelHue(r.channel)}>{r.channel}</span>
+              {/if}
+              {#if missingSources(r.sources)}
+                <span class="badge">{missingSources(r.sources)}</span>
+              {/if}
+            </span>
           {/snippet}
           {#snippet right()}
             {#if r.opening_balance != null}
-              <span class="metric">{signedAuec(r.net)}</span>
+              <span class="net" class:plus={r.net > 0}>{signed(r.net)}</span>
             {/if}
           {/snippet}
         </Expand.Row>
@@ -87,7 +90,30 @@
     align-items: center;
     gap: 12px;
   }
+  .head-line h1 {
+    margin: 0;
+    line-height: 1;
+  }
   .back {
     margin-left: auto;
+    font-size: var(--text-small);
+    color: var(--accent);
+  }
+  /* A session's quiet facts: each its own element. */
+  .parts {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 14px;
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .net {
+    font-family: var(--font-mono);
+    font-size: 0.84rem;
+    color: var(--text);
+  }
+  .net.plus {
+    color: var(--good);
   }
 </style>
