@@ -4,11 +4,14 @@
   // variant of a family shares the recipe (the cook guarantees it), so only
   // the marks and the granting missions are per variant. The sliders are
   // page-local: they explore, they don't record anything.
-  import { Check, Flag, Heart } from "lucide-svelte";
+  import { goto } from "$app/navigation";
+  import { Check, Flag, Heart, Target } from "lucide-svelte";
   import { Segmented } from "@veelume/ui";
   import type { BlueprintDetailView, BlueprintStatView } from "$lib/bindings";
   import { getRecipe } from "$lib/state/catalog.svelte";
   import { craftingStore, toggleMark } from "$lib/state/crafting.svelte";
+  import { addCraftPlan, loadPlans, plansStore } from "$lib/state/plans.svelte";
+  import { settingsStore } from "$lib/state/settings.svelte";
   import {
     PRESETS,
     classText,
@@ -46,6 +49,12 @@
   let focus = $state<string | null>(null);
   $effect(() => {
     if (pick) focus = pick;
+  });
+
+  /** Plans is a module of its own: no way there while it is off. */
+  const plans = $derived(settingsStore.current?.enabled_modules.includes("plans") ?? false);
+  $effect(() => {
+    if (plans && plansStore.plans === null) void loadPlans();
   });
 
   const look = $derived(lookOf(family.shelf.main));
@@ -146,7 +155,24 @@
   {#if error}<p class="error">{error}</p>{/if}
 
   <section>
-    <h3>{many ? `Blueprints · ${family.ownedCount} of ${family.variants.length} owned` : "Blueprint"}</h3>
+    <div class="head">
+      <h3>{many ? `Blueprints · ${family.ownedCount} of ${family.variants.length} owned` : "Blueprint"}</h3>
+      <!-- A plan is for the variant in view: its steps and materials are
+           worked out on Plans, where count and quality are set too. -->
+      {#if plans}
+        {@const planned = !!plansStore.craftOf(variant.guid)}
+        <button
+          type="button"
+          class="mark plan"
+          class:set={planned}
+          title={planned
+            ? `${variant.name} is in your plans: open Plans`
+            : `Plan to craft the ${variant.name}: its steps and materials go to Plans`}
+          onclick={() => (planned ? void goto("/plans") : void addCraftPlan(variant.guid))}
+          ><Target size={12} />{planned ? "In plans" : "Add to plan"}</button
+        >
+      {/if}
+    </div>
     <div class="variants" class:many>
       {#each family.variants as v (v.guid)}
         {@const owned = craftingStore.owns(v.guid)}
@@ -434,6 +460,11 @@
     color: var(--hue-sky);
     border-color: color-mix(in srgb, var(--hue-sky) 45%, transparent);
     background: color-mix(in srgb, var(--hue-sky) 14%, transparent);
+  }
+  .mark.plan.set {
+    color: var(--accent);
+    border-color: var(--accent-line);
+    background: var(--accent-fill);
   }
   .mark.item.set {
     color: var(--hue-rose);
