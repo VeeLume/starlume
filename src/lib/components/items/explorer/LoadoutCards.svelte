@@ -10,6 +10,7 @@
   import ChipButton from "./ChipButton.svelte";
   import Tag from "./Tag.svelte";
   import { SECTION_ICON } from "./ui";
+  import { FITTED, NO_READ } from "$lib/ownedShips";
 
   let {
     ship,
@@ -61,7 +62,7 @@
 </script>
 
 {#if ship.virtual}
-  <p class="dim">Fitted parts become readable once the ship is in a stash.</p>
+  <p class="dim">{FITTED}: {NO_READ[ship.ship.geid ? "away" : "not_spawned"]}.</p>
 {:else}
   <div class="bar">
     {#if loadout.compared}

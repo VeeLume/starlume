@@ -1177,19 +1177,126 @@ pub(crate) async fn ships_market(
     .map_err(|e| AppError::Internal(e.to_string()))
 }
 
+/// How a copy of a ship came to the player (My Items' sources).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum CopySourceView {
+    Pledge,
+    InGame,
+    Rental,
+    Unknown,
+}
+
+/// Whose a copy is (My Items' ownership states a ship can have).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum CopyStateView {
+    Owned,
+    Rented,
+    Bricked,
+}
+
+/// Why a copy has no read of what is fitted (see `mod_ships::NoRead`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum NoReadView {
+    /// Never spawned: there is no instance.
+    NotSpawned,
+    /// An instance exists, in no storage the inventory read.
+    Away,
+    /// The instance is a bricked leftover.
+    Bricked,
+}
+
 /// One ship you own and its loadouts in the game.
+///
+/// The pages call the two loadouts "Saved" and "Fitted now". The fields
+/// keep `insured` and `live`: loadout ids built from them are in drafts on
+/// disk (`insured:<urn>`, `live:<urn>`).
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct OwnedShipView {
-    /// The entitlement's URN: the loadout select's key.
+    /// The entitlement's URN: the loadout menu's key, and My Items' key
+    /// for the same ship.
     pub urn: String,
-    /// Where it is ("Area 18 hangar"); null when it isn't in any stash.
+    pub source: CopySourceView,
+    /// When a rental ends, Unix seconds.
+    pub rental_expiry: Option<f64>,
+    pub ownership: CopyStateView,
+    /// Where it is ("Area 18 hangar", "in Test Carrier"); null when it
+    /// isn't in any stash.
     pub place: Option<String>,
-    /// The insured loadout (what a claim restores) as edits on stock;
+    /// The saved loadout (what a claim restores) as edits on stock;
     /// empty: stock.
     pub insured: Vec<EditView>,
-    /// What is fitted on it now; null when it isn't in any stash.
+    /// What is fitted on it now; null when there is no read of it.
     pub live: Option<Vec<EditView>>,
+    /// Why `live` is null; null when it is there.
+    pub no_read: Option<NoReadView>,
+}
+
+/// One copy as the Ships page shows it: mod-ships' loadouts, named by what
+/// My Items knows of the same entitlement (`row`; none when My Items has
+/// no row for it, which leaves the entitlement's own facts).
+fn owned_ship_view(
+    o: mod_ships::OwnedLoadouts,
+    row: Option<&mod_items::ShipRow>,
+    entitlement: Option<&svc_dossier::inventory::EntitlementRecord>,
+) -> OwnedShipView {
+    use svc_dossier::inventory::EntitlementSourceRecord as Src;
+    let rental = entitlement.is_some_and(|e| e.source == Src::Rental);
+    let source = match row.map(|r| r.source) {
+        Some(mod_items::Source::Pledge) => CopySourceView::Pledge,
+        Some(mod_items::Source::InGame) => CopySourceView::InGame,
+        Some(mod_items::Source::Rental) => CopySourceView::Rental,
+        Some(mod_items::Source::Unknown) => CopySourceView::Unknown,
+        None => match entitlement.map(|e| e.source) {
+            Some(Src::Platform) => CopySourceView::Pledge,
+            Some(Src::IngamePersistent) => CopySourceView::InGame,
+            Some(Src::Rental) => CopySourceView::Rental,
+            _ => CopySourceView::Unknown,
+        },
+    };
+    let ownership = match row.map(|r| r.ownership) {
+        Some(mod_items::OwnershipState::Bricked) => CopyStateView::Bricked,
+        Some(mod_items::OwnershipState::Rented) => CopyStateView::Rented,
+        Some(_) => CopyStateView::Owned,
+        None if rental => CopyStateView::Rented,
+        None => CopyStateView::Owned,
+    };
+    // Inside another ship, that ship says more than the hangar it is in.
+    let place = row.and_then(|r| match (r.holders.last(), &r.place) {
+        (Some(h), _) => Some(format!("in {}", h.name)),
+        (None, Some(p)) if p.kind == mod_items::PlaceKind::Hangar => {
+            Some(format!("{} hangar", p.name))
+        }
+        (None, Some(p)) => Some(p.name.clone()),
+        (None, None) => None,
+    });
+    let (live, no_read) = match &o.live {
+        Ok(edits) => (Some(edit_views(edits)), None),
+        Err(why) => (
+            None,
+            Some(match why {
+                mod_ships::NoRead::NotSpawned => NoReadView::NotSpawned,
+                mod_ships::NoRead::Away => NoReadView::Away,
+                mod_ships::NoRead::Bricked => NoReadView::Bricked,
+            }),
+        ),
+    };
+    OwnedShipView {
+        source,
+        rental_expiry: row
+            .and_then(|r| r.rental_expiry)
+            .or(entitlement.and_then(|e| e.rental_expiry))
+            .map(|t| t as f64),
+        ownership,
+        place,
+        insured: edit_views(&o.insured),
+        live,
+        no_read,
+        urn: o.urn,
+    }
 }
 
 /// Your ships of one class and their loadouts in the game.
@@ -1222,29 +1329,31 @@ pub(crate) async fn ships_owned(
                 read_at: None,
             });
         };
-        let places: HashMap<String, String> = mod_items::finder(&inv, &cooked)
+        // My Items' rows are keyed by the entitlement URN.
+        let rows: HashMap<String, mod_items::ShipRow> = mod_items::finder(&inv, &cooked)
             .ships
             .into_iter()
-            .filter_map(|s| {
-                let p = s.place?;
-                let name = match p.kind {
-                    mod_items::PlaceKind::Hangar => format!("{} hangar", p.name),
-                    _ => p.name,
-                };
-                Some((s.key, name))
-            })
+            .map(|s| (s.key.clone(), s))
+            .collect();
+        let entitlements: HashMap<&str, &svc_dossier::inventory::EntitlementRecord> = inv
+            .entitlements
+            .iter()
+            .map(|e| (e.urn.as_str(), e))
             .collect();
         let owned = mod_ships::owned_loadouts(&cooked, &inv, &ship)?;
+        let mut ships: Vec<OwnedShipView> = owned
+            .into_iter()
+            .map(|o| {
+                let row = rows.get(&o.urn);
+                let entitlement = entitlements.get(o.urn.as_str()).copied();
+                owned_ship_view(o, row, entitlement)
+            })
+            .collect();
+        // The copies that stay come first, rentals after (the inventory's
+        // order otherwise).
+        ships.sort_by_key(|s| s.source == CopySourceView::Rental);
         Ok::<_, mod_ships::ViewError>(ShipOwnedView {
-            ships: owned
-                .into_iter()
-                .map(|o| OwnedShipView {
-                    place: places.get(&o.urn).cloned(),
-                    insured: edit_views(&o.insured),
-                    live: o.live.as_deref().map(edit_views),
-                    urn: o.urn,
-                })
-                .collect(),
+            ships,
             read_at: Some(inv.fetched_at as f64).filter(|t| *t > 0.0),
         })
     })
@@ -1607,8 +1716,10 @@ fn state_path() -> std::path::PathBuf {
 #[serde(rename_all = "camelCase")]
 pub struct OwnedView {
     pub ship: String,
+    /// How many copies the account holds.
     pub count: u32,
-    pub rented: bool,
+    /// How many of those are rentals.
+    pub rented: u32,
 }
 
 /// A ship that arrived after Starlume started watching.
@@ -1655,14 +1766,11 @@ pub(crate) async fn ships_home(app: AppHandle, channel: String) -> Result<ShipsH
             }
             state
         };
-        use svc_dossier::inventory::{
-            EntitlementSourceRecord as Src, EntitlementStatusRecord as St,
-        };
+        use svc_dossier::inventory::EntitlementSourceRecord as Src;
         let owned: Option<Vec<mod_ships::Entitlement>> = inventory.as_ref().map(|inv| {
             inv.entitlements
                 .iter()
-                .filter(|e| !matches!(e.status, St::Revoked | St::Failed))
-                .filter(|e| !matches!(e.source, Src::IngameNonpersistent))
+                .filter(|e| e.held())
                 .map(|e| mod_ships::Entitlement {
                     class: e.class_guid.clone(),
                     rental: matches!(e.source, Src::Rental) || e.rental_expiry.is_some(),
@@ -2002,5 +2110,130 @@ mod tests {
             .collect();
         assert_eq!(shield, [("Test Station", 2), ("Test City", 1)]);
         assert!(!owned.contains_key(COOLER));
+    }
+
+    const PLEDGED: &str = "urn:sc:global:entitlement:uuid:test-pledged";
+    const RENTED: &str = "urn:sc:global:entitlement:uuid:test-rented";
+
+    fn ship_row(key: &str, source: mod_items::Source) -> mod_items::ShipRow {
+        mod_items::ShipRow {
+            key: key.into(),
+            kind: ItemKind {
+                guid: "00000000-0000-0000-0000-00000000b001".into(),
+                name: "Test Ship".into(),
+                item_type: "NOITEM_Vehicle".into(),
+                sub_type: String::new(),
+                size: 3,
+                grade: 1,
+            },
+            geid: None,
+            place: None,
+            holders: Vec::new(),
+            ownership: OwnershipState::Owned,
+            source,
+            rental_expiry: None,
+            fitted: Vec::new(),
+            stock: None,
+            saved: None,
+        }
+    }
+
+    fn hangar(name: &str) -> Place {
+        Place {
+            name: name.into(),
+            parents: Vec::new(),
+            kind: PlaceKind::Hangar,
+            key: String::new(),
+        }
+    }
+
+    fn loadouts(
+        urn: &str,
+        live: Result<Vec<mod_ships::Edit>, mod_ships::NoRead>,
+    ) -> mod_ships::OwnedLoadouts {
+        mod_ships::OwnedLoadouts {
+            urn: urn.into(),
+            insured: Vec::new(),
+            live,
+        }
+    }
+
+    #[test]
+    fn a_copy_is_named_by_what_my_items_knows_of_it() {
+        // The pledged copy, in a hangar, with a read.
+        let pledged = mod_items::ShipRow {
+            geid: Some(11),
+            place: Some(hangar("Test City")),
+            ..ship_row(PLEDGED, mod_items::Source::Pledge)
+        };
+        let v = owned_ship_view(loadouts(PLEDGED, Ok(Vec::new())), Some(&pledged), None);
+        assert_eq!(v.urn, PLEDGED);
+        assert_eq!(v.source, CopySourceView::Pledge);
+        assert_eq!(v.ownership, CopyStateView::Owned);
+        assert_eq!(v.place.as_deref(), Some("Test City hangar"));
+        assert_eq!(v.rental_expiry, None);
+        assert!(v.live.is_some());
+        assert_eq!(v.no_read, None);
+
+        // The rented copy: an instance, in no stash. No place, and the
+        // reason there is nothing fitted to read.
+        let rented = mod_items::ShipRow {
+            geid: Some(12),
+            ownership: OwnershipState::Rented,
+            rental_expiry: Some(1_800_000_000),
+            ..ship_row(RENTED, mod_items::Source::Rental)
+        };
+        let v = owned_ship_view(
+            loadouts(RENTED, Err(mod_ships::NoRead::Away)),
+            Some(&rented),
+            None,
+        );
+        assert_eq!(v.source, CopySourceView::Rental);
+        assert_eq!(v.ownership, CopyStateView::Rented);
+        assert_eq!(v.place, None);
+        assert_eq!(v.rental_expiry, Some(1_800_000_000.0));
+        assert!(v.live.is_none());
+        assert_eq!(v.no_read, Some(NoReadView::Away));
+
+        // Carried by another ship: that ship is the place.
+        let carried = mod_items::ShipRow {
+            place: Some(hangar("Test City")),
+            holders: vec![Holder {
+                geid: 900,
+                name: "Test Carrier".into(),
+                item_type: "NOITEM_Vehicle".into(),
+            }],
+            ..ship_row(PLEDGED, mod_items::Source::InGame)
+        };
+        let v = owned_ship_view(loadouts(PLEDGED, Ok(Vec::new())), Some(&carried), None);
+        assert_eq!(v.source, CopySourceView::InGame);
+        assert_eq!(v.place.as_deref(), Some("in Test Carrier"));
+    }
+
+    #[test]
+    fn a_copy_my_items_has_no_row_for_reads_from_its_entitlement() {
+        use svc_dossier::inventory::{
+            EntitlementRecord, EntitlementSourceRecord, EntitlementStatusRecord,
+        };
+        let e = EntitlementRecord {
+            urn: RENTED.into(),
+            source: EntitlementSourceRecord::Rental,
+            status: EntitlementStatusRecord::Delivered,
+            class_guid: String::new(),
+            geid: None,
+            stack_size: 1,
+            real_money: false,
+            rental_expiry: Some(1_800_000_000),
+        };
+        let v = owned_ship_view(
+            loadouts(RENTED, Err(mod_ships::NoRead::NotSpawned)),
+            None,
+            Some(&e),
+        );
+        assert_eq!(v.source, CopySourceView::Rental);
+        assert_eq!(v.ownership, CopyStateView::Rented);
+        assert_eq!(v.rental_expiry, Some(1_800_000_000.0));
+        assert_eq!(v.place, None);
+        assert_eq!(v.no_read, Some(NoReadView::NotSpawned));
     }
 }

@@ -51,6 +51,9 @@ export const shipsUi = $state({
   /** Per ship: the saved loadout the edits are a try-out against; null:
    *  stock. */
   basedOn: {} as Record<string, string | null>,
+  /** A loadout asked for from another page (My Items' "Open in Ships"):
+   *  the loadout bar opens it, asking first over unsaved changes. */
+  wanted: null as { ship: string; id: string } | null,
 });
 
 let _saved = $state.raw<Record<string, ShipSavedLoadoutView[]>>({});
@@ -281,15 +284,29 @@ export const shipsOwned = {
   },
 };
 
-/** `ship`'s copies you own and their insured and live loadouts, from the
- *  cached inventory (no network). */
+/** `ship`'s copies you own, with their saved loadout and what is fitted
+ *  now, from the cached inventory (no network). */
 export async function loadOwned(channel: string, ship: string): Promise<void> {
   const result = await commands.shipsOwned(channel, ship);
   if (result.status === "ok") _owned = { ..._owned, [ship]: result.data };
 }
 
-/** A loadout in the game as a draft's base: `insured:<urn>` or
- *  `live:<urn>`. Read-only: saving it makes a new loadout. */
+/** Open `ship` on the saved loadout of your copy `urn` (My Items' "Open in
+ *  Ships"). The draft the ship was left with and your copies are read
+ *  first, so the loadout bar, which does the opening, knows the copy and
+ *  can ask before unsaved changes go. */
+export async function openCopy(channel: string, ship: string, urn: string): Promise<void> {
+  shipsUi.ship = ship;
+  closePicker();
+  void commands.shipsOpened(ship);
+  await Promise.all([loadLoadouts(ship), loadOwned(channel, ship)]);
+  if (shipsUi.ship === ship) shipsUi.wanted = { ship, id: `insured:${urn}` };
+}
+
+/** A loadout in the game as a draft's base: a copy's saved loadout
+ *  (`insured:<urn>`) or what is fitted on it now (`live:<urn>`). The ids
+ *  keep their first names: they are in drafts on disk. Read-only: saving
+ *  it makes a new loadout. */
 export const inGame = (id: string | null | undefined) => !!id && (id.startsWith("insured:") || id.startsWith("live:"));
 
 /** What a draft of `ship` is measured against: the saved loadout it came
@@ -340,8 +357,8 @@ export async function saveLoadout(channel: string, name: string, asNew: boolean)
   return null;
 }
 
-/** Open a saved loadout, one in the game (`insured:<urn>`, `live:<urn>`)
- *  or stock (null) on the open ship; its draft goes. */
+/** Open a saved loadout, one of a copy in the game (`insured:<urn>`,
+ *  `live:<urn>`) or stock (null) on the open ship; its draft goes. */
 export async function openLoadout(id: string | null): Promise<void> {
   const ship = shipsUi.ship;
   clearTimeout(_pending.get(ship));

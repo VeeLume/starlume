@@ -730,7 +730,7 @@ fn owned_loadouts_apply() {
             if !o.insured.is_empty() {
                 insured += 1;
             }
-            let lv = o.live.as_ref();
+            let lv = o.live.as_ref().ok();
             if lv.is_some() {
                 live += 1;
             }

@@ -1,9 +1,13 @@
 //! Your ships' loadouts in the game, from the inventory snapshot My Items
 //! keeps (svc-dossier's cache; nothing is fetched here): per owned ship
-//! the insured loadout (the saved one, what a claim restores; stock until
-//! changed) and the live one (what is fitted on the instance in a stash
-//! now). Both come out as [`Edit`]s on the stock loadout, the shape saved
-//! loadouts have, so the Build tab opens them like any other.
+//! the saved loadout (what a claim restores; stock until changed) and
+//! what is fitted now (on the instance in a stash). Both come out as
+//! [`Edit`]s on the stock loadout, the shape saved loadouts have, so the
+//! Build tab opens them like any other.
+//!
+//! The pages say "Saved" and "Fitted now". The fields here keep their
+//! first names, `insured` and `live`: the loadout ids built from them
+//! (`insured:<urn>`, `live:<urn>`) are in drafts on disk.
 //!
 //! The saved loadout names its ports; the live tree gives each part's port
 //! as a CRC of the lowercased name, read back through the stock tree's
@@ -17,8 +21,8 @@ use svc_data::ships::Mounted;
 use svc_data::{CookedData, Guid, RecordCollection, class_crc};
 use svc_dossier::Inventory;
 use svc_dossier::inventory::{
-    EntitlementRecord, EntitlementSourceRecord, EntitlementStatusRecord, ItemRecord,
-    LoadoutItemRecord, LoadoutSlotRecord,
+    EntitlementRecord, ItemRecord, LoadoutItemRecord, LoadoutSlotRecord, OwnershipRecord,
+    StashRecord,
 };
 
 use crate::view::{Edit, LoadoutInput, ViewError, loadout};
@@ -28,12 +32,43 @@ use crate::view::{Edit, LoadoutInput, ViewError, loadout};
 pub struct OwnedLoadouts {
     /// The entitlement's URN.
     pub urn: String,
-    /// The insured loadout as edits on stock: empty when it was never
+    /// The saved loadout as edits on stock: empty when it was never
     /// changed (a claim restores stock).
     pub insured: Vec<Edit>,
-    /// The live loadout as edits on stock; `None` when the instance is in
-    /// no stash the snapshot read (never spawned, or out of reach).
-    pub live: Option<Vec<Edit>>,
+    /// What is fitted now as edits on stock, or why the snapshot has no
+    /// read of it.
+    pub live: Result<Vec<Edit>, NoRead>,
+}
+
+/// Why a copy has nothing fitted to read, from the snapshot alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoRead {
+    /// The entitlement has no instance: the ship was never spawned.
+    NotSpawned,
+    /// It has an instance, but no stash the snapshot read holds it. The
+    /// snapshot can not tell why: out in the world, destroyed and not
+    /// claimed, or (seen on rentals) delivered with an instance that was
+    /// never put in a hangar.
+    Away,
+    /// The instance in the stash is bricked: the leftover of a claim
+    /// elsewhere, not the ship as it flies.
+    Bricked,
+}
+
+/// The instance of `e` whose fittings can be read, or why there is none.
+fn instance<'i>(
+    e: &EntitlementRecord,
+    stashes: &'i [StashRecord],
+) -> Result<&'i ItemRecord, NoRead> {
+    let geid = e.geid.ok_or(NoRead::NotSpawned)?;
+    let node = stashes
+        .iter()
+        .find_map(|s| find(&s.items, geid))
+        .ok_or(NoRead::Away)?;
+    if matches!(node.ownership, OwnershipRecord::Bricked { .. }) {
+        return Err(NoRead::Bricked);
+    }
+    Ok(node)
 }
 
 /// Your ships of class `ship` (record GUID) in `inventory`.
@@ -74,7 +109,7 @@ pub fn owned_loadouts(
     Ok(inventory
         .entitlements
         .iter()
-        .filter(|e| counts(e) && e.class_guid.parse::<Guid>().ok() == Some(class))
+        .filter(|e| e.held() && e.class_guid.parse::<Guid>().ok() == Some(class))
         .map(|e| {
             let saved = inventory
                 .loadouts
@@ -96,19 +131,16 @@ pub fn owned_loadouts(
                     edits(&stock, wanted.collect())
                 })
                 .unwrap_or_default();
-            let live = e
-                .geid
-                .and_then(|geid| inventory.stashes.iter().find_map(|s| find(&s.items, geid)))
-                .map(|node| {
-                    let mut live = HashMap::new();
-                    fitted(&node.attached, &[], &ports, &by_crc, &mut live);
-                    let mut wanted: Vec<_> = live
-                        .iter()
-                        .filter_map(|(path, item)| Some((path.clone(), Some((*item)?))))
-                        .collect();
-                    emptied(&stock.mounted, &[], &live, &mut wanted);
-                    edits(&stock, wanted)
-                });
+            let live = instance(e, &inventory.stashes).map(|node| {
+                let mut live = HashMap::new();
+                fitted(&node.attached, &[], &ports, &by_crc, &mut live);
+                let mut wanted: Vec<_> = live
+                    .iter()
+                    .filter_map(|(path, item)| Some((path.clone(), Some((*item)?))))
+                    .collect();
+                emptied(&stock.mounted, &[], &live, &mut wanted);
+                edits(&stock, wanted)
+            });
             OwnedLoadouts {
                 urn: e.urn.clone(),
                 insured,
@@ -116,15 +148,6 @@ pub fn owned_loadouts(
             }
         })
         .collect())
-}
-
-/// An entitlement that is a ship you have: not revoked or failed, not a
-/// transient grant (as My Items counts them).
-fn counts(e: &EntitlementRecord) -> bool {
-    !matches!(
-        e.status,
-        EntitlementStatusRecord::Revoked | EntitlementStatusRecord::Failed
-    ) && e.source != EntitlementSourceRecord::IngameNonpersistent
 }
 
 /// Port CRC (of the lowercased name, as the inventory writes it) → the
@@ -217,4 +240,66 @@ fn edits(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use svc_dossier::inventory::{
+        ContextRecord, EntitlementSourceRecord, EntitlementStatusRecord, LocationRecord,
+    };
+
+    fn entitlement(geid: Option<u64>) -> EntitlementRecord {
+        EntitlementRecord {
+            urn: "urn:sc:global:entitlement:uuid:test".into(),
+            source: EntitlementSourceRecord::Rental,
+            status: EntitlementStatusRecord::Delivered,
+            class_guid: String::new(),
+            geid,
+            stack_size: 1,
+            real_money: false,
+            rental_expiry: None,
+        }
+    }
+
+    fn node(geid: u64, ownership: OwnershipRecord, contents: Vec<ItemRecord>) -> ItemRecord {
+        ItemRecord {
+            geid,
+            class_crc: 1,
+            item_type: 0,
+            stack_size: 1,
+            parent_urn: None,
+            port_crc: None,
+            ownership,
+            resource: None,
+            ammo: None,
+            crafted: None,
+            attached: Vec::new(),
+            contents,
+        }
+    }
+
+    #[test]
+    fn a_copy_without_a_read_says_why() {
+        let owned = OwnershipRecord::Imprinted { since: None };
+        let bricked = OwnershipRecord::Bricked { since: None };
+        // A ship (11) in the hangar carrying another (12); a wreck (13).
+        let stashes = vec![StashRecord {
+            location: LocationRecord {
+                inventory_id: "1:Hangar:7".into(),
+                context: ContextRecord::Hangar(7),
+            },
+            items: vec![
+                node(11, owned, vec![node(12, owned, Vec::new())]),
+                node(13, bricked, Vec::new()),
+            ],
+        }];
+        let read = |geid| instance(&entitlement(geid), &stashes).map(|n| n.geid);
+        assert_eq!(read(Some(11)), Ok(11));
+        // Inside another ship is still a read.
+        assert_eq!(read(Some(12)), Ok(12));
+        assert_eq!(read(None), Err(NoRead::NotSpawned));
+        assert_eq!(read(Some(99)), Err(NoRead::Away));
+        assert_eq!(read(Some(13)), Err(NoRead::Bricked));
+    }
 }

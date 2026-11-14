@@ -23,8 +23,15 @@
   import Quality from "./Quality.svelte";
   import ResourceDetail from "./ResourceDetail.svelte";
   import Tag from "./Tag.svelte";
-  import { fmtN, fmtTime, nodeIcon, SOURCE } from "./ui";
+  import { fmtN, nodeIcon, rentalEnd, SOURCE } from "./ui";
   import { categoryOf } from "../model/classify";
+  import { untrack } from "svelte";
+  import { goto } from "$app/navigation";
+  import { ArrowUpRight } from "lucide-svelte";
+  import { NO_READ } from "$lib/ownedShips";
+  import { dataStore } from "$lib/state/data.svelte";
+  import { settingsStore } from "$lib/state/settings.svelte";
+  import { loadShips, openCopy, shipsStore } from "$lib/state/ships.svelte";
 
   let {
     node,
@@ -82,6 +89,25 @@
     if (mats.size) cats.set("Resources", mats.size);
     return [...cats.entries()].sort((a, b) => Number(a[0] === "Other") - Number(b[0] === "Other") || b[1] - a[1]);
   });
+  // "Open in Ships": the same ship in the planner, on this copy's saved
+  // loadout. Only a copy with an entitlement has one there (a bricked
+  // leftover has none), and only while Ships is a module in use. The
+  // button is there from the start and off until the catalog says the
+  // class is one of its ships, so nothing moves when the list arrives.
+  const shipsOn = $derived(settingsStore.current?.enabled_modules.includes("ships") ?? false);
+  const copy = $derived(node?.type === "ship" && node.ship.key.startsWith("urn:") ? node.ship : null);
+  const inShips = $derived(!!copy && !!shipsStore.ships?.some((s) => s.guid === copy.kind.guid.toLowerCase()));
+  $effect(() => {
+    const c = dataStore.channel;
+    if (shipsOn && copy && c && !shipsStore.ships) untrack(() => void loadShips(c));
+  });
+  function openInShips() {
+    const c = dataStore.channel;
+    if (!copy || !c) return;
+    void openCopy(c, copy.kind.guid.toLowerCase(), copy.key);
+    void goto("/ships?tab=build");
+  }
+
   const subtitle = $derived(
     !node
       ? ""
@@ -120,18 +146,27 @@
     <h4>Ship</h4>
     <dl>
       {#if SOURCE[s.source]}<dt>Source</dt><dd>{SOURCE[s.source]}</dd>{/if}
-      {#if s.rental_expiry}<dt>Rental</dt><dd class="warn">ends {fmtTime(s.rental_expiry)}</dd>{/if}
+      {#if s.rental_expiry}<dt>Rental</dt><dd class="warn">ends {rentalEnd(s.rental_expiry)}</dd>{/if}
       <dt>Fitted vs saved</dt>
       <dd>
-        {#if off == null}<span class="dim">no saved loadout read</span>{:else if off}<span class="warn">{off} differ</span>{:else}<span
-            class="good">match</span
-          >{/if}
+        {#if node.virtual}<span class="dim">{NO_READ[s.geid ? "away" : "not_spawned"]}</span>{:else if off == null}<span class="dim"
+            >no saved loadout read</span
+          >{:else if off}<span class="warn">{off} differ</span>{:else}<span class="good">match</span>{/if}
       </dd>
       {#if !node.virtual}
         <dt>Fitted parts</dt><dd class="num">{units(node, (x) => x.item.fitted && visible(x, showBricked))}</dd>
         <dt>Stored on board</dt><dd class="num">{stowed(node, (x) => visible(x, showBricked)).reduce((n, x) => n + x.item.stack, 0)}</dd>
       {/if}
     </dl>
+    {#if shipsOn && copy}
+      <button
+        type="button"
+        class="btn jump"
+        disabled={!inShips}
+        title={inShips ? "Plan a loadout from this ship's saved one" : "Not a ship the Ships page lists"}
+        onclick={openInShips}>Open in Ships<ArrowUpRight size={14} /></button
+      >
+    {/if}
   {/if}
 
   {#if crafted}
@@ -243,6 +278,14 @@
   dd {
     margin: 0;
     text-align: right;
+  }
+  .jump {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 100%;
+    margin-top: 10px;
   }
   .deltas {
     display: flex;

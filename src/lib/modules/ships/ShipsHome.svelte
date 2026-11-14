@@ -157,7 +157,12 @@
         <h2>Your ships{#if home?.ownedAt}<small>read {age(home.ownedAt)}</small>{/if}</h2>
         <div class="grid">
           {#each owned as o (o.ship)}
-            <ShipTile ship={o.row!} note={o.rented ? "rented" : o.count > 1 ? `×${o.count}` : ""} tone={o.rented ? "rent" : ""} {onopen} />
+            <ShipTile
+              ship={o.row!}
+              note={o.count > 1 ? `×${o.count}` : ""}
+              rent={!o.rented ? "" : o.count > 1 ? `${o.rented} rented` : "rented"}
+              {onopen}
+            />
           {/each}
         </div>
       </section>
