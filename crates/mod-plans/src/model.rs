@@ -24,8 +24,10 @@ pub struct Plan {
 }
 
 /// What a plan is for. New kinds (an armour set, a blueprint collection) are
-/// new variants; a file written by a newer build keeps loading, its unknown
-/// goals read as [`Goal::Unknown`] and derive no steps.
+/// new variants. A file written by a newer build still loads: a goal of a
+/// kind this build does not know reads as [`Goal::Unknown`] and derives no
+/// steps. Its fields are not kept, so the next change made here writes the
+/// plan back as unknown: going back to an older build loses such goals.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]

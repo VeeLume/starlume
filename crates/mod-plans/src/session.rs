@@ -191,6 +191,7 @@ pub fn sessions(
                 .map(|(s, _)| (*s).to_owned())
         }
     };
+    let placed = !groups.is_empty();
     groups.retain(|g| Some(&g.site.system) == system.as_ref());
 
     // Distance from the start; 0 when it is unknown, so ties fall back to
@@ -212,6 +213,8 @@ pub fn sessions(
             if groups.is_empty() {
                 let why = if open == 0 {
                     "Nothing is open that you could do right now.".to_owned()
+                } else if placed {
+                    "The open steps with a known place are all in another system.".to_owned()
                 } else {
                     "None of the open steps has a place the map knows.".to_owned()
                 };
@@ -387,12 +390,13 @@ fn gm_text(gm: f64) -> String {
     }
 }
 
+/// A sampled share, worded as the estimate it is.
 fn percent(share: f32) -> String {
     let pct = share * 100.0;
     if pct > 0.0 && pct < 1.0 {
         "under 1%".to_owned()
     } else {
-        format!("{pct:.0}%")
+        format!("about {pct:.0}%")
     }
 }
 
@@ -401,6 +405,7 @@ fn percent(share: f32) -> String {
 fn subject(title: &str) -> String {
     title
         .split_once(" SCU ")
+        .or_else(|| title.split_once(" \u{d7} "))
         .map_or_else(|| title.to_owned(), |(_, rest)| rest.to_owned())
 }
 
@@ -525,7 +530,7 @@ mod tests {
         assert_eq!(places(rare), ["far"]);
         assert_eq!(
             rare.why,
-            "Ore R, Q700+ is the hardest to find of what you need: 4% of the rocks at Place far hold it."
+            "Ore R, Q700+ is the hardest to find of what you need: about 4% of the rocks at Place far hold it."
         );
     }
 
@@ -547,6 +552,20 @@ mod tests {
         assert_eq!(places(pick(&all, TripChoice::Most)), ["mid"]);
         // The rare ore is in the other system: the common one is what is left.
         assert_eq!(places(pick(&all, TripChoice::Rarest)), ["mid"]);
+    }
+
+    #[test]
+    fn steps_that_are_all_in_another_system_are_named_as_that() {
+        let (steps, mut sites) = world();
+        for site in sites.iter_mut().skip(1) {
+            site.system = "Elsewhere".into();
+        }
+        let all = sessions(&steps, &sites, Some("home"), Some(&drive()));
+        assert!(all.iter().all(|t| t.stops.is_empty()));
+        assert_eq!(
+            all[0].why,
+            "The open steps with a known place are all in another system."
+        );
     }
 
     #[test]

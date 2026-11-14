@@ -5,7 +5,7 @@
   // session to fly, then the open steps. Every step, stage and figure is
   // derived Rust-side from what the account holds; nothing is ticked here.
   // Which plan is in view and which session choice is open are page-local.
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { goto } from "$app/navigation";
   import { Button, ConfirmDialog, Dialog, Picker, Segmented } from "@veelume/ui";
   import { ArrowUpRight, Plus } from "lucide-svelte";
@@ -40,6 +40,7 @@
     setCraftPlan,
     watchPlans,
   } from "$lib/state/plans.svelte";
+  import { settingsStore } from "$lib/state/settings.svelte";
   import { openShip, shipsUi } from "$lib/state/ships.svelte";
 
   let ready = $state(false);
@@ -71,12 +72,20 @@
   $effect(() => {
     const c = channel;
     if (!c) return;
-    void loadBoard(c);
-    void loadChoices(c);
-    void getBlueprints(c).then((rows) => {
-      if (typeof rows !== "string") blueprints = rows;
+    // Only the channel re-runs this: the catalog cache `getBlueprints`
+    // reads is replaced with every dataset that lands.
+    untrack(() => {
+      void loadBoard(c);
+      void loadChoices(c);
+      void getBlueprints(c).then((rows) => {
+        if (typeof rows !== "string") blueprints = rows;
+      });
     });
   });
+
+  /** Ships, Crafting and My Items are modules of their own: no way there
+   *  while one is off. */
+  const on = (id: string) => settingsStore.current?.enabled_modules.includes(id) ?? false;
 
   const shown = $derived((board?.plans ?? []).filter((p) => (tab === "done" ? p.done : !p.done)));
   const plan = $derived(shown.find((p) => p.id === picked) ?? shown[0] ?? null);
@@ -150,12 +159,13 @@
   }
 
   function retarget(field: "count" | "quality", raw: string) {
-    if (!plan || goal?.kind !== "craft") return;
+    if (!plan || goal?.kind !== "craft") return null;
     const value = Math.round(Number(raw));
-    if (!Number.isFinite(value)) return;
+    if (raw.trim() === "" || !Number.isFinite(value)) return null;
     const count = field === "count" ? Math.max(1, value) : goal.count;
     const quality = field === "quality" ? Math.min(1000, Math.max(0, value)) : goal.quality;
     void setCraftPlan(plan.id, count, quality);
+    return field === "count" ? count : quality;
   }
 
   async function remove() {
@@ -180,11 +190,17 @@
       {#if board.inventoryAt != null}
         <span class="dim small">Read from the game {ago(board.inventoryAt, now)}</span>
       {:else}
-        <a class="dim small" href="/items">Your inventory was never read, so nothing you hold is counted</a>
+        {#if on("items")}
+          <a class="dim small" href="/items">Your inventory was never read, so nothing you hold is counted</a>
+        {:else}
+          <span class="dim small">Your inventory was never read, so nothing you hold is counted</span>
+        {/if}
       {/if}
     {/if}
     <Button onclick={() => (adding = true)}><Plus size={15} /> New plan</Button>
   </header>
+
+  {#if board && plansStore.error}<p class="error">{plansStore.error}</p>{/if}
 
   {#if ready && !channel}
     <NoGameData />
@@ -198,8 +214,8 @@
         </p>
         <div class="empty-actions">
           <Button onclick={() => (adding = true)}><Plus size={15} /> New plan</Button>
-          <Button variant="outline" href="/ships">Save a loadout on Ships</Button>
-          <Button variant="outline" href="/crafting">Pick a recipe on Crafting</Button>
+          {#if on("ships")}<Button variant="outline" href="/ships">Save a loadout on Ships</Button>{/if}
+          {#if on("crafting")}<Button variant="outline" href="/crafting">Pick a recipe on Crafting</Button>{/if}
         </div>
       </section>
     {:else}
@@ -240,7 +256,7 @@
                     type="number"
                     min="1"
                     value={goal.count}
-                    onchange={(e) => retarget("count", e.currentTarget.value)}
+                    onchange={(e) => (e.currentTarget.value = String(retarget("count", e.currentTarget.value) ?? goal.count))}
                   /></label
                 >
                 <label class="field"
@@ -252,7 +268,7 @@
                     max="1000"
                     step="50"
                     value={goal.quality}
-                    onchange={(e) => retarget("quality", e.currentTarget.value)}
+                    onchange={(e) => (e.currentTarget.value = String(retarget("quality", e.currentTarget.value) ?? goal.quality))}
                   /></label
                 >
               {/if}
@@ -261,7 +277,7 @@
               {#if !isFocus && !plan.done && !plan.missing}
                 <Button variant="outline" onclick={() => void focusPlan(plan.id)}>Make it the focus</Button>
               {/if}
-              {#if target?.ship || target?.family}
+              {#if (target?.ship && on("ships")) || (target?.family && on("crafting"))}
                 <Button variant="outline" onclick={open}>
                   {target.ship ? "Open ship" : "Open recipe"} <ArrowUpRight size={14} />
                 </Button>
@@ -306,8 +322,8 @@
           </ol>
           <p class="drive dim small">
             {board.driveShip
-              ? `Quantum times are for the ${board.driveShip}, the ship of your first loadout plan.`
-              : "No loadout plan names a ship, so jumps carry distances only."}
+              ? `Quantum times are for the ${board.driveShip}, from your loadout plan.`
+              : "No loadout plan gives a quantum drive, so jumps carry distances only."}
           </p>
         </NowCard>
       </div>
@@ -390,8 +406,8 @@
       </p>
     {/if}
     <div class="new-foot">
-      <Button variant="outline" href="/ships">Save a loadout on Ships</Button>
-      <Button variant="outline" href="/crafting">Pick a recipe on Crafting</Button>
+      {#if on("ships")}<Button variant="outline" href="/ships">Save a loadout on Ships</Button>{/if}
+      {#if on("crafting")}<Button variant="outline" href="/crafting">Pick a recipe on Crafting</Button>{/if}
     </div>
   </div>
 </Dialog>
@@ -539,7 +555,7 @@
    * and the timeline reserve their tallest case. */
   .why {
     margin: 0;
-    min-height: 2.9em;
+    min-height: 4.35em;
     font-size: 0.9rem;
     line-height: 1.45;
   }

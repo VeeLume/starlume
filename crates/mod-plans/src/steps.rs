@@ -91,7 +91,11 @@ pub struct RecipeFacts {
     pub craft_seconds: Option<f32>,
     pub slots: Vec<SlotNeed>,
     pub grants: Vec<Grant>,
-    /// Crafted copies of the item you already hold.
+    /// The crafted item's GUID: crafted copies of it are taken out of the
+    /// free parts, so one copy serves one plan.
+    pub entity: Option<String>,
+    /// Crafted copies of the item you hold, free to use and at the wanted
+    /// quality.
     pub crafted_held: u32,
 }
 
@@ -325,11 +329,19 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 let Some(recipe) = inputs.recipes.get(&goal.blueprint) else {
                     continue;
                 };
+                // Crafted copies you hold count towards the project, and
+                // are taken with it: a loadout ahead of it that fits the
+                // copy has it, not both.
+                let wanted = recipe.crafted_held.min(goal.count);
+                let have = match recipe.entity.as_deref() {
+                    Some(entity) => take_many(pool.get_mut(entity), wanted),
+                    None => wanted,
+                };
                 crafts.push(Craft {
                     plan: &plan.id,
                     blueprint: &goal.blueprint,
                     recipe,
-                    left: goal.count.saturating_sub(recipe.crafted_held),
+                    left: goal.count - have,
                     quality: goal.quality,
                     demands: Vec::new(),
                 });
@@ -533,7 +545,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 many => format!("{} missions grant it", many.len()),
             },
             plans: vec![craft.plan.to_owned()],
-            blocked: false,
+            blocked: grants.is_empty(),
             at: grants
                 .iter()
                 .flat_map(|g| &g.at)
@@ -585,7 +597,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 title: format!("Mine {amount} {}{grade}", row.material),
                 detail: format!(
                     "{} of the ship rocks there hold it{}",
-                    percent(best.find),
+                    about(best.find),
                     if row.min_quality > 1 {
                         " at this quality"
                     } else {
@@ -705,7 +717,11 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             let mut board = match &plan.goal {
                 Goal::Loadout(_) => match loadouts.iter().find(|w| w.plan == plan.id) {
                     Some(work) => loadout_board(work, &mine),
-                    None => missing(PlanKind::Loadout, "Loadout", "This saved loadout is gone"),
+                    None => missing(
+                        PlanKind::Loadout,
+                        "Loadout",
+                        "This saved loadout is gone, or its ship is not in this build",
+                    ),
                 },
                 Goal::Craft(goal) => match crafts
                     .iter()
@@ -731,17 +747,27 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 board.name = plan.name.clone();
             }
             if !board.missing {
-                board.done = mine.is_empty();
+                // A loadout with nothing left to fit is still not done on
+                // a ship you do not own.
+                let no_ship = loadouts
+                    .iter()
+                    .any(|w| w.plan == plan.id && w.facts.read == ShipRead::NotOwned);
+                board.done = mine.is_empty() && !no_ship;
                 board.waiting = !board.done && mine.iter().all(|s| s.blocked);
                 board.note = if board.done {
                     "Done".to_owned()
                 } else if let Some(next) = mine.iter().find(|s| !s.blocked) {
                     format!("Next: {}", lower_first(&next.title))
                 } else {
-                    mine.first()
-                        .map(|s| format!("Waits: {}", lower_first(&s.detail)))
-                        .unwrap_or_default()
+                    match mine.first() {
+                        Some(s) if s.detail.starts_with("Waits") => s.detail.clone(),
+                        Some(s) => format!("Waits: {}", lower_first(&s.detail)),
+                        None => format!("Waits on the ship: you own no {}", board.title),
+                    }
                 };
+                if no_ship && mine.is_empty() {
+                    board.progress = board.progress.min(0.5);
+                }
             }
             board
         })
@@ -752,6 +778,13 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
         steps,
         ledger: ledger.rows,
     }
+}
+
+/// Take up to `n` free copies; returns how many there were.
+fn take_many(mut pool: Option<&mut Vec<(PlanPlace, u32)>>, n: u32) -> u32 {
+    (0..n)
+        .take_while(|_| take(pool.as_deref_mut()).is_some())
+        .count() as u32
 }
 
 fn take(pool: Option<&mut Vec<(PlanPlace, u32)>>) -> Option<PlanPlace> {
@@ -1000,12 +1033,13 @@ fn amount(value: f64, bulk: bool) -> String {
     format!("{text} SCU")
 }
 
-fn percent(share: f32) -> String {
+/// A sampled share, worded as the estimate it is: "About 38%".
+fn about(share: f32) -> String {
     let pct = share * 100.0;
     if pct > 0.0 && pct < 1.0 {
         "Under 1%".to_owned()
     } else {
-        format!("{pct:.0}%")
+        format!("About {pct:.0}%")
     }
 }
 
@@ -1238,7 +1272,7 @@ pub(crate) mod tests {
             .find(|s| s.kind == StepKind::Mine)
             .unwrap();
         assert_eq!(mine.title, "Mine 2 SCU Ore A");
-        assert_eq!(mine.detail, "50% of the ship rocks there hold it");
+        assert_eq!(mine.detail, "About 50% of the ship rocks there hold it");
     }
 
     #[test]
@@ -1334,7 +1368,7 @@ pub(crate) mod tests {
         assert_eq!(mine.title, "Mine 2 SCU Ore A, Q700+");
         assert_eq!(
             mine.detail,
-            "42% of the ship rocks there hold it at this quality"
+            "About 42% of the ship rocks there hold it at this quality"
         );
         assert_eq!(mine.at, Some(at("Moon One")));
         let gather = by_kind(StepKind::Gather);
@@ -1458,6 +1492,89 @@ pub(crate) mod tests {
         let board = derive(&loadout_state(), &Inputs::default(), &no_ores);
         assert!(board.plans[0].missing);
         assert!(board.steps.is_empty());
+    }
+
+    #[test]
+    fn one_crafted_copy_serves_one_plan_the_first_that_wants_it() {
+        // A loadout that fits the part, then a project to craft one of it.
+        let mut made = part("a");
+        made.blueprint = Some("bp-1".into());
+        let mut state = loadout_state();
+        state.add(
+            "",
+            Goal::Craft(CraftGoal {
+                blueprint: "bp-1".into(),
+                count: 1,
+                quality: 0,
+            }),
+        );
+        let mut inputs = loadout(vec![made]);
+        let mut widget = recipe(true, vec![slot("Ore A", 2.0, 0)]);
+        widget.entity = Some("a".into());
+        widget.crafted_held = 1;
+        inputs.recipes.insert("bp-1".into(), widget);
+        inputs.parts.insert(
+            "a".into(),
+            vec![HeldPart {
+                at: at("Depot One"),
+                count: 1,
+            }],
+        );
+        let board = derive(&state, &inputs, &no_ores);
+        // The loadout takes the copy; the project still has one to craft.
+        assert_eq!(board.steps[0].kind, StepKind::Fit);
+        assert!(!board.plans[1].done);
+        assert_eq!(board.plans[1].tiles[0].value, "0 of 1");
+    }
+
+    #[test]
+    fn a_loadout_with_nothing_to_fit_is_not_done_on_a_ship_you_do_not_own() {
+        let mut inputs = loadout(vec![]);
+        inputs.loadouts.get_mut("lo-1").unwrap().read = ShipRead::NotOwned;
+        let board = derive(&loadout_state(), &inputs, &no_ores);
+        assert!(!board.plans[0].done);
+        assert!(board.plans[0].waiting);
+        assert_eq!(
+            board.plans[0].note,
+            "Waits on the ship: you own no Test Ship"
+        );
+    }
+
+    #[test]
+    fn a_blueprint_no_mission_grants_blocks_its_plan_and_says_so() {
+        let mut inputs = Inputs::default();
+        inputs.recipes.insert("bp-1".into(), recipe(false, vec![]));
+        let board = derive(&craft_state(1, 0), &inputs, &no_ores);
+        let earn = board
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Earn)
+            .unwrap();
+        assert!(earn.blocked);
+        assert!(board.plans[0].waiting);
+        assert_eq!(
+            board.plans[0].note,
+            "Waits: no mission is known to grant it"
+        );
+    }
+
+    #[test]
+    fn a_craft_has_no_place_so_a_session_cannot_stop_for_it() {
+        // No data says where crafting is done: the step is listed, the trip
+        // leaves it out and says why nothing is planned.
+        let mut inputs = Inputs::default();
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![slot("Ore A", 2.0, 0)]));
+        inputs.stock = vec![stack("Ore A", 500, 2.0)];
+        let board = derive(&craft_state(1, 0), &inputs, &no_ores);
+        assert_eq!(board.steps[0].at, None);
+        let trips = crate::session::sessions(&board.steps, &[], None, None);
+        assert!(trips.iter().all(|t| t.stops.is_empty()));
+        assert_eq!(
+            trips[0].why,
+            "None of the open steps has a place the map knows."
+        );
     }
 
     #[test]

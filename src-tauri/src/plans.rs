@@ -405,11 +405,14 @@ impl Gathered<'_> {
                         if drive.is_none() {
                             drive = self.drive_of(saved).map(|d| (ship.clone(), d));
                         }
-                        let facts = self.loadout_facts(saved, ship, &sites);
-                        for bp in facts.parts.iter().filter_map(|p| p.blueprint.as_ref()) {
-                            self.recipe_into(&mut inputs, bp, finder.as_ref(), &sites);
+                        // A loadout this build cannot resolve derives nothing:
+                        // the plan says so instead of reading as done.
+                        if let Some(facts) = self.loadout_facts(saved, ship, &sites) {
+                            for bp in facts.parts.iter().filter_map(|p| p.blueprint.as_ref()) {
+                                self.recipe_into(&mut inputs, bp, state, finder.as_ref(), &sites);
+                            }
+                            inputs.loadouts.insert(goal.loadout.clone(), facts);
                         }
-                        inputs.loadouts.insert(goal.loadout.clone(), facts);
                     }
                 }
                 Goal::Craft(goal) => {
@@ -417,7 +420,7 @@ impl Gathered<'_> {
                         .blueprints
                         .and_then(|i| i.get(&goal.blueprint))
                         .map(|b| b.family.clone());
-                    self.recipe_into(&mut inputs, &goal.blueprint, finder.as_ref(), &sites);
+                    self.recipe_into(&mut inputs, &goal.blueprint, state, finder.as_ref(), &sites);
                 }
                 Goal::Unknown => {}
             }
@@ -462,7 +465,7 @@ impl Gathered<'_> {
         saved: &mod_ships::SavedLoadout,
         ship: String,
         sites: &Sites,
-    ) -> LoadoutFacts {
+    ) -> Option<LoadoutFacts> {
         let cooked = self.cooked;
         let resolve = |edits: &[mod_ships::Edit]| {
             mod_ships::loadout(
@@ -480,9 +483,8 @@ impl Gathered<'_> {
             read: ShipRead::NoRead,
             parts: Vec::new(),
         };
-        let (Some(wanted), Some(stock)) = (resolve(&saved.edits), resolve(&[])) else {
-            return facts;
-        };
+        let wanted = resolve(&saved.edits)?;
+        let stock = resolve(&[])?;
 
         // The swaps that hold in the end: the last edit of a port, when the
         // resolved loadout still carries its part there (an edit under a
@@ -560,7 +562,7 @@ impl Gathered<'_> {
                 offers,
             });
         }
-        facts
+        Some(facts)
     }
 
     /// Where a UEX offer is: its city, station or outpost when the map
@@ -586,6 +588,7 @@ impl Gathered<'_> {
         &self,
         inputs: &mut Inputs,
         blueprint: &str,
+        state: &PlansState,
         finder: Option<&mod_items::Finder>,
         sites: &Sites,
     ) {
@@ -624,14 +627,31 @@ impl Gathered<'_> {
                     .unwrap_or_default(),
             })
             .collect();
+        // Crafted copies count when they are free to use (not on a ship,
+        // not in one, yours to keep) and every material in them reaches
+        // the quality the project asks for.
+        let quality = state
+            .plans
+            .iter()
+            .find_map(|p| match &p.goal {
+                Goal::Craft(c) if c.blueprint == blueprint => Some(c.quality),
+                _ => None,
+            })
+            .unwrap_or(0);
         let crafted_held = match (&entry.entity_guid, finder) {
             (Some(entity), Some(finder)) => finder
                 .items
                 .iter()
                 .filter(|row| {
                     row.kind.guid == *entity
-                        && row.crafted.is_some()
-                        && row.ownership != mod_items::OwnershipState::Bricked
+                        && !row.fitted
+                        && row.holders.is_empty()
+                        && row.ownership == mod_items::OwnershipState::Owned
+                        && row.crafted.as_ref().is_some_and(|c| {
+                            c.ingredients
+                                .iter()
+                                .all(|i| u32::from(i.quality) >= quality)
+                        })
                 })
                 .map(|row| row.stack.max(1))
                 .sum(),
@@ -641,6 +661,7 @@ impl Gathered<'_> {
             blueprint.to_owned(),
             RecipeFacts {
                 name: entry.name.clone(),
+                entity: entry.entity_guid.clone(),
                 owned: self.owned_blueprints.contains(blueprint)
                     || self.hand_owned.contains(blueprint),
                 craft_seconds: entry.craft_seconds,
