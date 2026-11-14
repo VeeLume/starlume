@@ -8,7 +8,7 @@
 
 use serde::Serialize;
 
-use crate::steps::{Step, StepKind};
+use crate::steps::{PlanStep, StepKind};
 
 /// A trip visits at most this many places: the card it is shown on keeps
 /// its height.
@@ -53,7 +53,7 @@ impl Drive {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub enum Choice {
+pub enum TripChoice {
     /// The most steps in one trip.
     Most,
     /// The nearest place with something to do.
@@ -64,16 +64,21 @@ pub enum Choice {
     Plans,
 }
 
-impl Choice {
-    pub const ALL: [Choice; 4] = [Choice::Most, Choice::Nearest, Choice::Rarest, Choice::Plans];
+impl TripChoice {
+    pub const ALL: [TripChoice; 4] = [
+        TripChoice::Most,
+        TripChoice::Nearest,
+        TripChoice::Rarest,
+        TripChoice::Plans,
+    ];
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct Session {
-    pub choice: Choice,
-    pub stops: Vec<Stop>,
+pub struct Trip {
+    pub choice: TripChoice,
+    pub stops: Vec<TripStop>,
     /// One sentence on why this trip.
     pub why: String,
     /// All quantum legs together; `None` when one of them could not be
@@ -86,19 +91,19 @@ pub struct Session {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct Stop {
+pub struct TripStop {
     pub site: String,
     pub place: String,
     /// The jump that gets you here; `None` for a stop where you already
     /// stand, or a first stop with no known start.
-    pub leg: Option<Leg>,
-    pub steps: Vec<StopStep>,
+    pub leg: Option<TripLeg>,
+    pub steps: Vec<TripStep>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct Leg {
+pub struct TripLeg {
     pub gm: f64,
     pub seconds: Option<f64>,
 }
@@ -106,7 +111,7 @@ pub struct Leg {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct StopStep {
+pub struct TripStep {
     pub id: String,
     pub kind: StepKind,
     pub title: String,
@@ -115,7 +120,7 @@ pub struct StopStep {
 
 struct Group<'a> {
     site: &'a Site,
-    steps: Vec<&'a Step>,
+    steps: Vec<&'a PlanStep>,
 }
 
 impl Group<'_> {
@@ -144,13 +149,13 @@ fn jump(a: &Site, b: &Site) -> f64 {
 /// All four sessions for the open steps. `start` is the site id of the last
 /// known place.
 pub fn sessions(
-    steps: &[Step],
+    steps: &[PlanStep],
     sites: &[Site],
     start: Option<&str>,
     drive: Option<&Drive>,
-) -> Vec<Session> {
+) -> Vec<Trip> {
     let start = start.and_then(|id| sites.iter().find(|s| s.id == id));
-    let ready: Vec<&Step> = steps.iter().filter(|s| !s.blocked).collect();
+    let ready: Vec<&PlanStep> = steps.iter().filter(|s| !s.blocked).collect();
     let mut groups: Vec<Group> = Vec::new();
     for step in &ready {
         let Some(site) = step
@@ -201,7 +206,7 @@ pub fn sessions(
     };
     let open = ready.len();
 
-    Choice::ALL
+    TripChoice::ALL
         .iter()
         .map(|&choice| {
             if groups.is_empty() {
@@ -210,10 +215,10 @@ pub fn sessions(
                 } else {
                     "None of the open steps has a place the map knows.".to_owned()
                 };
-                return Session { choice, stops: Vec::new(), why, travel_seconds: Some(0.0), work_seconds: 0.0 };
+                return Trip { choice, stops: Vec::new(), why, travel_seconds: Some(0.0), work_seconds: 0.0 };
             }
             let (picked, why): (Vec<&Group>, String) = match choice {
-                Choice::Most => {
+                TripChoice::Most => {
                     let mut by: Vec<&Group> = groups.iter().collect();
                     by.sort_by(|a, b| b.steps.len().cmp(&a.steps.len()).then(far(a).total_cmp(&far(b))));
                     by.truncate(MAX_STOPS);
@@ -225,7 +230,7 @@ pub fn sessions(
                     );
                     (by, why)
                 }
-                Choice::Nearest => {
+                TripChoice::Nearest => {
                     let g = groups.iter().min_by(|a, b| far(a).total_cmp(&far(b))).expect("not empty");
                     let first = lower_first(&g.steps[0].title);
                     let why = match start {
@@ -241,7 +246,7 @@ pub fn sessions(
                     };
                     (vec![g], why)
                 }
-                Choice::Rarest => {
+                TripChoice::Rarest => {
                     let all = || groups.iter().flat_map(|g| g.steps.iter().map(move |s| (g, *s)));
                     let mined = all()
                         .filter_map(|(g, s)| s.odds.map(|o| (g, s, o)))
@@ -270,7 +275,7 @@ pub fn sessions(
                         }
                     }
                 }
-                Choice::Plans => {
+                TripChoice::Plans => {
                     let g = groups
                         .iter()
                         .min_by(|a, b| {
@@ -298,12 +303,12 @@ pub fn sessions(
 
 /// Order the stops nearest first from where you are, and time the legs.
 fn route(
-    choice: Choice,
+    choice: TripChoice,
     mut left: Vec<&Group>,
     start: Option<&Site>,
     drive: Option<&Drive>,
     why: String,
-) -> Session {
+) -> Trip {
     let mut stops = Vec::new();
     let mut here = start;
     let mut travel = Some(0.0);
@@ -327,7 +332,7 @@ fn route(
         let g = left.remove(next);
         let leg = here.filter(|h| h.id != g.site.id).map(|h| {
             let gm = jump(h, g.site);
-            Leg {
+            TripLeg {
                 gm,
                 seconds: drive.and_then(|d| d.seconds(gm)),
             }
@@ -336,14 +341,14 @@ fn route(
             travel = travel.zip(leg.seconds).map(|(a, b)| a + b);
         }
         work += g.steps.iter().filter_map(|s| s.seconds).sum::<f64>();
-        stops.push(Stop {
+        stops.push(TripStop {
             site: g.site.id.clone(),
             place: g.site.name.clone(),
             leg,
             steps: g
                 .steps
                 .iter()
-                .map(|s| StopStep {
+                .map(|s| TripStep {
                     id: s.id.clone(),
                     kind: s.kind,
                     title: s.title.clone(),
@@ -353,7 +358,7 @@ fn route(
         });
         here = Some(g.site);
     }
-    Session {
+    Trip {
         choice,
         stops,
         why,
@@ -410,7 +415,7 @@ fn lower_first(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::steps::Where;
+    use crate::steps::PlanPlace;
 
     /// Sites on a line, 1 Gm apart per unit, in one system.
     fn site(id: &str, x: f64) -> Site {
@@ -423,15 +428,15 @@ mod tests {
         }
     }
 
-    fn step(id: &str, kind: StepKind, site: Option<&str>, plans: &[&str]) -> Step {
-        Step {
+    fn step(id: &str, kind: StepKind, site: Option<&str>, plans: &[&str]) -> PlanStep {
+        PlanStep {
             id: id.into(),
             kind,
             title: format!("Do {id}"),
             detail: String::new(),
             plans: plans.iter().map(|p| (*p).to_owned()).collect(),
             blocked: false,
-            at: site.map(|s| Where {
+            at: site.map(|s| PlanPlace {
                 name: format!("Place {s}"),
                 site: Some(s.into()),
             }),
@@ -449,7 +454,7 @@ mod tests {
         }
     }
 
-    fn world() -> (Vec<Step>, Vec<Site>) {
+    fn world() -> (Vec<PlanStep>, Vec<Site>) {
         let sites = vec![
             site("home", 0.0),
             site("near", 2.0),
@@ -471,11 +476,11 @@ mod tests {
         (steps, sites)
     }
 
-    fn pick(sessions: &[Session], choice: Choice) -> &Session {
+    fn pick(sessions: &[Trip], choice: TripChoice) -> &Trip {
         sessions.iter().find(|s| s.choice == choice).unwrap()
     }
 
-    fn places(session: &Session) -> Vec<&str> {
+    fn places(session: &Trip) -> Vec<&str> {
         session.stops.iter().map(|s| s.site.as_str()).collect()
     }
 
@@ -483,14 +488,14 @@ mod tests {
     fn most_takes_the_fullest_places_and_flies_them_nearest_first() {
         let (steps, sites) = world();
         let all = sessions(&steps, &sites, Some("home"), Some(&drive()));
-        let most = pick(&all, Choice::Most);
+        let most = pick(&all, TripChoice::Most);
         assert_eq!(places(most), ["near", "mid", "far"]);
         assert_eq!(most.why, "Covers 4 of your 5 open steps in 3 stops.");
         // 2 + 8 + 20 Gm at 10 s a Gm, three spools of 60 s.
         assert_eq!(most.travel_seconds, Some(480.0));
         assert_eq!(
             most.stops[1].leg,
-            Some(Leg {
+            Some(TripLeg {
                 gm: 8.0,
                 seconds: Some(140.0)
             })
@@ -502,7 +507,7 @@ mod tests {
     fn nearest_is_one_stop_and_none_when_you_stand_there() {
         let (steps, sites) = world();
         let all = sessions(&steps, &sites, Some("near"), Some(&drive()));
-        let near = pick(&all, Choice::Nearest);
+        let near = pick(&all, TripChoice::Nearest);
         assert_eq!(places(near), ["near"]);
         assert_eq!(near.stops[0].leg, None);
         assert_eq!(near.travel_seconds, Some(0.0));
@@ -516,7 +521,7 @@ mod tests {
     fn rarest_goes_for_the_ore_fewest_rocks_hold() {
         let (steps, sites) = world();
         let all = sessions(&steps, &sites, Some("home"), Some(&drive()));
-        let rare = pick(&all, Choice::Rarest);
+        let rare = pick(&all, TripChoice::Rarest);
         assert_eq!(places(rare), ["far"]);
         assert_eq!(
             rare.why,
@@ -528,7 +533,7 @@ mod tests {
     fn plans_goes_where_one_stop_moves_the_most_plans() {
         let (steps, sites) = world();
         let all = sessions(&steps, &sites, Some("home"), Some(&drive()));
-        let plans = pick(&all, Choice::Plans);
+        let plans = pick(&all, TripChoice::Plans);
         assert_eq!(places(plans), ["mid"]);
         assert_eq!(plans.why, "One stop at Place mid moves 3 plans.");
     }
@@ -539,21 +544,21 @@ mod tests {
         steps[0].blocked = true;
         sites[3].system = "Elsewhere".into();
         let all = sessions(&steps, &sites, Some("home"), Some(&drive()));
-        assert_eq!(places(pick(&all, Choice::Most)), ["mid"]);
+        assert_eq!(places(pick(&all, TripChoice::Most)), ["mid"]);
         // The rare ore is in the other system: the common one is what is left.
-        assert_eq!(places(pick(&all, Choice::Rarest)), ["mid"]);
+        assert_eq!(places(pick(&all, TripChoice::Rarest)), ["mid"]);
     }
 
     #[test]
     fn without_a_start_or_a_drive_no_time_is_made_up() {
         let (steps, sites) = world();
         let all = sessions(&steps, &sites, None, None);
-        let most = pick(&all, Choice::Most);
+        let most = pick(&all, TripChoice::Most);
         assert_eq!(most.stops[0].leg, None);
         assert!(most.stops[1].leg.is_some_and(|l| l.seconds.is_none()));
         assert_eq!(most.travel_seconds, None);
         assert!(
-            pick(&all, Choice::Nearest)
+            pick(&all, TripChoice::Nearest)
                 .why
                 .starts_with("Your last place is not known")
         );
@@ -566,7 +571,7 @@ mod tests {
             times: vec![(0.0, 60.0), (5.0, 110.0)],
         };
         let all = sessions(&steps, &sites, Some("home"), Some(&short));
-        let most = pick(&all, Choice::Most);
+        let most = pick(&all, TripChoice::Most);
         assert_eq!(most.stops[0].leg.unwrap().seconds, Some(80.0));
         assert_eq!(most.stops[1].leg.unwrap().seconds, None);
         assert_eq!(most.travel_seconds, None);
@@ -579,7 +584,7 @@ mod tests {
         craft.seconds = Some(510.0);
         steps.push(craft);
         let all = sessions(&steps, &sites, Some("home"), Some(&drive()));
-        assert_eq!(pick(&all, Choice::Nearest).work_seconds, 510.0);
+        assert_eq!(pick(&all, TripChoice::Nearest).work_seconds, 510.0);
     }
 
     #[test]

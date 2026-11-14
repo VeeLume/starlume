@@ -1540,6 +1540,108 @@ fn mass_buckets(rolled: &[Rolled], classes: Option<&Vec<RockClass>>) -> Vec<Mass
         .collect()
 }
 
+/// Composition rolls per rock type and place for [`ore_sites`].
+const SITE_ROLLS: u64 = 400;
+
+/// An area where an ore is ship-mined at a quality.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OreSite {
+    /// The provider's GUID.
+    pub area: String,
+    pub name: String,
+    pub places: Vec<Place>,
+    /// The share of the area's ship rocks that hold the ore at the asked
+    /// quality or better.
+    pub find: f32,
+}
+
+/// Where `element` is ship-mined at `min_quality` or better, best first.
+/// The quality is the game's own roll, sampled per rock type at the area's
+/// first place (the roll walks the place and its parents for an override);
+/// an area where no sampled rock reaches the quality is left out.
+pub fn ore_sites(
+    src: &Sources<'_>,
+    catalog: &Catalog,
+    element: &str,
+    min_quality: u16,
+) -> Vec<OreSite> {
+    let Some(element) = parse_guid(element) else {
+        return vec![];
+    };
+    let points = Points::build(src.locations, src.locale);
+    // (composition, first place) → the share of its rocks with the ore.
+    let mut hit_cache: HashMap<(Guid, String), f32> = HashMap::new();
+    let mut out: Vec<OreSite> = src
+        .providers
+        .iter()
+        .filter(|(guid, _)| !LEFTOVERS.contains(&guid.to_string().as_str()))
+        .filter_map(|(guid, _)| {
+            let holding: Vec<(f32, &Composition)> = ship_entries(src, catalog, guid)
+                .iter()
+                .filter_map(|e| {
+                    let c = e
+                        .rock
+                        .composition
+                        .and_then(|c| src.index.compositions.get(&c))?;
+                    c.parts
+                        .iter()
+                        .any(|p| p.element == Some(element))
+                        .then_some((e.share, c))
+                })
+                .collect();
+            if holding.is_empty() {
+                return None;
+            }
+            let (name, _, places) = src.area_places(guid);
+            let first = places.first().map(|p| p.id.clone()).unwrap_or_default();
+            let location_ids: Vec<Guid> = parse_guid(&first)
+                .map(|g| {
+                    std::iter::once(g)
+                        .chain(src.locations.ancestors(&g).map(|l| l.guid))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let quality = QualityRoll {
+                elements: &catalog.elements,
+                resources: src.resources,
+                catalog: &src.index.quality,
+                locations: &location_ids,
+            };
+            let find: f32 = holding
+                .iter()
+                .map(|(share, c)| {
+                    let hits = *hit_cache.entry((c.guid, first.clone())).or_insert_with(|| {
+                        let n = (0..SITE_ROLLS)
+                            .filter(|seed| {
+                                c.roll_with_quality(composition_seed(*seed), &quality)
+                                    .iter()
+                                    .any(|e| {
+                                        e.element == element
+                                            && (min_quality == 0
+                                                || e.quality.is_some_and(|q| q >= min_quality))
+                                    })
+                            })
+                            .count();
+                        n as f32 / SITE_ROLLS as f32
+                    });
+                    share * hits
+                })
+                .sum();
+            if find <= 0.0 {
+                return None;
+            }
+            Some(OreSite {
+                area: guid.to_string(),
+                name: point_area_name(src, &points, guid).unwrap_or(name),
+                places,
+                find,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| b.find.total_cmp(&a.find).then(a.name.cmp(&b.name)));
+    out
+}
+
 /// Generate one rock for `request`; `loadout` (with a laser) adds the class
 /// shares and is needed for a class pick.
 pub fn generate(

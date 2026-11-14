@@ -1142,6 +1142,87 @@ async telemetryEnvUninstall() : Promise<Result<TelemetryEnvState, AppError>> {
 }
 },
 /**
+ * Your plans, in order. A file read: no game data needed, so Crafting and
+ * Ships can mark what is already planned.
+ */
+async plansList() : Promise<Plan[]> {
+    return await TAURI_INVOKE("plans_list");
+},
+/**
+ * Plan a number of one item, crafted at a quality. Planning the same
+ * blueprint again changes nothing.
+ */
+async plansAddCraft(blueprint: string, count: number, quality: number) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_craft", { blueprint, count, quality }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Plan to have a saved loadout fitted on its ship.
+ */
+async plansAddLoadout(loadout: string) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_loadout", { loadout }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async plansRemove(id: string) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_remove", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Make a plan the focus: it is served first by the ledger.
+ */
+async plansFocus(id: string) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_focus", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async plansSetCraft(id: string, count: number, quality: number) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_set_craft", { id, count, quality }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The board: every plan with its stages, the open steps, the ledger and
+ * the four sessions. Derived on each call; nothing is stored.
+ */
+async plansBoard(channel: string) : Promise<Result<PlansBoardView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_board", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Every saved loadout, with its ship named: what "New plan" offers beside
+ * the recipes.
+ */
+async plansLoadoutChoices(channel: string) : Promise<Result<LoadoutChoiceView[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_loadout_choices", { channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The current session. A memory read, after the queue has drained; the
  * first call of a run also files the session kept from the last one, and
  * the first after the module was switched on takes in the session the log
@@ -1856,6 +1937,16 @@ export type CopySourceView = "pledge" | "in_game" | "rental" | "unknown"
  * Whose a copy is (My Items' ownership states a ship can have).
  */
 export type CopyStateView = "owned" | "rented" | "bricked"
+export type CraftGoal = { 
+/**
+ * The blueprint's record GUID.
+ */
+blueprint: string; count: number; 
+/**
+ * The quality every material has to reach, 0..=1000. A slot's own
+ * minimum still holds when it is higher.
+ */
+quality: number }
 export type CraftedPropertyView = { 
 /**
  * `CraftingGameplayPropertyDef` CRC.
@@ -2280,6 +2371,20 @@ pickShare: number | null;
  * The sample's masses as bars, lightest first.
  */
 masses: MassBucketView[] }
+/**
+ * What a plan is for. New kinds (an armour set, a blueprint collection) are
+ * new variants; a file written by a newer build keeps loading, its unknown
+ * goals read as [`Goal::Unknown`] and derive no steps.
+ */
+export type Goal = 
+/**
+ * A saved loadout to have fitted on its ship.
+ */
+({ kind: "loadout" } & LoadoutGoal) | 
+/**
+ * A number of one item to have crafted, at a quality.
+ */
+({ kind: "craft" } & CraftGoal) | { kind: "unknown" }
 export type GrantingMissionView = { missionId: string; title: string }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
@@ -2579,6 +2684,19 @@ launcher_found: boolean;
  * `StarCitizen.exe` (or its EAC bootstrapper) is running.
  */
 game_running: boolean }
+export type LedgerRow = { material: string; minQuality: number; bulk: boolean; 
+/**
+ * What every plan together needs at this quality.
+ */
+need: number; 
+/**
+ * What of your stock is reserved for it; never above `need`.
+ */
+held: number; 
+/**
+ * The plans that ask for it, in plan order.
+ */
+plans: string[] }
 export type LevelView = { column: string; pips: number }
 /**
  * One channel the account may play, as the launcher would install it.
@@ -2592,6 +2710,19 @@ id: string;
  * `"4.10.2-live.12913470"` — compare with the install's version label.
  */
 version_label: string }
+/**
+ * A saved loadout that can be planned.
+ */
+export type LoadoutChoiceView = { id: string; name: string; 
+/**
+ * The ship's name.
+ */
+ship: string }
+export type LoadoutGoal = { 
+/**
+ * The saved loadout's id in the Ships module.
+ */
+loadout: string }
 export type LoadoutSlotView = { path: string[]; 
 /**
  * `null` = an emptied port.
@@ -3229,6 +3360,115 @@ kind: string;
  * it); empty when carried or unknown.
  */
 key: string }
+export type Plan = { id: string; 
+/**
+ * The user's name for it; empty means "name it after the goal".
+ */
+name: string; goal: Goal }
+export type PlanBoard = { id: string; kind: PlanKind; 
+/**
+ * The ship, or the item.
+ */
+title: string; 
+/**
+ * The loadout's name, or the count and quality.
+ */
+subtitle: string; 
+/**
+ * The user's name for the plan, else title and subtitle.
+ */
+name: string; 
+/**
+ * 0..=1.
+ */
+progress: number; done: boolean; 
+/**
+ * The goal's loadout or blueprint is gone.
+ */
+missing: boolean; 
+/**
+ * Nothing can be done for it right now.
+ */
+waiting: boolean; 
+/**
+ * What comes next, or what it waits for.
+ */
+note: string; stages: PlanStage[]; tiles: PlanTile[] }
+export type PlanKind = "loadout" | "craft" | "unknown"
+/**
+ * A place by its display name, and the quantum-travel place it resolves to
+ * when the shell could tell (the id is opaque here).
+ */
+export type PlanPlace = { name: string; site: string | null }
+export type PlanStage = { name: string; sub: string; state: StageState }
+export type PlanStep = { id: string; kind: StepKind; 
+/**
+ * The action: "Fit the … you own".
+ */
+title: string; 
+/**
+ * Its reason, or what it waits on.
+ */
+detail: string; 
+/**
+ * The plans it moves, in plan order.
+ */
+plans: string[]; blocked: boolean; at: PlanPlace | null; 
+/**
+ * Time the step itself takes, where the data gives one (a recipe's
+ * craft time).
+ */
+seconds: number | null; 
+/**
+ * aUEC.
+ */
+cost: number | null; 
+/**
+ * Mining: the share of the rocks at the place that hold the ore at the
+ * wanted quality.
+ */
+odds: number | null; 
+/**
+ * How many places it can be done at (mining places, shops, missions).
+ */
+sources: number }
+/**
+ * Where a plan's goal lives in the app, for the board's "open" link.
+ */
+export type PlanTargetView = { plan: string; 
+/**
+ * A loadout plan: the ship's GUID and the saved loadout's id.
+ */
+ship: string | null; loadout: string | null; 
+/**
+ * A craft project: the blueprint's family key on the Crafting page.
+ */
+family: string | null }
+export type PlanTile = { value: string; label: string }
+export type PlansBoardView = { plans: PlanBoard[]; targets: PlanTargetView[]; steps: PlanStep[]; ledger: LedgerRow[]; 
+/**
+ * One per choice, in the order the card offers them.
+ */
+sessions: Trip[]; 
+/**
+ * The last known place, as the session log names it; `None` when no
+ * session has one or the map does not know it.
+ */
+from: string | null; 
+/**
+ * The ship whose quantum drive times the legs (the first loadout
+ * plan's); `None`: legs carry distances only.
+ */
+driveShip: string | null; 
+/**
+ * When the inventory was read from the game, unix seconds; `None`: it
+ * never was, and nothing you hold is counted.
+ */
+inventoryAt: number | null; 
+/**
+ * When the UEX prices were fetched, unix seconds.
+ */
+pricesAt: number | null }
 export type PlantView = { path: string; on: boolean }
 /**
  * The player's hand on the power network.
@@ -3976,10 +4216,28 @@ export type SpawnSlotView = { count_min: number; count_max: number; concurrent: 
  * Raw archetype / class tag names (`PU_Soldier`, `Heavy`).
  */
 kinds: string[]; factions: string[]; allied: boolean; target: boolean }
+export type StageState = "done" | "current" | "ahead"
 /**
  * One figure of a part.
  */
 export type StatView = { key: string; label: string; value: number; unit: string; better: number }
+export type StepKind = 
+/**
+ * Fit a part you hold.
+ */
+"fit" | "buy" | "mine" | 
+/**
+ * Get a material no ship-mining place gives.
+ */
+"gather" | "craft" | 
+/**
+ * Earn a blueprint from a mission.
+ */
+"earn" | 
+/**
+ * A part no shop sells and no blueprint makes.
+ */
+"find"
 /**
  * One stack of a material you hold.
  */
@@ -4163,6 +4421,45 @@ export type TourView = { planet: string; legs: number; gm: number; seconds: numb
 cooling: number }
 export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
 export type TradeSide = "Buy" | "Sell"
+export type Trip = { choice: TripChoice; stops: TripStop[]; 
+/**
+ * One sentence on why this trip.
+ */
+why: string; 
+/**
+ * All quantum legs together; `None` when one of them could not be
+ * timed (no drive, or out of its range).
+ */
+travelSeconds: number | null; 
+/**
+ * The crafting among the steps.
+ */
+workSeconds: number }
+export type TripChoice = 
+/**
+ * The most steps in one trip.
+ */
+"most" | 
+/**
+ * The nearest place with something to do.
+ */
+"nearest" | 
+/**
+ * The step that is hardest to come by.
+ */
+"rarest" | 
+/**
+ * The place that moves the most plans.
+ */
+"plans"
+export type TripLeg = { gm: number; seconds: number | null }
+export type TripStep = { id: string; kind: StepKind; title: string; seconds: number | null }
+export type TripStop = { site: string; place: string; 
+/**
+ * The jump that gets you here; `None` for a stop where you already
+ * stand, or a first stop with no known start.
+ */
+leg: TripLeg | null; steps: TripStep[] }
 /**
  * Physical, energy, distortion: (min, max).
  */

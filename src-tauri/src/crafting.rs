@@ -157,7 +157,7 @@ pub struct StockStackView {
 
 /// The catalog for `channel`'s build. Dropped with the rest of the game data
 /// on a hide; the next call reads its snapshot again.
-async fn index_for(
+pub(crate) async fn index_for(
     app: &AppHandle,
     channel: &str,
 ) -> Result<std::sync::Arc<svc_data::BlueprintIndex>, AppError> {
@@ -278,6 +278,11 @@ pub(crate) async fn crafting_detail(
 
 /// Serializes state read-modify-writes across commands.
 static STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The blueprints marked as owned by hand (the game read is the other half).
+pub(crate) fn hand_owned() -> std::collections::BTreeSet<String> {
+    app_kit::load_json::<CraftingState>(&state_path()).owned
+}
 
 fn state_path() -> std::path::PathBuf {
     app_kit::app_data_root().join("crafting").join("state.json")

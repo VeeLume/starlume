@@ -138,6 +138,24 @@ impl Module for Crafting {
     }
 }
 
+/// Plans — the goals you set and the steps your inventory leaves open
+/// (model, ledger, steps and session in `crates/mod-plans`, the gathering
+/// in `plans.rs`). Reads what Ships, Crafting, My Items and Mining already
+/// hold; fetches nothing itself.
+struct Plans;
+
+impl Module for Plans {
+    fn id(&self) -> &'static str {
+        crate::plans::MODULE_ID
+    }
+    fn name(&self) -> &'static str {
+        "Plans"
+    }
+    fn description(&self) -> &'static str {
+        "Loadouts and crafting projects as goals, the next steps your inventory leaves open, and one materials list across all of them"
+    }
+}
+
 /// Session log — one game run as a timeline and a wallet track (reducer in
 /// `crates/mod-session`, feeds and storage in `session.rs`). Reads only
 /// what the Game.log and telemetry opt-ins already read.
@@ -170,6 +188,7 @@ pub(crate) fn registry() -> &'static [&'static dyn Module] {
             &Crafting,
             &Contracts,
             &SessionLog,
+            &Plans,
         ]
     } else {
         &[&Devtracker, &Langpatch, &Items, &Mining, &Ships, &Crafting]

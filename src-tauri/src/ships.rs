@@ -1834,6 +1834,11 @@ fn read_loadouts<R>(f: impl FnOnce(&mod_ships::Loadouts) -> R) -> R {
     f(&app_kit::load_json_or_set_aside(&loadouts_path()))
 }
 
+/// Every saved loadout, of every ship (Plans reads them by id).
+pub(crate) fn saved_loadouts() -> Vec<mod_ships::SavedLoadout> {
+    read_loadouts(|l| l.saved.clone())
+}
+
 /// Read, change and write the loadouts file under its lock; returns what
 /// `f` returns.
 fn with_loadouts<R>(f: impl FnOnce(&mut mod_ships::Loadouts) -> R) -> Result<R, AppError> {

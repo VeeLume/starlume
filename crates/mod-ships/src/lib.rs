@@ -22,7 +22,7 @@ pub mod tree;
 pub mod view;
 
 pub use candidates::{Candidate, Impact, Stat, candidates};
-pub use catalog::{ShipRow, ships};
+pub use catalog::{ShipRow, ship_name, ships};
 pub use crew::{Seats, seats};
 pub use home::{Entitlement, Home, Owned, home};
 pub use loadouts::{Draft, Loadouts, SavedLoadout};

@@ -1201,7 +1201,7 @@ pub(crate) async fn mining_areas(
     Ok(MiningAreasView { areas, places })
 }
 
-fn catalog_of(cooked: &svc_data::CookedData) -> Result<Catalog, AppError> {
+pub(crate) fn catalog_of(cooked: &svc_data::CookedData) -> Result<Catalog, AppError> {
     Catalog::build(&cooked.mining, &cooked.locale).ok_or_else(|| {
         AppError::Config(
             "this build's game data has no mining rules — reload it in Settings → Game data".into(),
@@ -1209,7 +1209,7 @@ fn catalog_of(cooked: &svc_data::CookedData) -> Result<Catalog, AppError> {
     })
 }
 
-fn sources(cooked: &svc_data::CookedData) -> Result<mod_mining::Sources<'_>, AppError> {
+pub(crate) fn sources(cooked: &svc_data::CookedData) -> Result<mod_mining::Sources<'_>, AppError> {
     let h = &cooked.holotable;
     let missing = || {
         AppError::Config(

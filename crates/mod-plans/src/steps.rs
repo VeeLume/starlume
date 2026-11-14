@@ -18,7 +18,7 @@ use crate::model::{Goal, PlansState};
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct Where {
+pub struct PlanPlace {
     pub name: String,
     pub site: Option<String>,
 }
@@ -39,7 +39,7 @@ pub struct Inputs {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeldPart {
-    pub at: Where,
+    pub at: PlanPlace,
     pub count: u32,
 }
 
@@ -77,7 +77,7 @@ pub struct PartFacts {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Offer {
     pub shop: String,
-    pub at: Where,
+    pub at: PlanPlace,
     /// aUEC.
     pub price: f64,
 }
@@ -108,13 +108,13 @@ pub struct SlotNeed {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Grant {
     pub title: String,
-    pub at: Vec<Where>,
+    pub at: Vec<PlanPlace>,
 }
 
 /// Where an ore can be ship-mined at a quality.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OreSite {
-    pub at: Where,
+    pub at: PlanPlace,
     /// The share of the ship rocks there that hold it at that quality.
     pub find: f32,
 }
@@ -148,7 +148,7 @@ pub enum StepKind {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct Step {
+pub struct PlanStep {
     pub id: String,
     pub kind: StepKind,
     /// The action: "Fit the … you own".
@@ -158,7 +158,7 @@ pub struct Step {
     /// The plans it moves, in plan order.
     pub plans: Vec<String>,
     pub blocked: bool,
-    pub at: Option<Where>,
+    pub at: Option<PlanPlace>,
     /// Time the step itself takes, where the data gives one (a recipe's
     /// craft time).
     pub seconds: Option<f64>,
@@ -192,7 +192,7 @@ pub enum StageState {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct Stage {
+pub struct PlanStage {
     pub name: String,
     pub sub: String,
     pub state: StageState,
@@ -201,7 +201,7 @@ pub struct Stage {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct Tile {
+pub struct PlanTile {
     pub value: String,
     pub label: String,
 }
@@ -227,15 +227,15 @@ pub struct PlanBoard {
     pub waiting: bool,
     /// What comes next, or what it waits for.
     pub note: String,
-    pub stages: Vec<Stage>,
-    pub tiles: Vec<Tile>,
+    pub stages: Vec<PlanStage>,
+    pub tiles: Vec<PlanTile>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Board {
     pub plans: Vec<PlanBoard>,
     /// Ready steps first, each group in plan order.
-    pub steps: Vec<Step>,
+    pub steps: Vec<PlanStep>,
     pub ledger: Vec<LedgerRow>,
 }
 
@@ -255,7 +255,7 @@ struct Craft<'a> {
 struct Part<'a> {
     facts: &'a PartFacts,
     /// A free copy reserved for it.
-    held: Option<Where>,
+    held: Option<PlanPlace>,
 }
 
 struct LoadoutWork<'a> {
@@ -268,7 +268,7 @@ struct LoadoutWork<'a> {
 /// them. `ores` answers where a material can be ship-mined at a quality.
 pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> OreSites) -> Board {
     // Free parts are counted once, like stock: reserved in plan order.
-    let mut pool: HashMap<&str, Vec<(Where, u32)>> = inputs
+    let mut pool: HashMap<&str, Vec<(PlanPlace, u32)>> = inputs
         .parts
         .iter()
         .map(|(k, v)| {
@@ -370,9 +370,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     }
     let ledger = ledger::reserve(&inputs.stock, &demands);
 
-    let mut ready: Vec<Step> = Vec::new();
-    let mut blocked: Vec<Step> = Vec::new();
-    let mut push = |step: Step| {
+    let mut ready: Vec<PlanStep> = Vec::new();
+    let mut blocked: Vec<PlanStep> = Vec::new();
+    let mut push = |step: PlanStep| {
         if step.blocked {
             blocked.push(step)
         } else {
@@ -381,7 +381,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     };
 
     // Fit and buy, per loadout.
-    let mut buys: Vec<Step> = Vec::new();
+    let mut fits: Vec<(PlanStep, u32)> = Vec::new();
+    let mut finds: Vec<PlanStep> = Vec::new();
+    let mut buys: Vec<PlanStep> = Vec::new();
     let mut buy_lines: Vec<Vec<(String, u32)>> = Vec::new();
     for work in &loadouts {
         for (n, part) in work.parts.iter().enumerate() {
@@ -390,24 +392,34 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 continue;
             }
             if let Some(at) = &part.held {
+                // Two ports wanting the same part from the same place are
+                // one step, counted.
+                let id = format!("fit:{}:{}:{}", work.plan, facts.item, at.name);
+                if let Some((_, count)) = fits.iter_mut().find(|(s, _)| s.id == id) {
+                    *count += 1;
+                    continue;
+                }
                 let no_ship = work.facts.read == ShipRead::NotOwned;
-                push(Step {
-                    id: format!("fit:{}:{}:{n}", work.plan, facts.item),
-                    kind: StepKind::Fit,
-                    title: format!("Fit the {} you own", facts.name),
-                    detail: if no_ship {
-                        format!("Waits on the ship: you own no {}", work.facts.ship)
-                    } else {
-                        sits(at)
+                fits.push((
+                    PlanStep {
+                        id,
+                        kind: StepKind::Fit,
+                        title: facts.name.clone(),
+                        detail: if no_ship {
+                            format!("Waits on the ship: you own no {}", work.facts.ship)
+                        } else {
+                            String::new()
+                        },
+                        plans: vec![work.plan.to_owned()],
+                        blocked: no_ship,
+                        at: Some(at.clone()),
+                        seconds: None,
+                        cost: None,
+                        odds: None,
+                        sources: 1,
                     },
-                    plans: vec![work.plan.to_owned()],
-                    blocked: no_ship,
-                    at: Some(at.clone()),
-                    seconds: None,
-                    cost: None,
-                    odds: None,
-                    sources: 1,
-                });
+                    1,
+                ));
             } else if let Some(offer) = facts.offers.first() {
                 let at = match buys
                     .iter()
@@ -415,7 +427,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 {
                     Some(at) => at,
                     None => {
-                        buys.push(Step {
+                        buys.push(PlanStep {
                             id: format!("buy:{}", offer.shop),
                             kind: StepKind::Buy,
                             title: String::new(),
@@ -450,7 +462,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 .as_ref()
                 .is_none_or(|bp| !inputs.recipes.contains_key(bp))
             {
-                push(Step {
+                finds.push(PlanStep {
                     id: format!("find:{}:{}:{n}", work.plan, facts.item),
                     kind: StepKind::Find,
                     title: format!("Find the {}", facts.name),
@@ -465,6 +477,20 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 });
             }
         }
+    }
+    for (mut step, count) in fits {
+        let name = std::mem::take(&mut step.title);
+        let place = step.at.as_ref().map(sits_at).unwrap_or_default();
+        (step.title, step.detail) = match (count, step.blocked) {
+            (1, false) => (format!("Fit the {name} you own"), format!("It is {place}")),
+            (1, true) => (format!("Fit the {name} you own"), step.detail),
+            (n, false) => (
+                format!("Fit {n} × {name} you own"),
+                format!("They are {place}"),
+            ),
+            (n, true) => (format!("Fit {n} × {name} you own"), step.detail),
+        };
+        push(step);
     }
     for (mut step, lines) in buys.into_iter().zip(buy_lines) {
         let count: u32 = lines.iter().map(|(_, c)| c).sum();
@@ -484,8 +510,10 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
         push(step);
     }
 
+    finds.into_iter().for_each(&mut push);
+
     // Blueprints to earn: one step a blueprint, whichever plans want it.
-    let mut earns: Vec<Step> = Vec::new();
+    let mut earns: Vec<PlanStep> = Vec::new();
     for craft in crafts.iter().filter(|c| c.left > 0 && !c.recipe.owned) {
         let id = format!("earn:{}", craft.blueprint);
         if let Some(step) = earns.iter_mut().find(|s| s.id == id) {
@@ -495,7 +523,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             continue;
         }
         let grants = &craft.recipe.grants;
-        earns.push(Step {
+        earns.push(PlanStep {
             id,
             kind: StepKind::Earn,
             title: format!("Earn the {} blueprint", craft.recipe.name),
@@ -526,7 +554,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
         let amount = amount(row.short(), row.bulk);
         let grade = quality_suffix(row.min_quality);
         let id = format!("mine:{}:{}:{}", row.material, row.min_quality, row.bulk);
-        let base = Step {
+        let base = PlanStep {
             id,
             kind: StepKind::Mine,
             title: String::new(),
@@ -553,12 +581,12 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             sources: found.sites.len() as u32,
         };
         push(match found.sites.first() {
-            Some(best) => Step {
+            Some(best) => PlanStep {
                 title: format!("Mine {amount} {}{grade}", row.material),
                 detail: format!(
                     "{} of the ship rocks there hold it{}",
                     percent(best.find),
-                    if row.min_quality > 0 {
+                    if row.min_quality > 1 {
                         " at this quality"
                     } else {
                         ""
@@ -568,7 +596,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 odds: Some(best.find),
                 ..base
             },
-            None => Step {
+            None => PlanStep {
                 kind: StepKind::Gather,
                 title: format!("Get {amount} {}{grade}", row.material),
                 detail: if found.mined {
@@ -615,7 +643,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             n => format!("Craft {n} × {name}{grade}"),
         };
         if can > 0 {
-            push(Step {
+            push(PlanStep {
                 id: format!("craft:{}:{}", craft.plan, craft.blueprint),
                 kind: StepKind::Craft,
                 title: titled(can),
@@ -644,7 +672,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     needs.push(demand.material.clone());
                 }
             }
-            push(Step {
+            push(PlanStep {
                 id: format!("craft-wait:{}:{}", craft.plan, craft.blueprint),
                 kind: StepKind::Craft,
                 title: titled(rest),
@@ -670,7 +698,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
         .plans
         .iter()
         .map(|plan| {
-            let mine: Vec<&Step> = steps
+            let mine: Vec<&PlanStep> = steps
                 .iter()
                 .filter(|s| s.plans.contains(&plan.id))
                 .collect();
@@ -726,7 +754,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     }
 }
 
-fn take(pool: Option<&mut Vec<(Where, u32)>>) -> Option<Where> {
+fn take(pool: Option<&mut Vec<(PlanPlace, u32)>>) -> Option<PlanPlace> {
     let entry = pool?.iter_mut().find(|(_, count)| *count > 0)?;
     entry.1 -= 1;
     Some(entry.0.clone())
@@ -752,7 +780,7 @@ fn missing(kind: PlanKind, title: &str, note: &str) -> PlanBoard {
 /// Stages of a loadout, each from what the account shows: the parts a shop
 /// sells, the parts only a blueprint makes, the parts with no known source,
 /// then all of them on the ship.
-fn loadout_board(work: &LoadoutWork, steps: &[&Step]) -> PlanBoard {
+fn loadout_board(work: &LoadoutWork, steps: &[&PlanStep]) -> PlanBoard {
     let parts = &work.parts;
     let total = parts.len() as u32;
     let have = |p: &Part| p.facts.fitted || p.held.is_some();
@@ -823,7 +851,7 @@ fn craft_board(
     now: u32,
     demands: &[Demand],
     fills: &[Fill],
-    steps: &[&Step],
+    steps: &[&PlanStep],
 ) -> PlanBoard {
     let recipe = craft.recipe;
     let crafted = count.saturating_sub(craft.left);
@@ -866,8 +894,8 @@ fn craft_board(
         "to earn".to_owned()
     };
     let subtitle = match craft.quality {
-        0 => format!("{count} crafted"),
-        q => format!("{count} crafted at Q{q}"),
+        0 => format!("{count} to craft"),
+        q => format!("{count} to craft at Q{q}"),
     };
     let open = steps.len();
     PlanBoard {
@@ -898,7 +926,7 @@ fn craft_board(
 
 /// A stage is done when all of its share is in; the first that is not is
 /// the current one. A stage with nothing in it is done and says so.
-fn stages(counts: &[(&str, (u32, u32))]) -> Vec<Stage> {
+fn stages(counts: &[(&str, (u32, u32))]) -> Vec<PlanStage> {
     let mut current_seen = false;
     counts
         .iter()
@@ -912,7 +940,7 @@ fn stages(counts: &[(&str, (u32, u32))]) -> Vec<Stage> {
             } else {
                 StageState::Ahead
             };
-            Stage {
+            PlanStage {
                 name: (*name).to_owned(),
                 sub: if *of == 0 {
                     "none".to_owned()
@@ -925,22 +953,25 @@ fn stages(counts: &[(&str, (u32, u32))]) -> Vec<Stage> {
         .collect()
 }
 
-fn tile(value: String, label: &str) -> Tile {
-    Tile {
+fn tile(value: String, label: &str) -> PlanTile {
+    PlanTile {
         value,
         label: label.to_owned(),
     }
 }
 
-fn sits(at: &Where) -> String {
+/// "sit at Levski", "are on you": where held parts are, after "It" or
+/// "They" (the caller picks; one part "sits", so the s is added there).
+fn sits_at(at: &PlanPlace) -> String {
     match at.name.as_str() {
-        "On you" => "You carry it".to_owned(),
-        name => format!("It sits at {name}"),
+        "On you" => "on you".to_owned(),
+        name => format!("at {name}"),
     }
 }
 
+/// A minimum of 1 is the recipe's "any quality": only a real bar is named.
 fn quality_suffix(quality: u32) -> String {
-    if quality > 0 {
+    if quality > 1 {
         format!(", Q{quality}+")
     } else {
         String::new()
@@ -1016,8 +1047,8 @@ pub(crate) mod tests {
     use super::*;
     use crate::model::{CraftGoal, LoadoutGoal};
 
-    pub(crate) fn at(name: &str) -> Where {
-        Where {
+    pub(crate) fn at(name: &str) -> PlanPlace {
+        PlanPlace {
             name: name.into(),
             site: Some(format!("site-{name}")),
         }
@@ -1117,7 +1148,7 @@ pub(crate) mod tests {
         let step = &board.steps[0];
         assert_eq!(step.kind, StepKind::Fit);
         assert_eq!(step.title, "Fit the Part a you own");
-        assert_eq!(step.detail, "It sits at Depot One");
+        assert_eq!(step.detail, "It is at Depot One");
         assert_eq!(step.at, Some(at("Depot One")));
         assert!(!step.blocked);
     }
@@ -1169,6 +1200,45 @@ pub(crate) mod tests {
             "2 × Part a and 1 × Part b for 61,300 aUEC (UEX)"
         );
         assert_eq!(board.steps[0].cost, Some(61_300.0));
+    }
+
+    #[test]
+    fn two_ports_wanting_one_part_from_one_place_are_one_fit_step() {
+        let mut inputs = loadout(vec![part("a"), part("a")]);
+        inputs.parts.insert(
+            "a".into(),
+            vec![HeldPart {
+                at: at("Depot One"),
+                count: 2,
+            }],
+        );
+        let board = derive(&loadout_state(), &inputs, &no_ores);
+        assert_eq!(board.steps.len(), 1);
+        assert_eq!(board.steps[0].title, "Fit 2 × Part a you own");
+        assert_eq!(board.steps[0].detail, "They are at Depot One");
+    }
+
+    #[test]
+    fn a_minimum_quality_of_one_is_any_quality_and_is_not_named() {
+        let mut inputs = Inputs::default();
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![slot("Ore A", 2.0, 1)]));
+        let ores = |_: &str, _: u32| OreSites {
+            sites: vec![OreSite {
+                at: at("Moon One"),
+                find: 0.5,
+            }],
+            mined: true,
+        };
+        let board = derive(&craft_state(1, 0), &inputs, &ores);
+        let mine = board
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Mine)
+            .unwrap();
+        assert_eq!(mine.title, "Mine 2 SCU Ore A");
+        assert_eq!(mine.detail, "50% of the ship rocks there hold it");
     }
 
     #[test]
