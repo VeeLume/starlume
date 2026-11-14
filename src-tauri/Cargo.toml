@@ -75,6 +75,7 @@ mod-items.workspace = true
 mod-devtracker.workspace = true
 mod-langpatch.workspace = true
 mod-mining.workspace = true
+mod-plans = { workspace = true, features = ["specta"] }
 mod-session = { workspace = true, features = ["specta"] }
 mod-ships.workspace = true
 mod-crafting.workspace = true

@@ -1,0 +1,24 @@
+[package]
+name = "mod-plans"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume plans module: goals you set, the steps your inventory leaves open, one materials ledger across them and a next session"
+
+[dependencies]
+# Pure: the shell gathers stock, catalogs, offers and routes from the
+# services and hands them in as this crate's own small input types (module
+# rule 1: no file, game or network access here, no other module).
+serde.workspace = true
+# TypeScript bindings for the model (the shell turns this on; the
+# mod-session pattern). Off by default: the crate itself needs no IPC.
+specta = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[features]
+default = []
+specta = ["dep:specta"]
