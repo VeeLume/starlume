@@ -48,6 +48,7 @@ pub mod crafting;
 pub mod legality;
 pub mod mining;
 pub mod missions;
+pub mod names;
 pub mod ships;
 pub mod weapons;
 
