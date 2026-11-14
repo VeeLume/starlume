@@ -2957,9 +2957,13 @@ stock: LoadoutSlotView[] | null;
  */
 set: ArmourSetView | null }
 /**
- * Owned copies of a part that are free to fit: in a place's storage, not
- * on a port, not inside a ship or container, owned (not rented, not
- * bricked). The inventory has no insurance or claim state.
+ * Copies of a part the player has that are free to fit: lying loose in
+ * one of their own inventories (a place's storage, a hangar, on the
+ * character), not on a port, not inside a ship or container, and neither
+ * rented nor bricked. "Owned" here is where the part is, not the game's
+ * ownership mark: only pledge-bound items carry that mark, and a part
+ * bought or looted in game is the player's all the same. The inventory has
+ * no insurance or claim state.
  */
 export type OwnedPartView = { place: string; count: number }
 /**
