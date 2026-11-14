@@ -127,6 +127,35 @@ impl CookedData {
             .map(str::to_owned)
     }
 
+    /// Items' names by class (record name), for the lines that name an item
+    /// that way and carry no GUID (`arma_barrel_supp_s2`). One walk over
+    /// the record names for the whole batch; a class the cook does not
+    /// have, or the locale does not name, is left out.
+    pub fn item_names_by_class(&self, classes: &[String]) -> HashMap<String, String> {
+        let (Some(items), Some(paths)) = (&self.holotable.items, &self.holotable.paths) else {
+            return HashMap::new();
+        };
+        if classes.is_empty() {
+            return HashMap::new();
+        }
+        let mut names = HashMap::new();
+        for record in paths.iter() {
+            let key = record.name.rsplit('.').next().unwrap_or(&record.name);
+            let Some(class) = classes.iter().find(|c| c.eq_ignore_ascii_case(key)) else {
+                continue;
+            };
+            // Other record types can share the name: only an item counts.
+            if let Some(name) = items
+                .get(&record.guid)
+                .and_then(|item| item.display_name(&self.locale))
+                .and_then(real)
+            {
+                names.insert(class.clone(), name.to_owned());
+            }
+        }
+        names
+    }
+
     /// A resource's (commodity's) name by its record GUID.
     pub fn resource_name(&self, guid: &str) -> Option<String> {
         let guid = Guid::from_str(guid).ok()?;
@@ -234,6 +263,59 @@ mod tests {
             CookedData::default().place_names().get("Vega2_NewCorvo"),
             None
         );
+    }
+
+    #[test]
+    fn items_are_found_by_class_when_a_line_has_no_guid() {
+        use sc_holotable::asset::generated::{EItemSubType, EItemType};
+        use sc_holotable::items::{Item, Items};
+
+        let item = |name_key: &str| Item {
+            name_key: Some(LocaleKey::new(name_key)),
+            short_name_key: None,
+            desc_key: None,
+            item_type: EItemType::from_dcb_str("WeaponAttachment"),
+            item_sub_type: EItemSubType::from_dcb_str("UNDEFINED"),
+            size: 2,
+            grade: 1,
+            tags: vec![],
+            required_tags: vec![],
+            mass: None,
+            inventory: None,
+            occupancy: Default::default(),
+        };
+        let mut items = Items::new();
+        items.insert(guid(1), item("@item_NameScope"));
+        items.insert(guid(2), item("@item_NameUnnamed"));
+        let mut paths = RecordPaths::new();
+        paths.insert(path(1, "EntityClassDefinition.tnkr_optics_x4_s2"));
+        paths.insert(path(2, "EntityClassDefinition.tnkr_barrel_supp_s2"));
+        // A record of another type with an asked-for name is no item.
+        paths.insert(path(3, "SomethingElse.tnkr_ubarrel_lasr_s1"));
+        let mut locale = LocaleMap::new();
+        locale.set("item_NameScope", "Tinker 4x Scope");
+        locale.set("item_NameUnnamed", "<= PLACEHOLDER =>");
+        let cooked = CookedData {
+            holotable: HolotableSnapshot {
+                items: Some(items),
+                paths: Some(paths),
+                ..Default::default()
+            },
+            locale,
+            ..Default::default()
+        };
+
+        let asked = [
+            // The log's casing is not the record's.
+            "TNKR_optics_x4_s2".to_owned(),
+            "tnkr_barrel_supp_s2".to_owned(),
+            "tnkr_ubarrel_lasr_s1".to_owned(),
+            "tnkr_never_cooked".to_owned(),
+        ];
+        let names = cooked.item_names_by_class(&asked);
+        assert_eq!(names.len(), 1, "{names:?}");
+        assert_eq!(names["TNKR_optics_x4_s2"], "Tinker 4x Scope");
+        assert!(CookedData::default().item_names_by_class(&asked).is_empty());
     }
 
     #[test]

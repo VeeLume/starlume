@@ -1619,6 +1619,18 @@ export type ArticleRefView = { url: string; title: string; version: string | nul
  * Relative, as RSI's index shows it ("1 year ago").
  */
 age_text: string }
+/**
+ * One attachment of an [`EntryKind::Attachments`] entry.
+ */
+export type AttachedItem = { 
+/**
+ * The attachment's class (`arma_barrel_supp_s2`).
+ */
+item: string; 
+/**
+ * The weapon's port it went on (`barrel_attach`).
+ */
+port: string; at: number }
 export type AuthStatus = { 
 /**
  * A device token is present in the credential store.
@@ -2153,6 +2165,21 @@ export type EntryKind =
  */
 { type: "vehicle_entered"; class_name: string; name: string } | { type: "vehicle_left"; class_name: string; name: string } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" } | 
 /**
+ * One quantum trip: a destination was set on the star map (the
+ * entry's time) and, if `arrived_at` says so, the drive got there. The
+ * log has no line for the jump's start, so the time between the two
+ * includes aligning and spooling. A destination set and replaced
+ * before any arrival leaves no entry.
+ */
+{ type: "quantum_travel"; from: string | null; to: string; vehicle: string | null; arrived_at: number | null } | 
+/**
+ * Attachments put on one carried weapon or tool in one go (requests
+ * close together fold into one entry; the entry's time is the first).
+ * What the client asked for: the log has no answer line, and none for
+ * taking an attachment off.
+ */
+{ type: "attachments"; weapon: string | null; holder_port: string; items: AttachedItem[] } | 
+/**
  * A kind a later version added: kept as a row that says so.
  */
 { type: "unknown" }
@@ -2638,6 +2665,36 @@ export type LogEventKind =
  * `Hurston Dynamics`, `Ungoverned`). **Locale-dependent.**
  */
 { type: "JurisdictionEntered"; jurisdiction: string } | 
+/**
+ * The player set a quantum destination on the star map.
+ */
+{ type: "QuantumTargetSelected"; vehicle_class: string | null; destination: string } | 
+/**
+ * A route was calculated to `destination`. Logged with every
+ * [`QuantumTargetSelected`](Self::QuantumTargetSelected) (and again
+ * when the route is recalculated under way).
+ */
+{ type: "QuantumRouteCalculated"; origin: string; destination: string } | 
+/**
+ * The quantum drive arrived at the route's final destination.
+ */
+{ type: "QuantumArrived"; vehicle_class: string | null } | 
+/**
+ * An item arrived in one of the player's weapon or tool slots: what
+ * now sits in `port`. Only the slots an attachment can be put on
+ * through (`wep_stocked_2`, `wep_sidearm`, `weapon_attach_hand_right`,
+ * `utility_attach_1`); the log has one such line for every piece of
+ * gear, the rest are not events.
+ */
+{ type: "HeldItemReceived"; item_class: string; port: string } | 
+/**
+ * The client asked to put an attachment on a weapon or tool the
+ * player carries (the inventory's equip request). The line names the
+ * attachment and the port path, not the weapon: pair `holder_port`
+ * with the last [`HeldItemReceived`](Self::HeldItemReceived) for it.
+ * **The log has no line for taking an attachment off.**
+ */
+{ type: "AttachmentRequested"; item_class: string; holder_port: string; port: string } | 
 /**
  * A contract notification on the HUD. `mission_id` is absent on the
  * ones the game logs with a zero id (`Shared`). **Locale-dependent**
@@ -3594,7 +3651,16 @@ resources: string[];
 /**
  * Contracts' internal names (`MissionEnded::contract`).
  */
-contracts: string[] }
+contracts: string[]; 
+/**
+ * Quantum destinations (`QuantumTravel::to`).
+ */
+destinations: string[]; 
+/**
+ * Classes of items the log names without a GUID (attachments and the
+ * weapons they go on).
+ */
+item_classes: string[] }
 /**
  * The names, each keyed by the internal name (or GUID) it was asked by.
  */
@@ -3611,7 +3677,11 @@ items: Partial<{ [key in string]: DisplayName }>;
 /**
  * By resource GUID.
  */
-resources: Partial<{ [key in string]: DisplayName }>; contracts: Partial<{ [key in string]: DisplayName }> }
+resources: Partial<{ [key in string]: DisplayName }>; contracts: Partial<{ [key in string]: DisplayName }>; destinations: Partial<{ [key in string]: DisplayName }>; 
+/**
+ * By item class.
+ */
+item_classes: Partial<{ [key in string]: DisplayName }> }
 /**
  * The current session as the watcher holds it.
  */

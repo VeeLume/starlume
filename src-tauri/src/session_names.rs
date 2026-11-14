@@ -10,9 +10,13 @@
 //! shows a raw id, and never reads game data itself.
 //!
 //! **What resolves:** places (with the planet and system they lie in),
-//! vehicles, items, resources. **What does not:** shops (no cooked index
-//! maps a shop entity to the name on its sign) and contracts' internal
-//! names; both come back cleaned, with `resolved: false`.
+//! vehicles, items (by GUID, or by class for the lines that carry none),
+//! resources. **What does not:** shops (no cooked index maps a shop entity
+//! to the name on its sign) and contracts' internal names; both come back
+//! cleaned, with `resolved: false`. **Quantum destinations** mostly do not
+//! either: the log names the entity a route ends at (`Orison_LOC`), not a
+//! star-map record, and no cooked index joins the two. One that happens to
+//! be a record name resolves; the rest are cleaned.
 //!
 //! **Memory** (CLAUDE.md "Memory"): the cooked data is reloaded from its
 //! snapshot at most (never parsed) and only when the query names something
@@ -22,7 +26,9 @@
 
 use std::collections::BTreeMap;
 
-use mod_session::names::{clean_contract, clean_item, clean_place, clean_shop, clean_vehicle};
+use mod_session::names::{
+    clean_contract, clean_destination, clean_item, clean_place, clean_shop, clean_vehicle,
+};
 use tauri::{AppHandle, Manager};
 
 use crate::AppState;
@@ -45,6 +51,11 @@ pub struct SessionNameQuery {
     pub resources: Vec<String>,
     /// Contracts' internal names (`MissionEnded::contract`).
     pub contracts: Vec<String>,
+    /// Quantum destinations (`QuantumTravel::to`).
+    pub destinations: Vec<String>,
+    /// Classes of items the log names without a GUID (attachments and the
+    /// weapons they go on).
+    pub item_classes: Vec<String>,
 }
 
 /// An item as a purchase names it.
@@ -97,6 +108,9 @@ pub struct SessionNames {
     /// By resource GUID.
     pub resources: BTreeMap<String, DisplayName>,
     pub contracts: BTreeMap<String, DisplayName>,
+    pub destinations: BTreeMap<String, DisplayName>,
+    /// By item class.
+    pub item_classes: BTreeMap<String, DisplayName>,
 }
 
 fn clean_place_name(internal: &str) -> DisplayName {
@@ -111,6 +125,9 @@ fn clean_place_name(internal: &str) -> DisplayName {
 /// Answer `query` from `cooked` (or from the cleaners alone without it).
 fn resolve(query: &SessionNameQuery, cooked: Option<&svc_data::CookedData>) -> SessionNames {
     let places = cooked.map(|c| c.place_names());
+    let by_class = cooked
+        .map(|c| c.item_names_by_class(&query.item_classes))
+        .unwrap_or_default();
     SessionNames {
         data_loaded: cooked.is_some(),
         places: query
@@ -178,6 +195,34 @@ fn resolve(query: &SessionNameQuery, cooked: Option<&svc_data::CookedData>) -> S
             .iter()
             .map(|c| (c.clone(), DisplayName::cleaned(clean_contract(c))))
             .collect(),
+        destinations: query
+            .destinations
+            .iter()
+            .map(|internal| {
+                let name = places
+                    .as_ref()
+                    .and_then(|p| p.get(internal))
+                    .map(|p| DisplayName {
+                        name: p.name,
+                        parents: p.parents,
+                        resolved: true,
+                    })
+                    .unwrap_or_else(|| DisplayName::cleaned(clean_destination(internal)));
+                (internal.clone(), name)
+            })
+            .collect(),
+        item_classes: query
+            .item_classes
+            .iter()
+            .map(|class| {
+                let name = by_class
+                    .get(class)
+                    .cloned()
+                    .map(DisplayName::resolved)
+                    .unwrap_or_else(|| DisplayName::cleaned(clean_item(class)));
+                (class.clone(), name)
+            })
+            .collect(),
     }
 }
 
@@ -187,7 +232,9 @@ fn needs_data(query: &SessionNameQuery) -> bool {
     !(query.places.is_empty()
         && query.vehicles.is_empty()
         && query.items.is_empty()
-        && query.resources.is_empty())
+        && query.resources.is_empty()
+        && query.destinations.is_empty()
+        && query.item_classes.is_empty())
 }
 
 /// The channel of the install the app treats as the user's default.
@@ -244,6 +291,8 @@ mod tests {
             }],
             resources: vec!["0a1b2c3d-aaaa-4bbb-8ccc-ddddeeeeffff".into()],
             contracts: vec!["Vega_EscortHauler".into()],
+            destinations: vec!["NewCorvo_LOC".into(), "rs_ext_vega-tarn_jp1".into()],
+            item_classes: vec!["tnkr_optics_x4_s2".into()],
         }
     }
 
@@ -274,6 +323,15 @@ mod tests {
             names.contracts["Vega_EscortHauler"].name,
             "Vega Escort Hauler"
         );
+        assert_eq!(names.destinations["NewCorvo_LOC"].name, "New Corvo");
+        assert_eq!(
+            names.destinations["rs_ext_vega-tarn_jp1"].name,
+            "Vega Tarn jump point"
+        );
+        assert_eq!(
+            names.item_classes["tnkr_optics_x4_s2"],
+            DisplayName::cleaned("tnkr optics x4 s2".into())
+        );
     }
 
     #[test]
@@ -284,6 +342,8 @@ mod tests {
         assert_eq!(names.places.len(), 2);
         assert!(names.places.values().all(|p| !p.resolved));
         assert!(!names.vehicles["VEGA_Courier_Mk2"].resolved);
+        assert!(!names.destinations["NewCorvo_LOC"].resolved);
+        assert!(!names.item_classes["tnkr_optics_x4_s2"].resolved);
     }
 
     #[test]

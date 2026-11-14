@@ -95,6 +95,12 @@ const book: SessionNames = {
   items: { [ITEM]: named("Pocket Multitool") },
   resources: { [RESOURCE]: named("Quartz") },
   contracts: { Vega_EscortHauler: { name: "Vega Escort Hauler", parents: [], resolved: false } },
+  destinations: { NewCorvo_LOC: { name: "New Corvo", parents: [], resolved: false } },
+  item_classes: {
+    tnkr_rifle_01: named("Tinker Rifle"),
+    tnkr_optics_x4_s2: named("Tinker 4x Scope"),
+    tnkr_barrel_supp_s2: named("Tinker Suppressor"),
+  },
 };
 const names = namesFrom(book);
 
@@ -115,6 +121,23 @@ const purchase: EntryKind = {
   quantity: 4,
   rental: false,
   outcome: "confirmed",
+};
+
+const trip: EntryKind = {
+  type: "quantum_travel",
+  from: "Tarn Gateway",
+  to: "NewCorvo_LOC",
+  vehicle: "VEGA_Courier_Mk2",
+  arrived_at: T0 + 9 * MIN,
+};
+const attachments: EntryKind = {
+  type: "attachments",
+  weapon: "tnkr_rifle_01",
+  holder_port: "wep_stocked_2",
+  items: [
+    { item: "tnkr_barrel_supp_s2", port: "barrel_attach", at: T0 + 3 * MIN },
+    { item: "tnkr_optics_x4_s2", port: "optics_attach", at: T0 + 4 * MIN },
+  ],
 };
 
 const titles = (rows: LogRow[]) => rows.map((r) => r.title);
@@ -169,6 +192,8 @@ describe("names", () => {
       contract: "Vega_EscortHauler",
       outcome: "failed",
     }),
+    entry(6, T0 + 6, trip),
+    entry(7, T0 + 7, attachments),
   ]);
 
   it("asks for every internal name once", () => {
@@ -180,6 +205,8 @@ describe("names", () => {
       items: [{ guid: ITEM, class_name: "tnkr_multitool_01" }],
       resources: [RESOURCE],
       contracts: ["Vega_EscortHauler"],
+      destinations: ["NewCorvo_LOC"],
+      item_classes: ["tnkr_rifle_01", "tnkr_barrel_supp_s2", "tnkr_optics_x4_s2"],
     });
   });
 
@@ -211,6 +238,8 @@ describe("names", () => {
     expect(JSON.stringify(rows)).not.toContain("Vega2_NewCorvo");
     expect(JSON.stringify(rows)).not.toContain("SCShop_");
     expect(JSON.stringify(rows)).not.toContain("VEGA_Courier");
+    expect(JSON.stringify(rows)).not.toContain("_LOC");
+    expect(JSON.stringify(rows)).not.toContain("tnkr_");
   });
 });
 
@@ -462,6 +491,62 @@ describe("readSession", () => {
     expect(money[0].amount).toBe(-1_000);
     expect(reading.explained).toBe(0);
     expect(reading.changes).toBe(2);
+  });
+
+  it("makes a quantum trip one row with where from, the ship and how long", () => {
+    const reading = readSession(
+      session([
+        entry(1, T0 + 5 * MIN, trip),
+        entry(2, T0 + 20 * MIN, { ...trip, from: null, vehicle: null, arrived_at: null }),
+      ]),
+      names,
+      T0 + 30 * MIN,
+    );
+    const [flown, set] = reading.rows.filter((r) => r.kind === "ship");
+    expect(flown.title).toBe("Quantum travel to New Corvo");
+    expect(texts(flown)).toEqual(["from Tarn Gateway", "Vega Courier Mk II"]);
+    expect(flown.took).toBe(4 * MIN);
+    expect(flown.facets).toEqual(["travel"]);
+    expect(flown.facts.map((f) => f.label)).toEqual([
+      "From",
+      "To",
+      "Ship",
+      "Course set",
+      "Arrived",
+      "Course set to arrival",
+    ]);
+    // A course that was set, and no arrival: not called a trip.
+    expect(set.title).toBe("Course set for New Corvo");
+    expect(texts(set)).toEqual(["no arrival seen"]);
+    expect(set.took).toBeNull();
+    // A trip is not a stay in a ship.
+    expect(reading.status.ship.stays).toBe(0);
+  });
+
+  it("makes the attachments put on one weapon one row", () => {
+    const one: EntryKind = { ...attachments, weapon: null, items: attachments.items.slice(0, 1) };
+    const reading = readSession(
+      session([
+        entry(1, T0 + MIN, location("Vega2_NewCorvo")),
+        entry(2, T0 + 3 * MIN, attachments),
+        entry(3, T0 + 8 * MIN, one),
+      ]),
+      names,
+      T0 + 10 * MIN,
+    );
+    const [several, single] = reading.rows.filter((r) => r.title.startsWith("Fitted"));
+    expect(several.title).toBe("Fitted 2 attachments");
+    expect(texts(several)).toEqual(["on Tinker Rifle", "Tinker Suppressor", "Tinker 4x Scope"]);
+    expect(several.facts).toEqual([
+      { label: "Weapon", value: "Tinker Rifle" },
+      { label: "Barrel", value: "Tinker Suppressor" },
+      { label: "Optics", value: "Tinker 4x Scope" },
+      { label: "Where", value: "New Corvo, Aremis, Vega" },
+    ]);
+    expect(several.sources.map((s) => s.label)).toEqual(["Asked for", "Last one"]);
+    // One attachment, on a weapon the log never named.
+    expect(single.title).toBe("Fitted Tinker Suppressor");
+    expect(texts(single)).toEqual([]);
   });
 
   it("keeps the rows in time order", () => {
