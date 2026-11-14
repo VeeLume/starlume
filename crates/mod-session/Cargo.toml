@@ -1,0 +1,25 @@
+[package]
+name = "mod-session"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume session log module: one game run as a timeline and a wallet track, reduced from Game.log events and telemetry samples"
+
+[dependencies]
+# The Game.log events come from svc-log (module rule 1: no file access here).
+# Telemetry arrives as this crate's own small sample type, mapped by the
+# shell, so the stream client's dependencies stay out of a pure crate.
+svc-log.workspace = true
+serde.workspace = true
+# TypeScript bindings for the model (the shell turns this on; the svc-log
+# pattern). Off by default: the crate itself needs no IPC.
+specta = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[features]
+default = []
+specta = ["dep:specta", "svc-log/specta"]

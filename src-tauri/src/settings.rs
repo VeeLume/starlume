@@ -325,6 +325,9 @@ pub(crate) fn update_settings(
     crate::telemetry::sync(&app);
     // Start or stop the Game.log watcher with its opt-in.
     crate::gamelog::sync(&app);
+    // After both: the session log lets go of what it holds when its module
+    // or its last source went off.
+    crate::session::sync(&app);
     // A tighter archive retention applies right away; a looser one only
     // keeps future builds (pruned ones are gone).
     if retention(&settings) != old_retention {

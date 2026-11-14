@@ -156,8 +156,17 @@ impl Reducer {
         }
     }
 
+    /// A new stream was opened: start from nothing. What a disconnect kept
+    /// to show (the balance, the events) was the last stream's, and the new
+    /// one may be another game run: another channel, another character. A
+    /// frame without an actor would otherwise carry the old balance on as
+    /// if this stream had sent it.
+    pub fn connected(&mut self) {
+        self.snapshot = Snapshot::default();
+    }
+
     /// The stream ended: what was live (vehicle, actor) is gone; the balance
-    /// and the events stay as last known.
+    /// and the events stay as last known, until the next stream opens.
     pub fn disconnected(&mut self) -> Change {
         let had = self.snapshot.vehicle.is_some() || self.snapshot.actor.is_some();
         self.snapshot.vehicle = None;
@@ -415,6 +424,23 @@ mod tests {
         r.apply(&frame(serde_json::json!({})), 2);
         assert_eq!(r.snapshot().balance, Some(700));
         assert!(r.snapshot().actor.is_none());
+    }
+
+    #[test]
+    fn a_new_stream_starts_from_nothing() {
+        let mut r = Reducer::default();
+        r.apply(
+            &frame(serde_json::json!({ "actor": actor(700, "OnFoot"), "events": ["Spawn"] })),
+            1,
+        );
+        r.disconnected();
+        assert_eq!(r.snapshot().balance, Some(700), "kept to show");
+        r.connected();
+        assert_eq!(r.snapshot(), &Snapshot::default());
+        // The next run's first frame has no actor yet: no balance, not the
+        // last run's.
+        r.apply(&frame(serde_json::json!({})), 2);
+        assert_eq!(r.snapshot().balance, None);
     }
 
     #[test]

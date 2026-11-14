@@ -138,8 +138,25 @@ impl Module for Crafting {
     }
 }
 
+/// Session log — one game run as a timeline and a wallet track (reducer in
+/// `crates/mod-session`, feeds and storage in `session.rs`). Reads only
+/// what the Game.log and telemetry opt-ins already read.
+struct SessionLog;
+
+impl Module for SessionLog {
+    fn id(&self) -> &'static str {
+        crate::session::MODULE_ID
+    }
+    fn name(&self) -> &'static str {
+        "Session Log"
+    }
+    fn description(&self) -> &'static str {
+        "What happened each time you played: shards, places, missions, purchases, and what it did to your aUEC balance"
+    }
+}
+
 /// All modules offered by this build, enabled or not. Unreleased modules
-/// (Contracts) exist only in debug builds — the Rust half of the frontend's
+/// (Contracts, Session Log) exist only in debug builds — the Rust half of the frontend's
 /// `$lib/unreleased` gate (v0.1.0 scope decision; the Dev Tracker shipped in
 /// v0.2.0, Mining in v0.3.0, Ships in v0.4.0).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
@@ -152,6 +169,7 @@ pub(crate) fn registry() -> &'static [&'static dyn Module] {
             &Ships,
             &Crafting,
             &Contracts,
+            &SessionLog,
         ]
     } else {
         &[&Devtracker, &Langpatch, &Items, &Mining, &Ships, &Crafting]

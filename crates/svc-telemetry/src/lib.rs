@@ -40,7 +40,7 @@ mod throttle;
 use std::time::Duration;
 
 pub use sc_dossier::telemetry::{
-    CrewRole, DEFAULT_ADDR, Event, Frame, Locomotion, TelemetryStream, VehicleKind,
+    Actor, CrewRole, DEFAULT_ADDR, Event, Frame, Locomotion, TelemetryStream, VehicleKind,
 };
 pub use state::{
     ActorState, Change, EVENTS_KEPT, EventRecord, Gauge, Reducer, Snapshot, VehicleState,

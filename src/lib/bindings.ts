@@ -1141,6 +1141,40 @@ async telemetryEnvUninstall() : Promise<Result<TelemetryEnvState, AppError>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The current session. A memory read, after the queue has drained; the
+ * first call of a run also files the session kept from the last one, and
+ * the first after the module was switched on takes in the session the log
+ * watcher already follows.
+ */
+async sessionState() : Promise<SessionStateView> {
+    return await TAURI_INVOKE("session_state");
+},
+/**
+ * The finished sessions, newest first (at most [`HISTORY_CAP`]). One small
+ * file read, after the queue has drained (so a session being filed is in
+ * it); empty while the module is off.
+ */
+async sessionHistory() : Promise<Result<SessionSummary[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("session_history") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * One finished session with its timeline; `None` when it is not kept (any
+ * more).
+ */
+async sessionGet(id: string) : Promise<Result<Session | null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("session_get", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async authStatus() : Promise<AuthStatus> {
     return await TAURI_INVOKE("auth_status");
 },
@@ -1605,6 +1639,10 @@ tight: boolean;
  * a turning rock), m.
  */
 marginM: number }
+/**
+ * A balance at a time.
+ */
+export type BalanceSample = { at: number; balance: number }
 export type BandSegmentView = { from: number; to: number; class: RockClassView; 
 /**
  * Loss-free share of the simulated tries; `null` where breakability or
@@ -1688,6 +1726,19 @@ rock: ScanReadingView | null;
  */
 note: string | null }
 export type CargoLegView = { commodity: string | null; commodity_guid: string | null; min_scu: number; max_scu: number; max_box: number }
+/**
+ * Why the balance changed.
+ */
+export type Cause = 
+/**
+ * The timeline entry with this [`Entry::seq`] explains it.
+ */
+{ type: "entry"; seq: number } | 
+/**
+ * No log event close enough explains it (or a cause this version
+ * does not know).
+ */
+{ type: "untracked" }
 export type ChoiceView = { value: string; label: string }
 export type ClassSharesView = { easy: number; manageable: number; hard: number; tooMuchPower: number; impossible: number }
 export type ClimbStepView = { untilCharge: number; throttle: number }
@@ -2019,6 +2070,64 @@ export type EditView = { path: string[]; item: string | null }
  * instability and window as fractions (`-0.3`: 30 % less).
  */
 export type EffectView = { power: number; resistance: number; instability: number; window: number }
+/**
+ * One thing that happened.
+ */
+export type Entry = { 
+/**
+ * Unique within the session and stable while it lives: what a
+ * [`Cause::Entry`] points at. Not the position in the timeline.
+ */
+seq: number; at: number; source: Source; 
+/**
+ * Read from English HUD text: with a language pack that translates the
+ * notification this entry would not have been recorded (svc-log's
+ * locale note).
+ */
+locale_dependent: boolean; kind: EntryKind }
+/**
+ * What an [`Entry`] says. Money is whole aUEC.
+ */
+export type EntryKind = 
+/**
+ * Joined the persistent universe on a shard.
+ */
+{ type: "shard_joined"; shard: string } | 
+/**
+ * Arrived at a place with a local inventory. The game's internal name
+ * (`Stanton4_NewBabbage`); recorded when it differs from the last one.
+ */
+{ type: "location"; location: string } | 
+/**
+ * "Entered … Jurisdiction"; recorded when it differs from the last.
+ */
+{ type: "jurisdiction"; jurisdiction: string } | { type: "mission_accepted"; mission_id: string | null; title: string } | { type: "objective"; change: ObjectiveChange; mission_id: string | null; text: string } | 
+/**
+ * A mission is over. Recorded once per mission, from the HUD
+ * notification, the engine's end line, or both.
+ */
+{ type: "mission_ended"; mission_id: string | null; title: string | null; contract: string | null; outcome: MissionOutcome } | { type: "blueprint_received"; name: string } | { type: "refinery_order_completed"; location: string } | 
+/**
+ * A commodity kiosk trade, as the client asked for it.
+ */
+{ type: "trade"; side: TradeSide; shop: string; resource_guid: string; price: number; quantity: number; quantity_unit: string | null; outcome: RequestOutcome } | 
+/**
+ * A shop purchase or rental, as the client asked for it.
+ */
+{ type: "shop_purchase"; shop: string; item_guid: string; item_name: string; price: number; quantity: number; rental: boolean; outcome: RequestOutcome } | 
+/**
+ * "Awarded N aUEC" / "Fined N UEC".
+ */
+{ type: "money"; change: MoneyChange; amount: number } | 
+/**
+ * Seated in a vehicle (from the stream's vehicle, not its seat events,
+ * which are incomplete).
+ */
+{ type: "vehicle_entered"; class_name: string; name: string } | { type: "vehicle_left"; class_name: string; name: string } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" } | 
+/**
+ * A kind a later version added: kept as a row that says so.
+ */
+{ type: "unknown" }
 export type EvalView = { 
 /**
  * Heaviest breakable mass over the rock's mass: ≥ 1 cracks.
@@ -2690,6 +2799,18 @@ export type MissionEncounterView = { label: string; difficulty: string | null; w
 kind: string }
 export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; abandon_cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; event_rewards: EventRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView }
 export type MissionFactionView = { guid: string; name: string | null }
+/**
+ * How a mission ended.
+ */
+export type MissionOutcome = "completed" | "failed" | "abandoned" | 
+/**
+ * The giver took it back.
+ */
+"withdrawn" | 
+/**
+ * Over, in a way this version does not name.
+ */
+"ended"
 export type MissionPayoutView = { calculated: boolean; fixed: number | null; estimate: number | null; buy_in: number; time_to_complete: number }
 export type MissionPlaceView = { name: string | null; record_name: string; kind: string | null }
 /**
@@ -3125,6 +3246,23 @@ highlights: string[]; bug_fixes: number | null; known_issues: number | null;
 image: string | null }
 export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }
+/**
+ * What became of a request the client sent a shop.
+ */
+export type RequestOutcome = 
+/**
+ * The server said yes.
+ */
+"confirmed" | 
+/**
+ * The server said no: nothing was bought.
+ */
+"rejected" | 
+/**
+ * No answer was seen (the log has none for commodity trades), or one
+ * this version does not know.
+ */
+"requested"
 export type ResourceLegalityView = { 
 /**
  * `"drug"` or `"contraband"`.
@@ -3282,6 +3420,74 @@ export type SeatsView = { pilot: number; copilot: number; mannedTurrets: number;
  */
 crew: number; passengers: number }
 /**
+ * One game run.
+ */
+export type Session = { 
+/**
+ * The start time as a file-name-safe string
+ * ([`crate::time::session_id`]). A log read twice gives the same id.
+ */
+id: string; 
+/**
+ * From the log's first line; for a telemetry-only session, the first
+ * sample.
+ */
+started_at: number; 
+/**
+ * `None` while the session is live.
+ */
+ended_at: number | null; 
+/**
+ * The time of the last thing recorded; where a session whose end was
+ * never seen is taken to have ended.
+ */
+last_activity_at: number; 
+/**
+ * The game is running and this session is being followed.
+ */
+live: boolean; 
+/**
+ * The quit reason the log gave; `None` when the end was only observed
+ * (the process went away, or the stream did).
+ */
+end_reason: string | null; 
+/**
+ * The install channel the log belongs to (`LIVE`, `PTU`).
+ */
+channel: string | null; 
+/**
+ * The environment tag (`PUB` is the live persistent universe).
+ */
+env_tag: string | null; 
+/**
+ * The code branch (`sc-alpha-4.10.0`).
+ */
+branch: string | null; 
+/**
+ * The changelist: the build's identity.
+ */
+build: string | null; 
+/**
+ * Which sources fed this session.
+ */
+sources: Sources; 
+/**
+ * Every shard joined, in order, with how long it was stayed on.
+ */
+shards: ShardStay[]; 
+/**
+ * What happened, ordered by time (oldest first).
+ */
+timeline: Entry[]; 
+/**
+ * Entries dropped from the front to stay within [`MAX_TIMELINE`].
+ */
+timeline_dropped: number; wallet: Wallet; 
+/**
+ * The next [`Entry::seq`].
+ */
+next_seq: number }
+/**
  * The current session as the watcher holds it.
  */
 export type SessionSnapshot = { 
@@ -3302,6 +3508,48 @@ events: LogEvent[];
  * Events dropped from the front to stay within the cap.
  */
 dropped: number }
+/**
+ * The current session and which sources feed it.
+ */
+export type SessionStateView = { 
+/**
+ * The Game.log opt-in (`gamelog_enabled`). Off: no session bounds from
+ * the log, no shards, places, missions, trades or purchases.
+ */
+log_enabled: boolean; 
+/**
+ * The telemetry opt-in (`telemetry_enabled`). Off: no wallet, no
+ * vehicles, no deaths.
+ */
+telemetry_enabled: boolean; 
+/**
+ * The live session, or the last one seen in this run of the app.
+ */
+current: Session | null }
+/**
+ * A session without its timeline: one row of the history list.
+ */
+export type SessionSummary = { id: string; started_at: number; ended_at: number | null; channel: string | null; branch: string | null; build: string | null; sources: Sources; 
+/**
+ * The shards joined, in order.
+ */
+shards: string[]; 
+/**
+ * Timeline entries kept.
+ */
+entries: number; missions_completed: number; opening_balance: number | null; latest_balance: number | null; net: number }
+/**
+ * One stay on a shard.
+ */
+export type ShardStay = { 
+/**
+ * The shard's name (`pub_euw1b_13165946_100`).
+ */
+shard: string; joined_at: number; 
+/**
+ * The next join, or the session's end; `None` while still on it.
+ */
+left_at: number | null }
 /**
  * The shield generators as one.
  */
@@ -3495,7 +3743,35 @@ transform: string; ranges: ModifierRangeView[] }
  * One port of a loadout and what it holds.
  */
 export type SlotView = { path: string[]; label: string | null; minSize: number; maxSize: number; editable: boolean; item: string | null; name: string | null; itemType: string | null; subType: string | null; size: number; grade: number; class: string | null; system: SystemView; stats: StatView[]; children: SlotView[] }
+/**
+ * Where a timeline entry came from.
+ */
+export type Source = 
+/**
+ * A `Game.log` line.
+ */
+"log" | 
+/**
+ * The telemetry stream.
+ */
+"telemetry" | 
+/**
+ * A source a later version added.
+ */
+"unknown"
 export type SourceView = { itemType: string; em: number; ir: number }
+/**
+ * Which sources fed a session.
+ */
+export type Sources = { 
+/**
+ * `Game.log` events (svc-log).
+ */
+log: boolean; 
+/**
+ * The game's telemetry stream (svc-telemetry).
+ */
+telemetry: boolean }
 export type SpawnPlaceView = { id: string; name: string }
 /**
  * NPC / entity slot (`svc_data::SpawnSlot`).
@@ -3716,6 +3992,54 @@ online: boolean;
  * The last refresh's error, if it failed.
  */
 error: string | null }
+/**
+ * The session's money, from the telemetry stream's aUEC balance.
+ * 
+ * The stream sends the balance with every frame; the track keeps the first
+ * trusted one, the last one, and every change between them. See
+ * [`crate::wallet`] for which samples are trusted.
+ */
+export type Wallet = { 
+/**
+ * The first trusted balance of the session.
+ */
+opening: BalanceSample | null; 
+/**
+ * The last trusted balance.
+ */
+latest: BalanceSample | null; 
+/**
+ * `latest - opening`; 0 until there are both.
+ */
+net: number; 
+/**
+ * Every change of the trusted balance, oldest first.
+ */
+changes: WalletChange[]; 
+/**
+ * Changes dropped from the front to stay within
+ * [`MAX_WALLET_CHANGES`].
+ */
+changes_dropped: number; 
+/**
+ * The stream reads 0 since then, and that 0 is not trusted (yet): the
+ * figures above are from before it.
+ */
+zero_since: number | null; 
+/**
+ * The session's first samples read 0 and were not trusted, so the
+ * opening balance is the first one above 0. If the wallet really was
+ * empty, `net` misses the first income.
+ */
+opened_after_zero: boolean }
+/**
+ * One change of the balance.
+ */
+export type WalletChange = { at: number; from: number; to: number; 
+/**
+ * `to - from`.
+ */
+delta: number; cause: Cause }
 export type YourSetupView = { 
 /**
  * Your lasers' range and, for a rock that is too much power, how far

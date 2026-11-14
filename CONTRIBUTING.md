@@ -27,6 +27,7 @@ crates/
 ├── mod-items/      My Items
 ├── mod-crafting/   Crafting: which blueprints you own and want
 ├── mod-devtracker/ dev tracker: content filter, author modes, read state (unreleased)
+├── mod-session/    session log: one game run as a timeline + wallet track (unreleased)
 └── mod-contracts/  contracts (unreleased)
 src-tauri/          shell: module registry, tray, window, settings, auth, updater
 src/                SvelteKit frontend (static SPA)

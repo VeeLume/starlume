@@ -204,6 +204,9 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 crate::gamelog::stop(app);
+                // After the watcher's last signal: keep the live session
+                // for the next run to close and file.
+                crate::session::flush(app);
             }
             // A hidden window closes after a minute (window.rs) and the tray
             // app lives on without one. An explicit exit (tray Quit, closing
