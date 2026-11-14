@@ -34,6 +34,7 @@
 //! friends' presence) read it; none of them is built here.
 
 pub mod model;
+pub mod names;
 pub mod reducer;
 pub mod time;
 pub mod wallet;

@@ -12,9 +12,11 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   commands,
   type Session,
+  type SessionNames,
   type SessionStateView,
   type SessionSummary,
 } from "$lib/bindings";
+import { mergeNames, nameQuery, unanswered } from "$lib/modules/session/model";
 
 /** Past sessions kept in memory at once: the ones just looked at. */
 const OPENED_KEPT = 4;
@@ -23,6 +25,13 @@ let _state = $state<SessionStateView | null>(null);
 let _history = $state<SessionSummary[] | null>(null);
 let _opened = $state<Record<string, Session | null>>({});
 let _error = $state("");
+// Display names by channel ("" = the default channel): what `session_names`
+// has answered. A name is asked for once. When the game data changes the
+// answers are kept on screen and asked again (rule 2: no blanking): one
+// given without game data is a cleaned internal name and may do better.
+let _names = $state<Record<string, SessionNames>>({});
+/** Channels whose answers are older than the last game-data change. */
+let _stale = $state<Record<string, boolean>>({});
 
 export const sessionStore = {
   /** `null` = not read yet. */
@@ -40,6 +49,10 @@ export const sessionStore = {
   /** A past session by id: `undefined` = not read yet, `null` = not kept. */
   opened(id: string): Session | null | undefined {
     return _opened[id];
+  },
+  /** The display names known for a session's channel; `null` = none yet. */
+  names(session: Pick<Session, "channel">): SessionNames | null {
+    return _names[session.channel ?? ""] ?? null;
   },
   get error() {
     return _error;
@@ -76,8 +89,38 @@ export async function openSession(id: string): Promise<void> {
   _error = "";
 }
 
+const _asking = new Set<string>();
+
+/** Ask Rust for the display names a session holds and the store lacks
+ *  (all of them again when the game data changed since). A no-op when it has
+ *  them all. */
+export async function loadNames(session: Session): Promise<void> {
+  const channel = session.channel ?? "";
+  const all = nameQuery(session);
+  const rest = unanswered(all, _stale[channel] ? null : _names[channel]);
+  if (!rest) return;
+  // One request per set of names: the page asks on every change.
+  const ticket = `${channel}|${JSON.stringify(rest)}`;
+  if (_asking.has(ticket)) return;
+  _asking.add(ticket);
+  try {
+    const answer = await commands.sessionNames(rest);
+    _names = { ..._names, [channel]: mergeNames(_names[channel], answer) };
+    if (_stale[channel]) _stale = { ..._stale, [channel]: false };
+  } finally {
+    _asking.delete(ticket);
+  }
+}
+
+/** The game data changed (loaded, wiped, a new build): every answer is asked
+ *  again by the page that shows it; until then the old one stays. */
+function staleNames() {
+  _stale = Object.fromEntries(Object.keys(_names).map((channel) => [channel, true]));
+}
+
 let _watchers = 0;
 let _unlisten: Promise<UnlistenFn> | null = null;
+let _unlistenData: Promise<UnlistenFn> | null = null;
 const refresh = () => {
   void loadSession();
   void loadHistory();
@@ -94,7 +137,10 @@ export function watchSession(): () => void {
         void loadHistory();
       }
     });
+    _unlistenData = listen("data:changed", staleNames);
     window.addEventListener("focus", refresh);
+    // Names answered while the game data was not loaded: ask again.
+    if (Object.values(_names).some((book) => !book.data_loaded)) staleNames();
     refresh();
   }
   let stopped = false;
@@ -104,6 +150,8 @@ export function watchSession(): () => void {
     if (--_watchers === 0) {
       void _unlisten?.then((u) => u());
       _unlisten = null;
+      void _unlistenData?.then((u) => u());
+      _unlistenData = null;
       window.removeEventListener("focus", refresh);
     }
   };
