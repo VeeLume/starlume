@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use svc_data::mining::{
-    Composition, Elements, Entry, ModifiedRock, QualityRoll, Rock, RockType, Ruleset, Setup, Shape,
-    SimConfig, Spawn, Spawner,
+    Composition, Elements, Entry, ModifiedRock, QualityRoll, QualitySource, Rock, RockType,
+    Ruleset, Setup, Shape, SimConfig, Spawn, Spawner,
 };
 use svc_data::{
     GatheringMode, Guid, LocaleMap, LocationKind, Locations, MiningIndex, ProviderLocations,
@@ -1564,10 +1564,13 @@ pub struct OreSite {
 /// Where `element` is ship-mined at `min_quality` or better, best first.
 ///
 /// The quality odds are exact: the game's own distribution for the element
-/// at the area's first place (the place, then its parents, most specific
-/// first, for a location override), with each part's quality scale. Which
-/// parts a rock holds is still sampled: [`SITE_ROLLS`] rolls of each
-/// composition. An area where the quality cannot be reached is left out.
+/// at the place (the place, then its parents, most specific first, for a
+/// location override), with each part's quality scale. An area whose places
+/// take the element's quality from different sources comes back as one site
+/// per source, each with its own places and odds (the Keeger belt's placed
+/// clusters override Savrilium and Torite, the rest of the belt does not).
+/// Which parts a rock holds is still sampled: [`SITE_ROLLS`] rolls of each
+/// composition. A site where the quality cannot be reached is left out.
 pub fn ore_sites(
     src: &Sources<'_>,
     catalog: &Catalog,
@@ -1578,13 +1581,14 @@ pub fn ore_sites(
         return vec![];
     };
     let points = Points::build(src.locations, src.locale);
-    // (composition, first place) → the share of its rocks with the ore.
-    let mut hit_cache: HashMap<(Guid, String), f32> = HashMap::new();
+    // (composition, where the element's quality comes from) → the share of
+    // its rocks with the ore.
+    let mut hit_cache: HashMap<(Guid, Option<QualitySource>), f32> = HashMap::new();
     let mut out: Vec<OreSite> = src
         .providers
         .iter()
         .filter(|(guid, _)| !LEFTOVERS.contains(&guid.to_string().as_str()))
-        .filter_map(|(guid, _)| {
+        .flat_map(|(guid, _)| {
             let holding: Vec<(f32, &Composition)> = ship_entries(src, catalog, guid)
                 .iter()
                 .filter_map(|e| {
@@ -1599,59 +1603,98 @@ pub fn ore_sites(
                 })
                 .collect();
             if holding.is_empty() {
-                return None;
+                return vec![];
             }
             let (name, _, places) = src.area_places(guid);
-            let first = places.first().map(|p| p.id.clone()).unwrap_or_default();
-            let location_ids: Vec<Guid> = parse_guid(&first)
-                .map(|g| {
-                    std::iter::once(g)
-                        .chain(src.locations.ancestors(&g).map(|l| l.guid))
-                        .collect()
-                })
-                .unwrap_or_default();
-            let quality = QualityRoll {
-                elements: &catalog.elements,
-                resources: src.resources,
-                catalog: &src.index.quality,
-                locations: &location_ids,
-            };
-            let find: f32 = holding
-                .iter()
-                .map(|(share, c)| {
-                    let hits = *hit_cache.entry((c.guid, first.clone())).or_insert_with(|| {
-                        c.chance_at_quality(&element, min_quality, &quality, SITE_ROLLS)
-                            .unwrap_or_else(|| sampled_chance(c, &element, min_quality, &quality))
-                    });
-                    share * hits
-                })
-                .sum();
-            if find <= 0.0 {
-                return None;
-            }
-            let mut travel: Vec<Place> = Vec::new();
-            for place in &places {
-                let target = parse_guid(&place.id)
-                    .and_then(|g| points.of(src.locations, &g))
-                    .filter(|(_, role)| *role != Role::Point)
-                    .and_then(|(point, _)| {
-                        Some(Place {
-                            id: point.to_string(),
-                            name: points.get(&point)?.name.clone(),
-                        })
-                    })
-                    .unwrap_or_else(|| place.clone());
-                if !travel.iter().any(|t| t.id == target.id) {
-                    travel.push(target);
+            let name = point_area_name(src, &points, guid).unwrap_or(name);
+            // The area's places by where the element's quality comes from:
+            // (source, one place's location chain, the places).
+            let mut groups: Vec<(Option<QualitySource>, Vec<Guid>, Vec<Place>)> = Vec::new();
+            for place in places {
+                let chain = parse_guid(&place.id)
+                    .map(|g| QualityRoll::locations_at(src.locations, &g))
+                    .unwrap_or_default();
+                let source = QualityRoll {
+                    elements: &catalog.elements,
+                    resources: src.resources,
+                    catalog: &src.index.quality,
+                    locations: &chain,
+                }
+                .source(&element);
+                match groups.iter_mut().find(|g| g.0 == source) {
+                    Some(group) => group.2.push(place),
+                    None => groups.push((source, chain, vec![place])),
                 }
             }
-            Some(OreSite {
-                area: guid.to_string(),
-                name: point_area_name(src, &points, guid).unwrap_or(name),
-                places,
-                travel,
-                find,
-            })
+            if groups.is_empty() {
+                // An area the map places nowhere still has its rocks.
+                groups.push((None, Vec::new(), Vec::new()));
+            }
+            groups
+                .into_iter()
+                .filter_map(|(source, chain, places)| {
+                    let quality = QualityRoll {
+                        elements: &catalog.elements,
+                        resources: src.resources,
+                        catalog: &src.index.quality,
+                        locations: &chain,
+                    };
+                    let find: f32 = holding
+                        .iter()
+                        .map(|(share, c)| {
+                            let hits = *hit_cache.entry((c.guid, source)).or_insert_with(|| {
+                                c.chance_at_quality(&element, min_quality, &quality, SITE_ROLLS)
+                                    .unwrap_or_else(|| {
+                                        sampled_chance(c, &element, min_quality, &quality)
+                                    })
+                            });
+                            share * hits
+                        })
+                        .sum();
+                    if find <= 0.0 {
+                        return None;
+                    }
+                    let mut travel: Vec<Place> = Vec::new();
+                    for place in &places {
+                        let target = parse_guid(&place.id)
+                            .and_then(|g| points.of(src.locations, &g))
+                            .filter(|(_, role)| *role != Role::Point)
+                            .and_then(|(point, _)| {
+                                Some(Place {
+                                    id: point.to_string(),
+                                    name: points.get(&point)?.name.clone(),
+                                })
+                            })
+                            .unwrap_or_else(|| place.clone());
+                        if !travel.iter().any(|t| t.id == target.id) {
+                            travel.push(target);
+                        }
+                    }
+                    Some(OreSite {
+                        area: guid.to_string(),
+                        name: name.clone(),
+                        places,
+                        travel,
+                        find,
+                    })
+                })
+                // Sources can be finer than the odds (each placed cluster
+                // of the Keeger belt carries the same override): sites of
+                // one area with the same odds are one site.
+                .fold(Vec::<OreSite>::new(), |mut sites, site| {
+                    match sites.iter_mut().find(|s| (s.find - site.find).abs() < 1e-6) {
+                        Some(same) => {
+                            same.places.extend(site.places);
+                            for target in site.travel {
+                                if !same.travel.iter().any(|t| t.id == target.id) {
+                                    same.travel.push(target);
+                                }
+                            }
+                        }
+                        None => sites.push(site),
+                    }
+                    sites
+                })
         })
         .collect();
     out.sort_by(|a, b| b.find.total_cmp(&a.find).then(a.name.cmp(&b.name)));
