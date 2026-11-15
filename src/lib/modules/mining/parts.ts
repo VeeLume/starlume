@@ -25,6 +25,8 @@ export function withPart(
     const next = {
       ...(current ?? { modules: [], owner: lasers[0]?.owner ?? 0, who: null, crew: null, distanceM: null, off: false }),
       laser: id ?? "",
+      // A crafted mark belongs to the laser it was set on.
+      quality: current && current.laser === id ? (current.quality ?? null) : null,
     };
     next.modules = next.modules.slice(0, slots);
     return current ? lasers.map((l, i) => (i === t.head ? next : l)) : [...lasers, next];
@@ -68,6 +70,8 @@ export function changeLabel(
       continue;
     }
     if (a.laser !== b.laser) out.push(`${head}laser → ${name(b.laser, true)}`);
+    else if ((a.quality ?? null) !== (b.quality ?? null))
+      out.push(`${head}${b.quality == null ? "as sold" : `crafted Q${b.quality}`}`);
     for (let s = 0; s < Math.max(a.modules.length, b.modules.length); s++)
       if ((a.modules[s] ?? null) !== (b.modules[s] ?? null) && a.laser === b.laser)
         out.push(`${head}slot ${s + 1} → ${name(b.modules[s], false)}`);

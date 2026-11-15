@@ -24,6 +24,7 @@ import {
   type ShipPageView,
   type ShipRowView,
   type ShipsHomeView,
+  type SlotView,
 } from "$lib/bindings";
 
 let _ships = $state.raw<ShipRowView[] | null>(null);
@@ -269,9 +270,9 @@ function persist(ship: string): void {
 }
 
 /** What a list of swaps does in the end, per port (a later swap of the
- *  same port replaces an earlier one). */
+ *  same port replaces an earlier one); a crafted mark is part of it. */
 function finalSwaps(edits: EditView[]): Map<string, string | null> {
-  return new Map(edits.map((e) => [e.path.join("/"), e.item]));
+  return new Map(edits.map((e) => [e.path.join("/"), e.quality == null ? e.item : `${e.item}@Q${e.quality}`]));
 }
 
 let _owned = $state.raw<Record<string, ShipOwnedView>>({});
@@ -539,6 +540,37 @@ export function pick(targets: string[][], item: string | null): void {
   shipsUi.edits[ship] = [...edits, ...targets.map((path) => ({ path, item }))];
   persist(ship);
   closePicker();
+}
+
+/** The slot at `path` on the open page, or null. */
+function slotAt(slots: SlotView[], path: string[]): SlotView | null {
+  const k = path.join("/");
+  for (const s of slots) {
+    if (s.path.join("/") === k) return s;
+    const below = slotAt(s.children, path);
+    if (below) return below;
+  }
+  return null;
+}
+
+/** What if the parts on `targets` were crafted, every material at
+ *  `quality` (0..=1000); null: as the shops sell them. The mark rides on
+ *  the port's own swap (a new one for a part as it came), so swapping the
+ *  part takes the mark with it. */
+export function setCrafted(targets: string[][], quality: number | null): void {
+  const ship = shipsUi.ship;
+  if (_page?.ship !== ship) return;
+  const edits = [...(shipsUi.edits[ship] ?? [])];
+  for (const path of targets) {
+    const item = slotAt(_page.slots, path)?.item;
+    if (!item) continue;
+    const k = path.join("/");
+    const i = edits.findLastIndex((e) => e.path.join("/") === k);
+    if (i >= 0 && edits[i].item === item) edits[i] = { ...edits[i], quality };
+    else if (quality !== null) edits.push({ path, item, quality });
+  }
+  shipsUi.edits[ship] = edits;
+  persist(ship);
 }
 
 /** Switch a part, a turret or a whole system on or off. */

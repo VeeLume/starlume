@@ -7,8 +7,9 @@
 //! self-contained and a query needs no other game data (the missions'
 //! reasoning, [`crate::missions`]).
 //!
-//! The slider maths stays with the frontend, which has to re-evaluate as a
-//! quality moves: this ships the curves and the base values.
+//! This ships the curves and the base values; [`crate::craft`] evaluates
+//! them (Crafting's sliders run the same maths in TypeScript, held to it
+//! by shared cases).
 
 use std::collections::{HashMap, HashSet};
 

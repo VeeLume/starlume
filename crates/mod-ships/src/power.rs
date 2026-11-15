@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use svc_data::crafting::GameplayStat;
 use svc_data::ships::Items;
 use svc_data::ships::{
     Allocation, EItemType, EMasterMode, Mounted, NetworkParams, PoolSize, PortContainer,
@@ -25,6 +26,8 @@ use svc_data::ships::{
 
 /// Segments as the client counts them.
 const SEGMENT: f64 = 1_000_000.0;
+
+use crate::crafted::CraftedParts;
 
 /// Which master mode the ship is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -155,8 +158,20 @@ pub(crate) fn network(
     profiles: &ResourceProfiles,
     params: &NetworkParams,
     input: &PowerInput,
+    crafted: &CraftedParts,
 ) -> (PowerNetwork, Allocation, EMasterMode) {
     let mut net = PowerNetwork::build(loadout, container, vehicles, items, profiles, params);
+    // Crafted plants and coolers ([`crate::crafted`]), before the power
+    // settles: power-on deals the segments the plants make.
+    for p in &mut net.plants {
+        let c = crafted.change(&p.path, &GameplayStat::PowerGeneration);
+        p.units = c.apply(f64::from(p.units)).round().max(0.0) as i32;
+    }
+    for c in &mut net.consumers {
+        c.coolant = crafted
+            .change(&c.path, &GameplayStat::CoolantGeneration)
+            .apply(c.coolant);
+    }
     let (a, mode) = settle(&mut net, input);
     (net, a, mode)
 }

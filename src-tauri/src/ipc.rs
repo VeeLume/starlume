@@ -68,6 +68,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         mining::mining_mass_band,
         mining::mining_comfort,
         mining::mining_compare,
+        mining::mining_laser_crafted,
         mining_capture::mining_capture,
         mining_capture::mining_read_screenshot,
         mining_capture::mining_scan_ready,

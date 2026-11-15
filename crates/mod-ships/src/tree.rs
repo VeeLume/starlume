@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::candidates::{Stat, class_of, stats, weapon_entries};
 use svc_data::ships::{EItemSubType, EItemType, Loadout, Mounted, RecordCollection, is_editable};
-use svc_data::{CookedData, Guid};
+use svc_data::{CookedData, Gain, Guid, Recipes};
+
+use crate::crafted::CraftedParts;
 
 /// What a port's contents are part of, the way a pilot groups them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -83,24 +85,62 @@ pub struct Slot {
     /// a launcher's ammunition, a tank's capacity. Empty for mounts and
     /// parts outside a system.
     pub stats: Vec<Stat>,
+    /// The blueprint that makes the part, so it can be marked crafted;
+    /// `None` when no recipe makes it.
+    pub blueprint: Option<String>,
+    /// The part as crafted, when its edit marks it ([`crate::crafted`]).
+    pub crafted: Option<CraftedMark>,
     pub children: Vec<Slot>,
+}
+
+/// A part marked crafted: the quality, and the rows of its stat sheet that
+/// change (the recipe's sheet, as Crafting shows it).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CraftedMark {
+    pub quality: i32,
+    pub gains: Vec<Gain>,
 }
 
 /// `loadout` as slots, in loadout order. A port that holds nothing and
 /// takes nothing the player can change is left out.
 pub fn slots(cooked: &CookedData, loadout: &Loadout) -> Vec<Slot> {
-    let mut path = Vec::new();
-    let weapons = weapon_entries(cooked);
-    walk(cooked, loadout, &loadout.mounted, &mut path, &weapons)
+    slots_crafted(
+        cooked,
+        loadout,
+        &Recipes::default(),
+        &CraftedParts::default(),
+    )
 }
 
-fn walk(
+/// [`slots`], each part with its blueprint and its crafted mark.
+pub(crate) fn slots_crafted(
     cooked: &CookedData,
     loadout: &Loadout,
-    level: &[Mounted],
-    path: &mut Vec<String>,
-    weapons: &HashMap<&str, &svc_data::ShipWeaponEntry>,
+    recipes: &Recipes,
+    crafted: &CraftedParts,
 ) -> Vec<Slot> {
+    let mut path = Vec::new();
+    let weapons = weapon_entries(cooked);
+    let ctx = Walk {
+        cooked,
+        loadout,
+        weapons: &weapons,
+        recipes,
+        crafted,
+    };
+    walk(&ctx, &loadout.mounted, &mut path)
+}
+
+struct Walk<'a> {
+    cooked: &'a CookedData,
+    loadout: &'a Loadout,
+    weapons: &'a HashMap<&'a str, &'a svc_data::ShipWeaponEntry>,
+    recipes: &'a Recipes<'a>,
+    crafted: &'a CraftedParts,
+}
+
+fn walk(ctx: &Walk, level: &[Mounted], path: &mut Vec<String>) -> Vec<Slot> {
+    let (cooked, loadout, weapons) = (ctx.cooked, ctx.loadout, ctx.weapons);
     let index = &cooked.ships;
     let items = cooked.holotable.items.as_ref();
     let mut out = Vec::new();
@@ -119,7 +159,7 @@ fn walk(
         let children = if docked {
             Vec::new()
         } else {
-            walk(cooked, loadout, &m.children, path, weapons)
+            walk(ctx, &m.children, path)
         };
         let own = if docked {
             System::Docked
@@ -144,6 +184,19 @@ fn walk(
             own
         };
         if m.item.is_some() || editable {
+            let key = path.join("/");
+            let blueprint = m
+                .item
+                .filter(|_| !docked)
+                .and_then(|g| ctx.recipes.of(&g.to_string()))
+                .map(|b| b.guid.clone());
+            let crafted = ctx.crafted.get(&key).map(|c| CraftedMark {
+                quality: c.quality,
+                gains: m
+                    .item
+                    .map(|g| ctx.recipes.gains(&g.to_string(), c.quality))
+                    .unwrap_or_default(),
+            });
             out.push(Slot {
                 path: path.clone(),
                 label: port
@@ -175,16 +228,40 @@ fn walk(
                 system,
                 stats: match item {
                     Some((g, i)) if !docked && own != System::Other => {
-                        stats(cooked, g, &i.item_type, weapons)
+                        let mut own = stats(cooked, g, &i.item_type, weapons);
+                        if let Some(c) = ctx.crafted.get(&key) {
+                            craft_stats(&mut own, c);
+                        }
+                        own
                     }
                     _ => Vec::new(),
                 },
+                blueprint,
+                crafted,
                 children,
             });
         }
         path.pop();
     }
     out
+}
+
+/// A crafted part's own figures, the ones its recipe moves: the panels'
+/// headers sum them, and they read as the page's figures do.
+fn craft_stats(stats: &mut [Stat], c: &svc_data::Crafted) {
+    use svc_data::crafting::GameplayStat::*;
+    for s in stats {
+        let stat = match s.key.as_str() {
+            "hp" => ShieldMaxHealth,
+            "output" => PowerGeneration,
+            "coolant" => CoolantGeneration,
+            "qspeed" => QuantumSpeed,
+            "aim" => RadarMaxAimAssist,
+            "dps" | "alpha" | "dmgPhysical" | "dmgEnergy" | "dmgDistortion" => WeaponDamage,
+            _ => continue,
+        };
+        s.value = c.of(&stat).apply(s.value);
+    }
 }
 
 /// An item's display name, else its record name, else its GUID. The

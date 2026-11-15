@@ -16,6 +16,8 @@
   import { shieldResist } from "$lib/modules/ships/figures";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
+  import { addCraftPlan, loadPlans, plansStore } from "$lib/state/plans.svelte";
+  import { goto } from "$app/navigation";
   import LoadoutBar from "$lib/modules/ships/LoadoutBar.svelte";
   import PartPicker from "$lib/modules/ships/PartPicker.svelte";
   import ShipDetails from "$lib/modules/ships/ShipDetails.svelte";
@@ -43,6 +45,7 @@
     openPicker,
     pick,
     resetPower,
+    setCrafted,
     setLevel,
     shipsCandidates,
     shipsPicker,
@@ -96,6 +99,18 @@
   let details = $state(false);
   let holoSlot = $state<HTMLElement>();
   const holo = $derived(settingsStore.current?.ship_holo ?? false);
+  /** Plans is on: a crafted part can go there as a craft project. */
+  const plansOn = $derived(settingsStore.current?.enabled_modules.includes("plans") ?? false);
+  $effect(() => {
+    if (plansOn && plansStore.plans === null) void loadPlans();
+  });
+  /** The ports' part, when they all hold the same one and a blueprint
+   *  makes it: what the picker offers to try as crafted. */
+  function craftable(slots: SlotView[], targets: string[][]): SlotView | null {
+    const held = targets.map((t) => findSlot(slots, t));
+    const first = held[0];
+    return first?.item && first.blueprint && held.every((h) => h?.item === first.item) ? first : null;
+  }
   /** Build: the holo in the middle with the fighting parts left of it and
    *  the running parts right. */
   const FIGHT: Entry[][] = [[["weapons", "turrets"], "missiles", "countermeasures", "shields"]];
@@ -328,6 +343,18 @@
             count={targets.length}
             coolantAsked={page.power?.coolantAsked ?? null}
             tour={page.summary.quantum?.tour ?? null}
+            craft={craftable(page.slots, targets) ? { quality: at?.crafted?.quality ?? null } : null}
+            plans={plansOn ? { planned: !!plansStore.craftOf(craftable(page.slots, targets)?.blueprint ?? "") } : null}
+            oncraft={(quality) => {
+              setCrafted(targets, quality);
+              if (channel) void openPicker(channel, targets);
+            }}
+            onplan={(quality) => {
+              const bp = craftable(page.slots, targets)?.blueprint;
+              if (!bp) return;
+              if (plansStore.craftOf(bp)) void goto("/plans");
+              else void addCraftPlan(bp, targets.length, quality);
+            }}
             onpick={(item) => pick(targets, item)}
             onclose={closePicker}
           />

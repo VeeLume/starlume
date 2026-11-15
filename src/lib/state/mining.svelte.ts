@@ -13,6 +13,7 @@ import {
   type CaptureView,
   type ClassSharesView,
   type ComfortView,
+  type CraftedLaserView,
   type EvalView,
   type GeneratedView,
   type LaserInputView,
@@ -433,7 +434,7 @@ const ownLasers = (l: LoadoutView) => l.lasers.filter((x) => x.crew === null);
 /** The same lasers, modules and ships (the gadget belongs to the rock, the
  *  distance to the moment). */
 export function sameLasers(a: LaserInputView[], b: LaserInputView[]): boolean {
-  const key = (ls: LaserInputView[]) => JSON.stringify(ls.map((l) => [l.laser, l.modules, l.owner]));
+  const key = (ls: LaserInputView[]) => JSON.stringify(ls.map((l) => [l.laser, l.modules, l.owner, l.quality ?? null]));
   return key(a) === key(b);
 }
 
@@ -488,9 +489,36 @@ export function changesFrom(saved: LaserInputView[], now: LaserInputView[]): num
       continue;
     }
     if (a.laser !== b.laser) n++;
+    else if ((a.quality ?? null) !== (b.quality ?? null)) n++;
     for (let s = 0; s < Math.max(a.modules.length, b.modules.length); s++) if (a.modules[s] !== b.modules[s]) n++;
   }
   return n;
+}
+
+// ── Crafted lasers ──────────────────────────────────────────────────────────
+// A head can be tried as crafted at a quality (`LaserInputView.quality`):
+// the solver lays the recipe on Rust-side; the tiles show the power it
+// comes to, asked once per laser and quality.
+
+let _crafted = $state.raw(new Map<string, CraftedLaserView | null>());
+const _craftedAsked = new Set<string>();
+
+/** `laser` crafted at `quality`: its power and what its recipe changes;
+ *  undefined until asked (`loadCraftedLaser`), null when no recipe makes
+ *  it. */
+export const craftedLasers = {
+  of(laser: string, quality: number): CraftedLaserView | null | undefined {
+    return _crafted.get(`${laser}@${quality}`);
+  },
+};
+
+export async function loadCraftedLaser(channel: string, laser: string, quality: number): Promise<void> {
+  const key = `${laser}@${quality}`;
+  if (_craftedAsked.has(key)) return;
+  _craftedAsked.add(key);
+  const result = await commands.miningLaserCrafted(channel, laser, quality);
+  if (result.status === "ok") _crafted = new Map(_crafted).set(key, result.data);
+  else _craftedAsked.delete(key);
 }
 
 /** Replace your lasers on the calculator (a try-out until saved). */

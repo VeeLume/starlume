@@ -10,6 +10,7 @@
 
 pub mod candidates;
 pub mod catalog;
+mod crafted;
 pub mod crew;
 pub mod home;
 pub mod loadouts;
@@ -31,7 +32,7 @@ pub use power::{Column, Mode, Power, PowerInput, Source};
 pub use routes::{Place, Places, places, refinery_places};
 pub use state::ShipsState;
 pub use store::match_store;
-pub use tree::{Slot, System, slots};
+pub use tree::{CraftedMark, Slot, System, slots};
 pub use view::{
     ArmorSummary, BoostLevel, Edit, Gun, HullPart, HullSummary, InsuranceSummary, LoadoutInput,
     QuantumSummary, ShieldSummary, ShipView, StorageSummary, Summary, Tour, Typed, ViewError,

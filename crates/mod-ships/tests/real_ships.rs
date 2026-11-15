@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use mod_ships::{LoadoutInput, Mode, PowerInput, Slot, System, candidates, ships, slots, view};
 use svc_data::ships::{Loadout, RecordCollection};
-use svc_data::{CookedData, DataService, InstallRef};
+use svc_data::{CookedData, DataService, InstallRef, Recipes};
 
 fn cooked() -> std::sync::Arc<CookedData> {
     let p4k =
@@ -123,6 +123,7 @@ fn centaurus_stock_slots() {
     for mode in [Mode::Scm, Mode::Nav] {
         let v = view(
             &cooked,
+            &Recipes::default(),
             &input,
             &PowerInput {
                 mode,
@@ -170,6 +171,7 @@ fn centaurus_stock_slots() {
     let levels = |input: &PowerInput| -> Vec<(String, i64)> {
         let v = view(
             &cooked,
+            &Recipes::default(),
             &LoadoutInput {
                 ship: guid.to_string(),
                 edits: Vec::new(),
@@ -245,7 +247,7 @@ fn centaurus_stock_slots() {
         "the weapons got {guns} of 4 after the radar gave up its pips"
     );
 
-    let v = view(&cooked, &input, &PowerInput::default()).unwrap();
+    let v = view(&cooked, &Recipes::default(), &input, &PowerInput::default()).unwrap();
     // erkul's default ("weapons first", the weapons pool on all 4 pips;
     // sc-vehicles' weapons_probe): each CF-557 sustains 341.7, each turret
     // CF-337 152.3 (the Mk V's capacitor buff). Power-on gives the pool 2,
@@ -257,7 +259,7 @@ fn centaurus_stock_slots() {
         ],
         ..Default::default()
     };
-    let w = view(&cooked, &input, &erkul).unwrap();
+    let w = view(&cooked, &Recipes::default(), &input, &erkul).unwrap();
     for g in &w.guns {
         eprintln!(
             "  gun {:<60} power {:.3} burst {:?} sustained {:?}",
@@ -361,6 +363,7 @@ fn centaurus_stock_slots() {
     // Swapping the quantum drive keeps the jump module (carry-over).
     let qd = candidates(
         &cooked,
+        &Recipes::default(),
         &input,
         &PowerInput::default(),
         &[vec!["hardpoint_quantum_drive".into()]],
@@ -372,9 +375,16 @@ fn centaurus_stock_slots() {
         edits: vec![mod_ships::Edit {
             path: vec!["hardpoint_quantum_drive".into()],
             item: Some(other.item.clone()),
+            quality: None,
         }],
     };
-    let sv = view(&cooked, &swapped, &PowerInput::default()).unwrap();
+    let sv = view(
+        &cooked,
+        &Recipes::default(),
+        &swapped,
+        &PowerInput::default(),
+    )
+    .unwrap();
     let drive = sv
         .slots
         .iter()
@@ -429,6 +439,7 @@ fn centaurus_stock_slots() {
     let t = Instant::now();
     let coolers = candidates(
         &cooked,
+        &Recipes::default(),
         &input,
         &PowerInput::default(),
         &[vec!["hardpoint_cooler_01".into()]],
@@ -454,7 +465,14 @@ fn centaurus_stock_slots() {
         "hardpoint_gun_s5_front_left".to_string(),
         "hardpoint_class_2".to_string(),
     ];
-    let guns = candidates(&cooked, &input, &PowerInput::default(), &[gun]).unwrap();
+    let guns = candidates(
+        &cooked,
+        &Recipes::default(),
+        &input,
+        &PowerInput::default(),
+        &[gun],
+    )
+    .unwrap();
     eprintln!("\n{} S5 guns", guns.len());
     for c in guns.iter().take(12) {
         eprintln!(
@@ -475,7 +493,10 @@ fn centaurus_stock_slots() {
         off: vec!["hardpoint_cooler_02".into()],
         ..Default::default()
     };
-    let p = view(&cooked, &input, &off).unwrap().power.unwrap();
+    let p = view(&cooked, &Recipes::default(), &input, &off)
+        .unwrap()
+        .power
+        .unwrap();
     eprintln!(
         "\ncooler 2 off: coolant {:.1}, cooling {:?}",
         p.coolant_made, p.cooling
@@ -486,7 +507,10 @@ fn centaurus_stock_slots() {
         levels: vec![("pool:WeaponGun".into(), 4)],
         ..Default::default()
     };
-    let p = view(&cooked, &input, &more).unwrap().power.unwrap();
+    let p = view(&cooked, &Recipes::default(), &input, &more)
+        .unwrap()
+        .power
+        .unwrap();
     let w = p.columns.iter().find(|c| c.id == "pool:WeaponGun").unwrap();
     eprintln!(
         "weapons set to 4: level {}, used {} of {}",
@@ -739,7 +763,8 @@ fn owned_loadouts_apply() {
                     ship: row.guid.clone(),
                     edits: edits.clone(),
                 };
-                view(&cooked, &input, &power).unwrap_or_else(|e| panic!("{}: {e:?}", row.name));
+                view(&cooked, &Recipes::default(), &input, &power)
+                    .unwrap_or_else(|e| panic!("{}: {e:?}", row.name));
             }
             eprintln!(
                 "{:40} insured {:>3} edits | live {}",
@@ -825,6 +850,7 @@ fn hornet_matches_the_power_screen() {
     ] {
         let v = view(
             &cooked,
+            &Recipes::default(),
             &input,
             &PowerInput {
                 mode: Mode::Scm,
@@ -891,6 +917,7 @@ fn marauder_takes_its_last_pip() {
     let power = |levels: Vec<(String, i64)>| {
         view(
             &cooked,
+            &Recipes::default(),
             &input,
             &PowerInput {
                 levels,
@@ -944,6 +971,7 @@ fn every_ship_takes_its_free_pips() {
             let at = |levels: Vec<(String, i64)>| {
                 view(
                     &cooked,
+                    &Recipes::default(),
                     &input,
                     &PowerInput {
                         mode,
@@ -1017,4 +1045,115 @@ fn every_ship_takes_its_free_pips() {
         "{} columns could not take a free pip",
         stuck.len()
     );
+}
+
+/// A part marked crafted moves the page's figures, per port: a shield
+/// crafted at Q1000 adds its own capacity gain and no more, a plant its
+/// pips, a cooler its coolant, a drive its speed; at Q500 nothing changes.
+#[test]
+#[ignore = "needs a real Data.p4k — set STARLUME_REAL_P4K"]
+fn crafted_parts_move_the_figures() {
+    let p4k = std::env::var("STARLUME_REAL_P4K").expect("set STARLUME_REAL_P4K");
+    let install = InstallRef {
+        channel_key: "real-test".into(),
+        p4k_path: p4k.into(),
+        build_id: "real-test-build".into(),
+        version: "real-test".into(),
+    };
+    let service = DataService::new(std::env::temp_dir().join("starlume-svcdata-real-test"));
+    let cooked = service.load(&install, |_| {}).expect("load real install");
+    let blueprints = service.blueprints(&install).expect("cooked blueprints");
+    let recipes = Recipes::new(Some(&blueprints), &cooked.crafting);
+    let ship = ships(&cooked)
+        .iter()
+        .find(|r| r.record_name == "RSI_Constellation_Mk5_Centaurus")
+        .expect("centaurus")
+        .guid
+        .clone();
+    let stock_input = LoadoutInput {
+        ship: ship.clone(),
+        edits: vec![],
+    };
+    let power = PowerInput::default();
+    let stock = view(&cooked, &recipes, &stock_input, &power).unwrap();
+
+    fn find(slots: &[Slot], system: System) -> Option<&Slot> {
+        slots.iter().find_map(|s| {
+            (s.system == system && s.blueprint.is_some() && s.item.is_some())
+                .then_some(s)
+                .or_else(|| find(&s.children, system))
+        })
+    }
+    let mark = |s: &Slot, q: i32| mod_ships::Edit {
+        path: s.path.clone(),
+        item: s.item.clone(),
+        quality: Some(q),
+    };
+    let with = |edits: Vec<mod_ships::Edit>| {
+        let input = LoadoutInput {
+            ship: ship.clone(),
+            edits,
+        };
+        view(&cooked, &recipes, &input, &power).unwrap()
+    };
+
+    let shield = find(&stock.slots, System::Shields).expect("a craftable shield");
+    let crafted = with(vec![mark(shield, 1000)]);
+    let mark_row = find(&crafted.slots, System::Shields).unwrap();
+    let gains = &mark_row.crafted.as_ref().expect("marked").gains;
+    eprintln!("shield gains {gains:?}");
+    let capacity = gains
+        .iter()
+        .find(|g| g.label == "Shield Capacity")
+        .expect("capacity gain");
+    let added = (capacity.value.unwrap() - capacity.base.unwrap()) as f32;
+    let (before, after) = (
+        stock.summary.shield_health.unwrap(),
+        crafted.summary.shield_health.unwrap(),
+    );
+    eprintln!("shields {before} -> {after} (+{added})");
+    assert!(
+        (after - before - added).abs() < 1.0,
+        "one generator's gain only"
+    );
+    // Stock quality changes nothing.
+    let same = with(vec![mark(shield, 500)]);
+    assert_eq!(same.summary.shield_health, stock.summary.shield_health);
+
+    let plant = find(&stock.slots, System::PowerPlants).expect("a craftable plant");
+    let p = with(vec![mark(plant, 1000)]);
+    let (s0, s1) = (
+        stock.power.as_ref().unwrap().supply,
+        p.power.as_ref().unwrap().supply,
+    );
+    let plant_gains = &find(&p.slots, System::PowerPlants)
+        .and_then(|s| s.crafted.as_ref())
+        .expect("marked plant")
+        .gains;
+    eprintln!("supply {s0} -> {s1}, plant {plant_gains:?}");
+    assert!(s1 > s0, "a Q1000 plant makes more pips");
+
+    let qd = find(&stock.slots, System::Quantum).expect("a craftable drive");
+    let q = with(vec![mark(qd, 1000)]);
+    let (t0, t1) = (
+        stock.summary.quantum.as_ref().unwrap().times[64].1,
+        q.summary.quantum.as_ref().unwrap().times[64].1,
+    );
+    eprintln!("32 Gm {t0:.1} s -> {t1:.1} s");
+    assert!(t1 < t0);
+
+    // The picker keeps the mark on the fitted option.
+    let options = candidates(
+        &cooked,
+        &recipes,
+        &LoadoutInput {
+            ship: ship.clone(),
+            edits: vec![mark(shield, 1000)],
+        },
+        &power,
+        std::slice::from_ref(&shield.path),
+    )
+    .unwrap();
+    let fitted = options.iter().find(|c| c.fitted).expect("fitted option");
+    assert_eq!(fitted.impact.shield_health, crafted.summary.shield_health);
 }

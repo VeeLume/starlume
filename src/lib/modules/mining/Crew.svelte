@@ -186,6 +186,7 @@
             open = "";
             draft = next;
           }}
+          oncraft={(next) => (draft = next)}
           onclose={() => (open = "")}
         />
       </div>

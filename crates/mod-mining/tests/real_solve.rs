@@ -69,6 +69,7 @@ fn bexalite_scan_from_a_golem() {
             crew: None,
             distance_m: None,
             off: false,
+            quality: None,
         }],
         gadget: Some(id(&catalog.gadgets, "gadget", "Sabir")),
         lead: None,
@@ -104,6 +105,7 @@ fn bexalite_scan_from_a_golem() {
                 crew: None,
                 distance_m: None,
                 off: false,
+                quality: None,
             }],
             gadget: None,
             lead: None,
@@ -132,6 +134,7 @@ fn bexalite_scan_from_a_golem() {
         crew: Some("juno".into()),
         distance_m: None,
         off: false,
+        quality: None,
     });
     let duo = solve(&catalog, &together, &rock, &[]).expect("crew solve");
     let duo = duo.yours.as_ref().expect("lasers");
@@ -479,4 +482,60 @@ fn keep_on_versus_cut(catalog: &Catalog, loadout: &LoadoutInput, input: &RockInp
             g.no_return_min.map(|p| (p * 1000.0).round() / 10.0),
         );
     }
+}
+
+/// A laser marked crafted evaluates with its recipe's power: the Pitman at
+/// Q1000 (two Impact Force slots, ×0.80–1.20 each) puts 40 % more power on
+/// the rock than as sold, and at Q500 exactly what it did.
+#[test]
+#[ignore = "needs a real Data.p4k — set STARLUME_REAL_P4K"]
+fn a_crafted_laser_puts_more_power_on_the_rock() {
+    let p4k = std::env::var("STARLUME_REAL_P4K").expect("set STARLUME_REAL_P4K");
+    let install = InstallRef {
+        channel_key: "real-test".into(),
+        p4k_path: p4k.into(),
+        build_id: "real-test-build".into(),
+        version: "real-test".into(),
+    };
+    let service = DataService::new(std::env::temp_dir().join("starlume-svcdata-real-test"));
+    let cooked = service.load(&install, |_| {}).expect("load real install");
+    let blueprints = service.blueprints(&install).expect("cooked blueprints");
+    let recipes = svc_data::Recipes::new(Some(&blueprints), &cooked.crafting);
+    let catalog = Catalog::build(&cooked.mining, &cooked.locale)
+        .expect("ship ruleset")
+        .with_recipes(&recipes);
+    let crafted: Vec<_> = catalog
+        .lasers
+        .iter()
+        .filter(|l| l.value.craft.is_some())
+        .map(|l| l.name.as_str())
+        .collect();
+    eprintln!("craftable lasers: {crafted:?}");
+    let pitman = id(&catalog.lasers, "laser", "Pitman");
+    let at = |quality: Option<i32>| LoadoutInput {
+        lasers: vec![LaserInput {
+            laser: pitman.clone(),
+            quality,
+            ..Default::default()
+        }],
+        gadget: None,
+        lead: None,
+    };
+    let rock = RockInput {
+        surface: None,
+        mass: 9000.0,
+        entries: vec![EntryInput {
+            element: id(&catalog.element_names, "element", "Bexalite"),
+            percent: 30.0,
+            quality: None,
+        }],
+    };
+    // The picker's comparison: the loadout's evaluation on the rock.
+    let evals = mod_mining::compare(&catalog, &rock, &[at(None), at(Some(1000)), at(Some(500))])
+        .expect("compares");
+    let power = |i: usize| evals[i].as_ref().expect("an evaluation").power;
+    let (sold, best, stock) = (power(0), power(1), power(2));
+    eprintln!("Pitman on the rock: {sold} as sold, {best} at Q1000");
+    assert!((best / sold - 1.4).abs() < 1e-3, "{best} / {sold}");
+    assert_eq!(stock, sold);
 }

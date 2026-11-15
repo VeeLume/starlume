@@ -168,6 +168,16 @@ pub struct StockStackView {
 
 // ── Commands ────────────────────────────────────────────────────────────────
 
+/// The catalog for `channel`'s build, `None` until a cook has written it:
+/// what Ships and Mining ask a crafted part's changes of.
+pub(crate) async fn blueprints_for(
+    app: &AppHandle,
+    channel: &str,
+) -> Option<std::sync::Arc<svc_data::BlueprintIndex>> {
+    let install = install_for(app, channel).await.ok()?;
+    app.state::<AppState>().data.blueprints(&install)
+}
+
 /// The catalog for `channel`'s build. Dropped with the rest of the game data
 /// on a hide; the next call reads its snapshot again.
 pub(crate) async fn index_for(

@@ -202,6 +202,7 @@ mod tests {
         Edit {
             path: vec![port.to_string()],
             item: Some(item.to_string()),
+            quality: None,
         }
     }
 
