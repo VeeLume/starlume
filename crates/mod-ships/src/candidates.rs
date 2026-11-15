@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use svc_data::ships::{
     EItemType, Item, ItemClass, RecordCollection, ResourceNetworkResource, ResourceUnits,
 };
-use svc_data::{CookedData, Guid};
+use svc_data::{CookedData, Guid, Recipes};
+
+use crate::crafted::CraftedParts;
 
 use crate::power::PowerInput;
 use crate::view::{Edit, LoadoutInput, ViewError, loadout, view};
@@ -87,6 +89,7 @@ pub struct Candidate {
 /// item: a turret's other guns), best name first.
 pub fn candidates(
     cooked: &CookedData,
+    recipes: &Recipes,
     input: &LoadoutInput,
     settings: &PowerInput,
     targets: &[Vec<String>],
@@ -96,6 +99,9 @@ pub fn candidates(
     };
     let index = &cooked.ships;
     let current = loadout(cooked, input)?;
+    // The part a port holds keeps its crafted mark as an option: the
+    // fitted row reads as the page does.
+    let crafted = CraftedParts::resolve(recipes, input, &current);
     let empty = Default::default();
     let items = cooked.holotable.items.as_ref().unwrap_or(&empty);
     let path: Vec<&str> = first.iter().map(String::as_str).collect();
@@ -116,36 +122,42 @@ pub fn candidates(
                 return None;
             }
             let mut with = input.clone();
-            with.edits.extend(targets.iter().map(|t| Edit {
-                path: t.clone(),
-                item: Some(g.to_string()),
+            with.edits.extend(targets.iter().map(|t| {
+                Edit {
+                    path: t.clone(),
+                    item: Some(g.to_string()),
+                    quality: (held(t) == Some(g))
+                        .then(|| crafted.get(&t.join("/")).map(|c| c.quality))
+                        .flatten(),
+                }
             }));
-            let impact = view(cooked, &with, settings)
-                .ok()
-                .map_or_else(Impact::default, |v| Impact {
-                    supply: v.power.as_ref().map(|p| p.supply),
-                    free: v.power.as_ref().map(|p| p.supply - p.used),
-                    cooling: v.power.as_ref().and_then(|p| p.cooling),
-                    em: v.power.as_ref().map(|p| p.em),
-                    ir: v.power.as_ref().map(|p| p.ir),
-                    shield_health: v.summary.shield_health,
-                    quantum_32gm: v.summary.quantum.as_ref().map(|q| q.times[64].1),
-                    quantum_60gm: v.summary.quantum.as_ref().map(|q| q.times[120].1),
-                    quantum_tour: v
-                        .summary
-                        .quantum
-                        .as_ref()
-                        .and_then(|q| q.tour.as_ref())
-                        .map(|t| t.seconds),
-                    quantum_range_gm: v.summary.quantum.as_ref().and_then(|q| q.range_gm),
-                    gun_dps: (!v.guns.is_empty()).then(|| {
-                        v.guns
-                            .iter()
-                            .map(|g| f64::from(g.sustained.unwrap_or(0.0)))
-                            .sum()
-                    }),
-                    gun_power: v.guns.iter().map(|g| f64::from(g.power)).reduce(f64::min),
-                });
+            let impact =
+                view(cooked, recipes, &with, settings)
+                    .ok()
+                    .map_or_else(Impact::default, |v| Impact {
+                        supply: v.power.as_ref().map(|p| p.supply),
+                        free: v.power.as_ref().map(|p| p.supply - p.used),
+                        cooling: v.power.as_ref().and_then(|p| p.cooling),
+                        em: v.power.as_ref().map(|p| p.em),
+                        ir: v.power.as_ref().map(|p| p.ir),
+                        shield_health: v.summary.shield_health,
+                        quantum_32gm: v.summary.quantum.as_ref().map(|q| q.times[64].1),
+                        quantum_60gm: v.summary.quantum.as_ref().map(|q| q.times[120].1),
+                        quantum_tour: v
+                            .summary
+                            .quantum
+                            .as_ref()
+                            .and_then(|q| q.tour.as_ref())
+                            .map(|t| t.seconds),
+                        quantum_range_gm: v.summary.quantum.as_ref().and_then(|q| q.range_gm),
+                        gun_dps: (!v.guns.is_empty()).then(|| {
+                            v.guns
+                                .iter()
+                                .map(|g| f64::from(g.sustained.unwrap_or(0.0)))
+                                .sum()
+                        }),
+                        gun_power: v.guns.iter().map(|g| f64::from(g.power)).reduce(f64::min),
+                    });
             Some(Candidate {
                 item: g.to_string(),
                 name: name.to_string(),

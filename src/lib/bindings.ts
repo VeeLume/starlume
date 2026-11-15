@@ -1947,6 +1947,10 @@ blueprint: string; count: number;
  * minimum still holds when it is higher.
  */
 quality: number }
+/**
+ * A part marked crafted: its quality and the figures that change.
+ */
+export type CraftedMarkView = { quality: number; gains: GainView[] }
 export type CraftedPropertyView = { 
 /**
  * `CraftingGameplayPropertyDef` CRC.
@@ -2195,7 +2199,12 @@ breachable: boolean }
 /**
  * One swap on top of the stock loadout.
  */
-export type EditView = { path: string[]; item: string | null }
+export type EditView = { path: string[]; item: string | null; 
+/**
+ * What if the part were crafted, every material at this quality
+ * (0..=1000); `null`: as the shops sell it.
+ */
+quality?: number | null }
 /**
  * What lasers put on the rock: power, and the change to resistance,
  * instability and window as fractions (`-0.3`: 30 % less).
@@ -2344,6 +2353,18 @@ export type GadgetRowView = {
  * `null` for "no gadget".
  */
 gadget: string | null; eval: EvalView }
+/**
+ * One figure of a crafted part's stat sheet, as stock and as crafted.
+ */
+export type GainView = { label: string; unit: string; 
+/**
+ * `null` for a percent-only figure.
+ */
+base: number | null; value: number | null; pct: number; 
+/**
+ * Better for the part; `null` when unclear.
+ */
+improved: boolean | null }
 export type GenerateRequestView = { area: string; rockType: string; pick: PickView; place: string | null }
 export type GeneratedEntryView = { element: string; 
 /**
@@ -4179,7 +4200,15 @@ transform: string; ranges: ModifierRangeView[] }
 /**
  * One port of a loadout and what it holds.
  */
-export type SlotView = { path: string[]; label: string | null; minSize: number; maxSize: number; editable: boolean; item: string | null; name: string | null; itemType: string | null; subType: string | null; size: number; grade: number; class: string | null; system: SystemView; stats: StatView[]; children: SlotView[] }
+export type SlotView = { path: string[]; label: string | null; minSize: number; maxSize: number; editable: boolean; item: string | null; name: string | null; itemType: string | null; subType: string | null; size: number; grade: number; class: string | null; system: SystemView; stats: StatView[]; 
+/**
+ * The blueprint that makes the part: it can be marked crafted.
+ */
+blueprint: string | null; 
+/**
+ * The part as crafted, when its edit marks it.
+ */
+crafted: CraftedMarkView | null; children: SlotView[] }
 /**
  * Where a timeline entry came from.
  */

@@ -10,21 +10,27 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use svc_data::crafting::GameplayStat;
 use svc_data::ships::{
     Allocation, Defense, EItemType, EMasterMode, Flight, Loadout, LoadoutContext, MinMax, Mounted,
-    PerDamageType, PowerNetwork, Quantum, RecordCollection, ShipWeapon, Storage, SustainKind,
-    Vehicle, network_items, weapon_power,
+    PerDamageType, PowerNetwork, Quantum, RecordCollection, Shield, ShipWeapon, Storage,
+    SustainKind, Vehicle, network_items, weapon_power,
 };
-use svc_data::{CookedData, Guid};
+use svc_data::{CookedData, Guid, Recipes};
 
+use crate::crafted::CraftedParts;
 use crate::power::{Power, PowerInput, network, power_of};
-use crate::tree::{Slot, slots};
+use crate::tree::{Slot, slots_crafted};
 
 /// One swap: the port at `path` now holds `item` (`None` empties it).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Edit {
     pub path: Vec<String>,
     pub item: Option<String>,
+    /// What if the part were crafted, every material at this quality
+    /// (0..=1000): [`crate::crafted`]. `None`: as the shops sell it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<i32>,
 }
 
 /// A ship and how it differs from stock.
@@ -836,14 +842,17 @@ fn part_name(raw: &str) -> String {
         .join(" ")
 }
 
-/// The page for `input` under `settings`.
+/// The page for `input` under `settings`; a part `input` marks crafted
+/// takes what `recipes` says crafting changes ([`crate::crafted`]).
 pub fn view(
     cooked: &CookedData,
+    recipes: &Recipes,
     input: &LoadoutInput,
     settings: &PowerInput,
 ) -> Result<ShipView, ViewError> {
     let index = &cooked.ships;
     let loadout = loadout(cooked, input)?;
+    let crafted = CraftedParts::resolve(recipes, input, &loadout);
     let vehicle = index
         .vehicles
         .get(&loadout.vehicle)
@@ -859,21 +868,41 @@ pub fn view(
             &index.profiles,
             params,
             settings,
+            &crafted,
         )
     });
-    let defense = Defense::compute(
+    let mut defense = Defense::compute(
         vehicle,
         &loadout.mounted,
         &index.vehicles,
         &index.components,
     );
+    if !crafted.is_empty() {
+        // The generators again, each crafted one with its own capacity.
+        let generators: Vec<_> = network_items(&loadout.mounted, &index.vehicles)
+            .into_iter()
+            .filter_map(|(path, item)| {
+                let mut g = index.components.get(&item)?.shield.clone()?;
+                g.max_health = crafted.apply(&path, &GameplayStat::ShieldMaxHealth, g.max_health);
+                Some(g)
+            })
+            .collect();
+        defense.shield = Shield::combine(&generators.iter().collect::<Vec<_>>());
+    }
     let power = net
         .as_ref()
         .map(|(n, a, mode)| power_of(n, a, mode, settings.mode, vehicle, defense.armor.as_ref()));
-    let guns = net
+    let mut guns = net
         .as_ref()
         .map(|(n, a, mode)| guns(cooked, &loadout, n, a, mode))
         .unwrap_or_default();
+    // DPS is linear in each shot's damage: a crafted gun's scales with it.
+    for g in &mut guns {
+        let x = crafted.change(&g.path, &GameplayStat::WeaponDamage).factor as f32;
+        for v in [&mut g.burst, &mut g.sustained, &mut g.window] {
+            *v = v.map(|d| d * x);
+        }
+    }
     // Aim assist under the radar's power (sc-items-ship-components, read
     // from the client: continuous in the radar's functionality ratio,
     // which is its power ratio while its coolant is met). With several
@@ -884,7 +913,17 @@ pub fn view(
             .iter()
             .zip(ratios)
             .filter_map(|(c, r)| {
-                let radar = index.components.get(&c.item)?.radar.as_ref()?;
+                let mut radar = index.components.get(&c.item)?.radar.clone()?;
+                radar.aim_assist_min = crafted.apply(
+                    &c.path,
+                    &GameplayStat::RadarMinAimAssist,
+                    radar.aim_assist_min,
+                );
+                radar.aim_assist_max = crafted.apply(
+                    &c.path,
+                    &GameplayStat::RadarMaxAimAssist,
+                    radar.aim_assist_max,
+                );
                 Some(AimAssist {
                     distance: f64::from(radar.aim_assist(r).unwrap_or(0.0)),
                     max: f64::from(radar.aim_assist_max),
@@ -938,7 +977,18 @@ pub fn view(
         &index.components,
         &index.profiles,
     )
-    .map(|q| {
+    .map(|mut q| {
+        // The drive `compute` took: the first on the network.
+        if let Some((path, _)) = network_items(&loadout.mounted, &index.vehicles)
+            .into_iter()
+            .find(|(_, g)| index.components.get(g).is_some_and(|s| s.quantum.is_some()))
+        {
+            q.travel.drive_speed =
+                crafted.apply(&path, &GameplayStat::QuantumSpeed, q.travel.drive_speed);
+            q.fuel_per_mm = crafted
+                .change(&path, &GameplayStat::QuantumFuelRequirement)
+                .apply(q.fuel_per_mm);
+        }
         // A jump as the player waits for it: spool-up, then the travel
         // (sc-vehicles' `time` is the travel alone). Nothing at 0 Gm.
         let spool = f64::from(q.travel.spool_up_time);
@@ -986,7 +1036,7 @@ pub fn view(
     });
     Ok(ShipView {
         ship: input.ship.clone(),
-        slots: slots(cooked, &loadout),
+        slots: slots_crafted(cooked, &loadout, recipes, &crafted),
         power,
         guns,
         summary: Summary {

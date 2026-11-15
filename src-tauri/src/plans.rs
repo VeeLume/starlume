@@ -720,8 +720,11 @@ impl Gathered<'_> {
 
     /// The first loadout plan's quantum drive, as sampled jump times.
     fn drive_of(&self, saved: &mod_ships::SavedLoadout) -> Option<Drive> {
+        // A plan's loadout with its crafted parts as crafted.
+        let recipes = svc_data::Recipes::new(self.blueprints, &self.cooked.crafting);
         let view = mod_ships::view(
             self.cooked,
+            &recipes,
             &mod_ships::LoadoutInput {
                 ship: saved.ship.clone(),
                 edits: saved.edits.clone(),

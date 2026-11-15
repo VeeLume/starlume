@@ -236,6 +236,7 @@ fn edits(
             out.push(Edit {
                 path,
                 item: item.map(|g| g.to_string()),
+                quality: None,
             });
         }
     }
