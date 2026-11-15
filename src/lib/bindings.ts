@@ -3431,9 +3431,15 @@ cost: number | null;
  */
 odds: number | null; 
 /**
- * How many places it can be done at (mining places, shops, missions).
+ * How many places it can be done at (mining places, shops, missions,
+ * refineries).
  */
-sources: number }
+sources: number; 
+/**
+ * The step this one follows (its id): refining comes after the mining
+ * that gives the ore. A trip never puts it before that step.
+ */
+after: string | null }
 /**
  * Where a plan's goal lives in the app, for the board's "open" link.
  */
@@ -4228,6 +4234,10 @@ export type StepKind =
  * Fit a part you hold.
  */
 "fit" | "buy" | "mine" | 
+/**
+ * Take mined ore to a refinery: the recipe wants the refined material.
+ */
+"refine" | 
 /**
  * Get a material no ship-mining place gives.
  */

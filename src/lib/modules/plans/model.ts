@@ -16,6 +16,7 @@ export const KIND_TEXT: Record<StepKind, string> = {
   fit: "fit",
   buy: "buy",
   mine: "mine",
+  refine: "refine",
   gather: "get",
   craft: "craft",
   earn: "mission",

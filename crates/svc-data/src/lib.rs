@@ -49,6 +49,7 @@ pub mod legality;
 pub mod mining;
 pub mod missions;
 pub mod names;
+pub mod refining;
 pub mod ships;
 pub mod weapons;
 
@@ -82,6 +83,7 @@ pub use missions::{
     MissionPayout, MissionPlace, MissionPoolFacts, MissionRef, MissionRegion, MissionWave,
     RepRequirement, RepReward, ScripReward, ShipSlot, SpawnSlot,
 };
+pub use refining::RefiningIndex;
 pub use ships::{ShipsIndex, VehicleEntry};
 pub use weapons::{DamageBreakdown, MissileEntry, ShipWeaponEntry, TrackingEntry, WeaponsIndex};
 
@@ -775,7 +777,7 @@ fn load_blocking(
 /// signature enforces it).
 ///
 /// `assets` is the live p4k when the caller has it open: the rock meshes
-/// (mining) are read from it. The ship holo's recipes and the blueprint
+/// (mining) are read from it, and the refinery placements walk it. The ship holo's recipes and the blueprint
 /// catalog come back beside the bundle: they are saved on their own and
 /// don't stay in memory.
 fn cook(
@@ -807,6 +809,7 @@ fn cook(
         assets,
     );
     let ships = ships::build_ships(&datacore, &foundations.items, assets);
+    let refining = refining::build_refining(&datacore, assets);
     let visuals = ships::ShipVisuals::build(&datacore, &foundations.items);
     let blueprints =
         blueprints::build_blueprints(&datacore, &foundations, &asset_data.locale, &missions);
@@ -821,6 +824,7 @@ fn cook(
         crafting,
         mining,
         ships,
+        refining,
     };
     (cooked, visuals, blueprints)
 }
@@ -884,6 +888,7 @@ mod tests {
             locale,
             mining: Default::default(),
             ships: Default::default(),
+            refining: Default::default(),
             missions: vec![fake_mission()],
             legality: vec![legality::LegalityEntry {
                 resource_guid: guid(5).to_string(),
