@@ -1762,7 +1762,8 @@ pub fn generate(
     };
 
     // Quality rolls at the asked place, else the area's first; the client
-    // walks the place and its parents for a location override.
+    // walks the place, its parents and its solar system for a location
+    // override.
     let (_, _, places) = src.area_places(&provider);
     let place = match &request.place {
         Some(id) => places.iter().find(|p| p.id == *id).cloned(),
@@ -1771,11 +1772,7 @@ pub fn generate(
     let location_ids: Vec<Guid> = place
         .as_ref()
         .and_then(|p| parse_guid(&p.id))
-        .map(|g| {
-            std::iter::once(g)
-                .chain(src.locations.ancestors(&g).map(|l| l.guid))
-                .collect()
-        })
+        .map(|g| QualityRoll::locations_at(src.locations, &g))
         .unwrap_or_default();
     let quality = QualityRoll {
         elements: &catalog.elements,
