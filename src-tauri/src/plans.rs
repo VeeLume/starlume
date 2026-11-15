@@ -778,15 +778,25 @@ impl Gathered<'_> {
             let mined = !at_quality.is_empty() || (quality > 0 && !found(0).is_empty());
             let mut found: Vec<OreSite> = at_quality
                 .into_iter()
-                .map(|s| OreSite {
-                    at: PlanPlace {
-                        site: s
-                            .places
-                            .iter()
-                            .find_map(|p| sites.of_location(cooked, &p.id)),
-                        name: s.name,
-                    },
-                    find: s.find,
+                .map(|s| {
+                    // A gas pocket or a claim is flown to by its Lagrange
+                    // point, and named by it: the pocket's own name
+                    // ("ARC L3-A") is nowhere on the star map.
+                    let at = s
+                        .travel
+                        .iter()
+                        .find_map(|p| sites.of_location(cooked, &p.id).map(|site| (site, p)));
+                    let point = at
+                        .as_ref()
+                        .filter(|(_, p)| !s.places.iter().any(|q| q.id == p.id))
+                        .map(|(_, p)| p.name.clone());
+                    OreSite {
+                        at: PlanPlace {
+                            site: at.map(|(site, _)| site),
+                            name: point.unwrap_or(s.name),
+                        },
+                        find: s.find,
+                    }
                 })
                 .collect();
             // Best first, but a place in the system you are in before one

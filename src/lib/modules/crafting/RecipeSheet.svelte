@@ -10,7 +10,7 @@
   import type { BlueprintDetailView, BlueprintStatView } from "$lib/bindings";
   import { getRecipe } from "$lib/state/catalog.svelte";
   import { craftingStore, toggleMark } from "$lib/state/crafting.svelte";
-  import { addCraftPlan, loadPlans, plansStore } from "$lib/state/plans.svelte";
+  import { addCraftPlan, loadPlans, plansStore, setCraftPlan } from "$lib/state/plans.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
   import {
     PRESETS,
@@ -57,6 +57,24 @@
     if (plans && plansStore.plans === null) void loadPlans();
   });
 
+  // What a new plan asks for. The quality follows the sliders (their
+  // highest) until one is typed; a planned variant shows its plan's own.
+  let planCount = $state(1);
+  let planQuality = $state<number | null>(null);
+  const sliderQuality = $derived(qualities.length ? Math.max(...qualities) : 0);
+
+  function planField(field: "count" | "quality", raw: string) {
+    const value = Math.round(Number(raw));
+    if (raw.trim() === "" || !Number.isFinite(value)) return;
+    const next = field === "count" ? Math.max(1, value) : Math.min(1000, Math.max(0, value));
+    const planned = plansStore.craftOf(variant.guid);
+    if (planned?.goal.kind === "craft") {
+      const g = planned.goal;
+      void setCraftPlan(planned.id, field === "count" ? next : g.count, field === "quality" ? next : g.quality);
+    } else if (field === "count") planCount = next;
+    else planQuality = next;
+  }
+
   const look = $derived(lookOf(family.shelf.main));
   const Icon = $derived(look.icon);
   const variant = $derived(family.variants.find((v) => v.guid === focus) ?? family.variants[0]);
@@ -82,6 +100,8 @@
       // A variant shares the recipe: the sliders stay where they are.
       if (key !== shownFamily) {
         shownFamily = key;
+        planCount = 1;
+        planQuality = null;
         focus = pick && family.variants.some((v) => v.guid === pick) ? pick : null;
         apply("Base");
       }
@@ -160,20 +180,47 @@
         {many ? "Blueprints" : "Blueprint"}
         {#if many}<span class="owned-count">{family.ownedCount} of {family.variants.length} owned</span>{/if}
       </h3>
-      <!-- A plan is for the variant in view: its steps and materials are
-           worked out on Plans, where count and quality are set too. -->
+      <!-- A plan is for the variant in view. How many and at what quality
+           is set here, before adding and after; its steps and materials are
+           worked out on Plans. -->
       {#if plans}
-        {@const planned = !!plansStore.craftOf(variant.guid)}
-        <button
-          type="button"
-          class="mark plan"
-          class:set={planned}
-          title={planned
-            ? `${variant.name} is in your plans: open Plans`
-            : `Plan to craft the ${variant.name}: its steps and materials go to Plans`}
-          onclick={() => (planned ? void goto("/plans") : void addCraftPlan(variant.guid))}
-          ><Target size={12} />{planned ? "In plans" : "Add to plan"}</button
-        >
+        {@const plan = plansStore.craftOf(variant.guid)}
+        {@const goal = plan?.goal.kind === "craft" ? plan.goal : null}
+        <div class="plan-set">
+          <label
+            >Count
+            <input
+              class="input"
+              type="number"
+              min="1"
+              value={goal?.count ?? planCount}
+              onchange={(e) => planField("count", e.currentTarget.value)}
+            /></label
+          >
+          <label title="The quality every material has to reach; 0 is any quality"
+            >Quality
+            <input
+              class="input"
+              type="number"
+              min="0"
+              max="1000"
+              step="50"
+              value={goal?.quality ?? planQuality ?? sliderQuality}
+              onchange={(e) => planField("quality", e.currentTarget.value)}
+            /></label
+          >
+          <button
+            type="button"
+            class="mark plan"
+            class:set={!!plan}
+            title={plan
+              ? `${variant.name} is in your plans: open Plans`
+              : `Plan to craft the ${variant.name}: its steps and materials go to Plans`}
+            onclick={() =>
+              plan ? void goto("/plans") : void addCraftPlan(variant.guid, planCount, planQuality ?? sliderQuality)}
+            ><Target size={12} />{plan ? "In plans" : "Add to plan"}</button
+          >
+        </div>
       {/if}
     </div>
     <div class="variants" class:many>
@@ -472,6 +519,22 @@
     color: var(--hue-sky);
     border-color: color-mix(in srgb, var(--hue-sky) 45%, transparent);
     background: color-mix(in srgb, var(--hue-sky) 14%, transparent);
+  }
+  .plan-set {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .plan-set label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-small);
+    color: var(--text-dim);
+  }
+  .plan-set .input {
+    width: 68px;
+    height: 24px;
   }
   .mark.plan.set {
     color: var(--accent);
