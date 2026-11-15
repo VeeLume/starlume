@@ -71,16 +71,20 @@ describe("the session card", () => {
     expect(timeText(trip(two.stops, null))).toBe("1 jump");
   });
 
-  it("lists a jump before the stop it leads to, and folds a long stop", () => {
-    const rows = timeline(two);
-    expect(rows.map((r) => r.type)).toEqual(["stop", "leg", "stop"]);
-    expect(rows[1]).toMatchObject({ time: "QT 2:51", text: "32 Gm" });
-    expect(rows[2]).toMatchObject({ place: "Place b", text: "do one, do two and 1 more" });
+  it("lists each stop as what to do, then where and the jump there", () => {
+    const rows = timeline(two, "Place a");
+    expect(rows.map((r) => r.n)).toEqual([1, 2]);
+    expect(rows[0]).toMatchObject({ what: "Fit the Part a you own", where: "at Place a, where you are" });
+    expect(rows[1]).toMatchObject({
+      what: "Do one, do two and 1 more",
+      where: "at Place b, 32 Gm from Place a, 3 min in quantum",
+    });
   });
 
-  it("leaves a jump's time out when it has none", () => {
-    const rows = timeline(trip([stop("b", { gm: 2.04, seconds: null }, ["Do one"])], null));
-    expect(rows[0]).toMatchObject({ time: "QT", text: "2.0 Gm" });
+  it("leaves a jump's time out when it has none, and a start it does not know", () => {
+    const rows = timeline(trip([stop("b", { gm: 2.04, seconds: null }, ["Do one"])], null), "Home");
+    expect(rows[0].where).toBe("at Place b, 2.0 Gm from Home");
+    expect(timeline(trip([stop("b", null, ["Do one"])], null))[0].where).toBe("at Place b");
   });
 });
 

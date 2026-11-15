@@ -94,7 +94,7 @@
   const isFocus = $derived(!!plan && board?.plans[0]?.id === plan.id);
   const steps = $derived((board?.steps ?? []).filter((s) => plan && s.plans.includes(plan.id)));
   const session = $derived(board?.sessions.find((s) => s.choice === choice) ?? null);
-  const rows = $derived(session ? timeline(session) : []);
+  const rows = $derived(session ? timeline(session, board?.from ?? null) : []);
   const bars = $derived(ledgerBars(board?.ledger ?? []));
   const names = $derived(new Map((board?.plans ?? []).map((p) => [p.id, p.name])));
   const counts = $derived({
@@ -311,13 +311,9 @@
           <p class="why">{session?.why ?? ""}</p>
           <ol class="tl" style:--rows={TIMELINE_ROWS}>
             {#each rows as row (row.key)}
-              {#if row.type === "leg"}
-                <li class="leg"><span class="t">{row.time}</span><span class="dot"></span><span class="dim">{row.text}</span></li>
-              {:else}
-                <li class="stop" title={row.full}>
-                  <span class="t"></span><span class="dot"></span><span class="what"><b>{row.place}</b> {row.text}</span>
-                </li>
-              {/if}
+              <li title={row.full}>
+                <span class="n">{row.n}</span><span class="what"><b>{row.what}</b><span>{row.where}</span></span>
+              </li>
             {/each}
           </ol>
           <p class="drive dim small">
@@ -565,44 +561,42 @@
     margin: 0;
     padding: 0;
     list-style: none;
-    height: calc(var(--rows) * 1.65rem);
+    height: calc(var(--rows) * 3.3rem);
   }
   .tl li {
     display: grid;
-    grid-template-columns: 62px 10px minmax(0, 1fr);
+    grid-template-columns: 22px minmax(0, 1fr);
     gap: 10px;
     align-items: center;
-    height: 1.65rem;
+    height: 3.3rem;
     font-size: 0.88rem;
   }
-  .tl .t {
+  .tl .n {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--hue) 16%, transparent);
+    color: color-mix(in srgb, var(--hue) 45%, var(--text-strong));
     font-family: var(--font-mono);
     font-size: var(--text-small);
-    color: var(--text-faint);
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  .tl .dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--hue);
-  }
-  .tl .leg .dot {
-    width: 5px;
-    height: 5px;
-    margin: 0 2px;
-    background: var(--text-faint);
   }
   .tl .what {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.4;
+    color: var(--text-dim);
+  }
+  .tl .what > * {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--text-dim);
   }
   .tl b {
     font-weight: var(--weight-medium);
-    color: color-mix(in srgb, var(--hue) 45%, var(--text-strong));
+    color: var(--text-strong);
   }
   .drive {
     margin: 0;

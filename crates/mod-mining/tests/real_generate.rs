@@ -313,3 +313,66 @@ fn generator_rolls_real_rocks() {
         );
     }
 }
+
+/// A gas pocket (`ARC L3-A`) is not a target on the star map: an ore site
+/// there is flown to by its Lagrange point.
+#[test]
+#[ignore = "needs a real Data.p4k — set STARLUME_REAL_P4K"]
+fn ore_sites_send_pockets_to_their_lagrange_point() {
+    let p4k =
+        std::env::var("STARLUME_REAL_P4K").expect("set STARLUME_REAL_P4K to a real Data.p4k path");
+    let install = InstallRef {
+        channel_key: "real-test".into(),
+        p4k_path: p4k.into(),
+        build_id: "real-test-build".into(),
+        version: "real-test".into(),
+    };
+    let service = DataService::new(std::env::temp_dir().join("starlume-svcdata-real-test"));
+    let cooked = service
+        .load(&install, |stage| eprintln!("stage: {stage:?}"))
+        .expect("load real install");
+    let catalog = Catalog::build(&cooked.mining, &cooked.locale).unwrap();
+    let h = &cooked.holotable;
+    let src = Sources {
+        index: &cooked.mining,
+        providers: h.gathering.as_ref().unwrap(),
+        tags: h.tags.as_ref().unwrap(),
+        resources: h.resources.as_ref().unwrap(),
+        locations: h.locations.as_ref().unwrap(),
+        locale: &cooked.locale,
+        places: cooked.mining.places.as_ref(),
+    };
+    let pocket = |name: &str| {
+        name.rsplit_once('-').is_some_and(|(point, letter)| {
+            point.contains(" L")
+                && letter.len() == 1
+                && letter.chars().all(|c| c.is_ascii_uppercase())
+        })
+    };
+    let mut moved: Vec<String> = Vec::new();
+    for element in &catalog.element_names {
+        for site in mod_mining::ore_sites(&src, &catalog, &element.id, 0) {
+            for target in &site.travel {
+                assert!(
+                    !pocket(&target.name),
+                    "{} is flown to as {}",
+                    site.name,
+                    target.name
+                );
+                if !site.places.iter().any(|p| p.id == target.id) {
+                    let line = format!("{} -> {}", site.name, target.name);
+                    if !moved.contains(&line) {
+                        moved.push(line);
+                    }
+                }
+            }
+        }
+    }
+    for line in moved.iter().take(20) {
+        eprintln!("{line}");
+    }
+    assert!(
+        moved.iter().any(|m| m.ends_with("ARC L3")),
+        "no site moved to ARC L3"
+    );
+}

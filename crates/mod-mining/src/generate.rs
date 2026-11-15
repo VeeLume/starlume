@@ -1550,6 +1550,10 @@ pub struct OreSite {
     pub area: String,
     pub name: String,
     pub places: Vec<Place>,
+    /// Where to quantum to for each of `places`: the place itself, or its
+    /// Lagrange point for a gas pocket or a claim there (neither is a
+    /// target on the star map).
+    pub travel: Vec<Place>,
     /// The share of the area's ship rocks that hold the ore at the asked
     /// quality or better.
     pub find: f32,
@@ -1630,10 +1634,27 @@ pub fn ore_sites(
             if find <= 0.0 {
                 return None;
             }
+            let mut travel: Vec<Place> = Vec::new();
+            for place in &places {
+                let target = parse_guid(&place.id)
+                    .and_then(|g| points.of(src.locations, &g))
+                    .filter(|(_, role)| *role != Role::Point)
+                    .and_then(|(point, _)| {
+                        Some(Place {
+                            id: point.to_string(),
+                            name: points.get(&point)?.name.clone(),
+                        })
+                    })
+                    .unwrap_or_else(|| place.clone());
+                if !travel.iter().any(|t| t.id == target.id) {
+                    travel.push(target);
+                }
+            }
             Some(OreSite {
                 area: guid.to_string(),
                 name: point_area_name(src, &points, guid).unwrap_or(name),
                 places,
+                travel,
                 find,
             })
         })

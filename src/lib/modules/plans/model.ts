@@ -74,41 +74,42 @@ export function timeText(session: Trip): string {
   return parts.join(" and ");
 }
 
-/** One line of the session's timeline: a jump, or a stop with what to do. */
-export type TimelineRow =
-  | { type: "leg"; key: string; time: string; text: string }
-  | { type: "stop"; key: string; place: string; text: string; full: string };
+/** One stop of the session, in the order it is flown: what to do there,
+ *  then where it is and the jump that gets you there. */
+export type TimelineRow = { key: string; n: number; what: string; where: string; full: string };
 
-export function timeline(session: Trip): TimelineRow[] {
-  const rows: TimelineRow[] = [];
-  for (const stop of session.stops) {
-    if (stop.leg) {
-      rows.push({
-        type: "leg",
-        key: `leg:${stop.site}`,
-        time: stop.leg.seconds != null ? `QT ${clock(stop.leg.seconds)}` : "QT",
-        text: gm(stop.leg.gm),
-      });
-    }
-    rows.push({ type: "stop", key: stop.site, place: stop.place, ...stopText(stop) });
-  }
-  return rows;
+/** `from` is the place the session starts at, when it is known. */
+export function timeline(session: Trip, from: string | null = null): TimelineRow[] {
+  let here = from;
+  return session.stops.map((stop, i) => {
+    const row = { key: stop.site, n: i + 1, where: whereText(stop, here), ...stopText(stop) };
+    here = stop.place;
+    return row;
+  });
 }
 
 /** A stop's steps in one line: the first two named, the rest counted. */
-function stopText(stop: TripStop): { text: string; full: string } {
-  const names = stop.steps.map((s) => lowerFirst(s.title));
-  const shown = names.slice(0, 2);
-  const more = names.length - shown.length;
+function stopText(stop: TripStop): { what: string; full: string } {
+  const titles = stop.steps.map((s) => s.title);
+  const shown = titles.slice(0, 2).map((t, i) => (i === 0 ? t : lowerFirst(t)));
+  const more = titles.length - shown.length;
   return {
-    text: more > 0 ? `${shown.join(", ")} and ${more} more` : shown.join(", "),
-    full: names.join("\n"),
+    what: more > 0 ? `${shown.join(", ")} and ${more} more` : shown.join(", "),
+    full: titles.join("\n"),
   };
 }
 
-/** The most rows a session's timeline can have: a jump and a line per stop
- *  (the card reserves this height so it does not move between choices). */
-export const TIMELINE_ROWS = 6;
+/** Where a stop is, and the jump to it from the place before. */
+function whereText(stop: TripStop, here: string | null): string {
+  if (!stop.leg) return here ? `at ${stop.place}, where you are` : `at ${stop.place}`;
+  const jump = `${gm(stop.leg.gm)} from ${here ?? "the last stop"}`;
+  const time = stop.leg.seconds != null ? `, ${span(stop.leg.seconds)} in quantum` : "";
+  return `at ${stop.place}, ${jump}${time}`;
+}
+
+/** The most stops a session's list can have (the card reserves this height
+ *  so it does not move between choices). */
+export const TIMELINE_ROWS = 3;
 
 export function amount(row: Pick<LedgerRow, "bulk">, value: number): string {
   if (!row.bulk) return String(Math.ceil(value));
