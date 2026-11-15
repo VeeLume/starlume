@@ -376,6 +376,33 @@ fn ore_sites_send_pockets_to_their_lagrange_point() {
         moved.iter().any(|m| m.ends_with("ARC L3")),
         "no site moved to ARC L3"
     );
+
+    // An area whose places differ in the ore's quality source is one site
+    // per source, with different odds (LIVE 4.10: the Keeger belt's placed
+    // clusters override Savrilium).
+    let savrilium = catalog
+        .element_names
+        .iter()
+        .find(|e| e.name.to_lowercase().contains("savrilium"))
+        .expect("no Savrilium element");
+    let sites = mod_mining::ore_sites(&src, &catalog, &savrilium.id, 750);
+    let mut split = false;
+    for a in &sites {
+        for b in sites.iter().filter(|b| b.area == a.area) {
+            if (a.find - b.find).abs() > 0.001 {
+                split = true;
+                eprintln!(
+                    "{}: {} places at {:.2}%, {} places at {:.2}%",
+                    a.name,
+                    a.places.len(),
+                    a.find * 100.0,
+                    b.places.len(),
+                    b.find * 100.0
+                );
+            }
+        }
+    }
+    assert!(split, "no area splits by quality source for Savrilium");
 }
 
 /// The share of an area's ship rocks that hold an ore at a quality, for a
