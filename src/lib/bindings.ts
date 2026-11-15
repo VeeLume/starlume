@@ -1211,6 +1211,99 @@ async plansSetCraft(id: string, count: number, quality: number) : Promise<Result
 }
 },
 /**
+ * Plan a craft with a minimum quality per material slot (`slots`, in the
+ * recipe's slot order; empty: `quality` for every slot). With `project`
+ * it goes into that project, else it is a plan of its own. A blueprint
+ * that is already there is left as it is.
+ */
+async plansPlanCraft(project: string | null, blueprint: string, count: number, quality: number, slots: number[]) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_plan_craft", { project, blueprint, count, quality, slots }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Change a planned craft's count and minimums: plan `id`'s own craft, or
+ * the entry for `blueprint` of a project. `slots` as in
+ * [`plans_plan_craft`].
+ */
+async plansUpdateCraft(id: string, blueprint: string, count: number, quality: number, slots: number[]) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_update_craft", { id, blueprint, count, quality, slots }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Take a craft out of a project.
+ */
+async plansRemoveCraft(id: string, blueprint: string) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_remove_craft", { id, blueprint }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Start an empty project: a named group of crafts that is served as one
+ * plan.
+ */
+async plansAddProject(name: string) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_project", { name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Name a plan; an empty name goes back to the one its goal gives it.
+ */
+async plansRename(id: string, name: string) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_rename", { id, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async plansSetNotes(id: string, notes: string) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_set_notes", { id, notes }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Park a plan (it stays in the list and reserves nothing), or take it
+ * back up.
+ */
+async plansSetParked(id: string, parked: boolean) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_set_parked", { id, parked }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Move a plan to just before another (`before` absent: to the end). The
+ * order is who the ledger serves first.
+ */
+async plansMove(id: string, before: string | null) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_move", { id, before }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The board: every plan with its stages, the open steps, the ledger and
  * the four sessions. Derived on each call; nothing is stored.
  */
@@ -1777,7 +1870,12 @@ export type BlueprintDetailView = { guid: string; defaultQuality: number; slots:
  * One blueprint in the catalog list.
  */
 export type BlueprintRowView = { guid: string; name: string; family: string; familyName: string; variant: string | null; category: string | null; itemType: string; subType: string; size: number; grade: number; class: string | null; manufacturer: string | null; craftSeconds: number | null; materials: MaterialView[] }
-export type BlueprintSlotView = { name: string | null; material: MaterialView; modifiers: SlotModifierView[] }
+export type BlueprintSlotView = { name: string | null; material: MaterialView; modifiers: SlotModifierView[]; 
+/**
+ * The qualities the material comes in, lowest first; empty when the
+ * game data gives none. The slot's slider stops at these.
+ */
+bands: QualityBandView[] }
 export type BlueprintStatView = { group: string | null; label: string; property: string | null; unit: string; higherIsBetter: boolean | null; base: number | null }
 /**
  * The boost capacitor at one assignment level.
@@ -1955,10 +2053,17 @@ export type CraftGoal = {
  */
 blueprint: string; count: number; 
 /**
- * The quality every material has to reach, 0..=1000. A slot's own
+ * The quality every material has to reach, 0..=1000, where `slots`
+ * says nothing; with `slots` set it is their highest. A slot's own
  * minimum still holds when it is higher.
  */
-quality: number }
+quality: number; 
+/**
+ * The minimum quality of each material slot, in the recipe's slot
+ * order. Empty: every slot at `quality` (how files from before
+ * per-slot minimums read). A slot past the end is at `quality` too.
+ */
+slots: number[] }
 /**
  * A laser crafted at a quality: its power and the recipe sheet's rows
  * that change.
@@ -2417,8 +2522,7 @@ masses: MassBucketView[] }
  * What a plan is for. New kinds (an armour set, a blueprint collection) are
  * new variants. A file written by a newer build still loads: a goal of a
  * kind this build does not know reads as [`Goal::Unknown`] and derives no
- * steps. Its fields are not kept, so the next change made here writes the
- * plan back as unknown: going back to an older build loses such goals.
+ * steps; its fields ride along in [`Plan::kept`].
  */
 export type Goal = 
 /**
@@ -2428,7 +2532,12 @@ export type Goal =
 /**
  * A number of one item to have crafted, at a quality.
  */
-({ kind: "craft" } & CraftGoal) | { kind: "unknown" }
+({ kind: "craft" } & CraftGoal) | 
+/**
+ * A named group of crafts, served together at the plan's place in the
+ * order.
+ */
+({ kind: "project" } & ProjectGoal) | { kind: "unknown" }
 export type GrantingMissionView = { missionId: string; title: string }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
@@ -3419,7 +3528,15 @@ export type Plan = { id: string;
 /**
  * The user's name for it; empty means "name it after the goal".
  */
-name: string; goal: Goal }
+name: string; goal: Goal; 
+/**
+ * Set aside: shown, but it reserves nothing and derives no steps.
+ */
+parked: boolean; 
+/**
+ * The user's own words about it.
+ */
+notes: string }
 export type PlanBoard = { id: string; kind: PlanKind; 
 /**
  * The ship, or the item.
@@ -3448,13 +3565,80 @@ waiting: boolean;
 /**
  * What comes next, or what it waits for.
  */
-note: string; stages: PlanStage[]; tiles: PlanTile[] }
-export type PlanKind = "loadout" | "craft" | "unknown"
+note: string; stages: PlanStage[]; tiles: PlanTile[]; 
+/**
+ * Set aside: it reserves nothing and has no steps.
+ */
+parked: boolean; notes: string; 
+/**
+ * The crafts in it: one for a craft plan, each entry of a project,
+ * none for a loadout.
+ */
+crafts: PlanCraft[] }
+/**
+ * One craft of a plan, with the minimum quality of each material.
+ */
+export type PlanCraft = { blueprint: string; 
+/**
+ * The crafted item's name.
+ */
+name: string; 
+/**
+ * The blueprint's family key on the Crafting page.
+ */
+family: string | null; count: number; 
+/**
+ * Crafted copies you hold that count for it.
+ */
+crafted: number; 
+/**
+ * How many the reserved stock covers right now.
+ */
+now: number; 
+/**
+ * You own the blueprint.
+ */
+owned: boolean; 
+/**
+ * This build has no such blueprint.
+ */
+missing: boolean; 
+/**
+ * The one quality every slot is set to; `None` when they differ.
+ */
+quality: number | null; slots: PlanSlot[] }
+export type PlanKind = "loadout" | "craft" | "project" | "unknown"
 /**
  * A place by its display name, and the quantum-travel place it resolves to
  * when the shell could tell (the id is opaque here).
  */
 export type PlanPlace = { name: string; site: string | null }
+export type PlanSlot = { name: string | null; material: string; 
+/**
+ * SCU for bulk, pieces else, for one craft.
+ */
+amount: number; bulk: boolean; 
+/**
+ * The minimum in force: the plan's, or the recipe's own when higher.
+ */
+min: number; 
+/**
+ * The recipe's own minimum: the plan cannot go below it.
+ */
+floor: number; 
+/**
+ * Your stock covers this slot for every craft still to make.
+ */
+held: boolean; 
+/**
+ * The stats this slot's quality moves.
+ */
+moves: string[]; 
+/**
+ * The qualities the material comes in, lowest first; empty when the
+ * data gives none. A minimum is picked from these.
+ */
+bands: QualityBand[] }
 export type PlanStage = { name: string; sub: string; state: StageState }
 export type PlanStep = { id: string; kind: StepKind; 
 /**
@@ -3565,6 +3749,11 @@ sources: SourceView[] }
  */
 export type PreviewTextView = { key: string | null; original: string; patched: string }
 export type Profile = { username: string; avatar_url: string | null }
+export type ProjectGoal = { 
+/**
+ * In the order they are served; one entry a blueprint.
+ */
+crafts: CraftGoal[] }
 /**
  * A place quantum travel can go.
  */
@@ -3586,6 +3775,17 @@ arrival: number }
  * The places and the routes shown by default (GUID pairs).
  */
 export type QtPlacesView = { places: QtPlaceView[]; routes: ([string, string])[] }
+/**
+ * One quality a material comes in: the game sorts a mined resource's
+ * quality into bands and gives every roll from `from` to `to` the same
+ * `value`.
+ */
+export type QualityBand = { from: number; to: number; value: number }
+/**
+ * One quality a material comes in: the game gives every roll from `from`
+ * to `to` the same `value` (`svc_data::quality`).
+ */
+export type QualityBandView = { from: number; to: number; value: number }
 export type QuantumView = { drive: string; speed: number; spoolUp: number; 
 /**
  * s after a jump that reached full speed; shorter jumps wait less.

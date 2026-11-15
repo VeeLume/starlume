@@ -7,7 +7,10 @@
 // re-read catches up after a suspension.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { commands, type LoadoutChoiceView, type Plan, type PlansBoardView } from "$lib/bindings";
+import { commands, type CraftGoal, type LoadoutChoiceView, type Plan, type PlansBoardView } from "$lib/bindings";
+
+/** Where a blueprint is planned: a plan of its own, or an entry of a project. */
+export type CraftHolder = { plan: Plan; craft: CraftGoal };
 
 let _plans = $state<Plan[] | null>(null);
 let _board = $state<PlansBoardView | null>(null);
@@ -37,9 +40,26 @@ export const plansStore = {
   get choices() {
     return _choices;
   },
-  /** The plan for this blueprint, if it is planned. */
+  /** The plan of its own for this blueprint, if it has one. */
   craftOf(blueprint: string): Plan | undefined {
     return _plans?.find((p) => p.goal.kind === "craft" && p.goal.blueprint === blueprint);
+  },
+  /** Your projects, in plan order. */
+  get projects(): Plan[] {
+    return (_plans ?? []).filter((p) => p.goal.kind === "project");
+  },
+  /** Everywhere this blueprint is planned, in plan order: on its own and
+   *  in each project that has it. */
+  holdersOf(blueprint: string): CraftHolder[] {
+    const out: CraftHolder[] = [];
+    for (const plan of _plans ?? []) {
+      if (plan.goal.kind === "craft" && plan.goal.blueprint === blueprint) out.push({ plan, craft: plan.goal });
+      else if (plan.goal.kind === "project") {
+        const craft = plan.goal.crafts.find((c) => c.blueprint === blueprint);
+        if (craft) out.push({ plan, craft });
+      }
+    }
+    return out;
   },
   /** The plan for this saved loadout, if it is planned. */
   loadoutOf(loadout: string): Plan | undefined {
@@ -107,6 +127,50 @@ export async function focusPlan(id: string): Promise<boolean> {
 
 export async function setCraftPlan(id: string, count: number, quality: number): Promise<boolean> {
   return settle(await commands.plansSetCraft(id, count, quality));
+}
+
+/** The one quality a list of per-slot minimums stands for: their highest. */
+const top = (slots: number[], quality = 0) => (slots.length ? Math.max(...slots) : quality);
+
+/** Plan a craft with a minimum quality per material slot (`slots`, in the
+ *  recipe's order): into `project`, or as a plan of its own. */
+export async function planCraft(project: string | null, blueprint: string, count: number, slots: number[]): Promise<boolean> {
+  return settle(await commands.plansPlanCraft(project, blueprint, count, top(slots), slots));
+}
+
+/** Change a planned craft: plan `id`'s own, or a project's entry for
+ *  `blueprint`. Without `slots` every material is at `quality`. */
+export async function updateCraft(id: string, blueprint: string, count: number, slots: number[], quality = 0): Promise<boolean> {
+  return settle(await commands.plansUpdateCraft(id, blueprint, count, top(slots, quality), slots));
+}
+
+export async function removeCraft(id: string, blueprint: string): Promise<boolean> {
+  return settle(await commands.plansRemoveCraft(id, blueprint));
+}
+
+/** Start an empty project; its id comes back, or null when it failed. */
+export async function addProject(name: string): Promise<string | null> {
+  const before = new Set((_plans ?? []).map((p) => p.id));
+  if (!settle(await commands.plansAddProject(name))) return null;
+  return _plans?.find((p) => !before.has(p.id))?.id ?? null;
+}
+
+export async function renamePlan(id: string, name: string): Promise<boolean> {
+  return settle(await commands.plansRename(id, name));
+}
+
+export async function setPlanNotes(id: string, notes: string): Promise<boolean> {
+  return settle(await commands.plansSetNotes(id, notes));
+}
+
+/** Park a plan (it reserves nothing), or take it back up. */
+export async function parkPlan(id: string, parked: boolean): Promise<boolean> {
+  return settle(await commands.plansSetParked(id, parked));
+}
+
+/** Move a plan to just before `before` (null: to the end). */
+export async function movePlan(id: string, before: string | null): Promise<boolean> {
+  return settle(await commands.plansMove(id, before));
 }
 
 /** What the board is derived from: a change to any of these re-derives it. */

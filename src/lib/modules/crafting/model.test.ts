@@ -49,6 +49,7 @@ const slot = (...modifiers: ReturnType<typeof mod>[]): BlueprintSlotView => ({
   name: "Frame",
   material: material(),
   modifiers,
+  bands: [],
 });
 const stat = (over: Partial<BlueprintStatView> = {}): BlueprintStatView => ({
   group: null,

@@ -63,6 +63,19 @@ pub struct BlueprintSlotView {
     pub name: Option<String>,
     pub material: MaterialView,
     pub modifiers: Vec<SlotModifierView>,
+    /// The qualities the material comes in, lowest first; empty when the
+    /// game data gives none. The slot's slider stops at these.
+    pub bands: Vec<QualityBandView>,
+}
+
+/// One quality a material comes in: the game gives every roll from `from`
+/// to `to` the same `value` (`svc_data::quality`).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QualityBandView {
+    pub from: u32,
+    pub to: u32,
+    pub value: u32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -227,6 +240,12 @@ pub(crate) async fn crafting_detail(
 ) -> Result<Option<BlueprintDetailView>, AppError> {
     let index = index_for(&app, &channel).await?;
     let default_quality = index.default_quality;
+    // Without the game data the recipe still opens; its sliders are then
+    // free, as a material without bands has them.
+    let bands = crate::data::cooked_for(&app, &channel)
+        .await
+        .map(|cooked| cooked.quality_bands())
+        .unwrap_or_default();
     Ok(index.get(&blueprint).map(|b| BlueprintDetailView {
         guid: b.guid.clone(),
         default_quality,
@@ -236,6 +255,15 @@ pub(crate) async fn crafting_detail(
             .map(|s| BlueprintSlotView {
                 name: s.name.clone(),
                 material: material_view(s),
+                bands: bands
+                    .of(&s.material)
+                    .iter()
+                    .map(|b| QualityBandView {
+                        from: b.start,
+                        to: b.end,
+                        value: b.value,
+                    })
+                    .collect(),
                 modifiers: s
                     .modifiers
                     .iter()

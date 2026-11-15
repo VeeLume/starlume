@@ -16,8 +16,8 @@ use std::sync::Arc;
 use mod_plans::ledger::{LedgerRow, Stack};
 use mod_plans::session::{Drive, Site, Trip};
 use mod_plans::steps::{
-    Grant, HeldPart, Inputs, LoadoutFacts, Offer, OreSite, OreSites, PartFacts, PlanBoard,
-    PlanPlace, PlanStep, RecipeFacts, ShipRead, SlotNeed,
+    CraftedCopy, Grant, HeldPart, Inputs, LoadoutFacts, Offer, OreSite, OreSites, PartFacts,
+    PlanBoard, PlanPlace, PlanStep, QualityBand, RecipeFacts, ShipRead, SlotNeed,
 };
 use mod_plans::{CraftGoal, Goal, LoadoutGoal, Plan, PlansState};
 use svc_data::RecordCollection;
@@ -112,13 +112,122 @@ pub(crate) fn plans_add_craft(
     change(&app, |state| {
         state.add(
             "",
-            Goal::Craft(CraftGoal {
-                blueprint,
-                count: count.max(1),
-                quality: quality.min(1000),
-            }),
+            Goal::Craft(CraftGoal::uniform(blueprint, count, quality)),
         );
     })
+}
+
+/// Plan a craft with a minimum quality per material slot (`slots`, in the
+/// recipe's slot order; empty: `quality` for every slot). With `project`
+/// it goes into that project, else it is a plan of its own. A blueprint
+/// that is already there is left as it is.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_plan_craft(
+    app: AppHandle,
+    project: Option<String>,
+    blueprint: String,
+    count: u32,
+    quality: u32,
+    slots: Vec<u32>,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| {
+        let craft = CraftGoal::with_slots(blueprint, count, quality, &slots);
+        match project {
+            Some(id) => {
+                state.add_to_project(&id, craft);
+            }
+            None => {
+                state.add("", Goal::Craft(craft));
+            }
+        }
+    })
+}
+
+/// Change a planned craft's count and minimums: plan `id`'s own craft, or
+/// the entry for `blueprint` of a project. `slots` as in
+/// [`plans_plan_craft`].
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_update_craft(
+    app: AppHandle,
+    id: String,
+    blueprint: String,
+    count: u32,
+    quality: u32,
+    slots: Vec<u32>,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| {
+        if let Some(craft) = state.craft_mut(&id, &blueprint) {
+            craft.set(count, quality, &slots);
+        }
+    })
+}
+
+/// Take a craft out of a project.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_remove_craft(
+    app: AppHandle,
+    id: String,
+    blueprint: String,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| state.remove_from_project(&id, &blueprint))
+}
+
+/// Start an empty project: a named group of crafts that is served as one
+/// plan.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_add_project(app: AppHandle, name: String) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| {
+        state.add_project(&name);
+    })
+}
+
+/// Name a plan; an empty name goes back to the one its goal gives it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_rename(
+    app: AppHandle,
+    id: String,
+    name: String,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| state.rename(&id, &name))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_set_notes(
+    app: AppHandle,
+    id: String,
+    notes: String,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| state.set_notes(&id, &notes))
+}
+
+/// Park a plan (it stays in the list and reserves nothing), or take it
+/// back up.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_set_parked(
+    app: AppHandle,
+    id: String,
+    parked: bool,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| state.set_parked(&id, parked))
+}
+
+/// Move a plan to just before another (`before` absent: to the end). The
+/// order is who the ledger serves first.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_move(
+    app: AppHandle,
+    id: String,
+    before: Option<String>,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| state.move_before(&id, before.as_deref()))
 }
 
 /// Plan to have a saved loadout fitted on its ship.
@@ -432,6 +541,7 @@ impl Gathered<'_> {
         }
 
         let saved = crate::ships::saved_loadouts();
+        let bands = cooked.quality_bands();
         for plan in &state.plans {
             let mut target = PlanTargetView {
                 plan: plan.id.clone(),
@@ -451,7 +561,7 @@ impl Gathered<'_> {
                         // the plan says so instead of reading as done.
                         if let Some(facts) = self.loadout_facts(saved, ship, &sites) {
                             for bp in facts.parts.iter().filter_map(|p| p.blueprint.as_ref()) {
-                                self.recipe_into(&mut inputs, bp, state, finder.as_ref(), &sites);
+                                self.recipe_into(&mut inputs, bp, &bands, finder.as_ref(), &sites);
                             }
                             inputs.loadouts.insert(goal.loadout.clone(), facts);
                         }
@@ -462,7 +572,26 @@ impl Gathered<'_> {
                         .blueprints
                         .and_then(|i| i.get(&goal.blueprint))
                         .map(|b| b.family.clone());
-                    self.recipe_into(&mut inputs, &goal.blueprint, state, finder.as_ref(), &sites);
+                    self.recipe_into(
+                        &mut inputs,
+                        &goal.blueprint,
+                        &bands,
+                        finder.as_ref(),
+                        &sites,
+                    );
+                }
+                // Each craft of a project carries its own family
+                // (`PlanCraft::family`): the project has no one recipe.
+                Goal::Project(project) => {
+                    for goal in &project.crafts {
+                        self.recipe_into(
+                            &mut inputs,
+                            &goal.blueprint,
+                            &bands,
+                            finder.as_ref(),
+                            &sites,
+                        );
+                    }
                 }
                 Goal::Unknown => {}
             }
@@ -624,12 +753,13 @@ impl Gathered<'_> {
     }
 
     /// A blueprint's recipe, with whether you own it, the missions that
-    /// grant it and the crafted copies you hold.
+    /// grant it, the qualities each material comes in and the crafted
+    /// copies you hold.
     fn recipe_into(
         &self,
         inputs: &mut Inputs,
         blueprint: &str,
-        state: &PlansState,
+        bands: &svc_data::quality::QualityBands,
         finder: Option<&mod_items::Finder>,
         sites: &Sites,
     ) {
@@ -668,18 +798,11 @@ impl Gathered<'_> {
                     .unwrap_or_default(),
             })
             .collect();
-        // Crafted copies count when they are free to use (not on a ship,
-        // not in one, yours to keep) and every material in them reaches
-        // the quality the project asks for.
-        let quality = state
-            .plans
-            .iter()
-            .find_map(|p| match &p.goal {
-                Goal::Craft(c) if c.blueprint == blueprint => Some(c.quality),
-                _ => None,
-            })
-            .unwrap_or(0);
-        let crafted_held = match (&entry.entity_guid, finder) {
+        // Crafted copies that are free to use (not on a ship, not in one,
+        // yours to keep), with what went into each: whether a copy reaches
+        // a craft's minimums is that craft's call, since the same blueprint
+        // can be planned more than once at different ones.
+        let crafted = match (&entry.entity_guid, finder) {
             (Some(entity), Some(finder)) => finder
                 .items
                 .iter()
@@ -688,15 +811,20 @@ impl Gathered<'_> {
                         && !row.fitted
                         && row.holders.is_empty()
                         && row.ownership == mod_items::OwnershipState::Owned
-                        && row.crafted.as_ref().is_some_and(|c| {
-                            c.ingredients
-                                .iter()
-                                .all(|i| u32::from(i.quality) >= quality)
-                        })
                 })
-                .map(|row| row.stack.max(1))
-                .sum(),
-            _ => 0,
+                .filter_map(|row| {
+                    let made = row.crafted.as_ref()?;
+                    Some(CraftedCopy {
+                        count: row.stack.max(1),
+                        ingredients: made
+                            .ingredients
+                            .iter()
+                            .map(|i| (i.name.clone().unwrap_or_default(), u32::from(i.quality)))
+                            .collect(),
+                    })
+                })
+                .collect(),
+            _ => Vec::new(),
         };
         inputs.recipes.insert(
             blueprint.to_owned(),
@@ -710,6 +838,17 @@ impl Gathered<'_> {
                     .slots
                     .iter()
                     .map(|s| SlotNeed {
+                        name: s.name.clone(),
+                        moves: s.modifiers.iter().filter_map(|m| m.name.clone()).collect(),
+                        bands: bands
+                            .of(&s.material)
+                            .iter()
+                            .map(|b| QualityBand {
+                                from: b.start,
+                                to: b.end,
+                                value: b.value,
+                            })
+                            .collect(),
                         material: s.material.clone(),
                         amount: s
                             .scu
@@ -721,7 +860,8 @@ impl Gathered<'_> {
                     })
                     .collect(),
                 grants,
-                crafted_held,
+                crafted,
+                family: Some(entry.family.clone()),
             },
         );
     }
@@ -882,11 +1022,41 @@ mod tests {
     use super::*;
 
     fn craft(blueprint: &str) -> Goal {
-        Goal::Craft(CraftGoal {
-            blueprint: blueprint.into(),
-            count: 1,
-            quality: 0,
+        Goal::Craft(CraftGoal::uniform(blueprint, 1, 0))
+    }
+
+    #[test]
+    fn a_plans_file_from_before_projects_loads_and_takes_the_new_fields() {
+        // The dev plans file as the page before this change wrote it.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plans.json");
+        std::fs::write(
+            &path,
+            br#"{
+  "plans": [
+    {"id": "p2", "name": "", "goal": {"kind": "craft", "blueprint": "bp-a", "count": 2, "quality": 700}},
+    {"id": "p3", "name": "", "goal": {"kind": "loadout", "loadout": "lo-1"}}
+  ],
+  "next_id": 4
+}"#,
+        )
+        .unwrap();
+        let plans = change_at(&path, |s| {
+            let kit = s.add_project("Kit");
+            s.add_to_project(&kit, CraftGoal::with_slots("bp-a", 1, 0, &[500, 750, 750]));
+            s.set_parked("p3", true);
         })
+        .unwrap();
+        assert_eq!(plans.len(), 3);
+        assert_eq!(plans[2].id, "p5");
+        // The old craft plan still asks Q700 of every slot.
+        let Goal::Craft(old) = &plans[0].goal else {
+            panic!("a craft plan");
+        };
+        assert_eq!((old.count, old.min_of(0), old.min_of(2)), (2, 700, 700));
+        let again = read_state_at(&path).unwrap();
+        assert_eq!(again.plans, plans);
+        assert!(again.plans[1].parked);
     }
 
     #[test]

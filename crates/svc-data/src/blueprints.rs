@@ -1088,6 +1088,58 @@ mod probe {
         }
     }
 
+    /// Which quality bands the recipes' curves have: every distinct shape of
+    /// a modifier's ranges, the slots' own minimums, and one recipe in full.
+    #[test]
+    #[ignore = "needs a cooked build: set STARLUME_REAL_BUILD_DIR"]
+    fn quality_bands() {
+        let dir = std::path::PathBuf::from(
+            std::env::var("STARLUME_REAL_BUILD_DIR").expect("set STARLUME_REAL_BUILD_DIR"),
+        );
+        let snap = sc_holotable::asset::ProcessedSnapshot::<super::BlueprintIndex>::load(
+            &dir.join("blueprints.cook"),
+            crate::cooked::DATA_COOK_VERSION,
+        )
+        .expect("blueprints.cook");
+        let index = snap.into_index();
+        let mut shapes: BTreeMap<String, usize> = BTreeMap::new();
+        let mut minimums: BTreeMap<i32, usize> = BTreeMap::new();
+        let mut per_slot: BTreeMap<usize, usize> = BTreeMap::new();
+        for b in &index.blueprints {
+            for s in &b.slots {
+                *minimums.entry(s.min_quality).or_default() += 1;
+                *per_slot.entry(s.modifiers.len()).or_default() += 1;
+                for m in &s.modifiers {
+                    let shape: Vec<String> = m
+                        .ranges
+                        .iter()
+                        .map(|r| {
+                            format!(
+                                "{}..{}{}",
+                                r.start_quality,
+                                r.end_quality,
+                                if r.additive { " add" } else { "" }
+                            )
+                        })
+                        .collect();
+                    *shapes.entry(shape.join(" | ")).or_default() += 1;
+                }
+            }
+        }
+        eprintln!("stock Q{}", index.default_quality);
+        eprintln!("range shapes of a modifier (count):");
+        for (shape, n) in &shapes {
+            eprintln!("{n:>6}  [{shape}]");
+        }
+        eprintln!("slot minimum qualities: {minimums:?}");
+        eprintln!("modifiers per slot: {per_slot:?}");
+        for name in ["Attrition-5", "Cryo-Star SL"] {
+            if let Some(b) = index.blueprints.iter().find(|b| b.name.starts_with(name)) {
+                eprintln!("{} {:#?}", b.name, b.slots);
+            }
+        }
+    }
+
     /// Which grouping signals agree, over the real blueprints.
     fn grouping() {
         use sc_holotable::asset::{Guid, RecordCollection};
