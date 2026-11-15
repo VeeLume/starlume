@@ -49,6 +49,7 @@ pub mod legality;
 pub mod mining;
 pub mod missions;
 pub mod names;
+pub mod quality;
 pub mod refining;
 pub mod ships;
 pub mod weapons;
