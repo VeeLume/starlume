@@ -60,7 +60,9 @@ use serde::{Deserialize, Serialize};
 /// rev 22: the blueprint catalog, written beside the cook
 /// ([`crate::blueprints::BlueprintIndex`]).
 /// rev 23: blueprints folded into variant families.
-pub const STARLUME_COOK_REV: u32 = 23;
+/// rev 24: sc-holotable v0.49: the places with a refinery and the refining
+/// methods ([`CookedData::refining`]), for the Plans page's refine steps.
+pub const STARLUME_COOK_REV: u32 = 24;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.
@@ -100,6 +102,10 @@ pub struct CookedData {
     /// [`crate::ships`]).
     #[serde(default)]
     pub ships: crate::ships::ShipsIndex,
+    /// The places with a refinery and the refining methods (see
+    /// [`crate::refining`]).
+    #[serde(default)]
+    pub refining: crate::refining::RefiningIndex,
 }
 
 /// One page of item search results.

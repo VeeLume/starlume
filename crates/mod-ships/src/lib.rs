@@ -28,7 +28,7 @@ pub use home::{Entitlement, Home, Owned, home};
 pub use loadouts::{Draft, Loadouts, SavedLoadout};
 pub use owned::{NoRead, OwnedLoadouts, owned_loadouts};
 pub use power::{Column, Mode, Power, PowerInput, Source};
-pub use routes::{Place, Places, places};
+pub use routes::{Place, Places, places, refinery_places};
 pub use state::ShipsState;
 pub use store::match_store;
 pub use tree::{Slot, System, slots};

@@ -4695,6 +4695,7 @@ dependencies = [
  "sc-manufacturers",
  "sc-mining",
  "sc-missions",
+ "sc-refining",
  "sc-resources",
  "sc-tags",
  "sc-vehicles",
@@ -4828,6 +4829,17 @@ dependencies = [
  "serde",
  "svarog-common",
  "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "sc-refining"
+version = "0.0.0"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.49.0#188c2101fb0a634652dd71a22261ed38093117a7"
+dependencies = [
+ "sc-extract",
+ "sc-locations",
+ "serde",
  "tracing",
 ]
 
