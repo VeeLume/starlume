@@ -11,7 +11,8 @@
 //! Raw locale keys, resolved at query time ([`crate::cooked`] philosophy).
 
 use sc_holotable::asset::{Datacore, class_crc};
-use sc_holotable::crafting::{GameplayProperties, GameplayStat};
+use sc_holotable::crafting::GameplayProperties;
+pub use sc_holotable::crafting::GameplayStat;
 use serde::{Deserialize, Serialize};
 
 /// The cooked crafting bundle.

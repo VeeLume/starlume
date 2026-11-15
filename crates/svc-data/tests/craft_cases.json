@@ -1,0 +1,176 @@
+{
+  "_about": "Crafting's quality maths, run by svc-data (craft.rs) and by the Crafting page's TypeScript (model.test.ts): both must give these. Curves are real ones from the 4.x blueprint index where named.",
+  "modifiers": [
+    { "name": "no bands", "ranges": [], "q": 500, "expect": null },
+    {
+      "name": "linear band, midpoint",
+      "ranges": [{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.8, "atEnd": 1.2 }],
+      "q": 500,
+      "expect": { "value": 1.0, "additive": false }
+    },
+    {
+      "name": "linear band, top",
+      "ranges": [{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.8, "atEnd": 1.2 }],
+      "q": 1000,
+      "expect": { "value": 1.2, "additive": false }
+    },
+    {
+      "name": "clamped below a band",
+      "ranges": [{ "additive": false, "startQuality": 500, "endQuality": 1000, "atStart": 1.0, "atEnd": 2.0 }],
+      "q": 100,
+      "expect": { "value": 1.0, "additive": false }
+    },
+    {
+      "name": "empty band reads its start",
+      "ranges": [{ "additive": false, "startQuality": 600, "endQuality": 600, "atStart": 1.3, "atEnd": 9.0 }],
+      "q": 900,
+      "expect": { "value": 1.3, "additive": false }
+    },
+    {
+      "name": "gap: nearer the low band",
+      "ranges": [
+        { "additive": false, "startQuality": 0, "endQuality": 400, "atStart": 1.0, "atEnd": 1.1 },
+        { "additive": false, "startQuality": 900, "endQuality": 1000, "atStart": 2.0, "atEnd": 3.0 }
+      ],
+      "q": 450,
+      "expect": { "value": 1.1, "additive": false }
+    },
+    {
+      "name": "gap: nearer the high band",
+      "ranges": [
+        { "additive": false, "startQuality": 0, "endQuality": 400, "atStart": 1.0, "atEnd": 1.1 },
+        { "additive": false, "startQuality": 900, "endQuality": 1000, "atStart": 2.0, "atEnd": 3.0 }
+      ],
+      "q": 850,
+      "expect": { "value": 2.0, "additive": false }
+    },
+    {
+      "name": "cooler coolant, upper band (Q750)",
+      "ranges": [
+        { "additive": false, "startQuality": 0, "endQuality": 500, "atStart": 0.85, "atEnd": 1.0 },
+        { "additive": false, "startQuality": 501, "endQuality": 1000, "atStart": 1.0, "atEnd": 1.15 }
+      ],
+      "q": 750,
+      "expect": { "value": 1.07485, "additive": false }
+    },
+    {
+      "name": "quantum fuel burn falls with quality (Q1000)",
+      "ranges": [
+        { "additive": false, "startQuality": 0, "endQuality": 500, "atStart": 1.2, "atEnd": 1.0 },
+        { "additive": false, "startQuality": 501, "endQuality": 1000, "atStart": 1.0, "atEnd": 0.8 }
+      ],
+      "q": 1000,
+      "expect": { "value": 0.8, "additive": false }
+    },
+    {
+      "name": "power pips, additive step (Q920)",
+      "ranges": [
+        { "additive": true, "startQuality": 0, "endQuality": 249, "atStart": -2, "atEnd": -2 },
+        { "additive": true, "startQuality": 250, "endQuality": 499, "atStart": -1, "atEnd": -1 },
+        { "additive": true, "startQuality": 500, "endQuality": 699, "atStart": 0, "atEnd": 0 },
+        { "additive": true, "startQuality": 700, "endQuality": 899, "atStart": 1, "atEnd": 1 },
+        { "additive": true, "startQuality": 900, "endQuality": 1000, "atStart": 2, "atEnd": 2 }
+      ],
+      "q": 920,
+      "expect": { "value": 2, "additive": true }
+    },
+    {
+      "name": "power pips between bands (Q499.5) takes the nearer",
+      "ranges": [
+        { "additive": true, "startQuality": 250, "endQuality": 499, "atStart": -1, "atEnd": -1 },
+        { "additive": true, "startQuality": 500, "endQuality": 699, "atStart": 0, "atEnd": 0 }
+      ],
+      "q": 499.4,
+      "expect": { "value": -1, "additive": true }
+    }
+  ],
+  "stats": [
+    {
+      "name": "factors add across slots",
+      "base": 100,
+      "higherIsBetter": true,
+      "slots": [
+        [[{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.9, "atEnd": 0.9 }]],
+        [[{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.9, "atEnd": 0.9 }]]
+      ],
+      "qualities": [500, 500],
+      "expect": { "value": 80, "pct": -20, "improved": false }
+    },
+    {
+      "name": "each slot reads its own quality",
+      "base": 100,
+      "higherIsBetter": true,
+      "slots": [
+        [[{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.8, "atEnd": 1.2 }]],
+        [[{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.8, "atEnd": 1.2 }]]
+      ],
+      "qualities": [1000, 0],
+      "expect": { "value": 100, "pct": null, "improved": null }
+    },
+    {
+      "name": "one quality for every slot",
+      "base": 2340,
+      "higherIsBetter": true,
+      "slots": [
+        [[{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.8, "atEnd": 1.2 }]],
+        [[{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.8, "atEnd": 1.2 }]]
+      ],
+      "qualities": [1000, 1000],
+      "expect": { "value": 3276, "pct": 40, "improved": true }
+    },
+    {
+      "name": "a drop is better for a stat that improves as it shrinks",
+      "base": 100,
+      "higherIsBetter": false,
+      "slots": [[[{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.8, "atEnd": 1.2 }]]],
+      "qualities": [0],
+      "expect": { "value": 80, "pct": -20, "improved": true }
+    },
+    {
+      "name": "a negative base is judged by the value",
+      "base": -30,
+      "higherIsBetter": false,
+      "slots": [[[{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.8, "atEnd": 1.2 }]]],
+      "qualities": [1000],
+      "expect": { "value": -36, "pct": -20, "improved": true }
+    },
+    {
+      "name": "percent alone without a base",
+      "base": null,
+      "higherIsBetter": true,
+      "slots": [[[{ "additive": false, "startQuality": 0, "endQuality": 1000, "atStart": 0.8, "atEnd": 1.2 }]]],
+      "qualities": [1000],
+      "expect": { "value": null, "pct": 20, "improved": true }
+    },
+    {
+      "name": "additive pips on a plant",
+      "base": 20,
+      "higherIsBetter": true,
+      "slots": [
+        [[
+          { "additive": true, "startQuality": 0, "endQuality": 499, "atStart": -1, "atEnd": -1 },
+          { "additive": true, "startQuality": 500, "endQuality": 699, "atStart": 0, "atEnd": 0 },
+          { "additive": true, "startQuality": 700, "endQuality": 1000, "atStart": 1, "atEnd": 1 }
+        ]],
+        [[
+          { "additive": true, "startQuality": 0, "endQuality": 499, "atStart": -1, "atEnd": -1 },
+          { "additive": true, "startQuality": 500, "endQuality": 699, "atStart": 0, "atEnd": 0 },
+          { "additive": true, "startQuality": 700, "endQuality": 1000, "atStart": 1, "atEnd": 1 }
+        ]]
+      ],
+      "qualities": [800, 800],
+      "expect": { "value": 22, "pct": 10, "improved": true }
+    },
+    {
+      "name": "unchanged at stock quality",
+      "base": 12000,
+      "higherIsBetter": true,
+      "slots": [[[
+        { "additive": false, "startQuality": 0, "endQuality": 500, "atStart": 0.9, "atEnd": 1.0 },
+        { "additive": false, "startQuality": 501, "endQuality": 1000, "atStart": 1.0, "atEnd": 1.1 }
+      ]]],
+      "qualities": [500],
+      "expect": { "value": 12000, "pct": null, "improved": null }
+    }
+  ]
+}

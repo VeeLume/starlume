@@ -1,6 +1,29 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { BlueprintRowView, BlueprintSlotView, BlueprintStatView, MaterialView, StockStackView } from "$lib/bindings";
+import type {
+  BlueprintRowView,
+  BlueprintSlotView,
+  BlueprintStatView,
+  MaterialView,
+  ModifierRangeView,
+  StockStackView,
+} from "$lib/bindings";
 import { bestQuality, canCraft, foldFamilies, gradeLetter, holdingText, shelfRank, effectText, evalModifier, evalStat, fmtTime, heldAt, presetQuality, readiness, reachText, shelfOf, stockIndex } from "./model";
+
+/** The cases svc-data's craft.rs runs too (`crates/svc-data/tests`). */
+interface SharedCases {
+  modifiers: { name: string; ranges: ModifierRangeView[]; q: number; expect: { value: number; additive: boolean } | null }[];
+  stats: {
+    name: string;
+    base: number | null;
+    higherIsBetter: boolean | null;
+    slots: ModifierRangeView[][][];
+    qualities: number[];
+    expect: { value: number | null; pct: number | null; improved: boolean | null };
+  }[];
+}
+const shared: SharedCases = JSON.parse(readFileSync(resolve(process.cwd(), "crates/svc-data/tests/craft_cases.json"), "utf-8"));
 
 const band = (at0: number, at1000: number, additive = false) => ({
   additive,
@@ -101,6 +124,31 @@ describe("a recipe's curves", () => {
     expect(effectText(mod("a"), 500)?.up).toBeNull();
     expect(reachText(mod("a"))).toBe("×0.80–1.20");
   });
+});
+
+// Ships and Mining evaluate a crafted part Rust-side; both sides agree.
+describe("the shared crafting cases", () => {
+  for (const c of shared.modifiers) {
+    it(`modifier: ${c.name}`, () => {
+      const got = evalModifier(c.ranges, c.q);
+      if (c.expect === null) expect(got).toBeNull();
+      else {
+        expect(got?.value).toBeCloseTo(c.expect.value, 4);
+        expect(got?.additive).toBe(c.expect.additive);
+      }
+    });
+  }
+  for (const c of shared.stats) {
+    it(`stat: ${c.name}`, () => {
+      const slots = c.slots.map((mods) => slot(...mods.map((ranges) => mod("hp", "raw", ranges))));
+      const r = evalStat(stat({ base: c.base, higherIsBetter: c.higherIsBetter }), slots, c.qualities);
+      if (c.expect.value === null) expect(r.value).toBeNull();
+      else expect(r.value).toBeCloseTo(c.expect.value, 3);
+      if (c.expect.pct === null) expect(r.pct).toBeNull();
+      else expect(r.pct).toBeCloseTo(c.expect.pct, 3);
+      expect(r.improved).toBe(c.expect.improved);
+    });
+  }
 });
 
 describe("what you hold", () => {
