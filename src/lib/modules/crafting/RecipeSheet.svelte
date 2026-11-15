@@ -3,15 +3,18 @@
   // per material, what it comes out as, and which missions grant it. Every
   // variant of a family shares the recipe (the cook guarantees it), so only
   // the marks and the granting missions are per variant. The sliders are
-  // page-local: they explore, they don't record anything.
+  // page-local: they explore, and record nothing until "Add to plan" or
+  // "Update plan" takes them as the plan's minimum per material. A slider
+  // stops at the qualities its material comes in ($lib/quality).
   import { goto } from "$app/navigation";
   import { Check, Flag, Heart, Target } from "lucide-svelte";
   import { Segmented } from "@veelume/ui";
   import type { BlueprintDetailView, BlueprintStatView } from "$lib/bindings";
   import { getRecipe } from "$lib/state/catalog.svelte";
   import { craftingStore, toggleMark } from "$lib/state/crafting.svelte";
-  import { addCraftPlan, loadPlans, plansStore, setCraftPlan } from "$lib/state/plans.svelte";
+  import { loadPlans, planCraft, plansStore, updateCraft } from "$lib/state/plans.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
+  import { bandText, markAt, slotMinimums, snapNearest, snapUp, stopsOf } from "$lib/quality";
   import {
     PRESETS,
     classText,
@@ -57,29 +60,57 @@
     if (plans && plansStore.plans === null) void loadPlans();
   });
 
-  // What a new plan asks for. The quality follows the sliders (their
-  // highest) until one is typed; a planned variant shows its plan's own.
-  let planCount = $state(1);
-  let planQuality = $state<number | null>(null);
-  const sliderQuality = $derived(qualities.length ? Math.max(...qualities) : 0);
-
-  function planField(field: "count" | "quality", raw: string) {
-    const value = Math.round(Number(raw));
-    if (raw.trim() === "" || !Number.isFinite(value)) return;
-    const next = field === "count" ? Math.max(1, value) : Math.min(1000, Math.max(0, value));
-    const planned = plansStore.craftOf(variant.guid);
-    if (planned?.goal.kind === "craft") {
-      const g = planned.goal;
-      void setCraftPlan(planned.id, field === "count" ? next : g.count, field === "quality" ? next : g.quality);
-    } else if (field === "count") planCount = next;
-    else planQuality = next;
-  }
-
   const look = $derived(lookOf(family.shelf.main));
   const Icon = $derived(look.icon);
   const variant = $derived(family.variants.find((v) => v.guid === focus) ?? family.variants[0]);
   const sized = $derived(family.shelf.sized);
   const many = $derived(family.variants.length > 1);
+
+  // The plan this sheet talks to: the variant on its own ("" here), or its
+  // entry in a project. The sliders as they stand are what "Add to plan"
+  // stores, one minimum per material; a planned variant starts on its
+  // plan's minimums and "Update plan" writes the sliders back.
+  let dest = $state("");
+  let countDraft = $state<number | null>(null);
+  const holder = $derived(
+    plansStore.holdersOf(variant.guid).find((h) => (dest === "" ? h.plan.goal.kind === "craft" : h.plan.id === dest)) ?? null,
+  );
+  const planCount = $derived(countDraft ?? holder?.craft.count ?? 1);
+
+  /** Each slot's stops: the qualities its material comes in, from the
+   *  slot's own minimum up. Empty: the data gives none, the slider is free. */
+  const stops = $derived((detail?.slots ?? []).map((s) => stopsOf(s.bands, s.material.minQuality)));
+  /** The plan's minimum per slot, as the sliders show it. */
+  const planned = $derived(
+    holder && detail
+      ? slotMinimums(holder.craft, detail.slots.length).map((q, i) => snapUp(stops[i], Math.max(q, detail!.slots[i].material.minQuality)))
+      : null,
+  );
+  const changed = $derived(
+    !!holder && !!planned && (planCount !== holder.craft.count || planned.some((q, i) => q !== qualities[i])),
+  );
+
+  function setCount(raw: string) {
+    const value = Math.round(Number(raw));
+    if (raw.trim() !== "" && Number.isFinite(value)) countDraft = Math.max(1, value);
+  }
+
+  async function savePlan() {
+    if (!filled) return;
+    const slots = [...qualities];
+    const ok = holder
+      ? await updateCraft(holder.plan.id, variant.guid, planCount, slots)
+      : await planCraft(dest || null, variant.guid, planCount, slots);
+    if (ok) countDraft = null;
+  }
+
+  /** Put the sliders back on the plan's minimums. */
+  function toPlan() {
+    if (!planned) return;
+    qualities = [...planned];
+    countDraft = null;
+    preset = null;
+  }
 
   // Plain, not $state: only tells a new family from a new variant of this one.
   let shownFamily: string | null = null;
@@ -100,10 +131,13 @@
       // A variant shares the recipe: the sliders stay where they are.
       if (key !== shownFamily) {
         shownFamily = key;
-        planCount = 1;
-        planQuality = null;
+        countDraft = null;
         focus = pick && family.variants.some((v) => v.guid === pick) ? pick : null;
-        apply("Base");
+        // A planned variant opens on its plan (the first that has it).
+        const first = plansStore.holdersOf(variant.guid)[0];
+        dest = first && first.plan.goal.kind === "project" ? first.plan.id : "";
+        if (first) toPlan();
+        else apply("Base");
       }
     })();
   });
@@ -112,8 +146,8 @@
     if (!detail) return;
     const d = detail;
     preset = next;
-    qualities = d.slots.map((s) =>
-      presetQuality(next, s.material, d.defaultQuality, craftingStore.stock.get(s.material.name)),
+    qualities = d.slots.map((s, i) =>
+      snapNearest(stops[i] ?? [], presetQuality(next, s.material, d.defaultQuality, craftingStore.stock.get(s.material.name))),
     );
   }
 
@@ -151,8 +185,10 @@
     return better == null ? "var(--text-dim)" : up === better ? "var(--good)" : "var(--bad)";
   }
 
-  /** Where stock quality sits on a slider. */
-  const stockAt = (min: number, base: number) => `${((base - min) / (1000 - min)) * 100}%`;
+  /** Where stock quality sits on a slider: along its stops when it has
+   *  them, else along the free scale. */
+  const stockAt = (i: number, min: number, base: number) =>
+    `${(stops[i]?.length ? markAt(stops[i], base) : (base - min) / (1000 - min)) * 100}%`;
 </script>
 
 <div class="sheet" style="--hue: {look.hue}">
@@ -180,45 +216,44 @@
         {many ? "Blueprints" : "Blueprint"}
         {#if many}<span class="owned-count">{family.ownedCount} of {family.variants.length} owned</span>{/if}
       </h3>
-      <!-- A plan is for the variant in view. How many and at what quality
-           is set here, before adding and after; its steps and materials are
-           worked out on Plans. -->
+      <!-- A plan is for the variant in view, on its own or in a project.
+           The sliders below are what it stores: one minimum per material.
+           Its steps and materials are worked out on Plans. Every control
+           here is always present, so planning moves nothing. -->
       {#if plans}
-        {@const plan = plansStore.craftOf(variant.guid)}
-        {@const goal = plan?.goal.kind === "craft" ? plan.goal : null}
         <div class="plan-set">
           <label
             >Count
-            <input
-              class="input"
-              type="number"
-              min="1"
-              value={goal?.count ?? planCount}
-              onchange={(e) => planField("count", e.currentTarget.value)}
-            /></label
+            <input class="input" type="number" min="1" value={planCount} onchange={(e) => setCount(e.currentTarget.value)} /></label
           >
-          <label title="The quality every material has to reach; 0 is any quality"
-            >Quality
-            <input
-              class="input"
-              type="number"
-              min="0"
-              max="1000"
-              step="50"
-              value={goal?.quality ?? planQuality ?? sliderQuality}
-              onchange={(e) => planField("quality", e.currentTarget.value)}
-            /></label
+          <label title="A plan of its own, or a craft in one of your projects"
+            >In
+            <select class="select" bind:value={dest} onchange={() => (countDraft = null)}>
+              <option value="">a plan of its own</option>
+              {#each plansStore.projects as p (p.id)}
+                <option value={p.id}>{p.name || "Project"}</option>
+              {/each}
+            </select></label
           >
           <button
             type="button"
-            class="mark plan"
-            class:set={!!plan}
-            title={plan
-              ? `${variant.name} is in your plans: open Plans`
-              : `Plan to craft the ${variant.name}: its steps and materials go to Plans`}
-            onclick={() =>
-              plan ? void goto("/plans") : void addCraftPlan(variant.guid, planCount, planQuality ?? sliderQuality)}
-            ><Target size={12} />{plan ? "In plans" : "Add to plan"}</button
+            class="mark plan reset"
+            disabled={!changed}
+            title="Put the sliders back on the plan's minimums"
+            onclick={toPlan}>Back to plan</button
+          >
+          <button
+            type="button"
+            class="mark plan main"
+            class:set={!!holder && !changed}
+            disabled={!filled}
+            title={!holder
+              ? `Plan to craft the ${variant.name} with the qualities below as each material's minimum`
+              : changed
+                ? "Take the count and the qualities below as the plan's minimums"
+                : `${variant.name} is planned with these minimums: open Plans`}
+            onclick={() => (holder && !changed ? void goto("/plans") : void savePlan())}
+            ><Target size={12} />{!holder ? "Add to plan" : changed ? "Update plan" : "In plans"}</button
           >
         </div>
       {/if}
@@ -278,18 +313,36 @@
             {#if slot.name}<span class="slot-name">{slot.name}</span>{/if}
             <span class="material">{slot.material.name}</span>
             <span class="need">{fmtNeed(slot.material)}</span>
+            <span class="plan-min" title="The minimum your plan sets for this material">{planned ? `plan Q${planned[i]}+` : ""}</span>
+            <span class="band" title="The game gives every {slot.material.name} in this quality band the one quality shown"
+              >{bandText(slot.bands, qualities[i] ?? 0)}</span
+            >
             <span class="qval">Q{qualities[i] ?? 0}</span>
           </div>
           <div class="q">
-            <span class="stock" style="left: {stockAt(slot.material.minQuality, detail.defaultQuality)}" title="Stock quality"></span>
-            <input
-              type="range"
-              min={slot.material.minQuality}
-              max="1000"
-              value={qualities[i] ?? 0}
-              aria-label="Quality of {slot.material.name}"
-              oninput={(e) => setQuality(i, e.currentTarget.valueAsNumber)}
-            />
+            <span class="stock" style="left: {stockAt(i, slot.material.minQuality, detail.defaultQuality)}" title="Stock quality"></span>
+            {#if stops[i]?.length}
+              <!-- One stop per quality the material comes in. -->
+              <input
+                type="range"
+                min="0"
+                max={stops[i].length - 1}
+                step="1"
+                value={Math.max(0, stops[i].indexOf(qualities[i] ?? 0))}
+                aria-label="Quality of {slot.material.name}"
+                aria-valuetext="Q{qualities[i] ?? 0}"
+                oninput={(e) => setQuality(i, stops[i][e.currentTarget.valueAsNumber])}
+              />
+            {:else}
+              <input
+                type="range"
+                min={slot.material.minQuality}
+                max="1000"
+                value={qualities[i] ?? 0}
+                aria-label="Quality of {slot.material.name}"
+                oninput={(e) => setQuality(i, e.currentTarget.valueAsNumber)}
+              />
+            {/if}
           </div>
           {#if filled}
             <div class="held">
@@ -533,8 +586,18 @@
     color: var(--text-dim);
   }
   .plan-set .input {
-    width: 68px;
+    width: 60px;
     height: 24px;
+  }
+  .plan-set .select {
+    width: 150px;
+    height: 24px;
+    padding-block: 0;
+  }
+  /* One width whatever it says, so adding to a plan moves nothing. */
+  .mark.plan.main {
+    min-width: 104px;
+    justify-content: center;
   }
   .mark.plan.set {
     color: var(--accent);
@@ -576,8 +639,20 @@
     font-size: var(--text-small);
     color: var(--text-dim);
   }
-  .qval {
+  .plan-min {
     margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--text-small);
+    color: var(--accent);
+  }
+  .band {
+    font-family: var(--font-mono);
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .qval {
+    min-width: 5ch;
+    text-align: right;
     font-family: var(--font-mono);
     font-weight: var(--weight-bold);
     color: color-mix(in srgb, var(--hue-quality) 70%, var(--text-strong));

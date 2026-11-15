@@ -12,12 +12,12 @@ description = "Starlume plans module: goals you set, the steps your inventory le
 # services and hands them in as this crate's own small input types (module
 # rule 1: no file, game or network access here, no other module).
 serde.workspace = true
+# The plans file keeps a goal of a kind this build does not know as it was
+# read (model.rs), which takes a value type.
+serde_json.workspace = true
 # TypeScript bindings for the model (the shell turns this on; the
 # mod-session pattern). Off by default: the crate itself needs no IPC.
 specta = { workspace = true, optional = true }
-
-[dev-dependencies]
-serde_json.workspace = true
 
 [features]
 default = []

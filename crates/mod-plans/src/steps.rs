@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::ledger::{self, Demand, Fill, LedgerRow, Stack};
-use crate::model::{Goal, PlansState};
+use crate::model::{CraftGoal, Goal, Plan, PlansState};
 
 /// A place by its display name, and the quantum-travel place it resolves to
 /// when the shell could tell (the id is opaque here).
@@ -95,18 +95,68 @@ pub struct RecipeFacts {
     /// The crafted item's GUID: crafted copies of it are taken out of the
     /// free parts, so one copy serves one plan.
     pub entity: Option<String>,
-    /// Crafted copies of the item you hold, free to use and at the wanted
-    /// quality.
-    pub crafted_held: u32,
+    /// Crafted copies of the item you hold that are free to use, with what
+    /// went into each: a copy counts for a craft whose minimums it reaches.
+    pub crafted: Vec<CraftedCopy>,
+    /// The blueprint's family key on the Crafting page.
+    pub family: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// Crafted copies of one item made from the same materials.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CraftedCopy {
+    pub count: u32,
+    /// The material and quality of each ingredient.
+    pub ingredients: Vec<(String, u32)>,
+}
+
+impl CraftedCopy {
+    /// Whether every ingredient reaches the minimum of the slots that take
+    /// its material (the strictest of them; a material no slot names has to
+    /// reach the highest minimum).
+    fn reaches(&self, slots: &[SlotNeed], mins: &[u32]) -> bool {
+        let top = mins.iter().copied().max().unwrap_or(0);
+        self.ingredients.iter().all(|(material, quality)| {
+            let need = slots
+                .iter()
+                .zip(mins)
+                .filter(|(s, _)| s.material == *material)
+                .map(|(_, min)| *min)
+                .max()
+                .unwrap_or(top);
+            *quality >= need
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SlotNeed {
+    /// "Frame", "Emitter"; `None` for a slot the game has not named.
+    pub name: Option<String>,
     pub material: String,
     /// SCU for bulk, pieces else, for one craft.
     pub amount: f64,
     pub bulk: bool,
+    /// The recipe's own minimum for the slot.
     pub min_quality: u32,
+    /// The stats the slot's quality moves ("Integrity"), for showing beside
+    /// its minimum.
+    pub moves: Vec<String>,
+    /// The qualities the material comes in, lowest first; empty when the
+    /// data gives none.
+    pub bands: Vec<QualityBand>,
+}
+
+/// One quality a material comes in: the game sorts a mined resource's
+/// quality into bands and gives every roll from `from` to `to` the same
+/// `value`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct QualityBand {
+    pub from: u32,
+    pub to: u32,
+    pub value: u32,
 }
 
 /// A mission that grants a blueprint.
@@ -195,6 +245,7 @@ pub struct PlanStep {
 pub enum PlanKind {
     Loadout,
     Craft,
+    Project,
     Unknown,
 }
 
@@ -247,6 +298,58 @@ pub struct PlanBoard {
     pub note: String,
     pub stages: Vec<PlanStage>,
     pub tiles: Vec<PlanTile>,
+    /// Set aside: it reserves nothing and has no steps.
+    pub parked: bool,
+    pub notes: String,
+    /// The crafts in it: one for a craft plan, each entry of a project,
+    /// none for a loadout.
+    pub crafts: Vec<PlanCraft>,
+}
+
+/// One craft of a plan, with the minimum quality of each material.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PlanCraft {
+    pub blueprint: String,
+    /// The crafted item's name.
+    pub name: String,
+    /// The blueprint's family key on the Crafting page.
+    pub family: Option<String>,
+    pub count: u32,
+    /// Crafted copies you hold that count for it.
+    pub crafted: u32,
+    /// How many the reserved stock covers right now.
+    pub now: u32,
+    /// You own the blueprint.
+    pub owned: bool,
+    /// This build has no such blueprint.
+    pub missing: bool,
+    /// The one quality every slot is set to; `None` when they differ.
+    pub quality: Option<u32>,
+    pub slots: Vec<PlanSlot>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PlanSlot {
+    pub name: Option<String>,
+    pub material: String,
+    /// SCU for bulk, pieces else, for one craft.
+    pub amount: f64,
+    pub bulk: bool,
+    /// The minimum in force: the plan's, or the recipe's own when higher.
+    pub min: u32,
+    /// The recipe's own minimum: the plan cannot go below it.
+    pub floor: u32,
+    /// Your stock covers this slot for every craft still to make.
+    pub held: bool,
+    /// The stats this slot's quality moves.
+    pub moves: Vec<String>,
+    /// The qualities the material comes in, lowest first; empty when the
+    /// data gives none. A minimum is picked from these.
+    pub bands: Vec<QualityBand>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -263,11 +366,76 @@ struct Craft<'a> {
     plan: &'a str,
     blueprint: &'a str,
     recipe: &'a RecipeFacts,
+    /// How many the plan wants.
+    count: u32,
     /// Still to craft.
     left: u32,
-    quality: u32,
+    /// Each recipe slot's minimum: the plan's, or the slot's own when
+    /// higher.
+    mins: Vec<u32>,
+    /// The one quality the plan sets for every slot; `None` when they
+    /// differ.
+    quality: Option<u32>,
+    /// Its plan is parked: it asks for nothing.
+    parked: bool,
     /// (index into the demand list, amount for one craft).
     demands: Vec<(usize, f64)>,
+    /// Each slot's demand, as an index into the demand list.
+    slot_demand: Vec<Option<usize>>,
+}
+
+type Pool<'a> = HashMap<&'a str, Vec<(PlanPlace, u32)>>;
+
+/// A plan's craft, with the crafted copies you hold counted towards it and
+/// taken: a loadout ahead of it that fits a copy has it, not both. `used`
+/// counts the copies already taken, per blueprint.
+fn start_craft<'a>(
+    plan: &'a Plan,
+    goal: &'a CraftGoal,
+    inputs: &'a Inputs,
+    pool: &mut Pool<'a>,
+    used: &mut HashMap<&'a str, Vec<u32>>,
+) -> Option<Craft<'a>> {
+    let recipe = inputs.recipes.get(&goal.blueprint)?;
+    let mins: Vec<u32> = recipe
+        .slots
+        .iter()
+        .enumerate()
+        .map(|(i, slot)| slot.min_quality.max(goal.min_of(i)))
+        .collect();
+    let mut have = 0;
+    if !plan.parked {
+        let used = used
+            .entry(goal.blueprint.as_str())
+            .or_insert_with(|| vec![0; recipe.crafted.len()]);
+        for (copy, taken) in recipe.crafted.iter().zip(used.iter_mut()) {
+            if have >= goal.count {
+                break;
+            }
+            if !copy.reaches(&recipe.slots, &mins) {
+                continue;
+            }
+            let wanted = copy.count.saturating_sub(*taken).min(goal.count - have);
+            let got = match recipe.entity.as_deref() {
+                Some(entity) => take_many(pool.get_mut(entity), wanted),
+                None => wanted,
+            };
+            *taken += got;
+            have += got;
+        }
+    }
+    Some(Craft {
+        plan: &plan.id,
+        blueprint: &goal.blueprint,
+        recipe,
+        count: goal.count,
+        left: goal.count - have,
+        slot_demand: vec![None; mins.len()],
+        mins,
+        quality: goal.is_uniform().then_some(goal.quality),
+        parked: plan.parked,
+        demands: Vec::new(),
+    })
 }
 
 struct Part<'a> {
@@ -280,13 +448,14 @@ struct LoadoutWork<'a> {
     plan: &'a str,
     facts: &'a LoadoutFacts,
     parts: Vec<Part<'a>>,
+    parked: bool,
 }
 
 /// Derive every plan's steps, stages and figures, and the ledger across
 /// them. `ores` answers where a material can be ship-mined at a quality.
 pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> OreSites) -> Board {
     // Free parts are counted once, like stock: reserved in plan order.
-    let mut pool: HashMap<&str, Vec<(PlanPlace, u32)>> = inputs
+    let mut pool: Pool = inputs
         .parts
         .iter()
         .map(|(k, v)| {
@@ -300,6 +469,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     let mut loadouts: Vec<LoadoutWork> = Vec::new();
     let mut crafts: Vec<Craft> = Vec::new();
     let mut demands: Vec<Demand> = Vec::new();
+    let mut used: HashMap<&str, Vec<u32>> = HashMap::new();
 
     for plan in &state.plans {
         match &plan.goal {
@@ -311,12 +481,14 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     plan: &plan.id,
                     facts,
                     parts: Vec::new(),
+                    parked: plan.parked,
                 };
                 for part in &facts.parts {
-                    let held = (!part.fitted)
+                    let held = (!part.fitted && !plan.parked)
                         .then(|| take(pool.get_mut(part.item.as_str())))
                         .flatten();
-                    let lacks = !part.fitted && held.is_none() && part.offers.is_empty();
+                    let lacks =
+                        !part.fitted && !plan.parked && held.is_none() && part.offers.is_empty();
                     if let (true, Some(bp)) = (lacks, &part.blueprint)
                         && let Some(recipe) = inputs.recipes.get(bp)
                     {
@@ -324,14 +496,21 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             .iter_mut()
                             .find(|c| c.plan == plan.id && c.blueprint == bp)
                         {
-                            Some(c) => c.left += 1,
+                            Some(c) => {
+                                c.count += 1;
+                                c.left += 1;
+                            }
                             None => crafts.push(Craft {
                                 plan: &plan.id,
                                 blueprint: bp,
                                 recipe,
+                                count: 1,
                                 left: 1,
-                                quality: 0,
+                                mins: recipe.slots.iter().map(|s| s.min_quality).collect(),
+                                quality: Some(0),
+                                parked: false,
                                 demands: Vec::new(),
+                                slot_demand: vec![None; recipe.slots.len()],
                             }),
                         }
                     }
@@ -340,37 +519,27 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 loadouts.push(work);
             }
             Goal::Craft(goal) => {
-                let Some(recipe) = inputs.recipes.get(&goal.blueprint) else {
-                    continue;
-                };
-                // Crafted copies you hold count towards the project, and
-                // are taken with it: a loadout ahead of it that fits the
-                // copy has it, not both.
-                let wanted = recipe.crafted_held.min(goal.count);
-                let have = match recipe.entity.as_deref() {
-                    Some(entity) => take_many(pool.get_mut(entity), wanted),
-                    None => wanted,
-                };
-                crafts.push(Craft {
-                    plan: &plan.id,
-                    blueprint: &goal.blueprint,
-                    recipe,
-                    left: goal.count - have,
-                    quality: goal.quality,
-                    demands: Vec::new(),
-                });
+                crafts.extend(start_craft(plan, goal, inputs, &mut pool, &mut used));
+            }
+            Goal::Project(project) => {
+                for goal in &project.crafts {
+                    crafts.extend(start_craft(plan, goal, inputs, &mut pool, &mut used));
+                }
             }
             Goal::Unknown => {}
         }
     }
 
     // Demands in plan order: `crafts` was filled in that order.
+    // A parked plan asks for nothing: what it would need stays free.
     for craft in &mut crafts {
-        if craft.left == 0 {
+        if craft.left == 0 || craft.parked {
             continue;
         }
-        for slot in &craft.recipe.slots {
-            let quality = slot.min_quality.max(craft.quality);
+        for (n, slot) in craft.recipe.slots.iter().enumerate() {
+            // Each slot at its own minimum: two slots of one material at
+            // different minimums are two demands.
+            let quality = craft.mins[n];
             let at = craft.demands.iter().position(|(i, _)| {
                 let d: &Demand = &demands[*i];
                 d.material == slot.material && d.min_quality == quality && d.bulk == slot.bulk
@@ -380,8 +549,10 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     let (i, each) = &mut craft.demands[at];
                     *each += slot.amount;
                     demands[*i].amount += slot.amount * f64::from(craft.left);
+                    craft.slot_demand[n] = Some(*i);
                 }
                 None => {
+                    craft.slot_demand[n] = Some(demands.len());
                     craft.demands.push((demands.len(), slot.amount));
                     demands.push(Demand {
                         plan: craft.plan.to_owned(),
@@ -411,7 +582,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     let mut finds: Vec<PlanStep> = Vec::new();
     let mut buys: Vec<PlanStep> = Vec::new();
     let mut buy_lines: Vec<Vec<(String, u32)>> = Vec::new();
-    for work in &loadouts {
+    for work in loadouts.iter().filter(|w| !w.parked) {
         for (n, part) in work.parts.iter().enumerate() {
             let facts = part.facts;
             if facts.fitted {
@@ -543,7 +714,10 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
 
     // Blueprints to earn: one step a blueprint, whichever plans want it.
     let mut earns: Vec<PlanStep> = Vec::new();
-    for craft in crafts.iter().filter(|c| c.left > 0 && !c.recipe.owned) {
+    for craft in crafts
+        .iter()
+        .filter(|c| c.left > 0 && !c.parked && !c.recipe.owned)
+    {
         let id = format!("earn:{}", craft.blueprint);
         if let Some(step) = earns.iter_mut().find(|s| s.id == id) {
             if !step.plans.iter().any(|p| p == craft.plan) {
@@ -670,7 +844,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
 
     // Crafts: what the reserved stock covers now, and what still waits.
     let mut craft_now: HashMap<(&str, &str), u32> = HashMap::new();
-    for craft in crafts.iter().filter(|c| c.left > 0) {
+    for craft in crafts.iter().filter(|c| c.left > 0 && !c.parked) {
         let fills: Vec<(&Demand, &Fill, f64)> = craft
             .demands
             .iter()
@@ -688,10 +862,11 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             0
         };
         craft_now.insert((craft.plan, craft.blueprint), can);
-        let grade = if craft.quality > 0 {
-            format!(" at Q{}", craft.quality)
-        } else {
-            String::new()
+        // Named only when it is one quality: per-material minimums are on
+        // the plan itself.
+        let grade = match craft.quality {
+            Some(q) if q > 0 => format!(" at Q{q}"),
+            _ => String::new(),
         };
         let name = &craft.recipe.name;
         let titled = |n: u32| match n {
@@ -756,6 +931,16 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
         .plans
         .iter()
         .map(|plan| {
+            let progress_of = |goal: &CraftGoal| {
+                let craft = crafts
+                    .iter()
+                    .find(|c| c.plan == plan.id && c.blueprint == goal.blueprint)?;
+                let now = craft_now
+                    .get(&(craft.plan, craft.blueprint))
+                    .copied()
+                    .unwrap_or(0);
+                Some(craft_progress(craft, now, &demands, &ledger.fills))
+            };
             let mine: Vec<&PlanStep> = steps
                 .iter()
                 .filter(|s| s.plans.contains(&plan.id))
@@ -769,30 +954,45 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                         "This saved loadout is gone, or its ship is not in this build",
                     ),
                 },
-                Goal::Craft(goal) => match crafts
-                    .iter()
-                    .find(|c| c.plan == plan.id && c.blueprint == goal.blueprint)
-                {
-                    Some(craft) => {
-                        let now = craft_now
-                            .get(&(craft.plan, craft.blueprint))
-                            .copied()
-                            .unwrap_or(0);
-                        craft_board(craft, goal.count, now, &demands, &ledger.fills, &mine)
-                    }
+                Goal::Craft(goal) => match progress_of(goal) {
+                    Some(progress) => craft_board(progress, &mine),
                     None => missing(
                         PlanKind::Craft,
                         "Craft project",
                         "This build has no such blueprint",
                     ),
                 },
+                Goal::Project(project) => project_board(
+                    project
+                        .crafts
+                        .iter()
+                        .map(|goal| {
+                            progress_of(goal).unwrap_or_else(|| CraftProgress::missing(goal))
+                        })
+                        .collect(),
+                    &mine,
+                ),
                 Goal::Unknown => missing(PlanKind::Unknown, "Plan", "Made by a newer Starlume"),
             };
             board.id = plan.id.clone();
+            board.parked = plan.parked;
+            board.notes = plan.notes.clone();
             if !plan.name.is_empty() {
                 board.name = plan.name.clone();
+                if board.kind == PlanKind::Project {
+                    board.title = plan.name.clone();
+                }
             }
-            if !board.missing {
+            let empty = board.kind == PlanKind::Project && board.crafts.is_empty();
+            if plan.parked {
+                // Nothing is reserved for it, so nothing can be said about
+                // how far it is.
+                board.waiting = false;
+                board.note = "Parked: it reserves nothing".to_owned();
+            } else if empty {
+                board.waiting = true;
+                board.note = "No crafts in it yet".to_owned();
+            } else if !board.missing {
                 // A loadout with nothing left to fit is still not done on
                 // a ship you do not own.
                 let no_ship = loadouts
@@ -853,6 +1053,9 @@ fn missing(kind: PlanKind, title: &str, note: &str) -> PlanBoard {
         note: note.to_owned(),
         stages: Vec::new(),
         tiles: Vec::new(),
+        parked: false,
+        notes: String::new(),
+        crafts: Vec::new(),
     }
 }
 
@@ -921,23 +1124,54 @@ fn loadout_board(work: &LoadoutWork, steps: &[&PlanStep]) -> PlanBoard {
                 ShipRead::Fitted => tile(auec_figure(cost), "aUEC to buy"),
             },
         ],
+        parked: false,
+        notes: String::new(),
+        crafts: Vec::new(),
     }
 }
 
-fn craft_board(
-    craft: &Craft,
-    count: u32,
-    now: u32,
-    demands: &[Demand],
-    fills: &[Fill],
-    steps: &[&PlanStep],
-) -> PlanBoard {
+/// How far one craft is, and how the board shows it.
+struct CraftProgress {
+    view: PlanCraft,
+    /// The blueprint is owned, or nothing is left to craft.
+    blueprint: bool,
+    /// Demands the stock covers, of how many.
+    covered: u32,
+    rows: u32,
+    /// 0..=1.
+    progress: f64,
+}
+
+impl CraftProgress {
+    /// A project's craft whose blueprint this build does not have.
+    fn missing(goal: &CraftGoal) -> Self {
+        Self {
+            view: PlanCraft {
+                blueprint: goal.blueprint.clone(),
+                name: "A blueprint this build does not have".to_owned(),
+                count: goal.count,
+                missing: true,
+                quality: goal.is_uniform().then_some(goal.quality),
+                ..PlanCraft::default()
+            },
+            blueprint: false,
+            covered: 0,
+            rows: 0,
+            progress: 0.0,
+        }
+    }
+}
+
+fn craft_progress(craft: &Craft, now: u32, demands: &[Demand], fills: &[Fill]) -> CraftProgress {
     let recipe = craft.recipe;
+    let count = craft.count;
     let crafted = count.saturating_sub(craft.left);
     let (covered, rows) = craft.demands.iter().fold((0u32, 0u32), |(c, n), (i, _)| {
         (c + u32::from(fills[*i].covered()), n + 1)
     });
-    let coverage: f64 = if craft.left == 0 || craft.demands.is_empty() {
+    let coverage: f64 = if craft.parked {
+        0.0
+    } else if craft.left == 0 || craft.demands.is_empty() {
         1.0
     } else {
         craft
@@ -954,52 +1188,147 @@ fn craft_board(
             / craft.demands.len() as f64
     };
     let blueprint = recipe.owned || craft.left == 0;
+    let share = f64::from(crafted) / f64::from(count.max(1));
+    CraftProgress {
+        view: PlanCraft {
+            blueprint: craft.blueprint.to_owned(),
+            name: recipe.name.clone(),
+            family: recipe.family.clone(),
+            count,
+            crafted,
+            now,
+            owned: recipe.owned,
+            missing: false,
+            quality: craft.quality,
+            slots: recipe
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(n, slot)| PlanSlot {
+                    name: slot.name.clone(),
+                    material: slot.material.clone(),
+                    amount: slot.amount,
+                    bulk: slot.bulk,
+                    min: craft.mins[n],
+                    floor: slot.min_quality,
+                    held: craft.left == 0
+                        || craft.slot_demand[n].is_some_and(|i| fills[i].covered()),
+                    moves: slot.moves.clone(),
+                    bands: slot.bands.clone(),
+                })
+                .collect(),
+        },
+        blueprint,
+        covered: if craft.left == 0 { 1 } else { covered },
+        rows: if craft.left == 0 { 1 } else { rows.max(1) },
+        progress: (f64::from(u8::from(blueprint)) + coverage) / 2.0 * (1.0 - share) + share,
+    }
+}
+
+/// "2 to craft at Q700", or the span when the materials differ.
+fn craft_subtitle(craft: &PlanCraft) -> String {
+    let count = craft.count;
+    match craft.quality {
+        Some(0) => format!("{count} to craft"),
+        Some(q) => format!("{count} to craft at Q{q}"),
+        None => {
+            let mins = craft.slots.iter().map(|s| s.min);
+            let (low, high) = (mins.clone().min().unwrap_or(0), mins.max().unwrap_or(0));
+            format!("{count} to craft, materials from Q{low} to Q{high}")
+        }
+    }
+}
+
+fn open_tile(open: usize) -> PlanTile {
+    tile(
+        open.to_string(),
+        if open == 1 { "step open" } else { "steps open" },
+    )
+}
+
+fn craft_board(progress: CraftProgress, steps: &[&PlanStep]) -> PlanBoard {
+    let craft = &progress.view;
     let counts = [
-        ("Blueprint", (u32::from(blueprint), 1)),
-        (
-            "Materials",
-            if craft.left == 0 {
-                (1, 1)
-            } else {
-                (covered, rows.max(1))
-            },
-        ),
-        ("Crafted", (crafted, count)),
+        ("Blueprint", (u32::from(progress.blueprint), 1)),
+        ("Materials", (progress.covered, progress.rows)),
+        ("Crafted", (craft.crafted, craft.count)),
     ];
     let mut stages = stages(&counts);
-    stages[0].sub = if blueprint {
+    stages[0].sub = if progress.blueprint {
         "owned".to_owned()
     } else {
         "to earn".to_owned()
     };
-    let subtitle = match craft.quality {
-        0 => format!("{count} to craft"),
-        q => format!("{count} to craft at Q{q}"),
-    };
-    let open = steps.len();
+    let subtitle = craft_subtitle(craft);
     PlanBoard {
         id: String::new(),
         kind: PlanKind::Craft,
-        title: recipe.name.clone(),
-        name: format!("{}, {subtitle}", recipe.name),
+        title: craft.name.clone(),
+        name: format!("{}, {subtitle}", craft.name),
         subtitle,
-        progress: ((f64::from(u8::from(blueprint)) + coverage) / 2.0
-            * (1.0 - f64::from(crafted) / f64::from(count.max(1)))
-            + f64::from(crafted) / f64::from(count.max(1))) as f32,
+        progress: progress.progress as f32,
         done: false,
         missing: false,
         waiting: false,
         note: String::new(),
         stages,
         tiles: vec![
-            tile(format!("{crafted} of {count}"), "crafted"),
+            tile(format!("{} of {}", craft.crafted, craft.count), "crafted"),
+            tile(craft.now.to_string(), "craftable now"),
+            tile(
+                format!("{} of {}", progress.covered, progress.rows),
+                "materials held",
+            ),
+            open_tile(steps.len()),
+        ],
+        parked: false,
+        notes: String::new(),
+        crafts: vec![progress.view],
+    }
+}
+
+/// A project as one plan: its crafts' blueprints, materials and copies
+/// summed, its progress their mean.
+fn project_board(crafts: Vec<CraftProgress>, steps: &[&PlanStep]) -> PlanBoard {
+    let sum = |f: &dyn Fn(&CraftProgress) -> u32| crafts.iter().map(f).sum::<u32>();
+    let total = crafts.len() as u32;
+    let blueprints = sum(&|c| u32::from(c.blueprint));
+    let (covered, rows) = (sum(&|c| c.covered), sum(&|c| c.rows));
+    let (crafted, wanted) = (sum(&|c| c.view.crafted), sum(&|c| c.view.count));
+    let now = sum(&|c| c.view.now);
+    let subtitle = match total {
+        1 => "1 craft".to_owned(),
+        n => format!("{n} crafts"),
+    };
+    PlanBoard {
+        id: String::new(),
+        kind: PlanKind::Project,
+        title: "Project".to_owned(),
+        name: "Project".to_owned(),
+        subtitle,
+        progress: if crafts.is_empty() {
+            0.0
+        } else {
+            (crafts.iter().map(|c| c.progress).sum::<f64>() / crafts.len() as f64) as f32
+        },
+        done: false,
+        missing: false,
+        waiting: false,
+        note: String::new(),
+        stages: stages(&[
+            ("Blueprints", (blueprints, total)),
+            ("Materials", (covered, rows)),
+            ("Crafted", (crafted, wanted)),
+        ]),
+        tiles: vec![
+            tile(format!("{crafted} of {wanted}"), "crafted"),
             tile(now.to_string(), "craftable now"),
             tile(format!("{covered} of {rows}"), "materials held"),
-            tile(
-                open.to_string(),
-                if open == 1 { "step open" } else { "steps open" },
-            ),
+            open_tile(steps.len()),
         ],
+        parked: false,
+        notes: String::new(),
+        crafts: crafts.into_iter().map(|c| c.view).collect(),
     }
 }
 
@@ -1129,7 +1458,7 @@ fn lower_first(text: &str) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::model::{CraftGoal, LoadoutGoal};
+    use crate::model::{CraftGoal, LoadoutGoal, ProjectGoal};
 
     pub(crate) fn at(name: &str) -> PlanPlace {
         PlanPlace {
@@ -1191,7 +1520,18 @@ pub(crate) mod tests {
             amount,
             bulk: true,
             min_quality,
+            ..SlotNeed::default()
         }
+    }
+
+    fn copies(count: u32, ingredients: &[(&str, u32)]) -> Vec<CraftedCopy> {
+        vec![CraftedCopy {
+            count,
+            ingredients: ingredients
+                .iter()
+                .map(|(m, q)| ((*m).to_owned(), *q))
+                .collect(),
+        }]
     }
 
     fn stack(material: &str, quality: u32, amount: f64) -> Stack {
@@ -1206,15 +1546,35 @@ pub(crate) mod tests {
 
     fn craft_state(count: u32, quality: u32) -> PlansState {
         let mut state = PlansState::default();
-        state.add(
-            "",
-            Goal::Craft(CraftGoal {
-                blueprint: "bp-1".into(),
-                count,
-                quality,
-            }),
-        );
+        state.add("", Goal::Craft(CraftGoal::uniform("bp-1", count, quality)));
         state
+    }
+
+    /// A recipe shaped like the one the per-slot minimums were asked for:
+    /// a frame that moves one stat, two slots that move another.
+    fn repeater() -> RecipeFacts {
+        let mut frame = slot("Metal", 3.0, 1);
+        frame.name = Some("Frame".into());
+        frame.moves = vec!["Integrity".into()];
+        frame.bands = [(0, 399, 346), (400, 599, 588), (700, 799, 796)]
+            .map(|(from, to, value)| QualityBand { from, to, value })
+            .to_vec();
+        let mut emitter = slot("Gem", 75.0, 1);
+        emitter.bulk = false;
+        emitter.moves = vec!["Impact Force".into()];
+        let mut sink = slot("Ice", 1.5, 1);
+        sink.moves = vec!["Impact Force".into()];
+        recipe(true, vec![frame, emitter, sink])
+    }
+
+    fn slots_state(mins: &[u32]) -> PlansState {
+        let mut state = PlansState::default();
+        state.add("", Goal::Craft(CraftGoal::with_slots("bp-1", 1, 0, mins)));
+        state
+    }
+
+    fn project(state: &mut PlansState, name: &str, crafts: Vec<CraftGoal>) -> String {
+        state.add(name, Goal::Project(ProjectGoal { crafts }))
     }
 
     #[test]
@@ -1462,7 +1822,7 @@ pub(crate) mod tests {
     fn crafted_copies_you_hold_count_towards_the_project() {
         let mut inputs = Inputs::default();
         let mut widget = recipe(true, vec![slot("Ore A", 2.0, 0)]);
-        widget.crafted_held = 2;
+        widget.crafted = copies(2, &[]);
         inputs.recipes.insert("bp-1".into(), widget);
         let board = derive(&craft_state(2, 0), &inputs, &no_ores);
         assert!(board.steps.is_empty());
@@ -1474,14 +1834,7 @@ pub(crate) mod tests {
     #[test]
     fn a_mining_step_moves_only_the_plans_still_short_and_the_first_is_served_first() {
         let mut state = craft_state(1, 0);
-        state.add(
-            "",
-            Goal::Craft(CraftGoal {
-                blueprint: "bp-2".into(),
-                count: 1,
-                quality: 0,
-            }),
-        );
+        state.add("", Goal::Craft(CraftGoal::uniform("bp-2", 1, 0)));
         let mut inputs = Inputs::default();
         inputs
             .recipes
@@ -1644,18 +1997,11 @@ pub(crate) mod tests {
         let mut made = part("a");
         made.blueprint = Some("bp-1".into());
         let mut state = loadout_state();
-        state.add(
-            "",
-            Goal::Craft(CraftGoal {
-                blueprint: "bp-1".into(),
-                count: 1,
-                quality: 0,
-            }),
-        );
+        state.add("", Goal::Craft(CraftGoal::uniform("bp-1", 1, 0)));
         let mut inputs = loadout(vec![made]);
         let mut widget = recipe(true, vec![slot("Ore A", 2.0, 0)]);
         widget.entity = Some("a".into());
-        widget.crafted_held = 1;
+        widget.crafted = copies(1, &[]);
         inputs.recipes.insert("bp-1".into(), widget);
         inputs.parts.insert(
             "a".into(),
@@ -1719,6 +2065,332 @@ pub(crate) mod tests {
             trips[0].why,
             "None of the open steps has a place the map knows."
         );
+    }
+
+    #[test]
+    fn each_slot_asks_at_its_own_minimum() {
+        let mut inputs = Inputs::default();
+        inputs.recipes.insert("bp-1".into(), repeater());
+        inputs.stock = vec![
+            // Enough metal at the frame's 500, not at the 750 of the others.
+            stack("Metal", 588, 3.0),
+            // Ice below its 750 does not count; the gems are simply missing.
+            stack("Ice", 700, 9.0),
+        ];
+        let asked = std::cell::RefCell::new(Vec::new());
+        let ores = |material: &str, quality: u32| {
+            asked.borrow_mut().push((material.to_owned(), quality));
+            OreSites {
+                sites: vec![OreSite {
+                    at: at("Moon One"),
+                    find: 0.2,
+                    ..OreSite::default()
+                }],
+                mined: true,
+                ..OreSites::default()
+            }
+        };
+        let board = derive(&slots_state(&[500, 750, 750]), &inputs, &ores);
+
+        let rows: Vec<(&str, u32, f64)> = board
+            .ledger
+            .iter()
+            .map(|r| (r.material.as_str(), r.min_quality, r.short()))
+            .collect();
+        assert_eq!(
+            rows,
+            [("Metal", 500, 0.0), ("Gem", 750, 75.0), ("Ice", 750, 1.5)]
+        );
+        // The mining odds are asked for at each slot's own minimum, and
+        // only for what is short.
+        assert_eq!(
+            *asked.borrow(),
+            [("Gem".to_owned(), 750), ("Ice".to_owned(), 750)]
+        );
+        let titles: Vec<&str> = board.steps.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            [
+                "Mine 75 × Gem, Q750+",
+                "Mine 1.5 SCU Ice, Q750+",
+                "Craft the Widget"
+            ]
+        );
+        assert_eq!(board.steps[2].detail, "Needs Gem and Ice");
+        // The next session flies what the steps say: per-slot places.
+        let trips = crate::session::sessions(&board.steps, &[], None, None);
+        assert!(trips.iter().all(|t| t.stops.is_empty()));
+    }
+
+    #[test]
+    fn a_craft_plan_shows_each_slots_minimum_and_what_it_moves() {
+        let mut inputs = Inputs::default();
+        inputs.recipes.insert("bp-1".into(), repeater());
+        inputs.stock = vec![stack("Metal", 588, 3.0)];
+        let board = derive(&slots_state(&[500, 750, 750]), &inputs, &no_ores);
+        let plan = &board.plans[0];
+        assert_eq!(plan.subtitle, "1 to craft, materials from Q500 to Q750");
+        let craft = &plan.crafts[0];
+        assert_eq!(craft.quality, None);
+        let slots: Vec<(Option<&str>, &str, u32, bool, &str)> = craft
+            .slots
+            .iter()
+            .map(|s| {
+                (
+                    s.name.as_deref(),
+                    s.material.as_str(),
+                    s.min,
+                    s.held,
+                    s.moves[0].as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            slots,
+            [
+                (Some("Frame"), "Metal", 500, true, "Integrity"),
+                (None, "Gem", 750, false, "Impact Force"),
+                (None, "Ice", 750, false, "Impact Force"),
+            ]
+        );
+        let values: Vec<u32> = craft.slots[0].bands.iter().map(|b| b.value).collect();
+        assert_eq!(values, [346, 588, 796]);
+        assert_eq!(craft.slots[0].floor, 1);
+    }
+
+    #[test]
+    fn a_slots_own_minimum_holds_when_the_plan_asks_for_less() {
+        let mut inputs = Inputs::default();
+        inputs.recipes.insert(
+            "bp-1".into(),
+            recipe(true, vec![slot("Ore A", 1.0, 800), slot("Ore B", 1.0, 0)]),
+        );
+        let board = derive(&slots_state(&[500, 600]), &inputs, &no_ores);
+        let mins: Vec<u32> = board.ledger.iter().map(|r| r.min_quality).collect();
+        assert_eq!(mins, [800, 600]);
+        assert_eq!(board.plans[0].crafts[0].slots[0].floor, 800);
+    }
+
+    #[test]
+    fn two_slots_of_one_material_at_different_minimums_are_two_demands() {
+        let mut inputs = Inputs::default();
+        inputs.recipes.insert(
+            "bp-1".into(),
+            recipe(true, vec![slot("Ore A", 2.0, 0), slot("Ore A", 1.0, 0)]),
+        );
+        // The Q900 stack must stay for the slot that needs it.
+        inputs.stock = vec![stack("Ore A", 900, 1.0), stack("Ore A", 550, 2.0)];
+        let board = derive(&slots_state(&[500, 850]), &inputs, &no_ores);
+        assert_eq!(board.ledger.len(), 2);
+        assert!(board.ledger.iter().all(|r| r.short() == 0.0));
+        assert_eq!(board.steps[0].detail, "Materials held");
+        // At one quality they are one demand, as before.
+        let board = derive(&craft_state(1, 500), &inputs, &no_ores);
+        assert_eq!(board.ledger.len(), 1);
+        assert_eq!(board.ledger[0].need, 3.0);
+    }
+
+    #[test]
+    fn a_crafted_copy_counts_when_it_reaches_each_slots_minimum() {
+        let mut inputs = Inputs::default();
+        let mut widget = repeater();
+        widget.crafted = vec![
+            CraftedCopy {
+                count: 1,
+                ingredients: vec![
+                    ("Metal".into(), 588),
+                    ("Gem".into(), 700),
+                    ("Ice".into(), 800),
+                ],
+            },
+            CraftedCopy {
+                count: 1,
+                ingredients: vec![
+                    ("Metal".into(), 510),
+                    ("Gem".into(), 760),
+                    ("Ice".into(), 800),
+                ],
+            },
+        ];
+        inputs.recipes.insert("bp-1".into(), widget);
+        let mut state = PlansState::default();
+        state.add(
+            "",
+            Goal::Craft(CraftGoal::with_slots("bp-1", 2, 0, &[500, 750, 750])),
+        );
+        let board = derive(&state, &inputs, &no_ores);
+        // The first copy's gems are below 750: only the second counts.
+        assert_eq!(board.plans[0].tiles[0].value, "1 of 2");
+        // At one quality for all, the frame's Q510 rules that copy out too.
+        let board = derive(&craft_state(2, 750), &inputs, &no_ores);
+        assert_eq!(board.plans[0].tiles[0].value, "0 of 2");
+    }
+
+    #[test]
+    fn a_project_reads_as_one_plan_with_its_crafts_inside() {
+        let mut state = PlansState::default();
+        let kit = project(
+            &mut state,
+            "Mining kit",
+            vec![
+                CraftGoal::uniform("bp-1", 2, 0),
+                CraftGoal::with_slots("bp-2", 1, 0, &[600]),
+                CraftGoal::uniform("bp-gone", 1, 0),
+            ],
+        );
+        let mut inputs = Inputs::default();
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![slot("Ore A", 2.0, 0)]));
+        let mut second = recipe(false, vec![slot("Ore B", 1.0, 0)]);
+        second.name = "Gadget".into();
+        inputs.recipes.insert("bp-2".into(), second);
+        inputs.stock = vec![stack("Ore A", 500, 4.0)];
+        let board = derive(&state, &inputs, &no_ores);
+
+        assert_eq!(board.plans.len(), 1);
+        let plan = &board.plans[0];
+        assert_eq!(plan.kind, PlanKind::Project);
+        assert_eq!(
+            (plan.title.as_str(), plan.name.as_str()),
+            ("Mining kit", "Mining kit")
+        );
+        assert_eq!(plan.subtitle, "3 crafts");
+        assert!(!plan.done);
+        // Its own next step, from all of its crafts.
+        assert_eq!(plan.note, "Next: get 1 SCU Ore B, Q600+");
+        let crafts: Vec<(&str, u32, u32, bool)> = plan
+            .crafts
+            .iter()
+            .map(|c| (c.name.as_str(), c.count, c.now, c.missing))
+            .collect();
+        assert_eq!(
+            crafts,
+            [
+                ("Widget", 2, 2, false),
+                ("Gadget", 1, 0, false),
+                ("A blueprint this build does not have", 1, 0, true),
+            ]
+        );
+        let stages: Vec<(&str, &str)> = plan
+            .stages
+            .iter()
+            .map(|s| (s.name.as_str(), s.sub.as_str()))
+            .collect();
+        assert_eq!(
+            stages,
+            [
+                ("Blueprints", "1 / 3"),
+                ("Materials", "1 / 2"),
+                ("Crafted", "0 / 4")
+            ]
+        );
+        // Every step of its crafts is the project's.
+        assert!(
+            board
+                .steps
+                .iter()
+                .all(|s| s.plans == std::slice::from_ref(&kit))
+        );
+        assert_eq!(board.ledger[1].min_quality, 600);
+    }
+
+    #[test]
+    fn an_empty_project_is_not_done() {
+        let mut state = PlansState::default();
+        project(&mut state, "Later", vec![]);
+        let board = derive(&state, &Inputs::default(), &no_ores);
+        let plan = &board.plans[0];
+        assert!(!plan.done && plan.waiting);
+        assert_eq!(plan.note, "No crafts in it yet");
+        assert_eq!(plan.subtitle, "0 crafts");
+    }
+
+    /// Two projects that both want 2 SCU of Ore A, and stock for one.
+    fn rivals() -> (PlansState, Inputs, String, String) {
+        let mut state = PlansState::default();
+        let one = project(&mut state, "One", vec![CraftGoal::uniform("bp-1", 1, 0)]);
+        let two = project(&mut state, "Two", vec![CraftGoal::uniform("bp-1", 1, 0)]);
+        let mut inputs = Inputs::default();
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![slot("Ore A", 2.0, 0)]));
+        inputs.stock = vec![stack("Ore A", 500, 2.0)];
+        (state, inputs, one, two)
+    }
+
+    #[test]
+    fn projects_are_served_in_their_order_and_reordering_changes_who_gets_the_stock() {
+        let (mut state, inputs, one, two) = rivals();
+        let board = derive(&state, &inputs, &no_ores);
+        // The same blueprint in both: the first project gets the stock.
+        assert_eq!(board.plans[0].crafts[0].now, 1);
+        assert_eq!(board.plans[1].crafts[0].now, 0);
+        assert_eq!(board.ledger[0].plans, [one.clone(), two.clone()]);
+
+        state.move_before(&two, Some(&one));
+        let board = derive(&state, &inputs, &no_ores);
+        assert_eq!(board.plans[0].id, two);
+        assert_eq!(board.plans[0].crafts[0].now, 1);
+        assert_eq!(board.plans[1].crafts[0].now, 0);
+    }
+
+    #[test]
+    fn a_parked_project_reserves_nothing_and_has_no_steps() {
+        let (mut state, inputs, one, two) = rivals();
+        state.set_parked(&one, true);
+        let board = derive(&state, &inputs, &no_ores);
+
+        // It is still shown, in its place, with its crafts.
+        let parked = &board.plans[0];
+        assert_eq!(parked.id, one);
+        assert!(parked.parked && !parked.done && !parked.waiting);
+        assert_eq!(parked.note, "Parked: it reserves nothing");
+        assert_eq!(parked.crafts[0].name, "Widget");
+        assert!(!parked.crafts[0].slots[0].held);
+        assert_eq!(parked.progress, 0.5);
+        // The stock goes to the project behind it.
+        assert_eq!(board.plans[1].crafts[0].now, 1);
+        assert_eq!(board.ledger.len(), 1);
+        assert_eq!(board.ledger[0].plans, std::slice::from_ref(&two));
+        assert_eq!((board.ledger[0].need, board.ledger[0].held), (2.0, 2.0));
+        assert!(
+            board
+                .steps
+                .iter()
+                .all(|s| s.plans == std::slice::from_ref(&two))
+        );
+
+        // Taken back up, it is served first again.
+        state.set_parked(&one, false);
+        let board = derive(&state, &inputs, &no_ores);
+        assert_eq!(board.plans[0].crafts[0].now, 1);
+        assert_eq!(board.plans[1].crafts[0].now, 0);
+    }
+
+    #[test]
+    fn a_parked_loadout_takes_no_part_and_a_parked_craft_no_copy() {
+        let mut state = loadout_state();
+        state.add("", Goal::Craft(CraftGoal::uniform("bp-1", 1, 0)));
+        let first = state.plans[0].id.clone();
+        state.set_parked(&first, true);
+        let mut inputs = loadout(vec![part("a")]);
+        let mut widget = recipe(true, vec![slot("Ore A", 2.0, 0)]);
+        widget.entity = Some("a".into());
+        widget.crafted = copies(1, &[]);
+        inputs.recipes.insert("bp-1".into(), widget);
+        inputs.parts.insert(
+            "a".into(),
+            vec![HeldPart {
+                at: at("Depot One"),
+                count: 1,
+            }],
+        );
+        let board = derive(&state, &inputs, &no_ores);
+        // The parked loadout fits nothing, so the copy counts for the craft.
+        assert!(board.steps.is_empty());
+        assert!(board.plans[1].done);
+        assert!(!board.plans[0].done);
     }
 
     #[test]
