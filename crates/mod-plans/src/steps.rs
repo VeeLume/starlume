@@ -4,7 +4,8 @@
 //! is still to do, and is gone once the game shows it done. Each step is
 //! phrased as an action with its reason. A figure is only stated where the
 //! shell handed in a real one (a UEX price, a recipe's craft time, the share
-//! of rocks that hold an ore); what the data cannot give is left out.
+//! of rocks that hold an ore); what the data cannot give is left out: how
+//! much ore a refinery turns into how much material, and how long it takes.
 
 use std::collections::HashMap;
 
@@ -116,11 +117,13 @@ pub struct Grant {
 }
 
 /// Where an ore can be ship-mined at a quality.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct OreSite {
     pub at: PlanPlace,
     /// The share of the ship rocks there that hold it at that quality.
     pub find: f32,
+    /// The refinery nearest to this place, when the shell could tell.
+    pub refine_at: Option<PlanPlace>,
 }
 
 /// What mining knows about a material at a quality.
@@ -130,6 +133,11 @@ pub struct OreSites {
     pub sites: Vec<OreSite>,
     /// The material is ship-mined at all, at any quality.
     pub mined: bool,
+    /// The ore's name when the material is what a refinery makes of it: the
+    /// rocks hold the ore, the recipe wants the refined material.
+    pub ore: Option<String>,
+    /// How many places have a refinery.
+    pub refineries: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -140,6 +148,8 @@ pub enum StepKind {
     Fit,
     Buy,
     Mine,
+    /// Take mined ore to a refinery: the recipe wants the refined material.
+    Refine,
     /// Get a material no ship-mining place gives.
     Gather,
     Craft,
@@ -171,8 +181,12 @@ pub struct PlanStep {
     /// Mining: the share of the rocks at the place that hold the ore at the
     /// wanted quality.
     pub odds: Option<f32>,
-    /// How many places it can be done at (mining places, shops, missions).
+    /// How many places it can be done at (mining places, shops, missions,
+    /// refineries).
     pub sources: u32,
+    /// The step this one follows (its id): refining comes after the mining
+    /// that gives the ore. A trip never puts it before that step.
+    pub after: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -429,6 +443,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                         cost: None,
                         odds: None,
                         sources: 1,
+                        after: None,
                     },
                     1,
                 ));
@@ -451,6 +466,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             cost: Some(0.0),
                             odds: None,
                             sources: u32::MAX,
+                            after: None,
                         });
                         buy_lines.push(Vec::new());
                         buys.len() - 1
@@ -486,6 +502,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     cost: None,
                     odds: None,
                     sources: 0,
+                    after: None,
                 });
             }
         }
@@ -556,6 +573,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             cost: None,
             odds: None,
             sources: grants.len() as u32,
+            after: None,
         });
     }
     earns.into_iter().for_each(&mut push);
@@ -591,13 +609,36 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             cost: None,
             odds: None,
             sources: found.sites.len() as u32,
+            after: None,
         };
+        // A refined material is mined as its ore: the refinery follows the
+        // mining, at the one nearest to it. No amount of ore is named and
+        // no time: the game data has neither a yield nor a duration.
+        let refine = found.sites.first().zip(found.ore.as_ref()).map(|(best, ore)| {
+            let at = best.refine_at.clone();
+            PlanStep {
+                id: format!("refine:{}:{}:{}", row.material, row.min_quality, row.bulk),
+                kind: StepKind::Refine,
+                title: match &at {
+                    Some(at) => format!("Refine {ore} at {}", at.name),
+                    None => format!("Refine {ore} at a refinery"),
+                },
+                detail: format!(
+                    "The recipe wants {}, the rocks hold {ore}; how much ore that takes is not in the game data",
+                    row.material
+                ),
+                at,
+                sources: found.refineries,
+                after: Some(base.id.clone()),
+                ..base.clone()
+            }
+        });
         push(match found.sites.first() {
             Some(best) => PlanStep {
                 title: format!("Mine {amount} {}{grade}", row.material),
                 detail: format!(
                     "{} of the ship rocks there hold it{}",
-                    about(best.find),
+                    share(best.find),
                     if row.min_quality > 1 {
                         " at this quality"
                     } else {
@@ -622,6 +663,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 ..base
             },
         });
+        if let Some(refine) = refine {
+            push(refine);
+        }
     }
 
     // Crafts: what the reserved stock covers now, and what still waits.
@@ -670,6 +714,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 cost: None,
                 odds: None,
                 sources: 0,
+                after: None,
             });
         }
         let rest = craft.left - can;
@@ -699,6 +744,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 cost: None,
                 odds: None,
                 sources: 0,
+                after: None,
             });
         }
     }
@@ -1033,13 +1079,17 @@ fn amount(value: f64, bulk: bool) -> String {
     format!("{text} SCU")
 }
 
-/// A sampled share, worded as the estimate it is: "About 38%".
-fn about(share: f32) -> String {
+/// The share of rocks that hold an ore at a quality, to the whole percent:
+/// "38%". The quality odds in it are exact (the game's own distribution);
+/// which parts a rock holds is still counted over sampled rolls of its
+/// composition, which moves the figure by about a point at most, so no
+/// decimals are shown.
+fn share(share: f32) -> String {
     let pct = share * 100.0;
     if pct > 0.0 && pct < 1.0 {
         "Under 1%".to_owned()
     } else {
-        format!("About {pct:.0}%")
+        format!("{pct:.0}%")
     }
 }
 
@@ -1262,8 +1312,10 @@ pub(crate) mod tests {
             sites: vec![OreSite {
                 at: at("Moon One"),
                 find: 0.5,
+                ..OreSite::default()
             }],
             mined: true,
+            ..OreSites::default()
         };
         let board = derive(&craft_state(1, 0), &inputs, &ores);
         let mine = board
@@ -1272,7 +1324,7 @@ pub(crate) mod tests {
             .find(|s| s.kind == StepKind::Mine)
             .unwrap();
         assert_eq!(mine.title, "Mine 2 SCU Ore A");
-        assert_eq!(mine.detail, "About 50% of the ship rocks there hold it");
+        assert_eq!(mine.detail, "50% of the ship rocks there hold it");
     }
 
     #[test]
@@ -1350,8 +1402,10 @@ pub(crate) mod tests {
                 sites: vec![OreSite {
                     at: at("Moon One"),
                     find: 0.42,
+                    ..OreSite::default()
                 }],
                 mined: true,
+                ..OreSites::default()
             },
             _ => OreSites::default(),
         };
@@ -1368,7 +1422,7 @@ pub(crate) mod tests {
         assert_eq!(mine.title, "Mine 2 SCU Ore A, Q700+");
         assert_eq!(
             mine.detail,
-            "About 42% of the ship rocks there hold it at this quality"
+            "42% of the ship rocks there hold it at this quality"
         );
         assert_eq!(mine.at, Some(at("Moon One")));
         let gather = by_kind(StepKind::Gather);
@@ -1440,8 +1494,10 @@ pub(crate) mod tests {
             sites: vec![OreSite {
                 at: at("Moon One"),
                 find: 0.5,
+                ..OreSite::default()
             }],
             mined: true,
+            ..OreSites::default()
         };
         let board = derive(&state, &inputs, &ores);
         let mine = board
@@ -1455,6 +1511,94 @@ pub(crate) mod tests {
         assert!(!board.plans[0].waiting);
         assert_eq!(board.plans[0].note, "Next: craft the Widget");
         assert_eq!(board.plans[1].tiles[1].value, "0");
+    }
+
+    /// A recipe that wants 2 SCU of "Metal", mined as "Metal (Ore)".
+    fn refined(refine_at: Option<PlanPlace>, quality: u32) -> Board {
+        let mut inputs = Inputs::default();
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![slot("Metal", 2.0, 0)]));
+        let ores = move |_: &str, _: u32| OreSites {
+            sites: vec![OreSite {
+                at: at("Moon One"),
+                find: 0.25,
+                refine_at: refine_at.clone(),
+            }],
+            mined: true,
+            ore: Some("Metal (Ore)".into()),
+            refineries: 4,
+        };
+        derive(&craft_state(1, quality), &inputs, &ores)
+    }
+
+    #[test]
+    fn a_refined_material_is_mined_as_ore_and_then_refined_at_the_nearest_refinery() {
+        let board = refined(Some(at("Station R")), 700);
+        let kinds: Vec<StepKind> = board.steps.iter().map(|s| s.kind).collect();
+        assert_eq!(kinds, [StepKind::Mine, StepKind::Refine, StepKind::Craft]);
+        let (mine, refine) = (&board.steps[0], &board.steps[1]);
+        assert_eq!(refine.title, "Refine Metal (Ore) at Station R");
+        assert_eq!(refine.at, Some(at("Station R")));
+        assert_eq!(refine.after.as_deref(), Some(mine.id.as_str()));
+        assert_eq!(refine.plans, mine.plans);
+        assert_eq!(refine.sources, 4);
+        assert!(!refine.blocked);
+        // Mining comes first in the plan's note.
+        assert_eq!(board.plans[0].note, "Next: mine 2 SCU Metal, Q700+");
+    }
+
+    #[test]
+    fn a_refine_step_states_no_yield_no_time_and_no_odds() {
+        let board = refined(Some(at("Station R")), 0);
+        let refine = &board.steps[1];
+        assert_eq!(refine.seconds, None);
+        assert_eq!(refine.cost, None);
+        assert_eq!(refine.odds, None);
+        assert_eq!(
+            refine.detail,
+            "The recipe wants Metal, the rocks hold Metal (Ore); how much ore that takes is not in the game data"
+        );
+        assert!(!refine.title.chars().any(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn without_a_known_refinery_the_refine_step_has_no_place() {
+        let board = refined(None, 0);
+        let refine = &board.steps[1];
+        assert_eq!(refine.title, "Refine Metal (Ore) at a refinery");
+        assert_eq!(refine.at, None);
+    }
+
+    #[test]
+    fn an_ore_the_recipe_takes_as_it_is_and_one_no_place_gives_have_no_refine_step() {
+        // "Ore A" is asked for by its own name: no `ore` is handed in.
+        let mut inputs = Inputs::default();
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![slot("Ore A", 2.0, 0)]));
+        let raw = |_: &str, _: u32| OreSites {
+            sites: vec![OreSite {
+                at: at("Moon One"),
+                find: 0.5,
+                ..OreSite::default()
+            }],
+            mined: true,
+            ..OreSites::default()
+        };
+        let board = derive(&craft_state(1, 0), &inputs, &raw);
+        assert!(board.steps.iter().all(|s| s.kind != StepKind::Refine));
+        // Refined, but no place rolls it at the quality: there is nothing
+        // to refine yet.
+        let none = |_: &str, _: u32| OreSites {
+            mined: true,
+            ore: Some("Ore A (Ore)".into()),
+            refineries: 4,
+            ..OreSites::default()
+        };
+        let board = derive(&craft_state(1, 900), &inputs, &none);
+        assert!(board.steps.iter().all(|s| s.kind != StepKind::Refine));
+        assert!(board.steps.iter().any(|s| s.kind == StepKind::Gather));
     }
 
     #[test]
