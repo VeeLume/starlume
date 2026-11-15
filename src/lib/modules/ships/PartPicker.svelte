@@ -7,7 +7,9 @@
   // for a shield, the 32 Gm jump for a quantum drive). The columns are the
   // figures parts are chosen by, per type (./figures, shared with the part
   // lines). Search filters; Esc, a click outside or Cancel closes; a row
-  // fits the part.
+  // fits the part. A fitted part a blueprint makes can be tried as crafted
+  // at a quality (one for every material, as a Plans project has it): the
+  // page and this list then read it crafted, and Plans takes it from here.
   import { X } from "lucide-svelte";
   import { Segmented } from "@veelume/ui";
   import type { CandidateView, OfferView, TourView } from "$lib/bindings";
@@ -22,6 +24,10 @@
     count,
     coolantAsked = null,
     tour = null,
+    craft = null,
+    plans = null,
+    oncraft = () => {},
+    onplan = () => {},
     onpick,
     onclose,
   }: {
@@ -37,11 +43,31 @@
     /** The ship's moon tour (which planet, how many hops): names the
      *  quantum drive's tour column. */
     tour?: TourView | null;
+    /** The fitted part, when a blueprint makes it: its crafted quality,
+     *  null while it is as sold. */
+    craft?: { quality: number | null } | null;
+    /** Plans, when the module is on: whether the part is planned already. */
+    plans?: { planned: boolean } | null;
+    /** Mark the fitted part crafted at a quality; null: as sold. */
+    oncraft?: (quality: number | null) => void;
+    /** Plan to craft it, at its quality. */
+    onplan?: (quality: number) => void;
     onpick: (item: string | null) => void;
     onclose: () => void;
   } = $props();
 
   let q = $state("");
+  /** The quality "Crafted" sets: the last one tried, the best to start. */
+  let tried = $state(1000);
+  $effect(() => {
+    if (craft?.quality != null) tried = craft.quality;
+  });
+  function setQuality(raw: string) {
+    const v = Math.round(Number(raw));
+    if (!Number.isFinite(v)) return;
+    tried = Math.min(Math.max(v, 0), 1000);
+    oncraft(tried);
+  }
   let sort = $state<{ key: string; dir: number } | null>(null);
   let el = $state<HTMLElement>();
 
@@ -380,6 +406,49 @@
     <button type="button" class="x" onclick={onclose} aria-label="Close"><X size={15} /></button>
   </div>
 
+  {#if craft}
+    {@const crafted = craft.quality !== null}
+    <!-- The same controls in both states, so nothing moves as it toggles. -->
+    <div class="craft">
+      <span class="clbl">Fitted part</span>
+      <Segmented
+        options={[
+          { value: "sold", label: "As sold" },
+          { value: "crafted", label: "Crafted" },
+        ]}
+        value={crafted ? "crafted" : "sold"}
+        onchange={(v) => oncraft(v === "sold" ? null : tried)}
+      />
+      <label class="cq" class:dim={!crafted} title="The quality every material reaches; 500 is stock"
+        >Quality
+        <input
+          class="input"
+          type="number"
+          min="0"
+          max="1000"
+          step="50"
+          value={craft.quality ?? tried}
+          disabled={!crafted}
+          onchange={(e) => setQuality(e.currentTarget.value)}
+        /></label
+      >
+      <span class="grow"></span>
+      {#if plans}
+        <button
+          type="button"
+          class="btn"
+          disabled={!crafted && !plans.planned}
+          title={plans.planned
+            ? "It is in your plans: open Plans"
+            : crafted
+              ? `Plan to craft ${count > 1 ? `${count} of them` : "it"} at Q${craft.quality}: the steps and materials go to Plans`
+              : "Mark it crafted to plan it"}
+          onclick={() => onplan(craft.quality ?? tried)}>{plans.planned ? "In plans" : "Add to plan"}</button
+        >
+      {/if}
+    </div>
+  {/if}
+
   {#if error}
     <p class="err">{error}</p>
   {:else if !list}
@@ -527,6 +596,34 @@
     border-radius: var(--radius-chip);
     border: 1px solid var(--accent-border);
     color: var(--accent);
+  }
+  /* The fitted part as crafted: a quiet strip under the header. */
+  .craft {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: -2px 0 10px;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    background: var(--accent-fill-faint);
+    font-size: var(--text-small);
+  }
+  .clbl {
+    color: var(--text-dim);
+  }
+  .cq {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-dim);
+  }
+  .cq.dim {
+    opacity: 0.5;
+  }
+  .cq .input {
+    width: 72px;
+    font-size: var(--text-small);
+    padding-block: 3px;
   }
   .ph .input {
     flex: 0 1 220px;

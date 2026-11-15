@@ -228,7 +228,11 @@ fn walk(ctx: &Walk, level: &[Mounted], path: &mut Vec<String>) -> Vec<Slot> {
                 system,
                 stats: match item {
                     Some((g, i)) if !docked && own != System::Other => {
-                        stats(cooked, g, &i.item_type, weapons)
+                        let mut own = stats(cooked, g, &i.item_type, weapons);
+                        if let Some(c) = ctx.crafted.get(&key) {
+                            craft_stats(&mut own, c);
+                        }
+                        own
                     }
                     _ => Vec::new(),
                 },
@@ -240,6 +244,24 @@ fn walk(ctx: &Walk, level: &[Mounted], path: &mut Vec<String>) -> Vec<Slot> {
         path.pop();
     }
     out
+}
+
+/// A crafted part's own figures, the ones its recipe moves: the panels'
+/// headers sum them, and they read as the page's figures do.
+fn craft_stats(stats: &mut [Stat], c: &svc_data::Crafted) {
+    use svc_data::crafting::GameplayStat::*;
+    for s in stats {
+        let stat = match s.key.as_str() {
+            "hp" => ShieldMaxHealth,
+            "output" => PowerGeneration,
+            "coolant" => CoolantGeneration,
+            "qspeed" => QuantumSpeed,
+            "aim" => RadarMaxAimAssist,
+            "dps" | "alpha" | "dmgPhysical" | "dmgEnergy" | "dmgDistortion" => WeaponDamage,
+            _ => continue,
+        };
+        s.value = c.of(&stat).apply(s.value);
+    }
 }
 
 /// An item's display name, else its record name, else its GUID. The

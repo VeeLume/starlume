@@ -67,9 +67,11 @@
   // on its guns, a rack "16× StrikeForce II", and the pilot's guns of one
   // kind "4× CF-557".
   // A locked part's size badge is dimmed; a part on the power network has
-  // a power button (the power panel's icon does the same).
+  // a power button (the power panel's icon does the same). A part tried as
+  // crafted (the picker's "Crafted") says its quality and the figures its
+  // recipe changes, under its own.
   import { ChevronDown, ChevronRight, Power } from "lucide-svelte";
-  import type { ColumnView, GunView, SlotView } from "$lib/bindings";
+  import type { ColumnView, GainView, GunView, SlotView } from "$lib/bindings";
   import { damageType, lineFigures } from "./figures";
 
   let {
@@ -228,6 +230,11 @@
   }
 
 
+  /** A crafted figure: its value as crafted (a percent-only one has none)
+   *  and the change, signed. */
+  const gainValue = (g: GainView) => (g.value === null ? "" : `${num(g.value, Math.abs(g.value) < 100 ? 2 : 0)}${g.unit}`);
+  const gainPct = (g: GainView) => `${g.pct > 0 ? "+" : "−"}${num(Math.abs(g.pct), 1)} %`;
+
   /** Class and grade as the game says them ("Civilian C"). */
   const tier = (s: SlotView) =>
     s.itemType === "WeaponGun" || s.itemType === "Missile" ? "" : [s.class, s.grade >= 1 && s.grade <= 4 ? "ABCD"[s.grade - 1] : ""].filter(Boolean).join(" ");
@@ -381,6 +388,14 @@
   >
 {/snippet}
 
+{#snippet gains(gs: GainView[])}
+  <span class="facts">
+    {#each gs as g (g.label)}<span class="kv"
+        ><i>{g.label}</i>{gainValue(g)}<small class="chg" class:good={g.improved === true} class:bad={g.improved === false}>{gainPct(g)}</small></span
+      >{/each}
+  </span>
+{/snippet}
+
 {#snippet part(s: SlotView, sub: boolean)}
   {@const k = key(s)}
   {@const offNow = isOff(s)}
@@ -391,9 +406,13 @@
       <b>{s.itemType === "WeaponDefensive" ? `${cmKind(s)} launcher` : (s.name ?? "Empty")}</b>
       {#if tier(s)}<span class="tier">{tier(s)}</span>{/if}
       {#if s.itemType === "WeaponGun" && damageType(s.stats)}<span class="tier">{damageType(s.stats)}</span>{/if}
+      {#if s.crafted}<span class="crafted" title="Tried as crafted, every material at this quality">crafted Q{s.crafted.quality}</span>{/if}
       {#if sub && labels.get(k)}<span class="place">{labels.get(k)}</span>{/if}
       {#if facts(s).length}
         <span class="facts">{#each facts(s) as f (f.label + f.text)}<span class="kv">{#if f.label}<i>{f.label}</i>{/if}{f.text}</span>{/each}</span>
+      {/if}
+      {#if s.crafted?.gains.length}
+        {@render gains(s.crafted.gains)}
       {/if}
     </button>
     <span class="fig">{figure(s)}</span>
@@ -487,6 +506,10 @@
       <button type="button" class="nm" onclick={() => (open[k] = !open[k])}>
         <b>{r.parts.length}× {lead0.name}</b>
         {#if damageType(lead0.stats)}<span class="tier">{damageType(lead0.stats)}</span>{/if}
+        {#if r.parts.some((p) => p.crafted)}
+          {@const n = r.parts.filter((p) => p.crafted).length}
+          <span class="crafted">{n < r.parts.length ? `${n} crafted` : "crafted"}{alike(r.parts) && r.parts.every((p) => p.crafted?.quality === lead0.crafted?.quality) ? ` Q${lead0.crafted?.quality}` : ""}</span>
+        {/if}
         {#if offN && offN < r.parts.length}<span class="place">{offN} off</span>{/if}
         {#if facts(lead0).length}
           <span class="facts">{#each facts(lead0) as f (f.label + f.text)}<span class="kv">{#if f.label}<i>{f.label}</i>{/if}{f.text}</span>{/each}</span>
@@ -786,6 +809,13 @@
     font: 500 0.66rem var(--font-mono);
     letter-spacing: 0.04em;
     color: color-mix(in srgb, var(--hue) 40%, var(--text-faint));
+    white-space: nowrap;
+  }
+  /* A part tried as crafted: the one accent mark on its line. */
+  .crafted {
+    font: 600 0.66rem var(--font-mono);
+    letter-spacing: 0.04em;
+    color: var(--accent);
     white-space: nowrap;
   }
   .fig {
