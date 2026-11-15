@@ -111,6 +111,7 @@
     fit: "crate",
     buy: "crate",
     mine: "mine",
+    refine: "mine",
     gather: "mine",
     craft: "craft",
     earn: "mission",
@@ -444,6 +445,7 @@
     --hue: var(--hue-apricot);
   }
   .k-mine,
+  .k-refine,
   .k-gather {
     --hue: var(--hue-quality);
   }

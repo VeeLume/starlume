@@ -5,7 +5,8 @@
 //! board is derived on each read from what other parts of the app already
 //! hold: the cached inventory and blueprints (svc-dossier), saved loadouts
 //! (Ships), the UEX price cache, the blueprint catalog, the mining tables,
-//! the quantum-travel places and the session's last place. Nothing here
+//! the quantum-travel places, the places with a refinery and the session's
+//! last place. Nothing here
 //! touches the network: a board without a price cache simply has no buy
 //! steps with prices.
 
@@ -344,6 +345,14 @@ impl Sites {
             .find(|g| self.ids.contains(g))
     }
 
+    fn place(&self, id: &str) -> Option<PlanPlace> {
+        let site = self.sites.iter().find(|s| s.id == id)?;
+        Some(PlanPlace {
+            name: site.name.clone(),
+            site: Some(site.id.clone()),
+        })
+    }
+
     fn system_of(&self, id: &str) -> Option<&str> {
         self.sites
             .iter()
@@ -468,8 +477,7 @@ impl Gathered<'_> {
             )?;
             Some((place.name, site))
         });
-        let system = start.as_ref().and_then(|(_, site)| sites.system_of(site));
-        let ores = self.ores(&sites, system);
+        let ores = self.ores(&sites, start.as_ref().map(|(_, site)| site.as_str()));
         let board = mod_plans::steps::derive(state, &inputs, &ores);
         let sessions = mod_plans::session::sessions(
             &board.steps,
@@ -484,7 +492,7 @@ impl Gathered<'_> {
             steps: board.steps,
             ledger: board.ledger,
             sessions,
-            from: start.map(|(name, _)| name),
+            from: start.as_ref().map(|(name, _)| name.clone()),
             drive_ship: drive.map(|(ship, _)| ship),
             inventory_at: self.inventory.map(|i| i.fetched_at as f64),
             prices_at: self.prices_at.map(|t| t as f64),
@@ -740,19 +748,29 @@ impl Gathered<'_> {
     }
 
     /// Where a material is ship-mined at a quality: its ore's areas from
-    /// the mining tables, with the game's own quality roll per place. A
+    /// the mining tables, with the game's own quality odds per place. A
     /// recipe names the refined material, the tables the ore, so both names
-    /// lead to the element.
+    /// lead to the element; asked by the refined name, the answer carries
+    /// the ore's name and the refinery nearest to each place.
+    ///
+    /// `start` is the site of the last known place.
     fn ores<'s>(
         &'s self,
         sites: &'s Sites,
-        system: Option<&'s str>,
+        start: Option<&'s str>,
     ) -> impl Fn(&str, u32) -> OreSites + 's {
         let cooked = self.cooked;
+        let system = start.and_then(|site| sites.system_of(site));
+        let refineries: Vec<String> = mod_ships::refinery_places(cooked)
+            .into_iter()
+            .map(|p| p.guid)
+            .collect();
         let mining = crate::mining::catalog_of(cooked)
             .ok()
             .zip(crate::mining::sources(cooked).ok());
-        let mut elements: HashMap<String, String> = HashMap::new();
+        // Material name → (element, the ore's name when the material is
+        // its refined version).
+        let mut elements: HashMap<String, (String, Option<String>)> = HashMap::new();
         if let (Some((catalog, _)), Some(resources)) =
             (&mining, cooked.holotable.resources.as_ref())
         {
@@ -760,18 +778,25 @@ impl Gathered<'_> {
                 let Some(raw) = catalog.elements.get(&named.value).and_then(|e| e.resource) else {
                     continue;
                 };
-                let refined = resources.refined_version_of(&raw).map(|r| r.guid);
-                for guid in std::iter::once(raw).chain(refined) {
-                    if let Some(name) = cooked.resource_name(&guid.to_string()) {
-                        elements
-                            .entry(name.to_lowercase())
-                            .or_insert_with(|| named.id.clone());
-                    }
+                let ore = cooked.resource_name(&raw.to_string());
+                // The ore's own name first: it is never "its refined version".
+                if let Some(name) = &ore {
+                    elements
+                        .entry(name.to_lowercase())
+                        .or_insert_with(|| (named.id.clone(), None));
+                }
+                let refined = resources
+                    .refined_version_of(&raw)
+                    .and_then(|r| cooked.resource_name(&r.guid.to_string()));
+                if let Some(name) = refined {
+                    elements
+                        .entry(name.to_lowercase())
+                        .or_insert_with(|| (named.id.clone(), ore.clone()));
                 }
             }
         }
         move |material: &str, quality: u32| {
-            let (Some((catalog, src)), Some(element)) =
+            let (Some((catalog, src)), Some((element, ore))) =
                 (&mining, elements.get(&material.to_lowercase()))
             else {
                 return OreSites::default();
@@ -779,24 +804,57 @@ impl Gathered<'_> {
             let found = |q: u32| mod_mining::ore_sites(src, catalog, element, q.min(1000) as u16);
             let at_quality = found(quality);
             let mined = !at_quality.is_empty() || (quality > 0 && !found(0).is_empty());
+            // The refinery nearest to a place; to you when the place is
+            // unknown or its system has none.
+            let refine_at = |site: Option<&str>| {
+                let near = |from: &str| {
+                    mod_plans::session::nearest(
+                        &sites.sites,
+                        from,
+                        refineries.iter().map(String::as_str),
+                    )
+                };
+                site.and_then(near)
+                    .or_else(|| start.and_then(near))
+                    .and_then(|id| sites.place(id))
+            };
             let mut found: Vec<OreSite> = at_quality
                 .into_iter()
                 .map(|s| {
                     // A gas pocket or a claim is flown to by its Lagrange
                     // point, and named by it: the pocket's own name
                     // ("ARC L3-A") is nowhere on the star map.
-                    let at = s
+                    let reach: Vec<(String, &mod_mining::Place)> = s
                         .travel
                         .iter()
-                        .find_map(|p| sites.of_location(cooked, &p.id).map(|site| (site, p)));
-                    let point = at
-                        .as_ref()
-                        .filter(|(_, p)| !s.places.iter().any(|q| q.id == p.id))
+                        .filter_map(|p| sites.of_location(cooked, &p.id).map(|site| (site, p)))
+                        .collect();
+                    // An area at several places (one table at ARC L3, CRU L5
+                    // and MIC L4): the one nearest to you when you are in
+                    // its system, else the first.
+                    let at = start
+                        .and_then(|from| {
+                            mod_plans::session::nearest(
+                                &sites.sites,
+                                from,
+                                reach.iter().map(|(site, _)| site.as_str()),
+                            )
+                        })
+                        .and_then(|id| reach.iter().find(|(site, _)| site == id))
+                        .or(reach.first());
+                    // Named by where you fly: the point for a pocket, the
+                    // chosen place for an area at several, else the area.
+                    let name = at
+                        .filter(|(_, p)| {
+                            s.travel.len() > 1 || !s.places.iter().any(|q| q.id == p.id)
+                        })
                         .map(|(_, p)| p.name.clone());
+                    let site = at.map(|(site, _)| site.clone());
                     OreSite {
+                        refine_at: ore.as_ref().and_then(|_| refine_at(site.as_deref())),
                         at: PlanPlace {
-                            site: at.map(|(site, _)| site),
-                            name: point.unwrap_or(s.name),
+                            site,
+                            name: name.unwrap_or(s.name),
                         },
                         find: s.find,
                     }
@@ -812,6 +870,8 @@ impl Gathered<'_> {
             OreSites {
                 mined,
                 sites: found,
+                ore: ore.clone(),
+                refineries: refineries.len() as u32,
             }
         }
     }

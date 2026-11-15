@@ -110,6 +110,35 @@ pub fn places(cooked: &CookedData) -> Places {
     Places { places, routes }
 }
 
+/// The places quantum travel can go that have a refinery: a refinery's
+/// star-map place itself when travel can go there, else the first place up
+/// its parents that it can. In the order of [`places`], each once.
+///
+/// Empty when the cook has no refinery placements (it could not open the
+/// p4k) or no star map.
+pub fn refinery_places(cooked: &CookedData) -> Vec<Place> {
+    let Some(star_map) = cooked.holotable.locations.as_ref() else {
+        return Vec::new();
+    };
+    let all = places(cooked).places;
+    let known = |g: &svc_data::Guid| {
+        let id = g.to_string();
+        all.iter().any(|p| p.guid == id).then_some(id)
+    };
+    let mut with: Vec<String> = Vec::new();
+    for place in cooked.refining.places() {
+        let at = known(&place).or_else(|| {
+            star_map
+                .ancestors(&place)
+                .find_map(|parent| known(&parent.guid))
+        });
+        if let Some(at) = at.filter(|at| !with.contains(at)) {
+            with.push(at);
+        }
+    }
+    all.into_iter().filter(|p| with.contains(&p.guid)).collect()
+}
+
 fn dist(a: &Place, b: &Place) -> f64 {
     (0..3)
         .map(|i| (a.position[i] - b.position[i]).powi(2))

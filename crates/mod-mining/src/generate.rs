@@ -1540,8 +1540,10 @@ fn mass_buckets(rolled: &[Rolled], classes: Option<&Vec<RockClass>>) -> Vec<Mass
         .collect()
 }
 
-/// Composition rolls per rock type and place for [`ore_sites`].
-const SITE_ROLLS: u64 = 400;
+/// Composition rolls per rock type for [`ore_sites`]: which parts a rock
+/// holds is counted over this many seeds (the quality odds of each held
+/// part are exact). 2000 puts the presence within about a point.
+const SITE_ROLLS: u32 = 2000;
 
 /// An area where an ore is ship-mined at a quality.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1560,9 +1562,12 @@ pub struct OreSite {
 }
 
 /// Where `element` is ship-mined at `min_quality` or better, best first.
-/// The quality is the game's own roll, sampled per rock type at the area's
-/// first place (the roll walks the place and its parents for an override);
-/// an area where no sampled rock reaches the quality is left out.
+///
+/// The quality odds are exact: the game's own distribution for the element
+/// at the area's first place (the place, then its parents, most specific
+/// first, for a location override), with each part's quality scale. Which
+/// parts a rock holds is still sampled: [`SITE_ROLLS`] rolls of each
+/// composition. An area where the quality cannot be reached is left out.
 pub fn ore_sites(
     src: &Sources<'_>,
     catalog: &Catalog,
@@ -1615,18 +1620,8 @@ pub fn ore_sites(
                 .iter()
                 .map(|(share, c)| {
                     let hits = *hit_cache.entry((c.guid, first.clone())).or_insert_with(|| {
-                        let n = (0..SITE_ROLLS)
-                            .filter(|seed| {
-                                c.roll_with_quality(composition_seed(*seed), &quality)
-                                    .iter()
-                                    .any(|e| {
-                                        e.element == element
-                                            && (min_quality == 0
-                                                || e.quality.is_some_and(|q| q >= min_quality))
-                                    })
-                            })
-                            .count();
-                        n as f32 / SITE_ROLLS as f32
+                        c.chance_at_quality(&element, min_quality, &quality, SITE_ROLLS)
+                            .unwrap_or_else(|| sampled_chance(c, &element, min_quality, &quality))
                     });
                     share * hits
                 })
@@ -1661,6 +1656,30 @@ pub fn ore_sites(
         .collect();
     out.sort_by(|a, b| b.find.total_cmp(&a.find).then(a.name.cmp(&b.name)));
     out
+}
+
+/// The chance a rock of `composition` holds `element` at `min_quality` or
+/// better, by rolling it: for an element whose quality has no exact odds
+/// (no quality at all, or a distribution that is not a normal one). An
+/// element with no quality counts only when no quality is asked.
+fn sampled_chance(
+    composition: &Composition,
+    element: &Guid,
+    min_quality: u16,
+    quality: &QualityRoll<'_>,
+) -> f32 {
+    let hits = (0..u64::from(SITE_ROLLS))
+        .filter(|seed| {
+            composition
+                .roll_with_quality(composition_seed(*seed), quality)
+                .iter()
+                .any(|e| {
+                    e.element == *element
+                        && (min_quality == 0 || e.quality.is_some_and(|q| q >= min_quality))
+                })
+        })
+        .count();
+    hits as f32 / SITE_ROLLS as f32
 }
 
 /// Generate one rock for `request`; `loadout` (with a laser) adds the class
