@@ -376,3 +376,111 @@ fn ore_sites_send_pockets_to_their_lagrange_point() {
         "no site moved to ARC L3"
     );
 }
+
+/// The share of an area's ship rocks that hold an ore at a quality, for a
+/// handful of ores: printed as a table (the figures to compare when the
+/// odds' method changes), and never rising with the quality asked.
+#[test]
+#[ignore = "needs a real Data.p4k — set STARLUME_REAL_P4K"]
+fn ore_site_odds_fall_with_the_quality_asked() {
+    let p4k =
+        std::env::var("STARLUME_REAL_P4K").expect("set STARLUME_REAL_P4K to a real Data.p4k path");
+    let install = InstallRef {
+        channel_key: "real-test".into(),
+        p4k_path: p4k.into(),
+        build_id: "real-test-build".into(),
+        version: "real-test".into(),
+    };
+    let service = DataService::new(std::env::temp_dir().join("starlume-svcdata-real-test"));
+    let cooked = service
+        .load(&install, |stage| eprintln!("stage: {stage:?}"))
+        .expect("load real install");
+    let catalog = Catalog::build(&cooked.mining, &cooked.locale).unwrap();
+    let h = &cooked.holotable;
+    let src = Sources {
+        index: &cooked.mining,
+        providers: h.gathering.as_ref().unwrap(),
+        tags: h.tags.as_ref().unwrap(),
+        resources: h.resources.as_ref().unwrap(),
+        locations: h.locations.as_ref().unwrap(),
+        locale: &cooked.locale,
+        places: cooked.mining.places.as_ref(),
+    };
+    let wanted = [
+        "quantanium",
+        "titanium",
+        "gold",
+        "copper",
+        "riccite",
+        "stileron",
+        "iron",
+        "tungsten",
+    ];
+    let qualities = [0u16, 300, 500, 700, 900];
+    let mut seen = 0;
+    for element in &catalog.element_names {
+        let name = element.name.to_lowercase();
+        if !wanted.iter().any(|w| name.starts_with(w)) {
+            continue;
+        }
+        let start = Instant::now();
+        let by_quality: Vec<Vec<mod_mining::OreSite>> = qualities
+            .iter()
+            .map(|q| mod_mining::ore_sites(&src, &catalog, &element.id, *q))
+            .collect();
+        let ms = start.elapsed().as_millis();
+        let Some(best) = by_quality[0].first() else {
+            continue;
+        };
+        seen += 1;
+        // The area that holds it most often, and the one best at Q700.
+        let mut areas = vec![best.area.clone()];
+        if let Some(high) = by_quality[3].first().filter(|s| s.area != best.area) {
+            areas.push(high.area.clone());
+        }
+        for area in areas {
+            let row: Vec<String> = qualities
+                .iter()
+                .zip(&by_quality)
+                .map(|(q, sites)| {
+                    let find = sites
+                        .iter()
+                        .find(|s| s.area == area)
+                        .map_or(0.0, |s| s.find);
+                    format!("Q{q}+ {:.2}%", find * 100.0)
+                })
+                .collect();
+            let name = &by_quality
+                .iter()
+                .flatten()
+                .find(|s| s.area == area)
+                .unwrap()
+                .name;
+            eprintln!("ODDS {} @ {}: {}", element.name, name, row.join(" | "));
+        }
+        eprintln!(
+            "ODDS {}: sites per quality {:?}, {ms} ms",
+            element.name,
+            by_quality.iter().map(Vec::len).collect::<Vec<_>>()
+        );
+        for pair in by_quality.windows(2) {
+            for site in &pair[1] {
+                let lower = pair[0]
+                    .iter()
+                    .find(|s| s.area == site.area)
+                    .map_or(0.0, |s| s.find);
+                assert!(
+                    site.find <= lower + 1e-4,
+                    "{} at {}: {} above {lower} at the lower quality",
+                    element.name,
+                    site.name,
+                    site.find
+                );
+            }
+        }
+        for site in by_quality.iter().flatten() {
+            assert!((0.0..=1.0001).contains(&site.find), "{}", site.find);
+        }
+    }
+    assert!(seen > 0, "none of the ores is in the catalog");
+}
