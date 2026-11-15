@@ -13,10 +13,12 @@
 //! - elements are the ones ship rocks spawn, with a density.
 
 use serde::Serialize;
+use svc_data::craft::eval_property;
+use svc_data::crafting::GameplayStat;
 use svc_data::mining::{
     Activation, Elements, MiningGadget, MiningLaserStats, MiningModule, Ruleset, Shape,
 };
-use svc_data::{Guid, LocaleMap, MiningIndex};
+use svc_data::{BlueprintSlot, Change, Guid, LocaleMap, MiningIndex, Recipes};
 
 /// The ship mining ruleset's record name.
 pub const SHIP_RULESET: &str = "MiningGlobalParamsShip";
@@ -55,6 +57,64 @@ pub struct Catalog {
 pub struct LaserItem {
     pub size: i32,
     pub stats: MiningLaserStats,
+    /// Its recipe, when a blueprint makes it ([`Catalog::with_recipes`]).
+    pub craft: Option<LaserCraft>,
+}
+
+/// What crafting a laser changes. A mining laser's recipe moves two
+/// properties: Integrity, which nothing here reads, and Impact Force
+/// (`WeaponDamage`), whose sheet row is fire action 0's `damagePerSecond`:
+/// the fracturing beam's energy, its power. That is what is laid on. The
+/// extraction beam is left as it is: the recipe's sheet shows only the
+/// first beam, and nothing says the game scales the other one too.
+/// Mining modules' recipes change nothing at any quality (4.x).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LaserCraft {
+    /// The blueprint (`CraftingBlueprintRecord` GUID): what Plans takes.
+    pub blueprint: String,
+    slots: Vec<BlueprintSlot>,
+    /// The recipe's `WeaponDamage` properties.
+    power: Vec<String>,
+}
+
+impl LaserCraft {
+    /// What crafting at `quality` does to the fracturing beam's power.
+    pub fn power_at(&self, quality: i32) -> Change {
+        let q = [f64::from(quality.clamp(0, svc_data::craft::MAX_QUALITY))];
+        self.power
+            .iter()
+            .map(|p| eval_property(p, &self.slots, &q))
+            .fold(Change::NONE, |acc, c| Change {
+                factor: acc.factor + (c.factor - 1.0),
+                added: acc.added + c.added,
+            })
+    }
+}
+
+impl LaserItem {
+    /// Its stats as sold, or crafted at `quality` when a recipe makes it.
+    pub fn stats_at(&self, quality: Option<i32>) -> MiningLaserStats {
+        let mut stats = self.stats.clone();
+        let (Some(q), Some(craft)) = (quality, &self.craft) else {
+            return stats;
+        };
+        let fracture = stats
+            .fracture_beam()
+            .and_then(|f| stats.beams.iter().position(|b| std::ptr::eq(b, f)));
+        if let Some(i) = fracture {
+            let beam = &mut stats.beams[i];
+            beam.energy_per_second =
+                craft.power_at(q).apply(f64::from(beam.energy_per_second)) as f32;
+        }
+        stats
+    }
+
+    /// Its power (the fracturing beam's energy per second) at `quality`.
+    pub fn power_at(&self, quality: Option<i32>) -> f32 {
+        self.stats_at(quality)
+            .fracture_beam()
+            .map_or(0.0, |b| b.energy_per_second)
+    }
 }
 
 fn is_junk(record_name: &str) -> bool {
@@ -125,6 +185,7 @@ impl Catalog {
                     value: LaserItem {
                         size: l.size,
                         stats: l.stats.clone(),
+                        craft: None,
                     },
                 })
             })
@@ -197,6 +258,31 @@ impl Catalog {
         })
     }
 
+    /// Each laser with its recipe, when a blueprint makes it: a laser
+    /// marked crafted then solves with the recipe's power.
+    pub fn with_recipes(mut self, recipes: &Recipes) -> Self {
+        for l in &mut self.lasers {
+            let Some(bp) = recipes.of(&l.id) else {
+                continue;
+            };
+            let mut power: Vec<String> = Vec::new();
+            for m in bp.slots.iter().flat_map(|s| &s.modifiers) {
+                if let Some(p) = m.property.as_deref()
+                    && recipes.stat_of(p) == Some(GameplayStat::WeaponDamage)
+                    && !power.iter().any(|x| x == p)
+                {
+                    power.push(p.to_owned());
+                }
+            }
+            l.value.craft = Some(LaserCraft {
+                blueprint: bp.guid.clone(),
+                slots: bp.slots.clone(),
+                power,
+            });
+        }
+        self
+    }
+
     pub fn laser(&self, id: &str) -> Option<&Named<LaserItem>> {
         self.lasers.iter().find(|l| l.id == id)
     }
@@ -217,4 +303,82 @@ impl Catalog {
 /// Whether a module only works while activated.
 pub fn is_active(module: &MiningModule) -> bool {
     matches!(module.activation, Activation::Active { .. })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use svc_data::mining::{MiningBeam, MiningModifiers};
+    use svc_data::{ModifierRange, ModifierTransform, SlotModifier};
+
+    fn beam(hit: &str, eps: f32) -> MiningBeam {
+        MiningBeam {
+            fire_action: 0,
+            hit_type: hit.into(),
+            energy_per_second: eps,
+            full_damage_range: 60.0,
+            zero_damage_range: 180.0,
+        }
+    }
+
+    /// The Arbor MH1's recipe shape: two slots of Impact Force at
+    /// ×0.80–1.20 each.
+    fn arbor() -> LaserItem {
+        let slot = || BlueprintSlot {
+            name: None,
+            material: "Ore".into(),
+            scu: Some(1.0),
+            count: None,
+            min_quality: 0,
+            modifiers: vec![SlotModifier {
+                property: Some("impact".into()),
+                name: Some("Impact Force".into()),
+                transform: ModifierTransform::Raw,
+                ranges: vec![ModifierRange {
+                    additive: false,
+                    start_quality: 0,
+                    end_quality: 1000,
+                    at_start: 0.8,
+                    at_end: 1.2,
+                }],
+            }],
+        };
+        LaserItem {
+            size: 1,
+            stats: MiningLaserStats {
+                beams: vec![beam("ElectricArc", 2340.0), beam("Extraction", 1850.0)],
+                throttle_minimum: 0.1,
+                throttle_lerp_speed: 1.0,
+                uses_power_throttle: false,
+                modifiers: MiningModifiers::default(),
+                inert_filter: None,
+                module_slots: 1,
+            },
+            craft: Some(LaserCraft {
+                blueprint: "bp".into(),
+                slots: vec![slot(), slot()],
+                power: vec!["impact".into()],
+            }),
+        }
+    }
+
+    #[test]
+    fn a_crafted_laser_powers_its_fracturing_beam_only() {
+        let l = arbor();
+        assert_eq!(l.power_at(None), 2340.0);
+        // Two +20% slots at Q1000: +40%.
+        assert!((l.power_at(Some(1000)) - 3276.0).abs() < 0.01);
+        assert_eq!(l.power_at(Some(500)), 2340.0);
+        let crafted = l.stats_at(Some(1000));
+        assert_eq!(crafted.extraction_beam().unwrap().energy_per_second, 1850.0);
+    }
+
+    #[test]
+    fn a_laser_no_recipe_makes_stays_as_sold() {
+        let l = LaserItem {
+            craft: None,
+            ..arbor()
+        };
+        assert_eq!(l.power_at(Some(1000)), 2340.0);
+    }
 }

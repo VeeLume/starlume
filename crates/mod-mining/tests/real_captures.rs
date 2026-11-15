@@ -157,6 +157,7 @@ fn captured_rocks_from_a_golem() {
             crew: None,
             distance_m: None,
             off: false,
+            quality: None,
         }],
         gadget: None,
         lead: None,

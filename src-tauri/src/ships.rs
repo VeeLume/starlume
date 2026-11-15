@@ -206,7 +206,46 @@ pub struct SlotView {
     pub class: Option<String>,
     pub system: SystemView,
     pub stats: Vec<StatView>,
+    /// The blueprint that makes the part: it can be marked crafted.
+    pub blueprint: Option<String>,
+    /// The part as crafted, when its edit marks it.
+    pub crafted: Option<CraftedMarkView>,
     pub children: Vec<SlotView>,
+}
+
+/// A part marked crafted: its quality and the figures that change.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CraftedMarkView {
+    pub quality: i32,
+    pub gains: Vec<GainView>,
+}
+
+/// One figure of a crafted part's stat sheet, as stock and as crafted.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GainView {
+    pub label: String,
+    pub unit: String,
+    /// `null` for a percent-only figure.
+    pub base: Option<f64>,
+    pub value: Option<f64>,
+    pub pct: f64,
+    /// Better for the part; `null` when unclear.
+    pub improved: Option<bool>,
+}
+
+impl From<svc_data::Gain> for GainView {
+    fn from(g: svc_data::Gain) -> Self {
+        Self {
+            label: g.label,
+            unit: g.unit,
+            base: g.base,
+            value: g.value,
+            pct: g.pct,
+            improved: g.improved,
+        }
+    }
 }
 
 impl From<Slot> for SlotView {
@@ -226,6 +265,11 @@ impl From<Slot> for SlotView {
             class: s.class,
             system: s.system.into(),
             stats: s.stats.into_iter().map(Into::into).collect(),
+            blueprint: s.blueprint,
+            crafted: s.crafted.map(|c| CraftedMarkView {
+                quality: c.quality,
+                gains: c.gains.into_iter().map(Into::into).collect(),
+            }),
             children: s.children.into_iter().map(Into::into).collect(),
         }
     }
@@ -237,6 +281,10 @@ impl From<Slot> for SlotView {
 pub struct EditView {
     pub path: Vec<String>,
     pub item: Option<String>,
+    /// What if the part were crafted, every material at this quality
+    /// (0..=1000); `null`: as the shops sell it.
+    #[serde(default)]
+    pub quality: Option<i32>,
 }
 
 /// A ship and how it differs from stock.
@@ -257,6 +305,7 @@ impl From<ShipLoadoutView> for LoadoutInput {
                 .map(|e| Edit {
                     path: e.path,
                     item: e.item,
+                    quality: e.quality,
                 })
                 .collect(),
         }
@@ -1069,12 +1118,14 @@ pub(crate) async fn ships_candidates(
 ) -> Result<Vec<CandidateView>, AppError> {
     use tauri::Manager;
     let cooked = cooked_for(&app, &channel).await?;
+    let blueprints = crate::crafting::blueprints_for(&app, &channel).await;
     let inventory = app.state::<crate::AppState>().dossier.cached_inventory();
     let uex = app.state::<crate::AppState>().uex.clone();
     let input: LoadoutInput = loadout.into();
     let settings: PowerInput = power.into();
     tauri::async_runtime::spawn_blocking(move || {
-        let list = mod_ships::candidates(&cooked, &input, &settings, &targets)?;
+        let recipes = svc_data::Recipes::new(blueprints.as_deref(), &cooked.crafting);
+        let list = mod_ships::candidates(&cooked, &recipes, &input, &settings, &targets)?;
         let owned = inventory.map(|inv| owned_free(&mod_items::finder(&inv, &cooked)));
         // UEX's cached prices (no network), loaded for this list and dropped.
         let prices = uex.snapshot();
@@ -1417,13 +1468,17 @@ pub(crate) async fn ships_view(
     power: PowerSettingsView,
 ) -> Result<ShipPageView, AppError> {
     let cooked = cooked_for(&app, &channel).await?;
+    let blueprints = crate::crafting::blueprints_for(&app, &channel).await;
     let input: LoadoutInput = loadout.into();
     let settings: PowerInput = power.into();
-    tauri::async_runtime::spawn_blocking(move || mod_ships::view(&cooked, &input, &settings))
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
-        .map(Into::into)
-        .map_err(|e| AppError::Config(e.to_string()))
+    tauri::async_runtime::spawn_blocking(move || {
+        let recipes = svc_data::Recipes::new(blueprints.as_deref(), &cooked.crafting);
+        mod_ships::view(&cooked, &recipes, &input, &settings)
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
+    .map(Into::into)
+    .map_err(|e| AppError::Config(e.to_string()))
 }
 
 /// A ship with its fitted loadout, as the holo draws it. Assembled from the
@@ -1870,6 +1925,7 @@ impl From<ShipDraftView> for mod_ships::Draft {
                 .map(|e| Edit {
                     path: e.path,
                     item: e.item,
+                    quality: e.quality,
                 })
                 .collect(),
             off: v.off,
@@ -1888,6 +1944,7 @@ fn edit_views(edits: &[Edit]) -> Vec<EditView> {
         .map(|e| EditView {
             path: e.path.clone(),
             item: e.item.clone(),
+            quality: e.quality,
         })
         .collect()
 }

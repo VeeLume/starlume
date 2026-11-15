@@ -44,6 +44,7 @@
 pub mod blueprints;
 pub mod builds;
 pub mod cooked;
+pub mod craft;
 pub mod crafting;
 pub mod legality;
 pub mod mining;
@@ -74,6 +75,7 @@ pub use cooked::{
     CookedData, DATA_COOK_VERSION, ItemDetail, ItemPage, ItemQuery, ItemRow, ManufacturerRow,
     ResourceRow, STARLUME_COOK_REV,
 };
+pub use craft::{Change, Crafted, Gain, PropertyChange, Recipes};
 pub use crafting::{CraftingIndex, CraftingProperty};
 pub use legality::{JurisdictionRef, LegalityEntry, LegalityKind};
 pub use mining::{ElementEntry, GadgetEntry, LaserEntry, MiningIndex, ModuleEntry, RulesetEntry};

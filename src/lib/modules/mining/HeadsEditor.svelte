@@ -15,6 +15,8 @@
   import Chevron from "$lib/components/Chevron.svelte";
   import FxLines from "./FxLines.svelte";
   import { fxOf, laserShort } from "./format";
+  import { dataStore } from "$lib/state/data.svelte";
+  import { craftedLasers, loadCraftedLaser } from "$lib/state/mining.svelte";
 
   let {
     catalog,
@@ -50,7 +52,17 @@
   const seated = $derived(lasers.length > 1);
   const seat = (l: LaserInputView, i: number) => l.who ?? (i === 0 ? "You" : `Head ${i + 1}`);
   const firing = $derived(lasers.filter((l) => !l.off).length);
-  const laserChanged = (i: number) => base !== null && base[i]?.laser !== lasers[i].laser;
+  const laserChanged = (i: number) =>
+    base !== null && (base[i]?.laser !== lasers[i].laser || (base[i]?.quality ?? null) !== (lasers[i].quality ?? null));
+  // A head tried as crafted shows the power its recipe gives it (asked
+  // Rust-side once per laser and quality).
+  $effect(() => {
+    const c = dataStore.channel;
+    if (!c) return;
+    for (const l of lasers) if (l.quality != null && l.laser) void loadCraftedLaser(c, l.laser, l.quality);
+  });
+  const powerOf = (l: LaserInputView, base: number) =>
+    l.quality != null ? (craftedLasers.of(l.laser, l.quality)?.power ?? base) : base;
   const slotChanged = (i: number, s: number) => base !== null && (base[i]?.modules[s] ?? null) !== (lasers[i].modules[s] ?? null);
 
   function rename(i: number, who: string) {
@@ -97,9 +109,10 @@
       <button type="button" class="laser" class:on={open === `L${i}`} class:chg={laserChanged(i)} data-part onclick={() => onopen(`L${i}`)}>
         <span class="l">
           <b>{laser ? laserShort(laser.name) : "Unknown laser"}</b>
+          {#if laser && l.quality != null}<span class="crafted" title="Tried as crafted, every material at this quality">crafted Q{l.quality}</span>{/if}
           {#if laser}
             <small
-              >S{laser.size} · {Math.round(laser.power).toLocaleString("en-US")}{#if laser.optimalRangeM !== null && laser.maxRangeM !== null}
+              >S{laser.size} · {Math.round(powerOf(l, laser.power)).toLocaleString("en-US")}{#if laser.optimalRangeM !== null && laser.maxRangeM !== null}
                 · {laser.optimalRangeM.toFixed(0)}–{laser.maxRangeM.toFixed(0)} m{/if}</small
             >
           {/if}
@@ -140,6 +153,13 @@
 </div>
 
 <style>
+  /* A head tried as crafted: the one accent mark on its tile. */
+  .crafted {
+    font: 600 0.66rem var(--font-mono);
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    white-space: nowrap;
+  }
   .heads {
     display: flex;
     flex-direction: column;
