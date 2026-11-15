@@ -6,7 +6,13 @@
   // each option's crack on the calculator's rock against what's in the slot
   // now; modules that don't change cracking (FLTR, XTR) in one line. A head
   // lists the lasers by size. One scroll, the page's; search filters, Esc or
-  // a click outside closes.
+  // a click outside closes. A head's laser a blueprint makes can be tried as
+  // crafted at a quality (one for every material): the solver gives it the
+  // recipe's power, and Plans takes it from here.
+  import { Segmented } from "@veelume/ui";
+  import { goto } from "$app/navigation";
+  import { addCraftPlan, loadPlans, plansStore } from "$lib/state/plans.svelte";
+  import { settingsStore } from "$lib/state/settings.svelte";
   import type { Snippet } from "svelte";
   import { X } from "lucide-svelte";
   import type { EvalView, LaserInputView, LoadoutView, MiningCatalogView } from "$lib/bindings";
@@ -23,6 +29,7 @@
     build,
     minus = null,
     onpick,
+    oncraft,
     onclose,
     views,
   }: {
@@ -37,6 +44,9 @@
     /** Subtracted from every crack: a crew mate's options read as what they add. */
     minus?: number | null;
     onpick: (next: LaserInputView[]) => void;
+    /** The heads with the open laser's crafted mark changed; the picker
+     *  stays open. Left out: the change goes through `onpick`. */
+    oncraft?: (next: LaserInputView[]) => void;
     onclose: () => void;
     /** A switch to another view of the same choice (Loadouts' sweep). */
     views?: Snippet;
@@ -110,6 +120,35 @@
     onpick(withOption(id));
   }
 
+  // ── The head's laser as crafted ──
+  const fitted = $derived(isLaser && current ? (catalog.lasers.find((l) => l.id === current.laser) ?? null) : null);
+  const crafted = $derived(current?.quality ?? null);
+  /** The quality "Crafted" sets: the last one tried, the best to start. */
+  let tried = $state(1000);
+  $effect(() => {
+    if (crafted !== null) tried = crafted;
+  });
+  function setCraft(quality: number | null) {
+    const next = lasers.map((l, i) => (i === head ? { ...l, quality } : l));
+    (oncraft ?? onpick)(next);
+  }
+  function setQuality(raw: string) {
+    const v = Math.round(Number(raw));
+    if (!Number.isFinite(v)) return;
+    tried = Math.min(Math.max(v, 0), 1000);
+    setCraft(tried);
+  }
+  const plansOn = $derived(settingsStore.current?.enabled_modules.includes("plans") ?? false);
+  $effect(() => {
+    if (plansOn && plansStore.plans === null) void loadPlans();
+  });
+  const planned = $derived(fitted?.blueprint ? !!plansStore.craftOf(fitted.blueprint) : false);
+  function plan() {
+    if (!fitted?.blueprint) return;
+    if (planned) void goto("/plans");
+    else void addCraftPlan(fitted.blueprint, 1, crafted ?? tried);
+  }
+
   function outside(e: MouseEvent) {
     const t = e.target as HTMLElement;
     // A click that swapped this in for another view lands here detached.
@@ -134,6 +173,48 @@
     {@render views?.()}
     <button type="button" class="x" onclick={onclose} aria-label="Close"><X size={15} /></button>
   </div>
+
+  {#if fitted?.blueprint}
+    <!-- The same controls in both states, so nothing moves as it toggles. -->
+    <div class="craft">
+      <span class="clbl">{laserName}</span>
+      <Segmented
+        options={[
+          { value: "sold", label: "As sold" },
+          { value: "crafted", label: "Crafted" },
+        ]}
+        value={crafted === null ? "sold" : "crafted"}
+        onchange={(v) => setCraft(v === "sold" ? null : tried)}
+      />
+      <label class="cq" class:dim={crafted === null} title="The quality every material reaches; 500 is stock"
+        >Quality
+        <input
+          class="input"
+          type="number"
+          min="0"
+          max="1000"
+          step="50"
+          value={crafted ?? tried}
+          disabled={crafted === null}
+          onchange={(e) => setQuality(e.currentTarget.value)}
+        /></label
+      >
+      <span class="grow"></span>
+      {#if plansOn}
+        <button
+          type="button"
+          class="btn"
+          disabled={crafted === null && !planned}
+          title={planned
+            ? "It is in your plans: open Plans"
+            : crafted !== null
+              ? `Plan to craft it at Q${crafted}: the steps and materials go to Plans`
+              : "Mark it crafted to plan it"}
+          onclick={plan}>{planned ? "In plans" : "Add to plan"}</button
+        >
+      {/if}
+    </div>
+  {/if}
 
   {#if isLaser}
     <div class="row h lz"><span>Laser</span><span>power</span><span>range</span><span>resist.</span><span>instab.</span><span>window</span><span>{minus === null ? "crack here" : "adds"}</span></div>
@@ -200,6 +281,34 @@
     gap: 10px;
     flex-wrap: wrap;
     margin-bottom: 8px;
+  }
+  /* The head's laser as crafted: a quiet strip under the header. */
+  .craft {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 8px;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    background: var(--accent-fill-faint);
+    font-size: var(--text-small);
+  }
+  .clbl {
+    color: var(--text-dim);
+  }
+  .cq {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-dim);
+  }
+  .cq.dim {
+    opacity: 0.5;
+  }
+  .cq .input {
+    width: 72px;
+    font-size: var(--text-small);
+    padding-block: 3px;
   }
   .ttl {
     font-weight: var(--weight-semibold);

@@ -576,6 +576,18 @@ async miningCompare(channel: string, rock: RockView, loadouts: LoadoutView[]) : 
 }
 },
 /**
+ * `laser` crafted with every material at `quality`: its power and what
+ * its recipe changes. `null` when no recipe makes it.
+ */
+async miningLaserCrafted(channel: string, laser: string, quality: number) : Promise<Result<CraftedLaserView | null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mining_laser_crafted", { channel, laser, quality }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Capture the game window now and read it.
  */
 async miningCapture(channel: string, kind: CaptureKind) : Promise<Result<CaptureView, AppError>> {
@@ -1948,6 +1960,15 @@ blueprint: string; count: number;
  */
 quality: number }
 /**
+ * A laser crafted at a quality: its power and the recipe sheet's rows
+ * that change.
+ */
+export type CraftedLaserView = { 
+/**
+ * Fracturing energy per second as crafted.
+ */
+power: number; gains: GainView[] }
+/**
  * A part marked crafted: its quality and the figures that change.
  */
 export type CraftedMarkView = { quality: number; gains: GainView[] }
@@ -2697,7 +2718,13 @@ distanceM: number | null;
  * the ship but puts nothing on the rock. The calculator's only; saved
  * loadouts have every head on.
  */
-off?: boolean }
+off?: boolean; 
+/**
+ * What if the laser were crafted, every material at this quality
+ * (0..=1000); `null`: as the shops sell it. Left out when unset, so
+ * a loadout hashes as it did before (the comfort cache's key).
+ */
+quality?: number | null }
 export type LauncherStatusView = { 
 /**
  * The RSI launcher is installed where Starlume looks for it.
@@ -3014,7 +3041,12 @@ optimalRangeM: number | null;
 /**
  * No power beyond here, m.
  */
-maxRangeM: number | null; throttleMinimum: number; modifiers: ModifiersView }
+maxRangeM: number | null; throttleMinimum: number; modifiers: ModifiersView; 
+/**
+ * The blueprint that makes it: it can be tried as crafted. `null`:
+ * no recipe makes it.
+ */
+blueprint: string | null }
 export type MiningModuleView = { id: string; name: string; 
 /**
  * Power multiplier on the fracturing beam (×1.5 for a Surge).

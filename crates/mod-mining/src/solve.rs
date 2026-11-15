@@ -70,6 +70,11 @@ pub struct LaserInput {
     /// the instability split included.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub off: bool,
+    /// What if the laser were crafted, every material at this quality
+    /// (0..=1000): its fracturing beam takes the recipe's power
+    /// ([`crate::catalog::LaserCraft`]). `None`: as the shops sell it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<i32>,
 }
 
 impl LoadoutInput {
@@ -682,7 +687,7 @@ fn lasers_of(catalog: &Catalog, input: &LoadoutInput) -> Result<Vec<Laser>, Solv
                     slots: item.value.stats.module_slots,
                 });
             }
-            let mut laser = Laser::new(item.value.stats.clone());
+            let mut laser = Laser::new(item.value.stats_at(l.quality));
             laser.owner = l.owner;
             laser.distance_m = l.distance_m.unwrap_or(0.0).max(0.0);
             laser.modules = l

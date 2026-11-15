@@ -53,13 +53,21 @@ impl Latest {
 static BAND: Latest = Latest(AtomicU64::new(0));
 static ROLL: Latest = Latest(AtomicU64::new(0));
 
+/// The catalog, each laser with its recipe: a laser marked crafted solves
+/// with the recipe's power.
 pub(crate) async fn catalog_for(app: &AppHandle, channel: &str) -> Result<Catalog, AppError> {
     let cooked = cooked_for(app, channel).await?;
-    Catalog::build(&cooked.mining, &cooked.locale).ok_or_else(|| {
-        AppError::Config(
-            "this build's game data has no mining rules — reload it in Settings → Game data".into(),
-        )
-    })
+    let blueprints = crate::crafting::blueprints_for(app, channel).await;
+    catalog_with(&cooked, blueprints.as_deref())
+}
+
+/// [`catalog_of`] with each laser's recipe from `blueprints`.
+pub(crate) fn catalog_with(
+    cooked: &svc_data::CookedData,
+    blueprints: Option<&svc_data::BlueprintIndex>,
+) -> Result<Catalog, AppError> {
+    let recipes = svc_data::Recipes::new(blueprints, &cooked.crafting);
+    Ok(catalog_of(cooked)?.with_recipes(&recipes))
 }
 
 // ── Catalog views ───────────────────────────────────────────────────────────
@@ -112,6 +120,19 @@ pub struct MiningLaserView {
     pub max_range_m: Option<f32>,
     pub throttle_minimum: f32,
     pub modifiers: ModifiersView,
+    /// The blueprint that makes it: it can be tried as crafted. `null`:
+    /// no recipe makes it.
+    pub blueprint: Option<String>,
+}
+
+/// A laser crafted at a quality: its power and the recipe sheet's rows
+/// that change.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CraftedLaserView {
+    /// Fracturing energy per second as crafted.
+    pub power: f32,
+    pub gains: Vec<crate::ships::GainView>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -177,6 +198,7 @@ fn catalog_view(c: &Catalog) -> MiningCatalogView {
                     max_range_m: beam.map(|b| b.zero_damage_range),
                     throttle_minimum: s.throttle_minimum,
                     modifiers: (&s.modifiers).into(),
+                    blueprint: l.value.craft.as_ref().map(|c| c.blueprint.clone()),
                 }
             })
             .collect(),
@@ -219,6 +241,33 @@ fn catalog_view(c: &Catalog) -> MiningCatalogView {
     }
 }
 
+/// `laser` crafted with every material at `quality`: its power and what
+/// its recipe changes. `null` when no recipe makes it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn mining_laser_crafted(
+    app: AppHandle,
+    channel: String,
+    laser: String,
+    quality: i32,
+) -> Result<Option<CraftedLaserView>, AppError> {
+    let cooked = cooked_for(&app, &channel).await?;
+    let blueprints = crate::crafting::blueprints_for(&app, &channel).await;
+    let catalog = catalog_with(&cooked, blueprints.as_deref())?;
+    let Some(item) = catalog.laser(&laser).filter(|l| l.value.craft.is_some()) else {
+        return Ok(None);
+    };
+    let recipes = svc_data::Recipes::new(blueprints.as_deref(), &cooked.crafting);
+    Ok(Some(CraftedLaserView {
+        power: item.value.power_at(Some(quality)),
+        gains: recipes
+            .gains(&laser, quality)
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+    }))
+}
+
 /// The calculator's pickers: ship lasers, modules, gadgets, ship-rock elements.
 #[tauri::command]
 #[specta::specta]
@@ -250,6 +299,11 @@ pub struct LaserInputView {
     /// loadouts have every head on.
     #[serde(default)]
     pub off: bool,
+    /// What if the laser were crafted, every material at this quality
+    /// (0..=1000); `null`: as the shops sell it. Left out when unset, so
+    /// a loadout hashes as it did before (the comfort cache's key).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -275,6 +329,7 @@ impl From<LoadoutView> for mod_mining::LoadoutInput {
                     crew: l.crew,
                     distance_m: l.distance_m,
                     off: l.off,
+                    quality: l.quality,
                 })
                 .collect(),
             gadget: v.gadget,
@@ -297,6 +352,7 @@ impl From<mod_mining::LoadoutInput> for LoadoutView {
                     crew: l.crew,
                     distance_m: l.distance_m,
                     off: l.off,
+                    quality: l.quality,
                 })
                 .collect(),
             gadget: v.gadget,
@@ -1393,10 +1449,11 @@ pub(crate) async fn mining_comfort(
         return Ok(cached);
     }
     let cooked = cooked_for(&app, &channel).await?;
+    let blueprints = crate::crafting::blueprints_for(&app, &channel).await;
     let input: mod_mining::LoadoutInput = loadout.into();
     let out =
         tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ComfortView>, AppError> {
-            let catalog = catalog_of(&cooked)?;
+            let catalog = catalog_with(&cooked, blueprints.as_deref())?;
             let src = sources(&cooked)?;
             Ok(mod_mining::comfort(&src, &catalog, &input, &|| false)
                 .map_err(|e| AppError::Config(e.to_string()))?
@@ -1468,6 +1525,7 @@ pub(crate) async fn mining_generate(
     // first, before any await: tickets follow the page's request order
     let superseded = ROLL.ticket();
     let cooked = cooked_for(&app, &channel).await?;
+    let blueprints = crate::crafting::blueprints_for(&app, &channel).await;
     let request = mod_mining::GenerateRequest {
         area: request.area,
         rock_type: request.rock_type,
@@ -1487,7 +1545,7 @@ pub(crate) async fn mining_generate(
     };
     let loadout: Option<mod_mining::LoadoutInput> = loadout.map(Into::into);
     tauri::async_runtime::spawn_blocking(move || -> Result<GeneratedView, AppError> {
-        let catalog = catalog_of(&cooked)?;
+        let catalog = catalog_with(&cooked, blueprints.as_deref())?;
         let src = sources(&cooked)?;
         let g = mod_mining::generate(&src, &catalog, &request, loadout.as_ref(), &superseded)
             .map_err(|e| AppError::Config(e.to_string()))?;

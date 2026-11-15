@@ -291,7 +291,9 @@ impl<'a> Recipes<'a> {
             .collect()
     }
 
-    fn stat_of(&self, property: &str) -> Option<GameplayStat> {
+    /// What a property moves, by its record name; `None` for one the cook
+    /// doesn't know.
+    pub fn stat_of(&self, property: &str) -> Option<GameplayStat> {
         let p = self
             .crafting?
             .properties

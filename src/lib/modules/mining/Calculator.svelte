@@ -43,6 +43,7 @@
             open = "";
             void setOwnLasers(next);
           }}
+          oncraft={(next) => void setOwnLasers(next)}
           onclose={() => (open = "")}
         />
       </div>
