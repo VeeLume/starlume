@@ -16,7 +16,6 @@ members = [
     "crates/svc-discovery",
     "crates/svc-data",
     "crates/svc-capture",
-    "crates/svc-glyph",
     "crates/svc-commlinks",
     "crates/svc-dossier",
     "crates/svc-patchnotes",
@@ -97,7 +96,9 @@ tauri-plugin-sc-render = { git = "https://github.com/VeeLume/sc-render", tag = "
 svc-discovery = { path = "crates/svc-discovery" }
 svc-data = { path = "crates/svc-data" }
 svc-capture = { path = "crates/svc-capture" }
-svc-glyph = { path = "crates/svc-glyph" }
+# Glyph matching (the HUD reader's text): sc-nav's crate, pinned by commit
+# until sc-nav has a stable v0.1.0 (Valerie, 2026-11-16).
+sc-nav-glyph = { git = "https://github.com/VeeLume/sc-nav", rev = "2320f8c8d0289bb182f3251dd737bfd7812fbdc4" }
 svc-commlinks = { path = "crates/svc-commlinks" }
 svc-dossier = { path = "crates/svc-dossier" }
 svc-patchnotes = { path = "crates/svc-patchnotes" }

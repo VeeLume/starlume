@@ -2902,11 +2902,11 @@ name = "mod-mining"
 version = "0.6.0"
 dependencies = [
  "rayon",
+ "sc-nav-glyph",
  "serde",
  "serde_json",
  "svc-capture",
  "svc-data",
- "svc-glyph",
  "windows 0.61.3",
 ]
 
@@ -4845,6 +4845,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "sc-nav-glyph"
+version = "0.1.0"
+source = "git+https://github.com/VeeLume/sc-nav?rev=2320f8c8d0289bb182f3251dd737bfd7812fbdc4#2320f8c8d0289bb182f3251dd737bfd7812fbdc4"
+
+[[package]]
 name = "sc-refining"
 version = "0.0.0"
 source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.52.0#d6f03ef3d1b2b679091797c871a25b6cef1a1d73"
@@ -5917,7 +5922,7 @@ version = "0.6.0"
 dependencies = [
  "image",
  "rustfft",
- "svc-glyph",
+ "sc-nav-glyph",
  "thiserror 2.0.18",
  "windows 0.61.3",
 ]
@@ -5978,10 +5983,6 @@ dependencies = [
  "tokio",
  "tracing",
 ]
-
-[[package]]
-name = "svc-glyph"
-version = "0.6.0"
 
 [[package]]
 name = "svc-log"
