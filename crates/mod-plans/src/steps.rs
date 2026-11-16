@@ -139,6 +139,12 @@ pub struct SlotNeed {
     pub bulk: bool,
     /// The recipe's own minimum for the slot.
     pub min_quality: u32,
+    /// The minimum a plan aims for when nobody set one: the stock quality
+    /// (Q500, where a material neither helps nor hurts) for a slot that
+    /// moves stats, since anything below makes the item worse; the recipe's
+    /// own minimum for a slot that moves none (Valerie, 2026-11-16). Never
+    /// below `min_quality`.
+    pub aim: u32,
     /// The stats the slot's quality moves ("Integrity"), for showing beside
     /// its minimum.
     pub moves: Vec<String>,
@@ -506,7 +512,11 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                                 recipe,
                                 count: 1,
                                 left: 1,
-                                mins: recipe.slots.iter().map(|s| s.min_quality).collect(),
+                                mins: recipe
+                                    .slots
+                                    .iter()
+                                    .map(|s| s.aim.max(s.min_quality))
+                                    .collect(),
                                 quality: Some(0),
                                 parked: false,
                                 demands: Vec::new(),
@@ -1718,6 +1728,33 @@ pub(crate) mod tests {
         assert_eq!(board.steps[0].title, "Craft the Widget");
         assert_eq!(board.steps[0].detail, "Materials held");
         assert_eq!(board.steps[0].seconds, Some(60.0));
+    }
+
+    #[test]
+    fn a_loadout_craft_aims_at_the_neutral_quality_only_where_stats_move() {
+        let mut a = part("a");
+        a.blueprint = Some("bp-1".into());
+        let mut inputs = loadout(vec![a]);
+        let stat = SlotNeed {
+            aim: 500,
+            ..slot("Ore A", 2.0, 1)
+        };
+        let plain = SlotNeed {
+            aim: 1,
+            ..slot("Ore B", 1.0, 1)
+        };
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![stat, plain]));
+        // Q400 is below the neutral point: it does not fill the stat slot.
+        inputs.stock = vec![stack("Ore A", 400, 2.0), stack("Ore B", 10, 1.0)];
+        let board = derive(&loadout_state(), &inputs, &no_ores);
+        let mins: Vec<(&str, u32)> = board
+            .ledger
+            .iter()
+            .map(|r| (r.material.as_str(), r.min_quality))
+            .collect();
+        assert_eq!(mins, [("Ore A", 500), ("Ore B", 1)]);
     }
 
     #[test]

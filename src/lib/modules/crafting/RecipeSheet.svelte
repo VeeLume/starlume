@@ -150,9 +150,18 @@
     if (!detail) return;
     const d = detail;
     preset = next;
-    qualities = d.slots.map((s, i) =>
-      snapNearest(stops[i] ?? [], presetQuality(next, s.material, d.defaultQuality, craftingStore.stock.get(s.material.name))),
-    );
+    qualities = d.slots.map((s, i) => {
+      // Base aims at the stock quality (the neutral point) where the material
+      // moves stats, snapped up so it never lands below it; a material that
+      // moves nothing needs no more than the recipe's floor (Valerie,
+      // 2026-11-16). Mirrors SlotNeed::aim on the Rust side.
+      if (next === "Base") {
+        return s.modifiers.length === 0
+          ? snapUp(stops[i] ?? [], s.material.minQuality)
+          : snapUp(stops[i] ?? [], Math.max(d.defaultQuality, s.material.minQuality));
+      }
+      return snapNearest(stops[i] ?? [], presetQuality(next, s.material, d.defaultQuality, craftingStore.stock.get(s.material.name)));
+    });
   }
 
   function setQuality(i: number, value: number) {
