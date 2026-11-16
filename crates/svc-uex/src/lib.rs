@@ -23,6 +23,7 @@
 //! nothing resident while the app idles).
 
 pub mod feeds;
+pub mod history;
 pub mod lookup;
 
 use std::collections::BTreeMap;
@@ -199,7 +200,16 @@ impl UexService {
                 }
                 Feed::Vehicles => self.fetch::<Vehicle>(&client, feed).await,
                 Feed::Terminals => self.fetch::<Terminal>(&client, feed).await,
-                Feed::Marketplace => self.fetch::<MarketAverage>(&client, feed).await,
+                Feed::Marketplace => {
+                    // The cached list is the one the new one replaces: what
+                    // changed between them goes to the price history.
+                    let previous: Vec<MarketAverage> = self.rows(feed);
+                    let fetched = self.fetch::<MarketAverage>(&client, feed).await;
+                    if fetched.is_ok() {
+                        self.record_market(&previous, now);
+                    }
+                    fetched
+                }
             };
             match fetched {
                 Ok((rows, max_age)) => {
@@ -224,6 +234,23 @@ impl UexService {
             Some(e) => Err(e),
             None => Ok(report),
         }
+    }
+
+    /// Append what changed between `previous` and the marketplace list just
+    /// written to the price history ([`history`]). A failure costs one
+    /// step of history, never the refresh, so it is logged, not returned.
+    fn record_market(&self, previous: &[MarketAverage], now: i64) {
+        let current: Vec<MarketAverage> = self.rows(Feed::Marketplace);
+        let points = history::changes(previous, &current, now);
+        match history::append(&history::dir_in(&self.dir), &points) {
+            Ok(n) => tracing::debug!("UEX market history: {n} points"),
+            Err(e) => tracing::info!("UEX market history not written: {e}"),
+        }
+    }
+
+    /// The recorded marketplace history. No network.
+    pub fn market_history(&self) -> Vec<history::MarketPoint> {
+        history::read(&history::dir_in(&self.dir))
     }
 
     /// One list: read, keep the rows that parse, save. The row count and
