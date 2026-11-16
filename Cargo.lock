@@ -4699,6 +4699,7 @@ dependencies = [
  "sc-refining",
  "sc-resources",
  "sc-tags",
+ "sc-travel",
  "sc-vehicles",
  "sc-weapons",
  "serde",
@@ -4891,6 +4892,18 @@ version = "0.0.0"
 source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.53.0#8d3e7272c309a1840ecad9fea301f64bedd4b08e"
 dependencies = [
  "sc-extract",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "sc-travel"
+version = "0.0.0"
+source = "git+https://github.com/VeeLume/sc-holotable.git?tag=sc-holotable%2Fv0.53.0#8d3e7272c309a1840ecad9fea301f64bedd4b08e"
+dependencies = [
+ "sc-extract",
+ "sc-locations",
+ "sc-vehicles",
  "serde",
  "tracing",
 ]

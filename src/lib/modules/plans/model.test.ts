@@ -1,21 +1,24 @@
 import { describe, expect, it } from "vitest";
-import type { LedgerRow, Trip, TripStop } from "$lib/bindings";
-import { ago, amount, clock, ledgerBars, span, stepFigure, stopsText, timeText, timeline } from "./model";
+import type { LedgerRow, Track, Trip, TripStop } from "$lib/bindings";
+import { ago, amount, clock, ledgerBars, span, stepFigure, stopsText, timeText, timeline, trackNote } from "./model";
 
 const stop = (site: string, leg: TripStop["leg"], titles: string[]): TripStop => ({
   site,
   place: `Place ${site}`,
+  at: null,
   leg,
   steps: titles.map((title, i) => ({ id: `${site}:${i}`, kind: "fit", title, seconds: null })),
 });
 
-const trip = (stops: TripStop[], travelSeconds: number | null, workSeconds = 0): Trip => ({
-  choice: "most",
+const trip = (stops: TripStop[], travelSeconds: number | null, workSeconds = 0, estimate = false): Trip => ({
   stops,
-  why: "",
   travelSeconds,
   workSeconds,
+  estimate,
+  unplaced: 0,
 });
+
+const leg = (gm: number, seconds: number | null, crosses = false) => ({ gm, seconds, crosses });
 
 const row = (material: string, need: number, held: number, bulk = true): LedgerRow => ({
   material,
@@ -55,20 +58,21 @@ describe("a step's figure", () => {
 
 describe("the session card", () => {
   const two = trip(
-    [stop("a", null, ["Fit the Part a you own"]), stop("b", { gm: 31.9, seconds: 171 }, ["Do one", "Do two", "Do three"])],
+    [stop("a", null, ["Fit the Part a you own"]), stop("b", leg(31.9, 171), ["Do one", "Do two", "Do three"])],
     171,
     510,
   );
 
   it("heads with the stops and the time the data vouches for", () => {
     expect(stopsText(two)).toBe("2 stops");
-    expect(timeText(two)).toBe("3 min in quantum and 8:30 crafting");
+    expect(timeText(two)).toBe("3 min trip and 8:30 crafting");
+    expect(timeText(trip(two.stops, 171, 0, true))).toBe("~3 min trip");
     expect(stopsText(trip([], 0))).toBe("No trip");
     expect(timeText(trip([], 0))).toBe("");
   });
 
-  it("counts jumps when no drive timed them", () => {
-    expect(timeText(trip(two.stops, null))).toBe("1 jump");
+  it("states no trip time when no drive ordered it", () => {
+    expect(timeText(trip(two.stops, null))).toBe("");
   });
 
   it("lists each stop as what to do and the place, the jump there in the tooltip", () => {
@@ -77,13 +81,43 @@ describe("the session card", () => {
     expect(rows[0]).toMatchObject({ what: "Fit the Part a you own", where: "Place a" });
     expect(rows[0].full).not.toContain("Gm");
     expect(rows[1]).toMatchObject({ what: "Do one, do two and 1 more", where: "Place b" });
-    expect(rows[1].full).toContain("32 Gm from Place a, 3 min in quantum");
+    expect(rows[1].full).toContain("32 Gm from Place a, 3 min");
+  });
+
+  it("says when a leg goes through a jump point", () => {
+    const rows = timeline(trip([stop("b", leg(40, 700, true), ["Do one"])], 700), "Home");
+    expect(rows[0].full).toBe("Do one\n\n40 Gm from Home, 12 min, through a jump point");
   });
 
   it("leaves a jump's time out when it has none, and a start it does not know", () => {
-    const rows = timeline(trip([stop("b", { gm: 2.04, seconds: null }, ["Do one"])], null), "Home");
+    const rows = timeline(trip([stop("b", leg(2.04, null), ["Do one"])], null), "Home");
     expect(rows[0].full).toBe("Do one\n\n2.0 Gm from Home");
     expect(timeline(trip([stop("b", null, ["Do one"])], null))[0].full).toBe("Do one");
+  });
+
+  it("folds stops past the reserved rows into the last one", () => {
+    const five = trip(["a", "b", "c", "d", "e"].map((s) => stop(s, null, [`Do ${s}`])), 600);
+    const rows = timeline(five);
+    expect(rows.length).toBe(3);
+    expect(rows[2]).toMatchObject({ what: "3 more stops", where: "Place c, Place d, Place e" });
+  });
+});
+
+describe("a track's note", () => {
+  const track = (over: Partial<Track>): Track => ({
+    kind: "refining",
+    open: 1,
+    ready: 0,
+    waitsOn: null,
+    trip: trip([], null),
+    ...over,
+  });
+
+  it("is a short fact only when the track has no stops", () => {
+    expect(trackNote(track({ waitsOn: "mining" }))).toBe("Waits on mining");
+    expect(trackNote(track({}))).toBe("Nothing ready");
+    expect(trackNote(track({ kind: "crafting", ready: 2 }))).toBe("2 ready to craft");
+    expect(trackNote(track({ ready: 1, trip: trip([stop("a", null, ["Do"])], 60) }))).toBe("");
   });
 });
 

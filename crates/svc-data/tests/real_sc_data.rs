@@ -20,7 +20,7 @@
 //! current cook code always executes (a cached `foundations.cook` from a
 //! previous run of the *same* rev would otherwise short-circuit it).
 
-use svc_data::{CrimestatRisk, DataService, InstallRef, LegalityKind};
+use svc_data::{CrimestatRisk, DataService, InstallRef, LegalityKind, RecordCollection};
 
 /// The known single files read the same through a cooked asset index as
 /// through a full open. Point `STARLUME_REAL_INDEX` at a cook's `assets.index`.
@@ -68,6 +68,25 @@ fn cook_from_real_install() {
     let cooked = service
         .load(&install, |stage| eprintln!("stage: {stage:?}"))
         .expect("load real install");
+
+    // ── Travel graph (Plans' trips, sc-travel) ─────────────────────────
+    let travel = &cooked.ships.travel;
+    eprintln!(
+        "travel: {} places, {} bodies, {} jump links, tunnel {}",
+        travel.waypoints().len(),
+        travel.bodies().len(),
+        travel.links().len(),
+        travel.tunnel().is_some()
+    );
+    assert!(
+        travel.waypoints().len() > 500,
+        "the places quantum travel goes"
+    );
+    assert!(travel.bodies().len() > 20, "planets and moons");
+    assert!(
+        travel.links().len() >= 4,
+        "Stanton-Pyro and Pyro-Nyx, both ways"
+    );
 
     // ── Legality (the jurisdiction-pool spike) ─────────────────────────
     let drugs = cooked
