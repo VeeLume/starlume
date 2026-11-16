@@ -842,6 +842,46 @@ fn part_name(raw: &str) -> String {
         .join(" ")
 }
 
+/// The loadout's quantum drive as fitted, a crafted drive with what its
+/// crafting changes (speed, fuel). `None` without a drive.
+fn crafted_quantum(
+    index: &svc_data::ShipsIndex,
+    loadout: &Loadout,
+    crafted: &CraftedParts,
+) -> Option<Quantum> {
+    let mut q = Quantum::compute(
+        &loadout.mounted,
+        &index.vehicles,
+        &index.components,
+        &index.profiles,
+    )?;
+    // The drive `compute` took: the first on the network.
+    if let Some((path, _)) = network_items(&loadout.mounted, &index.vehicles)
+        .into_iter()
+        .find(|(_, g)| index.components.get(g).is_some_and(|s| s.quantum.is_some()))
+    {
+        q.travel.drive_speed =
+            crafted.apply(&path, &GameplayStat::QuantumSpeed, q.travel.drive_speed);
+        q.fuel_per_mm = crafted
+            .change(&path, &GameplayStat::QuantumFuelRequirement)
+            .apply(q.fuel_per_mm);
+    }
+    Some(q)
+}
+
+/// The quantum drive `input` flies with, crafted parts as `recipes` says:
+/// what sc-travel costs legs with. `None` for an unknown ship or one
+/// without a drive.
+pub fn quantum_drive(
+    cooked: &CookedData,
+    recipes: &Recipes,
+    input: &LoadoutInput,
+) -> Option<Quantum> {
+    let loadout = loadout(cooked, input).ok()?;
+    let crafted = CraftedParts::resolve(recipes, input, &loadout);
+    crafted_quantum(&cooked.ships, &loadout, &crafted)
+}
+
 /// The page for `input` under `settings`; a part `input` marks crafted
 /// takes what `recipes` says crafting changes ([`crate::crafted`]).
 pub fn view(
@@ -971,24 +1011,7 @@ pub fn view(
         &index.components,
         index.axes.get(&loadout.vehicle).unwrap_or(&no_axes),
     );
-    let quantum = Quantum::compute(
-        &loadout.mounted,
-        &index.vehicles,
-        &index.components,
-        &index.profiles,
-    )
-    .map(|mut q| {
-        // The drive `compute` took: the first on the network.
-        if let Some((path, _)) = network_items(&loadout.mounted, &index.vehicles)
-            .into_iter()
-            .find(|(_, g)| index.components.get(g).is_some_and(|s| s.quantum.is_some()))
-        {
-            q.travel.drive_speed =
-                crafted.apply(&path, &GameplayStat::QuantumSpeed, q.travel.drive_speed);
-            q.fuel_per_mm = crafted
-                .change(&path, &GameplayStat::QuantumFuelRequirement)
-                .apply(q.fuel_per_mm);
-        }
+    let quantum = crafted_quantum(index, &loadout, &crafted).map(|q| {
         // A jump as the player waits for it: spool-up, then the travel
         // (sc-vehicles' `time` is the travel alone). Nothing at 0 Gm.
         let spool = f64::from(q.travel.spool_up_time);

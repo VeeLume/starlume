@@ -2072,12 +2072,11 @@ pub(crate) mod tests {
         inputs.stock = vec![stack("Ore A", 500, 2.0)];
         let board = derive(&craft_state(1, 0), &inputs, &no_ores);
         assert_eq!(board.steps[0].at, None);
-        let trips = crate::session::sessions(&board.steps, &[], None, None);
-        assert!(trips.iter().all(|t| t.stops.is_empty()));
-        assert_eq!(
-            trips[0].why,
-            "None of the open steps has a place the map knows."
-        );
+        let t = crate::session::tracks(&board.steps, &[], None, None);
+        let craft = &t.tracks[0];
+        assert_eq!(craft.kind, crate::session::TrackKind::Crafting);
+        assert!(craft.trip.stops.is_empty());
+        assert_eq!(craft.trip.unplaced, 1);
     }
 
     #[test]
@@ -2131,8 +2130,8 @@ pub(crate) mod tests {
         );
         assert_eq!(board.steps[2].detail, "Needs Gem and Ice");
         // The next session flies what the steps say: per-slot places.
-        let trips = crate::session::sessions(&board.steps, &[], None, None);
-        assert!(trips.iter().all(|t| t.stops.is_empty()));
+        let t = crate::session::tracks(&board.steps, &[], None, None);
+        assert!(t.tracks.iter().all(|t| t.trip.stops.is_empty()));
     }
 
     #[test]

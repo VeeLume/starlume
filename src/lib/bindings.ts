@@ -1305,7 +1305,7 @@ async plansMove(id: string, before: string | null) : Promise<Result<Plan[], AppE
 },
 /**
  * The board: every plan with its stages, the open steps, the ledger and
- * the four sessions. Derived on each call; nothing is stored.
+ * the tracks. Derived on each call; nothing is stored.
  */
 async plansBoard(channel: string) : Promise<Result<PlansBoardView, AppError>> {
     try {
@@ -3693,8 +3693,10 @@ export type PlanTile = { value: string; label: string }
 export type PlansBoardView = { plans: PlanBoard[]; targets: PlanTargetView[]; steps: PlanStep[]; ledger: LedgerRow[]; 
 /**
  * One per choice, in the order the card offers them.
+ * One track per kind of work with its next trip, and the one the next
+ * session suggests.
  */
-sessions: Trip[]; 
+tracks: Tracks; 
 /**
  * The last known place, as the session log names it; `None` when no
  * session has one or the map does not know it.
@@ -4692,45 +4694,92 @@ export type TourView = { planet: string; legs: number; gm: number; seconds: numb
  * Of `seconds`, waiting on the cooldown.
  */
 cooling: number }
-export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
-export type TradeSide = "Buy" | "Sell"
-export type Trip = { choice: TripChoice; stops: TripStop[]; 
+export type Track = { kind: TrackKind; 
 /**
- * One sentence on why this trip.
+ * Open steps of this kind, ready or not.
  */
-why: string; 
+open: number; 
 /**
- * All quantum legs together; `None` when one of them could not be
- * timed (no drive, or out of its range).
+ * Steps that can be done now.
+ */
+ready: number; 
+/**
+ * The track every waiting step waits on, when nothing here is ready
+ * because another track comes first (refining waits on mining).
+ */
+waitsOn: TrackKind | null; 
+/**
+ * The next trip over the ready steps with a known place.
+ */
+trip: Trip }
+/**
+ * A kind of work, one track each.
+ */
+export type TrackKind = 
+/**
+ * Fit parts you hold, buy parts: one session.
+ */
+"shopping" | 
+/**
+ * Earn blueprints from missions.
+ */
+"missions" | 
+/**
+ * Mine (or otherwise gather) materials: hours or sessions.
+ */
+"mining" | 
+/**
+ * Take ore to a refinery and wait for it.
+ */
+"refining" | 
+/**
+ * Craft from what you hold.
+ */
+"crafting"
+export type TrackingView = { signal: string; lock_time: number; lock_angle_deg: number; lock_range_min_m: number; lock_range_max_m: number }
+/**
+ * Every track, and the one the next session suggests.
+ */
+export type Tracks = { tracks: Track[]; 
+/**
+ * The first track (in [`TrackKind::ALL`] order) with something ready
+ * to do; `None` when nothing is.
+ */
+next: TrackKind | null }
+export type TradeSide = "Buy" | "Sell"
+export type Trip = { stops: TripStop[]; 
+/**
+ * Arrival at the last stop, seconds from the start: travel, arrivals
+ * and the work timed at the stops before it. `None` when the trip was
+ * not ordered (no drive).
  */
 travelSeconds: number | null; 
 /**
- * The crafting among the steps.
+ * The timed work among the ready steps (crafting).
  */
-workSeconds: number }
-export type TripChoice = 
+workSeconds: number; 
 /**
- * The most steps in one trip.
+ * A leg is an estimate (a place on a rotating body, a detour, a spline).
  */
-"most" | 
+estimate: boolean; 
 /**
- * The nearest place with something to do.
+ * Ready steps whose place the map does not know (crafting has none).
  */
-"nearest" | 
+unplaced: number }
+export type TripLeg = { gm: number; seconds: number | null; 
 /**
- * The step that is hardest to come by.
+ * The leg goes through a jump point into another system.
  */
-"rarest" | 
-/**
- * The place that moves the most plans.
- */
-"plans"
-export type TripLeg = { gm: number; seconds: number | null }
+crosses: boolean }
 export type TripStep = { id: string; kind: StepKind; title: string; seconds: number | null }
 export type TripStop = { site: string; place: string; 
 /**
- * The jump that gets you here; `None` for a stop where you already
- * stand, or a first stop with no known start.
+ * Seconds from the start on arrival; `None` when not ordered.
+ */
+at: number | null; 
+/**
+ * The travel that gets you here; `None` for a stop where you already
+ * stand, a first stop with no known start, or an unordered trip.
  */
 leg: TripLeg | null; steps: TripStep[] }
 /**

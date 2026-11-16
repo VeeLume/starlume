@@ -62,7 +62,9 @@ use serde::{Deserialize, Serialize};
 /// rev 23: blueprints folded into variant families.
 /// rev 24: sc-holotable v0.49: the places with a refinery and the refining
 /// methods ([`CookedData::refining`]), for the Plans page's refine steps.
-pub const STARLUME_COOK_REV: u32 = 24;
+/// rev 25: sc-holotable v0.53: the travel graph
+/// ([`crate::ships::ShipsIndex::travel`]) for Plans' trips.
+pub const STARLUME_COOK_REV: u32 = 25;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

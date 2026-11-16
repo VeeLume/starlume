@@ -31,8 +31,9 @@ pub use sc_holotable::asset::generated::{
     EItemSubType, EItemType, EMasterMode, ResourceNetworkResource,
 };
 pub use sc_holotable::items::{Item, ItemClass, Items};
-pub use sc_holotable::locations::{QuantumTravel, Waypoint, Waypoints};
+pub use sc_holotable::locations::{JumpLink, QuantumTravel, Waypoint, Waypoints};
 pub use sc_holotable::ship_components::*;
+pub use sc_holotable::travel::{HopKind, Plan as TravelPlan, Route, StopId, Tour, Travel, Visit};
 pub use sc_holotable::vehicles::*;
 pub use sc_holotable::visuals::{Palettes, Scene, Visuals};
 pub use sc_holotable::weapons::{LoadoutContext, ShipWeapon, SustainKind, WeaponPower};
@@ -89,6 +90,11 @@ pub struct ShipsIndex {
     /// could not open the p4k.
     #[serde(default)]
     pub waypoints: Waypoints,
+    /// The travel graph over those places: the bodies that block quantum
+    /// travel, the jump links between systems and the tunnel (sc-travel).
+    /// Plans orders its trips on it. Empty without the p4k.
+    #[serde(default)]
+    pub travel: Travel,
 }
 
 /// What the ship holo assembles a vehicle from, with any loadout. Kept out
@@ -226,20 +232,31 @@ pub(crate) fn build_ships(
         .filter_map(|(g, _)| Some((*g, healths.get(g)?.health)))
         .filter(|(_, hp)| *hp > 0.0)
         .collect();
-    let waypoints = assets
+    let (waypoints, travel) = assets
         .and_then(|a| {
-            use sc_holotable::locations::{Locations, ObjectContainers, Universe};
-            ObjectContainers::systems(a, 1)
+            use sc_holotable::locations::{
+                Bodies, JumpLinks, Locations, ObjectContainers, Universe,
+            };
+            let oc = ObjectContainers::systems(a, 1)
                 .inspect_err(|e| tracing::warn!("no system object containers: {e}"))
-                .ok()
-                .map(|oc| {
-                    Waypoints::build(&Universe::join(Locations::build(datacore.records()), oc))
-                })
+                .ok()?;
+            let locations = Locations::build(datacore.records());
+            let waypoints = Waypoints::build(&Universe::join(locations.clone(), oc));
+            // ~2 s and ~1 s from the system socpaks (sc-holotable v0.53).
+            let bodies = Bodies::build(a, &locations)
+                .inspect_err(|e| tracing::warn!("no bodies for travel: {e}"))
+                .unwrap_or_default();
+            let links = JumpLinks::build(a)
+                .inspect_err(|e| tracing::warn!("no jump links for travel: {e}"))
+                .unwrap_or_default();
+            let travel = Travel::build(datacore, &waypoints, &bodies, &links);
+            Some((waypoints, travel))
         })
         .unwrap_or_default();
     ShipsIndex {
         door_health,
         waypoints,
+        travel,
         profiles: ResourceProfiles::build(datacore),
         network: NetworkParams::build(datacore),
         components: ShipComponents::build(datacore, items),

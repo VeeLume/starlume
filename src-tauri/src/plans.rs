@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use mod_plans::ledger::{LedgerRow, Stack};
-use mod_plans::session::{Drive, Site, Trip};
+use mod_plans::session::{Ordered, OrderedVisit, Router, Site, StopSpec, Tracks, TripLeg};
 use mod_plans::steps::{
     CraftedCopy, Grant, HeldPart, Inputs, LoadoutFacts, Offer, OreSite, OreSites, PartFacts,
     PlanBoard, PlanPlace, PlanStep, QualityBand, RecipeFacts, ShipRead, SlotNeed,
@@ -316,7 +316,9 @@ pub struct PlansBoardView {
     pub steps: Vec<PlanStep>,
     pub ledger: Vec<LedgerRow>,
     /// One per choice, in the order the card offers them.
-    pub sessions: Vec<Trip>,
+    /// One track per kind of work with its next trip, and the one the next
+    /// session suggests.
+    pub tracks: Tracks,
     /// The last known place, as the session log names it; `None` when no
     /// session has one or the map does not know it.
     pub from: Option<String>,
@@ -331,7 +333,7 @@ pub struct PlansBoardView {
 }
 
 /// The board: every plan with its stages, the open steps, the ledger and
-/// the four sessions. Derived on each call; nothing is stored.
+/// the tracks. Derived on each call; nothing is stored.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn plans_board(
@@ -390,6 +392,69 @@ async fn last_place(app: &AppHandle) -> Option<String> {
         }
     }
     None
+}
+
+/// Seconds an arrival costs on top of the travel: landing or docking and
+/// leaving again. One value for every place until the session log can
+/// measure them; sc-travel takes the drive's cooldown when that is longer.
+const ARRIVAL_SECONDS: f64 = 120.0;
+
+/// Orders Plans' trips on holotable's travel graph with one ship's drive:
+/// the fewest seconds, crossing systems through every jump link (none is
+/// left out yet; a temporary link becomes a setting when one closes).
+struct TravelRouter<'a> {
+    travel: &'a svc_data::ships::Travel,
+    drive: &'a svc_data::ships::Quantum,
+}
+
+impl Router for TravelRouter<'_> {
+    fn order(&self, start: Option<&str>, stops: &[StopSpec]) -> Option<Ordered> {
+        use svc_data::ships::Tour;
+        let guid = |id: &str| id.parse::<svc_data::Guid>().ok();
+        let mut tour = match start.and_then(guid) {
+            Some(g) => Tour::new(g),
+            None => Tour::anywhere(),
+        };
+        tour.overhead(ARRIVAL_SECONDS).end_anywhere();
+        let mut ids = Vec::with_capacity(stops.len());
+        for s in stops {
+            let places: Vec<svc_data::Guid> = s.sites.iter().filter_map(|id| guid(id)).collect();
+            if places.is_empty() {
+                return None;
+            }
+            ids.push(tour.visit_any(&places).dwell(s.dwell).id());
+        }
+        for (i, s) in stops.iter().enumerate() {
+            for &before in &s.after {
+                tour.require(*ids.get(before)?, ids[i]);
+            }
+        }
+        let plan = self.travel.order(&tour, self.drive, |_| true)?;
+        let index = |id: svc_data::ships::StopId| ids.iter().position(|x| *x == id);
+        let visits = plan
+            .visits
+            .iter()
+            .map(|v| {
+                let hops = &v.route.hops;
+                Some(OrderedVisit {
+                    stop: index(v.stop)?,
+                    site: v.place.to_string(),
+                    at: v.at,
+                    leg: (!hops.is_empty()).then(|| TripLeg {
+                        gm: v.route.metres() / 1e9,
+                        seconds: Some(v.route.seconds()),
+                        crosses: hops
+                            .iter()
+                            .any(|h| matches!(h.kind, svc_data::ships::HopKind::Tunnel)),
+                    }),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Ordered {
+            visits,
+            estimate: plan.is_estimate(),
+        })
+    }
 }
 
 struct Gathered<'a> {
@@ -501,7 +566,7 @@ impl Gathered<'_> {
         let finder = self.inventory.map(|inv| mod_items::finder(inv, cooked));
         let mut inputs = Inputs::default();
         let mut targets: Vec<PlanTargetView> = Vec::new();
-        let mut drive: Option<(String, Drive)> = None;
+        let mut drive: Option<(String, svc_data::ships::Quantum)> = None;
 
         if let Some(finder) = &finder {
             for row in &finder.items {
@@ -607,20 +672,26 @@ impl Gathered<'_> {
             Some((place.name, site))
         });
         let ores = self.ores(&sites, start.as_ref().map(|(_, site)| site.as_str()));
-        let board = mod_plans::steps::derive(state, &inputs, &ores);
-        let sessions = mod_plans::session::sessions(
+        let mut board = mod_plans::steps::derive(state, &inputs, &ores);
+        let router = drive.as_ref().map(|(_, quantum)| TravelRouter {
+            travel: &cooked.ships.travel,
+            drive: quantum,
+        });
+        let tracks = mod_plans::session::tracks(
             &board.steps,
             &sites.sites,
             start.as_ref().map(|(_, site)| site.as_str()),
-            drive.as_ref().map(|(_, d)| d),
+            router.as_ref().map(|r| r as &dyn Router),
         );
+        // The steps list follows the tracks and their trips' order.
+        mod_plans::session::sort_steps(&mut board.steps, &tracks);
 
         PlansBoardView {
             plans: board.plans,
             targets,
             steps: board.steps,
             ledger: board.ledger,
-            sessions,
+            tracks,
             from: start.as_ref().map(|(name, _)| name.clone()),
             drive_ship: drive.map(|(ship, _)| ship),
             inventory_at: self.inventory.map(|i| i.fetched_at as f64),
@@ -878,25 +949,18 @@ impl Gathered<'_> {
         );
     }
 
-    /// The first loadout plan's quantum drive, as sampled jump times.
-    fn drive_of(&self, saved: &mod_ships::SavedLoadout) -> Option<Drive> {
-        // A plan's loadout with its crafted parts as crafted.
+    /// The first loadout plan's quantum drive, its crafted parts as crafted:
+    /// what the trips' legs are costed with.
+    fn drive_of(&self, saved: &mod_ships::SavedLoadout) -> Option<svc_data::ships::Quantum> {
         let recipes = svc_data::Recipes::new(self.blueprints, &self.cooked.crafting);
-        let view = mod_ships::view(
+        mod_ships::quantum_drive(
             self.cooked,
             &recipes,
             &mod_ships::LoadoutInput {
                 ship: saved.ship.clone(),
                 edits: saved.edits.clone(),
             },
-            &mod_ships::PowerInput::default(),
         )
-        .ok()?;
-        let quantum = view.summary.quantum?;
-        let mut times = quantum.times;
-        let reach = times.last().map_or(0.0, |(gm, _)| *gm);
-        times.extend(quantum.far.into_iter().filter(|(gm, _)| *gm > reach));
-        Some(Drive { times })
     }
 
     /// Where a material is ship-mined at a quality: its ore's areas from

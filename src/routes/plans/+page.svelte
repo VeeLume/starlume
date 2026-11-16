@@ -14,14 +14,14 @@
   import { goto } from "$app/navigation";
   import { Button, ConfirmDialog, Dialog, Picker, Segmented } from "@veelume/ui";
   import { ArrowDown, ArrowUp, ArrowUpRight, Plus } from "lucide-svelte";
-  import type { BlueprintRowView, PlanBoard, PlanCraft, PlanSlot, StepKind, Trip } from "$lib/bindings";
+  import type { BlueprintRowView, PlanBoard, PlanCraft, PlanSlot, StepKind, TrackKind } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import NowCard from "$lib/components/NowCard.svelte";
   import PlanGlyph, { type GlyphShape } from "$lib/modules/plans/PlanGlyph.svelte";
   import {
-    CHOICES,
     KIND_TEXT,
     TIMELINE_ROWS,
+    TRACKS,
     ago,
     amount,
     ledgerBars,
@@ -29,6 +29,7 @@
     stopsText,
     timeText,
     timeline,
+    trackNote,
   } from "$lib/modules/plans/model";
   import { snapUp, stopsOf } from "$lib/quality";
   import { getBlueprints } from "$lib/state/catalog.svelte";
@@ -60,7 +61,8 @@
   let now = $state(Date.now());
   let tab = $state<"active" | "done">("active");
   let picked = $state<string | null>(null);
-  let choice = $state<Trip["choice"]>("most");
+  /** The track the card shows; `null`: the one the board suggests. */
+  let track = $state<TrackKind | null>(null);
   let adding = $state(false);
   /** The project a craft is being picked for. */
   let addingTo = $state<PlanBoard | null>(null);
@@ -109,7 +111,12 @@
   const stored = $derived(plansStore.plans?.find((p) => p.id === plan?.id) ?? null);
   const isFocus = $derived(!!plan && board?.plans[0]?.id === plan.id);
   const steps = $derived((board?.steps ?? []).filter((s) => plan && s.plans.includes(plan.id)));
-  const session = $derived(board?.sessions.find((s) => s.choice === choice) ?? null);
+  /** The tracks the board has, in the card's order. */
+  const tracksShown = $derived(TRACKS.filter((t) => board?.tracks.tracks.some((x) => x.kind === t.id)));
+  const current = $derived(
+    board?.tracks.tracks.find((t) => t.kind === (track ?? board?.tracks.next)) ?? board?.tracks.tracks[0] ?? null,
+  );
+  const session = $derived(current?.trip ?? null);
   const rows = $derived(session ? timeline(session, board?.from ?? null) : []);
   const bars = $derived(ledgerBars(board?.ledger ?? []));
   const names = $derived(new Map((board?.plans ?? []).map((p) => [p.id, p.name])));
@@ -386,14 +393,13 @@
           name={session ? timeText(session) : ""}
           date={board.from ? `from ${board.from}` : "last place not known"}
         >
-          <div class="pills" role="group" aria-label="What the session should go for">
-            {#each CHOICES as c (c.id)}
-              <button type="button" class="pill" class:active={choice === c.id} aria-pressed={choice === c.id} onclick={() => (choice = c.id)}
-                >{c.label}</button
-              >
+          <div class="pills" role="group" aria-label="Which kind of work">
+            {#each tracksShown as t (t.id)}
+              {@const on = current?.kind === t.id}
+              <button type="button" class="pill" class:active={on} aria-pressed={on} onclick={() => (track = t.id)}>{t.label}</button>
             {/each}
           </div>
-          <p class="why">{session?.why ?? ""}</p>
+          <p class="why">{current ? trackNote(current) : ""}</p>
           <ol class="tl" style:--rows={TIMELINE_ROWS}>
             {#each rows as row (row.key)}
               <li title={row.full}>

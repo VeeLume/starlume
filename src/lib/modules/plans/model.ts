@@ -1,15 +1,32 @@
 // How the Plans page words and draws what the board holds. Pure: no store,
 // no IPC. Every figure here is one the board carries; nothing is estimated.
 
-import type { LedgerRow, PlanStep, StepKind, Trip, TripStop } from "$lib/bindings";
+import type { LedgerRow, PlanStep, StepKind, Track, TrackKind, Trip, TripStop } from "$lib/bindings";
 
-/** The choices of the next-session card, in the order it offers them. */
-export const CHOICES: { id: Trip["choice"]; label: string }[] = [
-  { id: "most", label: "Most in one trip" },
-  { id: "nearest", label: "Nearest first" },
-  { id: "rarest", label: "Rarest first" },
-  { id: "plans", label: "Moves most plans" },
+/** The tracks of the next-session card, one per kind of work, in the order
+ *  the board picks the next one (decision 'Plans show parallel tracks by
+ *  kind of work', 2026-11-16). */
+export const TRACKS: { id: TrackKind; label: string }[] = [
+  { id: "shopping", label: "Shopping run" },
+  { id: "refining", label: "Refinery" },
+  { id: "mining", label: "Mining" },
+  { id: "missions", label: "Missions" },
+  { id: "crafting", label: "Crafting" },
 ];
+
+export function trackLabel(kind: TrackKind): string {
+  return TRACKS.find((t) => t.id === kind)?.label ?? kind;
+}
+
+/** The card's line for a track without stops to fly; empty when its stops
+ *  say it all. Short facts, no explanations (playtest 2026-11-16). */
+export function trackNote(track: Track): string {
+  if (track.trip.stops.length > 0) return "";
+  if (track.waitsOn) return `Waits on ${trackLabel(track.waitsOn).toLowerCase()}`;
+  if (track.ready === 0) return "Nothing ready";
+  if (track.kind === "crafting") return `${track.ready} ready to craft`;
+  return `${track.ready} ready, no place on the map`;
+}
 
 /** The word a step's kind is shown as. */
 export const KIND_TEXT: Record<StepKind, string> = {
@@ -63,14 +80,14 @@ export function stopsText(session: Trip): string {
   return n === 0 ? "No trip" : n === 1 ? "1 stop" : `${n} stops`;
 }
 
-/** Beside the headline: the time the data can vouch for. Quantum legs when
- *  a drive timed them all, plus the crafting among the steps. */
+/** Beside the headline: the time the data can vouch for. The trip to its
+ *  last stop when a drive timed it (travel, arrivals and the timed work;
+ *  "~" when a leg is an estimate), plus the crafting among the steps. */
 export function timeText(session: Trip): string {
-  if (session.stops.length === 0) return "";
   const parts: string[] = [];
-  const jumps = session.stops.filter((s) => s.leg).length;
-  if (jumps > 0 && session.travelSeconds != null) parts.push(`${span(session.travelSeconds)} in quantum`);
-  else if (jumps > 0) parts.push(jumps === 1 ? "1 jump" : `${jumps} jumps`);
+  if (session.stops.length > 0 && session.travelSeconds != null) {
+    parts.push(`${session.estimate ? "~" : ""}${span(session.travelSeconds)} trip`);
+  }
   if (session.workSeconds > 0) parts.push(`${clock(session.workSeconds)} crafting`);
   return parts.join(" and ");
 }
@@ -84,13 +101,28 @@ export type TimelineRow = { key: string; n: number; what: string; where: string;
  *  2026-11-16: no lines that state what the page already shows). */
 export function timeline(session: Trip, from: string | null = null): TimelineRow[] {
   let here = from;
-  return session.stops.map((stop, i) => {
+  const rows = session.stops.map((stop, i) => {
     const { what, full } = stopText(stop);
     const jump = jumpText(stop, here);
     const row = { key: stop.site, n: i + 1, what, where: stop.place, full: jump ? `${full}\n\n${jump}` : full };
     here = stop.place;
     return row;
   });
+  if (rows.length <= TIMELINE_ROWS) return rows;
+  // The card keeps its height: the stops past the reserved rows fold into
+  // the last one, each still named in its tooltip.
+  const shown = rows.slice(0, TIMELINE_ROWS - 1);
+  const rest = rows.slice(TIMELINE_ROWS - 1);
+  return [
+    ...shown,
+    {
+      key: "more",
+      n: TIMELINE_ROWS,
+      what: `${rest.length} more stops`,
+      where: rest.map((r) => r.where).join(", "),
+      full: rest.map((r) => `${r.n}. ${r.where}\n${r.full}`).join("\n\n"),
+    },
+  ];
 }
 
 /** A stop's steps in one line: the first two named, the rest counted. */
@@ -108,12 +140,13 @@ function stopText(stop: TripStop): { what: string; full: string } {
 function jumpText(stop: TripStop, here: string | null): string | null {
   if (!stop.leg) return null;
   const jump = `${gm(stop.leg.gm)} from ${here ?? "the last stop"}`;
-  const time = stop.leg.seconds != null ? `, ${span(stop.leg.seconds)} in quantum` : "";
-  return `${jump}${time}`;
+  const time = stop.leg.seconds != null ? `, ${span(stop.leg.seconds)}` : "";
+  const gate = stop.leg.crosses ? ", through a jump point" : "";
+  return `${jump}${time}${gate}`;
 }
 
-/** The most stops a session's list can have (the card reserves this height
- *  so it does not move between choices). */
+/** The rows a session's list shows (the card reserves this height so it
+ *  does not move between tracks); more stops fold into the last row. */
 export const TIMELINE_ROWS = 3;
 
 export function amount(row: Pick<LedgerRow, "bulk">, value: number): string {
