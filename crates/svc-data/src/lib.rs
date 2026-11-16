@@ -802,7 +802,11 @@ fn cook(
     // Legality + weapons ride the same parse window (CONTRIBUTING module rule 4:
     // reference catalogs are framework — these also feed mod-langpatch's
     // derive, so the module never needs the raw Datacore).
-    let legality = legality::build_legality(&datacore, &foundations.resources);
+    let legality = legality::build_legality(
+        &foundations.jurisdictions,
+        &foundations.resources,
+        &foundations.paths,
+    );
     let weapons = weapons::build_weapons(&datacore, &foundations.items);
     let crafting = crafting::build_crafting(&datacore);
     let mining = mining::build_mining(

@@ -1,24 +1,28 @@
-//! Legality index cooking — `Jurisdiction` records → per-commodity legality
-//! rows. Reference-catalog framework data (CONTRIBUTING module rule 4): the same
-//! index feeds the resource catalog's "Illegal in …" facts and
-//! mod-langpatch's illegal-goods derive.
+//! Legality index cooking: sc-holotable's typed jurisdictions (`sc-law`) →
+//! per-commodity legality rows. Reference-catalog framework data (CONTRIBUTING
+//! module rule 4): the same index feeds the resource catalog's "Illegal in …"
+//! facts and mod-langpatch's illegal-goods derive.
 //!
 //! Ported from sc-langpatch's `illegal_goods.rs` collection pass (the patch
 //! *decisions* — prefix/suffix rendering — stay in the consumer). Per the
 //! snapshot philosophy ([`crate::cooked`]), rows keep **raw locale keys**;
-//! display names resolve at query time.
+//! display names resolve at query time. No raw DataCore here ('No raw
+//! DataCore access in Starlume'): jurisdictions come from
+//! `Foundations::jurisdictions`, names from `Resources` and `RecordPaths`.
 //!
 //! Sources, per jurisdiction:
-//! - `prohibitedResources[]` → [`LegalityKind::Contraband`]
-//! - `controlledSubstanceClasses[].resources[]` → [`LegalityKind::Drug`]
+//! - `prohibited_resources` → [`LegalityKind::Contraband`]
+//! - `controlled_substances[].resources` → [`LegalityKind::Drug`]
 //!
 //! Drug wins when a resource appears in both (the langpatch precedence
-//! rule). `prohibitedGoods[]` and `controlledSubstanceClasses[].commodities`
-//! are not modelled yet — parity first; extend when a consumer needs them.
+//! rule). `prohibited_goods` and `controlled_substances[].commodities`
+//! (items, not resources) are not modelled yet, nor the parent jurisdiction's
+//! laws (`respects_parent_laws`, unverified in game): parity first.
 
 use std::collections::HashMap;
 
-use sc_holotable::asset::{Datacore, Guid, RecordCollection};
+use sc_holotable::asset::{Guid, RecordCollection, RecordPaths};
+use sc_holotable::law::Jurisdictions;
 use sc_holotable::resources::Resources;
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +41,8 @@ pub struct JurisdictionRef {
     /// Raw locale key of the jurisdiction name (`@`-prefixed as authored);
     /// `None` when the record carries an empty key.
     pub name_key: Option<String>,
-    /// DCB record name — stable fallback label + cross-ref.
+    /// Record name without its type prefix (`ArcCorp`): a fallback label,
+    /// never a join key.
     pub record_name: String,
 }
 
@@ -47,7 +52,7 @@ pub struct LegalityEntry {
     /// `ResourceType` record GUID, hex-string form — joins the resource
     /// catalog.
     pub resource_guid: String,
-    /// DCB record name (e.g. `"WiDoW"`).
+    /// Record name without its type prefix (e.g. `"Widow"`).
     pub record_name: String,
     /// Raw locale key from `ResourceType.displayName` (`@`-prefixed as
     /// authored) — the commodity's INI name key. Its `_desc` sibling is the
@@ -58,47 +63,47 @@ pub struct LegalityEntry {
     pub jurisdictions: Vec<JurisdictionRef>,
 }
 
-/// Cook the legality index from one parsed `Datacore`. `resources` comes
-/// from the foundations build the caller already paid for (primary name-key
-/// source; raw `displayName` walk as fallback for refs outside the index).
-pub(crate) fn build_legality(datacore: &Datacore, resources: &Resources) -> Vec<LegalityEntry> {
-    let store = datacore.records();
-    let db = datacore.db();
-
+/// Cook the legality index from the foundations build the caller already
+/// paid for. Every jurisdiction's resource references resolve in
+/// `resources` (sc-holotable's probe asserts it, 66 of 66 on LIVE 4.10); one
+/// that does not is skipped, not guessed at.
+pub(crate) fn build_legality(
+    jurisdictions: &Jurisdictions,
+    resources: &Resources,
+    paths: &RecordPaths,
+) -> Vec<LegalityEntry> {
+    let label = |guid: &Guid| paths.get(guid).map(|p| p.short_name().to_string());
     let mut by_guid: HashMap<Guid, LegalityEntry> = HashMap::new();
 
-    for (&jur_guid, &handle) in &store.records.multi_feature.jurisdiction {
-        let Some(j) = handle.get(&store.pools) else {
-            continue;
-        };
+    for (guid, j) in jurisdictions.iter() {
         let jur = JurisdictionRef {
-            name_key: {
-                let key = j.name.as_str();
-                (!key.is_empty()).then(|| key.to_string())
-            },
-            record_name: db
-                .record(&jur_guid)
-                .and_then(|r| r.name())
-                .unwrap_or("Unknown")
-                .to_string(),
+            name_key: j
+                .name_key
+                .as_ref()
+                .map(|k| k.as_str().to_string())
+                .filter(|k| !k.is_empty()),
+            record_name: label(guid).unwrap_or_else(|| "Unknown".to_string()),
         };
-
-        for guid in &j.prohibited_resources {
+        for g in &j.prohibited_resources {
             add(
-                db,
                 resources,
-                *guid,
+                &label,
+                *g,
                 LegalityKind::Contraband,
                 &jur,
                 &mut by_guid,
             );
         }
-        for class_handle in &j.controlled_substance_classes {
-            let Some(class) = class_handle.get(&store.pools) else {
-                continue;
-            };
-            for guid in &class.resources {
-                add(db, resources, *guid, LegalityKind::Drug, &jur, &mut by_guid);
+        for class in &j.controlled_substances {
+            for g in &class.resources {
+                add(
+                    resources,
+                    &label,
+                    *g,
+                    LegalityKind::Drug,
+                    &jur,
+                    &mut by_guid,
+                );
             }
         }
     }
@@ -120,33 +125,23 @@ pub(crate) fn build_legality(datacore: &Datacore, resources: &Resources) -> Vec<
 /// Resolve one prohibited/controlled reference and merge it into the map.
 /// Drug takes precedence over contraband when a resource appears as both.
 fn add(
-    db: &sc_holotable::asset::DataCoreDatabase,
     resources: &Resources,
+    label: &impl Fn(&Guid) -> Option<String>,
     guid: Guid,
     kind: LegalityKind,
     jurisdiction: &JurisdictionRef,
     out: &mut HashMap<Guid, LegalityEntry>,
 ) {
-    let record = db.record(&guid);
-    let record_name = record
-        .as_ref()
-        .and_then(|r| r.name())
-        .unwrap_or("")
-        .to_string();
-    // Name key: resource index first, raw `displayName` walk as fallback.
-    let name_key = resources
-        .get(&guid)
-        .map(|r| r.name_key.as_str().to_string())
-        .or_else(|| {
-            record
-                .as_ref()
-                .and_then(|r| r.as_instance().get_str("displayName"))
-                .map(str::to_string)
-        })
-        .filter(|k| !k.is_empty());
-    let (Some(name_key), false) = (name_key, record_name.is_empty()) else {
+    let Some(resource) = resources.get(&guid) else {
         return;
     };
+    let name_key = resource.name_key.as_str().to_string();
+    let Some(record_name) = label(&guid) else {
+        return;
+    };
+    if name_key.is_empty() || record_name.is_empty() {
+        return;
+    }
 
     let entry = out.entry(guid).or_insert_with(|| LegalityEntry {
         resource_guid: guid.to_string(),
