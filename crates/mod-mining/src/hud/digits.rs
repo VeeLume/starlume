@@ -1,12 +1,12 @@
 //! Reading a number from a field band (brightness ink, reference scale),
-//! with svc-glyph's matcher: the field's [`Format`] is its grammar, the
+//! with sc-nav-glyph's matcher: the field's [`Format`] is its grammar, the
 //! mean glyph templates place the glyphs, and the digit exemplars name
 //! them (the HUD font tells 0, 6, 8, 9 apart by one- or two-pixel holes,
 //! which mean templates blur away). The runner-up is kept for the
 //! cross-checks.
 
+use sc_nav_glyph::{Grammar, Params, Slot};
 use svc_capture::vision::Gray;
-use svc_glyph::{Grammar, Params, Slot};
 
 use super::data::data;
 
@@ -94,7 +94,7 @@ impl Number {
 
 /// Read the band as `fmt`; `None` when no string of the format fits.
 pub fn read(band: &Gray, fmt: Format) -> Option<Number> {
-    let read = svc_glyph::read(band, &data().digits, &fmt.grammar(), &Params::default())?;
+    let read = sc_nav_glyph::read(band, &data().digits, &fmt.grammar(), &Params::default())?;
     let glyphs = read
         .iter()
         .map(|p| {

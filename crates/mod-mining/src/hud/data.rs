@@ -18,8 +18,8 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
+use sc_nav_glyph::TemplateSet;
 use svc_capture::vision::Gray;
-use svc_glyph::TemplateSet;
 
 const MAGIC: &[u8] = b"SLHUD1";
 

@@ -15,9 +15,9 @@ use rustfft::num_complex::Complex;
 
 use crate::Frame;
 
-/// The grey image the readers work on; it lives in svc-glyph, the pure
+/// The grey image the readers work on; it lives in sc-nav-glyph, the pure
 /// glyph matcher, so a reader can build ink without a capture.
-pub use svc_glyph::Gray;
+pub use sc_nav_glyph::Gray;
 
 /// The brightest of R, G, B per pixel, 0..255.
 pub fn brightest(frame: &Frame) -> Gray {
