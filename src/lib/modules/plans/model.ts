@@ -79,11 +79,15 @@ export function timeText(session: Trip): string {
  *  then where it is and the jump that gets you there. */
 export type TimelineRow = { key: string; n: number; what: string; where: string; full: string };
 
-/** `from` is the place the session starts at, when it is known. */
+/** `from` is the place the session starts at, when it is known. The row
+ *  names only the place; the jump there is in the tooltip (playtest
+ *  2026-11-16: no lines that state what the page already shows). */
 export function timeline(session: Trip, from: string | null = null): TimelineRow[] {
   let here = from;
   return session.stops.map((stop, i) => {
-    const row = { key: stop.site, n: i + 1, where: whereText(stop, here), ...stopText(stop) };
+    const { what, full } = stopText(stop);
+    const jump = jumpText(stop, here);
+    const row = { key: stop.site, n: i + 1, what, where: stop.place, full: jump ? `${full}\n\n${jump}` : full };
     here = stop.place;
     return row;
   });
@@ -100,12 +104,12 @@ function stopText(stop: TripStop): { what: string; full: string } {
   };
 }
 
-/** Where a stop is, and the jump to it from the place before. */
-function whereText(stop: TripStop, here: string | null): string {
-  if (!stop.leg) return here ? `at ${stop.place}, where you are` : `at ${stop.place}`;
+/** The jump to a stop from the place before, when there is one. */
+function jumpText(stop: TripStop, here: string | null): string | null {
+  if (!stop.leg) return null;
   const jump = `${gm(stop.leg.gm)} from ${here ?? "the last stop"}`;
   const time = stop.leg.seconds != null ? `, ${span(stop.leg.seconds)} in quantum` : "";
-  return `at ${stop.place}, ${jump}${time}`;
+  return `${jump}${time}`;
 }
 
 /** The most stops a session's list can have (the card reserves this height

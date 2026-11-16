@@ -38,11 +38,15 @@
     family,
     channel,
     pick = null,
+    single = false,
   }: {
     family: Family;
     channel: string;
     /** A variant to show, chosen outside (an armour set's colourway grid). */
     pick?: string | null;
+    /** The blueprints list shows only the variant in view: the caller
+     *  already lists the others (the set's colourway grid). */
+    single?: boolean;
   } = $props();
 
   let detail = $state<BlueprintDetailView | null>(null);
@@ -213,8 +217,8 @@
   <section>
     <div class="head">
       <h3>
-        {many ? "Blueprints" : "Blueprint"}
-        {#if many}<span class="owned-count">{family.ownedCount} of {family.variants.length} owned</span>{/if}
+        {many && !single ? "Blueprints" : "Blueprint"}
+        {#if many && !single}<span class="owned-count">{family.ownedCount} of {family.variants.length} owned</span>{/if}
       </h3>
       <!-- A plan is for the variant in view, on its own or in a project.
            The sliders below are what it stores: one minimum per material.
@@ -226,7 +230,7 @@
             >Count
             <input class="input" type="number" min="1" value={planCount} onchange={(e) => setCount(e.currentTarget.value)} /></label
           >
-          <label title="A plan of its own, or a craft in one of your projects"
+          <label class="dest" title="A plan of its own, or a craft in one of your projects"
             >In
             <select class="select" bind:value={dest} onchange={() => (countDraft = null)}>
               <option value="">a plan of its own</option>
@@ -258,13 +262,13 @@
         </div>
       {/if}
     </div>
-    <div class="variants" class:many>
-      {#each family.variants as v (v.guid)}
+    <div class="variants" class:many={many && !single}>
+      {#each single ? [variant] : family.variants as v (v.guid)}
         {@const owned = craftingStore.owns(v.guid)}
         {@const inGame = craftingStore.ownedInGame(v.guid)}
         {@const wantBp = craftingStore.wantsBlueprint(v.guid)}
         {@const wantItem = craftingStore.wantsItem(v.guid)}
-        <div class="variant" class:on={many && v.guid === variant.guid}>
+        <div class="variant" class:on={many && !single && v.guid === variant.guid}>
           {#if many}
             <button type="button" class="label" title={v.name} onclick={() => (focus = v.guid)}>{v.variant ?? "Standard"}</button>
           {:else}
@@ -573,10 +577,16 @@
     border-color: color-mix(in srgb, var(--hue-sky) 45%, transparent);
     background: color-mix(in srgb, var(--hue-sky) 14%, transparent);
   }
+  /* Its own full-width row under the heading, wrapping inside the sheet:
+     the sidebar is narrower than the four controls in one line. */
   .plan-set {
+    flex: 1 1 100%;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    justify-content: flex-end;
+    gap: 6px 8px;
+    min-width: 0;
   }
   .plan-set label {
     display: inline-flex;
@@ -585,12 +595,17 @@
     font-size: var(--text-small);
     color: var(--text-dim);
   }
+  .plan-set label.dest {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
   .plan-set .input {
     width: 60px;
     height: 24px;
   }
   .plan-set .select {
-    width: 150px;
+    flex: 1;
+    min-width: 0;
     height: 24px;
     padding-block: 0;
   }
