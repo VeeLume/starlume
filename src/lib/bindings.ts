@@ -3673,10 +3673,10 @@ odds: number | null;
  */
 sources: number; 
 /**
- * The step this one follows (its id): refining comes after the mining
- * that gives the ore. A trip never puts it before that step.
+ * The steps this one follows (their ids): refining comes after the
+ * mining that gives the ore. A trip never puts it before them.
  */
-after: string | null }
+after: string[] }
 /**
  * Where a plan's goal lives in the app, for the board's "open" link.
  */
