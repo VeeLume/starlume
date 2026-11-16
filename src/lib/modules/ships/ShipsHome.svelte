@@ -12,6 +12,7 @@
   import { Search } from "lucide-svelte";
   import type { ShipRowView, ShipsHomeView } from "$lib/bindings";
   import { shipsMarket } from "$lib/state/ships.svelte";
+  import { byGroup, groupOf } from "./group";
   import ShipTile from "./ShipTile.svelte";
   import UexLink from "./UexLink.svelte";
 
@@ -36,7 +37,7 @@
   });
 
   const byGuid = $derived(new Map(ships.map((s) => [s.guid, s])));
-  const bases = $derived(ships.filter((s) => !s.base && !s.ground));
+  const bases = $derived(ships.filter((s) => !s.base));
   const owned = $derived((home?.owned ?? []).map((o) => ({ ...o, row: byGuid.get(o.ship) })).filter((o) => o.row));
   const ownedSet = $derived(new Set(owned.map((o) => o.ship)));
   const arrivals = $derived((home?.arrivals ?? []).map((a) => ({ ...a, row: byGuid.get(a.ship) })).filter((a) => a.row));
@@ -73,7 +74,7 @@
     ["crew", "Crew"],
   ];
 
-  const makers = $derived([...new Set(bases.map((s) => s.manufacturer ?? "Other"))].sort((a, b) => a.localeCompare(b)));
+  const makers = $derived([...new Set(bases.map(groupOf))].sort(byGroup));
   const opts = (all: string, rows: [string, string][]): SelectOption[] => [{ value: "", label: all }, ...rows.map(([value, label]) => ({ value, label }))];
   const getOptions = $derived(opts("Anywhere", GET.map(([v, l]) => [v, l])));
   const makerOptions = $derived(opts("Every maker", makers.map((m) => [m, m])));
@@ -92,7 +93,7 @@
     const rows = bases.filter(
       (s) =>
         (!get || get[2](s)) &&
-        (!maker || (s.manufacturer ?? "Other") === maker) &&
+        (!maker || groupOf(s) === maker) &&
         (!pad || shipsMarket.of(s.guid)?.pad === pad) &&
         (!crew || crew[2](s.seats.crew)) &&
         (!q || `${s.name} ${s.role ?? ""} ${s.career ?? ""} ${s.manufacturer ?? ""}`.toLowerCase().includes(q)),
@@ -108,7 +109,7 @@
     else if (sort === "crew") rows.sort((a, b) => b.seats.crew - a.seats.crew || byName(a, b));
     else if (sort === "buy") rows.sort(price((s) => shipsMarket.of(s.guid)?.buy?.price));
     else if (sort === "store") rows.sort(price((s) => shipsMarket.of(s.guid)?.storeUsd));
-    else if (sort === "maker") rows.sort((a, b) => (a.manufacturer ?? "").localeCompare(b.manufacturer ?? "") || byName(a, b));
+    else if (sort === "maker") rows.sort((a, b) => byGroup(groupOf(a), groupOf(b)) || byName(a, b));
     else rows.sort(byName);
     return rows;
   });
@@ -117,7 +118,7 @@
     if (sort !== "maker") return [{ maker: "", rows: list }];
     const out: { maker: string; rows: ShipRowView[] }[] = [];
     for (const s of list) {
-      const m = s.manufacturer ?? "Other";
+      const m = groupOf(s);
       const last = out[out.length - 1];
       if (last?.maker === m) last.rows.push(s);
       else out.push({ maker: m, rows: [s] });

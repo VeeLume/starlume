@@ -519,6 +519,64 @@ fn centaurus_stock_slots() {
     assert!(p.used <= p.supply);
 }
 
+/// Ground vehicles are listed base hulls with `ground`, hover bikes with
+/// `gravlev` (the Ships page lists both in one group).
+#[test]
+#[ignore = "needs a real Data.p4k — set STARLUME_REAL_P4K"]
+fn ground_vehicles_and_bikes_listed() {
+    let cooked = cooked();
+    let rows = ships(&cooked);
+    let row = |name: &str| {
+        rows.iter()
+            .find(|r| r.record_name == name)
+            .unwrap_or_else(|| panic!("{name} not listed"))
+    };
+    for r in rows
+        .iter()
+        .filter(|r| r.base.is_none() && (r.ground || r.gravlev))
+    {
+        eprintln!(
+            "{} ({}) ground {} gravlev {}",
+            r.name, r.record_name, r.ground, r.gravlev
+        );
+    }
+    for ground in [
+        "TMBL_Cyclone",
+        "RSI_Ursa_Rover",
+        "ANVL_Ballista",
+        "GRIN_ROC",
+    ] {
+        let r = row(ground);
+        assert!(r.ground && r.base.is_none(), "{ground}");
+    }
+    for bike in ["XIAN_Nox", "DRAK_Dragonfly", "ORIG_X1"] {
+        let r = row(bike);
+        assert!(r.gravlev && !r.ground && r.base.is_none(), "{bike}");
+    }
+}
+
+/// Every system with a refinery has it on the travel map: Levski and the
+/// gateway stations refine in Nyx.
+#[test]
+#[ignore = "needs a real Data.p4k — set STARLUME_REAL_P4K"]
+fn refineries_in_every_system() {
+    let cooked = cooked();
+    let places = mod_ships::refinery_places(&cooked);
+    for p in &places {
+        eprintln!("{} ({}, {})", p.name, p.system, p.kind);
+    }
+    eprintln!(
+        "refining places in the data: {}",
+        cooked.refining.places().len()
+    );
+    for system in ["Stanton", "Pyro", "Nyx"] {
+        assert!(
+            places.iter().any(|p| p.system == system),
+            "no refinery in {system}"
+        );
+    }
+}
+
 /// How many listed hulls find a store picture by name. Needs the store list
 /// svc-shipstore's live test leaves in the temp dir.
 #[test]

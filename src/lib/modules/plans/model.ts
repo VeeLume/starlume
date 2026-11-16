@@ -8,8 +8,8 @@ import type { LedgerRow, PlanStep, StepKind, Track, TrackKind, Trip, TripStop } 
  *  kind of work', 2026-11-16). */
 export const TRACKS: { id: TrackKind; label: string }[] = [
   { id: "shopping", label: "Shopping run" },
-  { id: "refining", label: "Refinery" },
   { id: "mining", label: "Mining" },
+  { id: "refining", label: "Refinery" },
   { id: "missions", label: "Missions" },
   { id: "crafting", label: "Crafting" },
 ];

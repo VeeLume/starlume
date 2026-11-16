@@ -14,7 +14,7 @@
 //! through jump points). Without a router (no ship with a drive) a trip
 //! keeps its stops in step order, without legs.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -87,12 +87,13 @@ pub enum TrackKind {
 
 impl TrackKind {
     /// Track order on the page, and the order the next session is picked
-    /// in: a shopping run first (it fits one session and unblocks fitting),
-    /// then a refinery pick-up or drop-off, mining, missions, crafting.
+    /// in: the order the work flows. A shopping run first (it fits one
+    /// session and unblocks fitting), then mining, the refinery the ore
+    /// goes to, missions, crafting.
     pub const ALL: [TrackKind; 5] = [
         TrackKind::Shopping,
-        TrackKind::Refining,
         TrackKind::Mining,
+        TrackKind::Refining,
         TrackKind::Missions,
         TrackKind::Crafting,
     ];
@@ -340,9 +341,13 @@ pub fn tracks(
     Tracks { tracks: out, next }
 }
 
-/// Sort `steps` by track, and within a track in the order its trip flies
-/// them; steps outside a trip keep their order after it.
+/// Sort `steps`: what can be done now before what waits (blocked, or
+/// following a step still open), each by track, and within a track in the
+/// order its trip flies them; steps outside a trip keep their order after
+/// it.
 pub fn sort_steps(steps: &mut [PlanStep], tracks: &Tracks) {
+    let open: HashSet<&str> = steps.iter().map(|s| s.id.as_str()).collect();
+    let waits = |s: &PlanStep| s.blocked || s.after.as_deref().is_some_and(|a| open.contains(a));
     let mut place: HashMap<&str, usize> = HashMap::new();
     for t in &tracks.tracks {
         for (i, stop) in t.trip.stops.iter().enumerate() {
@@ -356,12 +361,13 @@ pub fn sort_steps(steps: &mut [PlanStep], tracks: &Tracks) {
             .and_then(|t| TrackKind::ALL.iter().position(|x| *x == t))
             .unwrap_or(TrackKind::ALL.len())
     };
-    let keys: HashMap<String, (usize, usize)> = steps
+    let keys: HashMap<String, (bool, usize, usize)> = steps
         .iter()
         .map(|s| {
             (
                 s.id.clone(),
                 (
+                    waits(s),
                     rank(s.kind),
                     place.get(s.id.as_str()).copied().unwrap_or(usize::MAX),
                 ),
@@ -544,6 +550,40 @@ mod tests {
         let ids: Vec<&str> = steps.iter().map(|s| s.id.as_str()).collect();
         // Shopping first, flown b then a; mining after.
         assert_eq!(ids, ["buy", "fit", "mine"]);
+    }
+
+    /// The playtest's plan read backwards: the refinery came before the
+    /// mining that gives it the ore.
+    #[test]
+    fn mining_comes_before_the_refinery_it_feeds() {
+        let mine = step("mine", StepKind::Mine, Some("a"));
+        let mut refine = step("refine", StepKind::Refine, Some("b"));
+        refine.after = Some("mine".into());
+        let mut craft = step("craft", StepKind::Craft, None);
+        craft.blocked = true;
+        let mut steps = vec![craft, refine, mine];
+        let t = tracks(&steps, &sites(), None, Some(&Backwards));
+        sort_steps(&mut steps, &t);
+        let ids: Vec<&str> = steps.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["mine", "refine", "craft"]);
+        let kinds: Vec<TrackKind> = t.tracks.iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            [TrackKind::Mining, TrackKind::Refining, TrackKind::Crafting]
+        );
+    }
+
+    /// Two ready steps (ore for the refinery already in hand) keep the
+    /// work order among themselves.
+    #[test]
+    fn ready_steps_keep_the_work_order() {
+        let mine = step("mine", StepKind::Mine, Some("a"));
+        let refine = step("refine", StepKind::Refine, Some("b"));
+        let mut steps = vec![refine, mine];
+        let t = tracks(&steps, &sites(), None, Some(&Backwards));
+        sort_steps(&mut steps, &t);
+        let ids: Vec<&str> = steps.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["mine", "refine"]);
     }
 
     #[test]

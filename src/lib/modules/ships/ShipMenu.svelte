@@ -3,12 +3,13 @@
   // maker's hulls beside it, so the whole list is two short lists instead
   // of one long one. Typing searches every hull by name and role. Editions
   // (Mk II, Executive, Wikelo specials) are the page's second picker; here
-  // only base hulls. Filtering and sorting the whole list is the start
+  // only base hulls; ground vehicles are one group of their own. Filtering and sorting the whole list is the start
   // page's job; this stays a quick pick. Esc or a click outside closes.
   import { ChevronDown, ChevronRight, Factory, Search } from "lucide-svelte";
   import type { ShipRowView } from "$lib/bindings";
   import { shipsImages } from "$lib/state/ships.svelte";
   import { careerLook } from "./careers";
+  import { byGroup, groupOf } from "./group";
   import { crewTitle } from "./seats";
 
   let {
@@ -29,9 +30,9 @@
   let el = $state<HTMLElement>();
 
   const current = $derived(ships.find((s) => s.guid === value) ?? null);
-  const makers = $derived([...new Set(ships.map((s) => s.manufacturer ?? "Other"))].sort((a, b) => a.localeCompare(b)));
-  const shown = $derived(maker || current?.manufacturer || makers[0] || "");
-  const hulls = $derived(ships.filter((s) => (s.manufacturer ?? "Other") === shown).sort((a, b) => a.name.localeCompare(b.name)));
+  const makers = $derived([...new Set(ships.map(groupOf))].sort(byGroup));
+  const shown = $derived(maker || (current && groupOf(current)) || makers[0] || "");
+  const hulls = $derived(ships.filter((s) => groupOf(s) === shown).sort((a, b) => a.name.localeCompare(b.name)));
   const query = $derived(q.trim().toLowerCase());
   const flat = $derived(!!query);
   const found = $derived(

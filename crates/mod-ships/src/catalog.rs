@@ -30,6 +30,8 @@ pub struct ShipRow {
     pub base: Option<String>,
     /// A ground vehicle.
     pub ground: bool,
+    /// A hover bike (gravlev): not a ground vehicle, listed with them.
+    pub gravlev: bool,
     /// Handed out by a contract or reward terminal.
     pub reward: bool,
     /// Cargo grids of the stock loadout, SCU (sc-vehicles' `Storage`).
@@ -120,6 +122,7 @@ pub fn ships(cooked: &CookedData) -> Vec<ShipRow> {
                     .filter(|b| index.listed.iter().any(|l| l.guid == *b))
                     .map(|b| b.to_string()),
                 ground: v.ground,
+                gravlev: v.gravlev,
                 reward: v.listing == Listing::Reward,
                 cargo: crate::view::storage(cooked, v, &e.guid, &v.stock).map(|s| s.cargo),
                 // The armour alone: no power network needed.
