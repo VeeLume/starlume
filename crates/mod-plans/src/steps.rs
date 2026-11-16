@@ -680,14 +680,11 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     }
     for (mut step, count) in fits {
         let name = std::mem::take(&mut step.title);
-        let place = step.at.as_ref().map(sits_at).unwrap_or_default();
+        // No "It is at …" line: the row's right column names the place.
         (step.title, step.detail) = match (count, step.blocked) {
-            (1, false) => (format!("Fit the {name} you own"), format!("It is {place}")),
+            (1, false) => (format!("Fit the {name} you own"), String::new()),
             (1, true) => (format!("Fit the {name} you own"), step.detail),
-            (n, false) => (
-                format!("Fit {n} × {name} you own"),
-                format!("They are {place}"),
-            ),
+            (n, false) => (format!("Fit {n} × {name} you own"), String::new()),
             (n, true) => (format!("Fit {n} × {name} you own"), step.detail),
         };
         push(step);
@@ -695,17 +692,17 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     for (mut step, lines) in buys.into_iter().zip(buy_lines) {
         let count: u32 = lines.iter().map(|(_, c)| c).sum();
         let shop = step.id.trim_start_matches("buy:").to_owned();
-        let price = auec(step.cost.unwrap_or(0.0));
+        // The total is the row's figure, so the detail names only the parts.
         if let [(name, 1)] = lines.as_slice() {
             step.title = format!("Buy the {name}");
-            step.detail = format!("{shop} sells it for {price} (UEX)");
+            step.detail = shop;
         } else {
             step.title = format!("Buy {count} parts at {shop}");
             let list: Vec<String> = lines
                 .iter()
                 .map(|(name, c)| format!("{c} × {name}"))
                 .collect();
-            step.detail = format!("{} for {price} (UEX)", and(&list));
+            step.detail = and(&list);
         }
         push(step);
     }
@@ -788,25 +785,26 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
         // A refined material is mined as its ore: the refinery follows the
         // mining, at the one nearest to it. No amount of ore is named and
         // no time: the game data has neither a yield nor a duration.
-        let refine = found.sites.first().zip(found.ore.as_ref()).map(|(best, ore)| {
-            let at = best.refine_at.clone();
-            PlanStep {
-                id: format!("refine:{}:{}:{}", row.material, row.min_quality, row.bulk),
-                kind: StepKind::Refine,
-                title: match &at {
-                    Some(at) => format!("Refine {ore} at {}", at.name),
-                    None => format!("Refine {ore} at a refinery"),
-                },
-                detail: format!(
-                    "The recipe wants {}, the rocks hold {ore}; how much ore that takes is not in the game data",
-                    row.material
-                ),
-                at,
-                sources: found.refineries,
-                after: Some(base.id.clone()),
-                ..base.clone()
-            }
-        });
+        let refine = found
+            .sites
+            .first()
+            .zip(found.ore.as_ref())
+            .map(|(best, ore)| {
+                let at = best.refine_at.clone();
+                PlanStep {
+                    id: format!("refine:{}:{}:{}", row.material, row.min_quality, row.bulk),
+                    kind: StepKind::Refine,
+                    title: match &at {
+                        Some(at) => format!("Refine {ore} at {}", at.name),
+                        None => format!("Refine {ore} at a refinery"),
+                    },
+                    detail: String::new(),
+                    at,
+                    sources: found.refineries,
+                    after: Some(base.id.clone()),
+                    ..base.clone()
+                }
+            });
         push(match found.sites.first() {
             Some(best) => PlanStep {
                 title: format!("Mine {amount} {}{grade}", row.material),
@@ -1368,15 +1366,6 @@ fn tile(value: String, label: &str) -> PlanTile {
     }
 }
 
-/// "sit at Levski", "are on you": where held parts are, after "It" or
-/// "They" (the caller picks; one part "sits", so the s is added there).
-fn sits_at(at: &PlanPlace) -> String {
-    match at.name.as_str() {
-        "On you" => "on you".to_owned(),
-        name => format!("at {name}"),
-    }
-}
-
 /// A minimum of 1 is the recipe's "any quality": only a real bar is named.
 fn quality_suffix(quality: u32) -> String {
     if quality > 1 {
@@ -1432,10 +1421,6 @@ fn auec_figure(value: f64) -> String {
         out.push(c);
     }
     out
-}
-
-fn auec(value: f64) -> String {
-    format!("{} aUEC", auec_figure(value))
 }
 
 /// "a", "a and b", "a, b and c".
@@ -1592,7 +1577,7 @@ pub(crate) mod tests {
         let step = &board.steps[0];
         assert_eq!(step.kind, StepKind::Fit);
         assert_eq!(step.title, "Fit the Part a you own");
-        assert_eq!(step.detail, "It is at Depot One");
+        assert_eq!(step.detail, "");
         assert_eq!(step.at, Some(at("Depot One")));
         assert!(!step.blocked);
     }
@@ -1617,10 +1602,7 @@ pub(crate) mod tests {
         let kinds: Vec<StepKind> = board.steps.iter().map(|s| s.kind).collect();
         assert_eq!(kinds, [StepKind::Fit, StepKind::Buy]);
         assert_eq!(board.steps[1].title, "Buy the Part a");
-        assert_eq!(
-            board.steps[1].detail,
-            "Shop One sells it for 1,200 aUEC (UEX)"
-        );
+        assert_eq!(board.steps[1].detail, "Shop One");
     }
 
     #[test]
@@ -1639,10 +1621,7 @@ pub(crate) mod tests {
         let board = derive(&loadout_state(), &loadout(vec![a.clone(), a, b]), &no_ores);
         assert_eq!(board.steps.len(), 1);
         assert_eq!(board.steps[0].title, "Buy 3 parts at Shop One");
-        assert_eq!(
-            board.steps[0].detail,
-            "2 × Part a and 1 × Part b for 61,300 aUEC (UEX)"
-        );
+        assert_eq!(board.steps[0].detail, "2 × Part a and 1 × Part b");
         assert_eq!(board.steps[0].cost, Some(61_300.0));
     }
 
@@ -1659,7 +1638,7 @@ pub(crate) mod tests {
         let board = derive(&loadout_state(), &inputs, &no_ores);
         assert_eq!(board.steps.len(), 1);
         assert_eq!(board.steps[0].title, "Fit 2 × Part a you own");
-        assert_eq!(board.steps[0].detail, "They are at Depot One");
+        assert_eq!(board.steps[0].detail, "");
     }
 
     #[test]
@@ -1908,10 +1887,7 @@ pub(crate) mod tests {
         assert_eq!(refine.seconds, None);
         assert_eq!(refine.cost, None);
         assert_eq!(refine.odds, None);
-        assert_eq!(
-            refine.detail,
-            "The recipe wants Metal, the rocks hold Metal (Ore); how much ore that takes is not in the game data"
-        );
+        assert_eq!(refine.detail, "");
         assert!(!refine.title.chars().any(|c| c.is_ascii_digit()));
     }
 
@@ -2400,7 +2376,7 @@ pub(crate) mod tests {
         assert_eq!(amount(0.06, true), "0.06 SCU");
         assert_eq!(amount(0.001, true), "under 0.01 SCU");
         assert_eq!(amount(3.0, false), "3 ×");
-        assert_eq!(auec(41_300.0), "41,300 aUEC");
-        assert_eq!(auec(950.0), "950 aUEC");
+        assert_eq!(auec_figure(41_300.0), "41,300");
+        assert_eq!(auec_figure(950.0), "950");
     }
 }

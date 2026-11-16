@@ -401,11 +401,6 @@
               </li>
             {/each}
           </ol>
-          <p class="drive dim small">
-            {board.driveShip
-              ? `Quantum times are for the ${board.driveShip}, from your loadout plan.`
-              : "No loadout plan gives a quantum drive, so jumps carry distances only."}
-          </p>
         </NowCard>
       </div>
 
@@ -919,10 +914,6 @@
   .tl b {
     font-weight: var(--weight-medium);
     color: var(--text-strong);
-  }
-  .drive {
-    margin: 0;
-    min-height: 2.6em;
   }
 
   .cols {

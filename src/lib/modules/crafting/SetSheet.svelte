@@ -42,7 +42,8 @@
             class:own
             class:on={pick?.variant === c.variant.guid}
             title="{c.variant.name}: {own ? 'you own this blueprint' : 'you don’t own this blueprint'}"
-            onclick={() => (chosen = { family: c.family.key, variant: c.variant.guid })}>{own ? "owned" : "lack"}</button
+            aria-label="{c.variant.name}, {own ? 'owned' : 'not owned'}"
+            onclick={() => (chosen = { family: c.family.key, variant: c.variant.guid })}>{own ? "✓" : ""}</button
           >
         {:else}
           <span class="cell none" title="No such colourway for this piece">—</span>
@@ -51,8 +52,11 @@
     {/each}
   </div>
 
+  <!-- The grid already lists every colourway, so the sheet shows only the
+       picked cell's blueprint row (playtest 2026-11-16: the sidebar ran
+       long with the colourways twice). -->
   {#if family}
-    <RecipeSheet {family} {channel} pick={pick?.variant ?? null} />
+    <RecipeSheet {family} {channel} pick={pick?.variant ?? null} single />
   {/if}
 </div>
 
@@ -78,7 +82,7 @@
   }
   .cw {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 58px);
+    grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 48px);
     gap: 2px 4px;
     align-items: center;
     font-size: var(--text-small);
@@ -100,10 +104,11 @@
     color: var(--text);
   }
   .cell {
-    height: 24px;
+    height: 22px;
     border: 0;
     border-radius: var(--radius-chip);
-    background: transparent;
+    /* An empty cell is a blueprint you lack: a faint well, no word. */
+    background: color-mix(in srgb, var(--text) 4%, transparent);
     color: var(--text-dim);
     font: inherit;
     font-size: var(--text-small);
@@ -123,6 +128,7 @@
   .cell.none {
     display: grid;
     place-items: center;
+    background: transparent;
     color: var(--text-faint);
     cursor: default;
   }

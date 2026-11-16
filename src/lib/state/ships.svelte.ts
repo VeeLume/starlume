@@ -513,19 +513,31 @@ export const shipsCandidates = {
   },
 };
 
+/** Recent candidate lists by everything that shapes them (channel, ship,
+ *  edits, power, ports): reopening a picker renders at once and refreshes
+ *  behind (frontend rule 2; playtest 2026-11-16 saw a wait on every open).
+ *  Small and dropped whole when it grows: a list is cheap to fetch again. */
+const _candidateCache = new Map<string, CandidateView[]>();
+const CANDIDATE_CACHE_MAX = 24;
+
 /** Open the picker on `targets[0]` and load what fits it. */
 export async function openPicker(channel: string, targets: string[][]): Promise<void> {
   const ship = shipsUi.ship;
   shipsPicker.open = { targets };
-  _candidates = null;
-  _candidatesError = "";
-  const seq = ++_candidatesSeq;
   const loadout = { ship, edits: shipsUi.edits[ship] ?? [] };
   const power = { mode: shipsUi.mode, off: shipsUi.off[ship] ?? [], levels: shipsUi.levels[ship] ?? [] };
+  const key = JSON.stringify([channel, loadout, power, targets]);
+  _candidates = _candidateCache.get(key) ?? null;
+  _candidatesError = "";
+  const seq = ++_candidatesSeq;
   const result = await commands.shipsCandidates(channel, loadout, power, targets);
+  if (result.status === "ok") {
+    if (_candidateCache.size >= CANDIDATE_CACHE_MAX) _candidateCache.clear();
+    _candidateCache.set(key, result.data);
+  }
   if (seq !== _candidatesSeq) return;
   if (result.status === "ok") _candidates = result.data;
-  else _candidatesError = result.error.message;
+  else if (_candidates === null) _candidatesError = result.error.message;
 }
 
 export function closePicker(): void {
