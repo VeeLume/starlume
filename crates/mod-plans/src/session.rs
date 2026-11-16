@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
-use crate::steps::{PlanStep, StepKind};
+use crate::steps::{PlanPlace, PlanStep, REFINE, StepKind, place_refine};
 
 /// A place quantum travel can go.
 #[derive(Debug, Clone, PartialEq)]
@@ -248,12 +248,12 @@ pub fn tracks(
         if mine.is_empty() {
             continue;
         }
-        // A step waits while the step it follows is still open.
+        // A step waits while a step it follows is still open.
         let waiting_on = |s: &PlanStep| {
             s.after
-                .as_deref()
-                .and_then(|a| open.get(a))
-                .and_then(|a| TrackKind::of(a.kind))
+                .iter()
+                .filter_map(|a| open.get(a.as_str()))
+                .find_map(|a| TrackKind::of(a.kind))
         };
         let ready: Vec<&PlanStep> = mine
             .iter()
@@ -341,13 +341,38 @@ pub fn tracks(
     Tracks { tracks: out, next }
 }
 
+/// Move the run's refine step beside the mining trip's last stop: the
+/// ore is flown from there to the refinery `near` that stop (the shell's
+/// nearest, in its system). Nothing changes while the mining trip has no
+/// stop on the map or `near` knows none.
+pub fn refine_after_mining(
+    steps: &mut [PlanStep],
+    tracks: &Tracks,
+    near: &dyn Fn(&str) -> Option<PlanPlace>,
+) {
+    let Some(last) = tracks
+        .tracks
+        .iter()
+        .find(|t| t.kind == TrackKind::Mining)
+        .and_then(|t| t.trip.stops.last())
+    else {
+        return;
+    };
+    let Some(at) = near(&last.site) else {
+        return;
+    };
+    if let Some(step) = steps.iter_mut().find(|s| s.id == REFINE) {
+        place_refine(step, Some(at));
+    }
+}
+
 /// Sort `steps`: what can be done now before what waits (blocked, or
 /// following a step still open), each by track, and within a track in the
 /// order its trip flies them; steps outside a trip keep their order after
 /// it.
 pub fn sort_steps(steps: &mut [PlanStep], tracks: &Tracks) {
     let open: HashSet<&str> = steps.iter().map(|s| s.id.as_str()).collect();
-    let waits = |s: &PlanStep| s.blocked || s.after.as_deref().is_some_and(|a| open.contains(a));
+    let waits = |s: &PlanStep| s.blocked || s.after.iter().any(|a| open.contains(a.as_str()));
     let mut place: HashMap<&str, usize> = HashMap::new();
     for t in &tracks.tracks {
         for (i, stop) in t.trip.stops.iter().enumerate() {
@@ -380,7 +405,6 @@ pub fn sort_steps(steps: &mut [PlanStep], tracks: &Tracks) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::steps::PlanPlace;
 
     /// Sites on a line, 1 Gm apart per unit, in one system.
     fn site(id: &str, x: f64) -> Site {
@@ -409,7 +433,7 @@ mod tests {
             cost: None,
             odds: None,
             sources: 1,
-            after: None,
+            after: Vec::new(),
         }
     }
 
@@ -506,7 +530,7 @@ mod tests {
     fn refining_waits_on_the_mining_it_follows() {
         let mine = step("mine", StepKind::Mine, Some("c"));
         let mut refine = step("refine", StepKind::Refine, Some("b"));
-        refine.after = Some("mine".into());
+        refine.after = vec!["mine".into()];
         let t = tracks(&[mine, refine], &sites(), None, Some(&Backwards));
         let refining = t
             .tracks
@@ -558,7 +582,7 @@ mod tests {
     fn mining_comes_before_the_refinery_it_feeds() {
         let mine = step("mine", StepKind::Mine, Some("a"));
         let mut refine = step("refine", StepKind::Refine, Some("b"));
-        refine.after = Some("mine".into());
+        refine.after = vec!["mine".into()];
         let mut craft = step("craft", StepKind::Craft, None);
         craft.blocked = true;
         let mut steps = vec![craft, refine, mine];
@@ -570,6 +594,35 @@ mod tests {
         assert_eq!(
             kinds,
             [TrackKind::Mining, TrackKind::Refining, TrackKind::Crafting]
+        );
+    }
+
+    /// The refinery moves beside the mining trip's last stop: flown
+    /// backwards, c then b then a, so the one nearest a.
+    #[test]
+    fn the_refinery_follows_the_last_mining_stop() {
+        let mut refine = step(REFINE, StepKind::Refine, Some("c"));
+        refine.title = "Refine the ore at Place c".into();
+        refine.after = vec!["m1".into(), "m2".into(), "m3".into()];
+        let mut steps = vec![
+            step("m1", StepKind::Mine, Some("a")),
+            step("m2", StepKind::Mine, Some("b")),
+            step("m3", StepKind::Mine, Some("c")),
+            refine,
+        ];
+        let t = tracks(&steps, &sites(), None, Some(&Backwards));
+        let near = |site: &str| {
+            Some(PlanPlace {
+                name: format!("Refinery by {site}"),
+                site: Some(format!("r-{site}")),
+            })
+        };
+        refine_after_mining(&mut steps, &t, &near);
+        let refine = steps.iter().find(|s| s.id == REFINE).unwrap();
+        assert_eq!(refine.title, "Refine the ore at Refinery by a");
+        assert_eq!(
+            refine.at.as_ref().and_then(|p| p.site.as_deref()),
+            Some("r-a")
         );
     }
 

@@ -240,9 +240,9 @@ pub struct PlanStep {
     /// How many places it can be done at (mining places, shops, missions,
     /// refineries).
     pub sources: u32,
-    /// The step this one follows (its id): refining comes after the mining
-    /// that gives the ore. A trip never puts it before that step.
-    pub after: Option<String>,
+    /// The steps this one follows (their ids): refining comes after the
+    /// mining that gives the ore. A trip never puts it before them.
+    pub after: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -624,7 +624,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                         cost: None,
                         odds: None,
                         sources: 1,
-                        after: None,
+                        after: Vec::new(),
                     },
                     1,
                 ));
@@ -647,7 +647,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             cost: Some(0.0),
                             odds: None,
                             sources: u32::MAX,
-                            after: None,
+                            after: Vec::new(),
                         });
                         buy_lines.push(Vec::new());
                         buys.len() - 1
@@ -683,7 +683,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     cost: None,
                     odds: None,
                     sources: 0,
-                    after: None,
+                    after: Vec::new(),
                 });
             }
         }
@@ -754,12 +754,13 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             cost: None,
             odds: None,
             sources: grants.len() as u32,
-            after: None,
+            after: Vec::new(),
         });
     }
     earns.into_iter().for_each(&mut push);
 
     // Materials still short: one step a ledger row.
+    let mut refines: Vec<ToRefine> = Vec::new();
     for row in ledger.rows.iter().filter(|r| r.short() > 1e-6) {
         let found = ores(&row.material, row.min_quality);
         let amount = amount(row.short(), row.bulk);
@@ -790,31 +791,22 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             cost: None,
             odds: None,
             sources: found.sites.len() as u32,
-            after: None,
+            after: Vec::new(),
         };
-        // A refined material is mined as its ore: the refinery follows the
-        // mining, at the one nearest to it. No amount of ore is named and
-        // no time: the game data has neither a yield nor a duration.
-        let refine = found
-            .sites
-            .first()
-            .zip(found.ore.as_ref())
-            .map(|(best, ore)| {
-                let at = best.refine_at.clone();
-                PlanStep {
-                    id: format!("refine:{}:{}:{}", row.material, row.min_quality, row.bulk),
-                    kind: StepKind::Refine,
-                    title: match &at {
-                        Some(at) => format!("Refine {ore} at {}", at.name),
-                        None => format!("Refine {ore} at a refinery"),
-                    },
-                    detail: String::new(),
-                    at,
-                    sources: found.refineries,
-                    after: Some(base.id.clone()),
-                    ..base.clone()
-                }
+        // A refined material is mined as its ore and goes to the run's one
+        // refinery (below).
+        if let (Some(best), Some(ore)) = (found.sites.first(), found.ore.as_ref()) {
+            refines.push(ToRefine {
+                ore: ore.clone(),
+                material: row.material.clone(),
+                mine: base.id.clone(),
+                plans: base.plans.clone(),
+                near: best.refine_at.clone(),
+                placed: best.at.site.is_some(),
+                scu: row.short(),
+                refineries: found.refineries,
             });
+        }
         push(match found.sites.first() {
             Some(best) => PlanStep {
                 title: format!("Mine {amount} {}{grade}", row.material),
@@ -845,9 +837,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 ..base
             },
         });
-        if let Some(refine) = refine {
-            push(refine);
-        }
+    }
+    if let Some(step) = refine_step(&refines) {
+        push(step);
     }
 
     // Crafts: what the reserved stock covers now, and what still waits.
@@ -897,7 +889,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 cost: None,
                 odds: None,
                 sources: 0,
-                after: None,
+                after: Vec::new(),
             });
         }
         let rest = craft.left - can;
@@ -927,7 +919,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 cost: None,
                 odds: None,
                 sources: 0,
-                after: None,
+                after: Vec::new(),
             });
         }
     }
@@ -1442,6 +1434,94 @@ fn and(items: &[String]) -> String {
     }
 }
 
+/// One ore on its way to the refinery.
+struct ToRefine {
+    ore: String,
+    material: String,
+    /// The mining step that gives it.
+    mine: String,
+    plans: Vec<String>,
+    /// The refinery nearest to where it is mined.
+    near: Option<PlanPlace>,
+    /// Where it is mined has a point on the map.
+    placed: bool,
+    scu: f64,
+    refineries: u32,
+}
+
+/// The id of the run's one refine step.
+pub const REFINE: &str = "refine";
+
+/// The run's ore goes to one refinery: nobody splits a mining run over
+/// refineries across the system (Valerie, 2026-11-16). One step, after
+/// every mining step that feeds it. Its place here is the refinery nearest
+/// to the most ore mined at a place on the map;
+/// [`crate::session::refine_after_mining`] moves it beside the mining
+/// trip's last stop once the trips are ordered. No amount of ore is named
+/// and no time: the game data has neither a yield nor a duration.
+fn refine_step(ores: &[ToRefine]) -> Option<PlanStep> {
+    let first = ores.first()?;
+    let mut votes: Vec<(&PlanPlace, f64)> = Vec::new();
+    let placed = ores.iter().any(|o| o.placed);
+    for o in ores.iter().filter(|o| o.placed || !placed) {
+        let Some(at) = &o.near else { continue };
+        match votes.iter_mut().find(|(p, _)| *p == at) {
+            Some((_, scu)) => *scu += o.scu,
+            None => votes.push((at, o.scu)),
+        }
+    }
+    // Most ore first; on a tie, the first ore's.
+    let at = votes
+        .iter()
+        .fold(None::<&(&PlanPlace, f64)>, |best, v| match best {
+            Some(b) if b.1 >= v.1 => Some(b),
+            _ => Some(v),
+        })
+        .map(|(p, _)| (*p).clone());
+    let mut plans: Vec<String> = Vec::new();
+    for p in ores.iter().flat_map(|o| &o.plans) {
+        if !plans.contains(p) {
+            plans.push(p.clone());
+        }
+    }
+    let mut step = PlanStep {
+        id: REFINE.to_owned(),
+        kind: StepKind::Refine,
+        title: match ores {
+            [one] => format!("Refine {}", one.ore),
+            _ => "Refine the ore".to_owned(),
+        },
+        detail: match ores {
+            [_] => String::new(),
+            _ => and(&ores.iter().map(|o| o.material.clone()).collect::<Vec<_>>()),
+        },
+        plans,
+        blocked: false,
+        at: None,
+        seconds: None,
+        cost: None,
+        odds: None,
+        sources: first.refineries,
+        after: ores.iter().map(|o| o.mine.clone()).collect(),
+    };
+    place_refine(&mut step, at);
+    Some(step)
+}
+
+/// Put the refine step at `at` (`None`: a refinery not known yet).
+pub(crate) fn place_refine(step: &mut PlanStep, at: Option<PlanPlace>) {
+    let what = step
+        .title
+        .split_once(" at ")
+        .map_or(step.title.as_str(), |(what, _)| what)
+        .to_owned();
+    step.title = match &at {
+        Some(at) => format!("{what} at {}", at.name),
+        None => format!("{what} at a refinery"),
+    };
+    step.at = at;
+}
+
 fn lower_first(text: &str) -> String {
     let mut chars = text.chars();
     match chars.next() {
@@ -1909,12 +1989,72 @@ pub(crate) mod tests {
         let (mine, refine) = (&board.steps[0], &board.steps[1]);
         assert_eq!(refine.title, "Refine Metal (Ore) at Station R");
         assert_eq!(refine.at, Some(at("Station R")));
-        assert_eq!(refine.after.as_deref(), Some(mine.id.as_str()));
+        assert_eq!(refine.after, std::slice::from_ref(&mine.id));
         assert_eq!(refine.plans, mine.plans);
         assert_eq!(refine.sources, 4);
         assert!(!refine.blocked);
         // Mining comes first in the plan's note.
         assert_eq!(board.plans[0].note, "Next: mine 2 SCU Metal, Q700+");
+    }
+
+    /// Three ores mined at three places go to one refinery: the one nearest
+    /// the most ore. An ore mined where the map has no point (a ring) has
+    /// no say while another has one.
+    #[test]
+    fn a_run_refines_at_one_refinery() {
+        let mut inputs = Inputs::default();
+        inputs.recipes.insert(
+            "bp-1".into(),
+            recipe(
+                true,
+                vec![
+                    slot("Iron", 1.0, 0),
+                    slot("Gold", 3.0, 0),
+                    slot("Tin", 9.0, 0),
+                ],
+            ),
+        );
+        let ores = |material: &str, _: u32| {
+            let (mined_at, near) = match material {
+                "Iron" => (at("Moon A"), at("Station A")),
+                "Gold" => (at("Moon B"), at("Station B")),
+                _ => (
+                    PlanPlace {
+                        name: "The Ring".into(),
+                        site: None,
+                    },
+                    at("Station Far"),
+                ),
+            };
+            OreSites {
+                sites: vec![OreSite {
+                    at: mined_at,
+                    find: 0.25,
+                    refine_at: Some(near),
+                }],
+                mined: true,
+                ore: Some(format!("{material} (Ore)")),
+                refineries: 4,
+            }
+        };
+        let board = derive(&craft_state(1, 0), &inputs, &ores);
+        let refines: Vec<&PlanStep> = board
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::Refine)
+            .collect();
+        let [refine] = refines.as_slice() else {
+            panic!("one refine step, got {}", refines.len());
+        };
+        assert_eq!(refine.title, "Refine the ore at Station B");
+        assert_eq!(refine.detail, "Iron, Gold and Tin");
+        let mines: Vec<String> = board
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::Mine)
+            .map(|s| s.id.clone())
+            .collect();
+        assert_eq!(refine.after, mines);
     }
 
     #[test]

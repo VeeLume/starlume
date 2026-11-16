@@ -394,6 +394,14 @@ async fn last_place(app: &AppHandle) -> Option<String> {
     None
 }
 
+/// The site ids of the places with a refinery.
+fn refinery_ids(cooked: &svc_data::CookedData) -> Vec<String> {
+    mod_ships::refinery_places(cooked)
+        .into_iter()
+        .map(|p| p.guid)
+        .collect()
+}
+
 /// Seconds an arrival costs on top of the travel: landing or docking and
 /// leaving again. One value for every place until the session log can
 /// measure them; sc-travel takes the drive's cooldown when that is longer.
@@ -683,6 +691,14 @@ impl Gathered<'_> {
             start.as_ref().map(|(_, site)| site.as_str()),
             router.as_ref().map(|r| r as &dyn Router),
         );
+        // The run's ore goes to the refinery nearest the mining trip's
+        // last stop, in that stop's system.
+        let refineries = refinery_ids(cooked);
+        let near = |site: &str| {
+            mod_plans::session::nearest(&sites.sites, site, refineries.iter().map(String::as_str))
+                .and_then(|id| sites.place(id))
+        };
+        mod_plans::session::refine_after_mining(&mut board.steps, &tracks, &near);
         // The steps list follows the tracks and their trips' order.
         mod_plans::session::sort_steps(&mut board.steps, &tracks);
 
@@ -977,10 +993,7 @@ impl Gathered<'_> {
     ) -> impl Fn(&str, u32) -> OreSites + 's {
         let cooked = self.cooked;
         let system = start.and_then(|site| sites.system_of(site));
-        let refineries: Vec<String> = mod_ships::refinery_places(cooked)
-            .into_iter()
-            .map(|p| p.guid)
-            .collect();
+        let refineries = refinery_ids(cooked);
         let mining = crate::mining::catalog_of(cooked)
             .ok()
             .zip(crate::mining::sources(cooked).ok());
