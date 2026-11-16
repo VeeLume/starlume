@@ -769,6 +769,13 @@ impl Gathered<'_> {
         let Some(entry) = self.blueprints.and_then(|i| i.get(blueprint)) else {
             return;
         };
+        // The stock quality: a material at it neither helps nor hurts.
+        let Some(neutral) = self
+            .blueprints
+            .map(|i| i.default_quality.clamp(0, 1000) as u32)
+        else {
+            return;
+        };
         let grants = entry
             .granted_by
             .iter()
@@ -857,6 +864,11 @@ impl Gathered<'_> {
                             .unwrap_or(0.0),
                         bulk: s.scu.is_some(),
                         min_quality: s.min_quality.clamp(0, 1000) as u32,
+                        aim: if s.modifiers.is_empty() {
+                            s.min_quality.clamp(0, 1000) as u32
+                        } else {
+                            neutral.max(s.min_quality.clamp(0, 1000) as u32)
+                        },
                     })
                     .collect(),
                 grants,
