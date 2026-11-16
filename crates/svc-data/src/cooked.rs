@@ -64,7 +64,9 @@ use serde::{Deserialize, Serialize};
 /// methods ([`CookedData::refining`]), for the Plans page's refine steps.
 /// rev 25: sc-holotable v0.53: the travel graph
 /// ([`crate::ships::ShipsIndex::travel`]) for Plans' trips.
-pub const STARLUME_COOK_REV: u32 = 25;
+/// rev 26: sc-holotable v0.54: Pyro's positions turned 85° into the
+/// starmap frame (distances unchanged), microTech's moons unmirrored.
+pub const STARLUME_COOK_REV: u32 = 26;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.
