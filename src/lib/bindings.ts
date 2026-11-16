@@ -4354,7 +4354,11 @@ seats: SeatsView;
 /**
  * The base hull this is an edition of, when it is one.
  */
-base: string | null; ground: boolean; reward: boolean; 
+base: string | null; ground: boolean; 
+/**
+ * A hover bike: listed with the ground vehicles.
+ */
+gravlev: boolean; reward: boolean; 
 /**
  * Cargo grids of the stock loadout, SCU.
  */

@@ -109,6 +109,7 @@ mod tests {
             seats: Default::default(),
             base: None,
             ground: false,
+            gravlev: false,
             reward: false,
             cargo: None,
             deflection: None,

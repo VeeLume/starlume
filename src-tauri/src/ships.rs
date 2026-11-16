@@ -42,6 +42,8 @@ pub struct ShipRowView {
     /// The base hull this is an edition of, when it is one.
     pub base: Option<String>,
     pub ground: bool,
+    /// A hover bike: listed with the ground vehicles.
+    pub gravlev: bool,
     pub reward: bool,
     /// Cargo grids of the stock loadout, SCU.
     pub cargo: Option<f64>,
@@ -63,6 +65,7 @@ impl From<ShipRow> for ShipRowView {
             seats: r.seats.into(),
             base: r.base,
             ground: r.ground,
+            gravlev: r.gravlev,
             reward: r.reward,
             cargo: r.cargo,
             deflection: r.deflection.map(Into::into),

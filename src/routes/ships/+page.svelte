@@ -124,10 +124,10 @@
 
   // The ship picker lists base hulls under their maker; a hull's editions
   // (Mk I / II, Executive, Wikelo specials) are the second picker.
-  const spaceships = $derived((ships ?? []).filter((s) => !s.ground));
+  const allShips = $derived(ships ?? []);
   const row = $derived(ships?.find((s) => s.guid === shipsUi.ship) ?? null);
   const baseOf = $derived(row?.base ?? row?.guid ?? "");
-  const editions = $derived(spaceships.filter((s) => s.guid === baseOf || s.base === baseOf));
+  const editions = $derived(allShips.filter((s) => s.guid === baseOf || s.base === baseOf));
   const editionOptions = $derived<SelectOption[]>(
     editions.map((s) => ({ value: s.guid, label: s.guid === baseOf ? "Standard" : s.name, detail: s.reward ? "reward" : undefined })),
   );
@@ -283,7 +283,7 @@
         </div>
       {/if}
       <div class="open">
-        <ShipMenu ships={spaceships.filter((s) => !s.base)} value={baseOf} onpick={openFromList} />
+        <ShipMenu ships={allShips.filter((s) => !s.base)} value={baseOf} onpick={openFromList} />
         {#if shipsUi.ship && editions.length > 1}
           <Select label="Edition" options={editionOptions} value={shipsUi.ship} onchange={openShip} />
         {/if}
