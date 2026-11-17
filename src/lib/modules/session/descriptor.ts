@@ -2,7 +2,6 @@
 // Rust half: crates/mod-session (model, reducer) + src-tauri/src/session.rs
 // (feeds, storage, commands). Reads only what the Game.log and telemetry
 // opt-ins already read; it switches neither on (Settings → Game data).
-// Unreleased: see registry.ts.
 
 import { History } from "lucide-svelte";
 import type { ModuleDescriptor } from "../types";
