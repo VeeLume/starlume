@@ -403,6 +403,37 @@ fn ore_sites_send_pockets_to_their_lagrange_point() {
         }
     }
     assert!(split, "no area splits by quality source for Savrilium");
+
+    // A ring field is no place of its own: its site names the places a run
+    // starts from (LIVE 4.10: the Glaciem Ring's Levski).
+    let mut entered: Vec<String> = Vec::new();
+    for element in &catalog.element_names {
+        for site in mod_mining::ore_sites(&src, &catalog, &element.id, 0) {
+            if !site.entries.is_empty() {
+                let line = format!(
+                    "{} enters at {}",
+                    site.name,
+                    site.entries
+                        .iter()
+                        .map(|e| e.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                if !entered.contains(&line) {
+                    entered.push(line);
+                }
+            }
+        }
+    }
+    for line in &entered {
+        eprintln!("{line}");
+    }
+    assert!(
+        entered
+            .iter()
+            .any(|l| l.contains("Glaciem") && l.contains("Levski")),
+        "no Glaciem Ring site enters at Levski"
+    );
 }
 
 /// The share of an area's ship rocks that hold an ore at a quality, for a
