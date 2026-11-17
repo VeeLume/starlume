@@ -214,7 +214,7 @@ describe("a session focus", () => {
     expect(v.groups.map((g) => g.title)).toEqual(["This session"]);
     const [load] = v.groups[0].runs;
     expect(load.title).toBe("Mining in Pyro");
-    expect(load.figure).toBe("25 Gm, 1 jump, ~8 min flying");
+    expect(load.figure).toBe("25 Gm, ~8 min flying");
     expect(load.steps.map((f) => f.step.id)).toEqual(["m1", "m2", "refine:Pyro:0"]);
     expect(v.card).toEqual({
       distance: "25 Gm",
@@ -234,6 +234,9 @@ describe("a session focus", () => {
     const runs = v.groups[0].runs;
     expect(runs.map((r) => r.title)).toEqual(["Shopping run", "Mining in Pyro"]);
     expect(runs[0].figure).toBe("10 Gm, ~5 min flying");
+    // The mining run starts where the trip does: from the session's start.
+    const from = focusView(steps, tracks, { kind: "activity", track: "mining" }, "New Babbage");
+    expect(from.groups[0].runs[0].figure).toBe("25 Gm from New Babbage, ~8 min flying");
     expect(runs[1].steps.map((f) => [f.step.id, f.other])).toEqual([
       ["m1", false],
       ["m2", true],

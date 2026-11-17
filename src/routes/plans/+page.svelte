@@ -113,7 +113,7 @@
       ? (board?.planTracks.find((p) => p.plan === shownFocus.plan)?.tracks.tracks ?? [])
       : (board?.tracks.tracks ?? []),
   );
-  const view = $derived(focusView(board?.steps ?? [], focusTracks, shownFocus));
+  const view = $derived(focusView(board?.steps ?? [], focusTracks, shownFocus, board?.from ?? ""));
   const names = $derived(new Map((board?.plans ?? []).map((p) => [p.id, p.name])));
   /** The plan the page shows the controls of: the focus when it is a
    *  plan; on Done, the one picked there. */

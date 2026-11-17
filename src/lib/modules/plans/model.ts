@@ -238,13 +238,17 @@ function loadTitle(refine: PlanStep, loads: number): string {
   return loads > 1 ? `Mining in ${where}, load ${Number(n) + 1}` : `Mining in ${where}`;
 }
 
-type Legs = { stops: TripStop[]; gm: number; jumps: number; flying: number | null };
+type Legs = { stops: TripStop[]; from: string; gm: number; jumps: number; flying: number | null };
 
-/** The trip figures of the stops that hold any of `ids`: Gm, jumps and
- *  flying seconds (null when a leg had no drive to time it). */
-function legs(trip: Trip | undefined, ids: Set<string>): Legs {
-  const stops = (trip?.stops ?? []).filter((s) => s.steps.some((x) => ids.has(x.id)));
-  const out: Legs = { stops, gm: 0, jumps: 0, flying: 0 };
+/** The trip figures of the stops that hold any of `ids`: where the first
+ *  leg starts (the stop before, else the trip's start `origin`), Gm, jump
+ *  points and flying seconds (null when a leg had no drive to time it). */
+function legs(trip: Trip | undefined, ids: Set<string>, origin = ""): Legs {
+  const all = trip?.stops ?? [];
+  const stops = all.filter((s) => s.steps.some((x) => ids.has(x.id)));
+  const first = stops.length ? all.indexOf(stops[0]) : -1;
+  const from = first > 0 ? all[first - 1].place : origin;
+  const out: Legs = { stops, from, gm: 0, jumps: 0, flying: 0 };
   for (const s of stops) {
     if (!s.leg) continue;
     out.gm += s.leg.gm;
@@ -254,18 +258,19 @@ function legs(trip: Trip | undefined, ids: Set<string>): Legs {
   return out;
 }
 
-/** "96 Gm, 1 jump, ~14 min flying"; empty without stops. */
+/** "96 Gm from Levski, ~14 min flying" (Valerie, 2026-11-17: a jump
+ *  count read as quantum hops); empty without stops. */
 export function legsText(l: Legs): string {
   if (l.stops.length === 0) return "";
-  const parts = [gm(l.gm)];
-  if (l.jumps) parts.push(l.jumps === 1 ? "1 jump" : `${l.jumps} jumps`);
+  const parts = [l.from ? `${gm(l.gm)} from ${l.from}` : gm(l.gm)];
   if (l.flying != null && l.flying > 0) parts.push(`~${span(l.flying)} flying`);
   return parts.join(", ");
 }
 
 /** The focus's session: the card's figures and the runs. `tracks` are the
  *  board's for an activity, the plan's own for a plan. */
-export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): FocusView {
+/** `origin`: where the session starts (the board's last known place). */
+export function focusView(all: PlanStep[], tracks: Track[], focus: Focus, origin = ""): FocusView {
   const open = new Set(all.map((s) => s.id));
   const chosen: FocusStep[] =
     focus.kind === "plan"
@@ -297,14 +302,14 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): Focus
         const steps = here.filter((f) => r.step.after.includes(f.step.id));
         if (steps.length === 0) continue;
         const ids = new Set(steps.map((f) => f.step.id));
-        runs.push({ key: r.step.id, title: loadTitle(r.step, refines.length), figure: legsText(legs(tripOf("mining"), ids)), steps: [...steps, r] });
+        runs.push({ key: r.step.id, title: loadTitle(r.step, refines.length), figure: legsText(legs(tripOf("mining"), ids, origin)), steps: [...steps, r] });
         placed.add(r.step.id);
         steps.forEach((f) => placed.add(f.step.id));
       }
       const loose = here.filter((f) => !loaded.has(f.step.id));
       if (loose.length) {
         const ids = new Set(loose.map((f) => f.step.id));
-        runs.push({ key: "mining", title: "Mining", figure: legsText(legs(tripOf("mining"), ids)), steps: loose });
+        runs.push({ key: "mining", title: "Mining", figure: legsText(legs(tripOf("mining"), ids, origin)), steps: loose });
         loose.forEach((f) => placed.add(f.step.id));
       }
       continue;
@@ -313,14 +318,14 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): Focus
     if (left.length === 0) continue;
     const ids = new Set(left.map((f) => f.step.id));
     const crafting = left.reduce((n, f) => n + (f.step.seconds ?? 0), 0);
-    const figure = kind === "crafting" ? (crafting > 0 ? `${clock(crafting)} crafting` : "") : legsText(legs(tripOf(kind), ids));
+    const figure = kind === "crafting" ? (crafting > 0 ? `${clock(crafting)} crafting` : "") : legsText(legs(tripOf(kind), ids, origin));
     runs.push({ key: kind, title: label, figure, steps: left });
     left.forEach((f) => placed.add(f.step.id));
   }
 
   const waiting = chosen.filter((f) => !placed.has(f.step.id));
   const sessionIds = new Set(runs.flatMap((r) => r.steps.map((f) => f.step.id)));
-  const total: Legs = { stops: [], gm: 0, jumps: 0, flying: 0 };
+  const total: Legs = { stops: [], from: "", gm: 0, jumps: 0, flying: 0 };
   for (const t of tracks) {
     const l = legs(t.trip, sessionIds);
     total.stops.push(...l.stops);
