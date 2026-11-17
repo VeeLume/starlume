@@ -67,7 +67,8 @@ use serde::{Deserialize, Serialize};
 /// rev 26: sc-holotable v0.54: Pyro's positions turned 85° into the
 /// starmap frame (distances unchanged), microTech's moons unmirrored.
 /// rev 27: sc-holotable v0.55: ring entry markers and ore holds.
-pub const STARLUME_COOK_REV: u32 = 27;
+/// rev 28: sc-holotable v0.56: mining-site anchors and ring shapes.
+pub const STARLUME_COOK_REV: u32 = 28;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

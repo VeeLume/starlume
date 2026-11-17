@@ -434,6 +434,12 @@ fn ore_sites_send_pockets_to_their_lagrange_point() {
             .any(|l| l.contains("Glaciem") && l.contains("Levski")),
         "no Glaciem Ring site enters at Levski"
     );
+    // sc-holotable v0.56: the Aaron Halo's band holds the Wikelo Selo
+    // station.
+    assert!(
+        entered.iter().any(|l| l.contains("Aaron Halo")),
+        "the Aaron Halo has no entry"
+    );
 }
 
 /// The share of an area's ship rocks that hold an ore at a quality, for a

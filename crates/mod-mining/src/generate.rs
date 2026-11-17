@@ -1556,10 +1556,11 @@ pub struct OreSite {
     /// Lagrange point for a gas pocket or a claim there (neither is a
     /// target on the star map).
     pub travel: Vec<Place>,
-    /// For a ring or belt field (its place is the system's star): the
-    /// named places inside it a run starts from (the Glaciem Ring's Levski
-    /// and asteroid bases), not all of them quantum targets. Empty
-    /// otherwise.
+    /// Where a run starts when the area's places are no quantum target:
+    /// for a ring or belt field (its place is the system's star) the named
+    /// places inside it (the Glaciem Ring's Levski and asteroid bases);
+    /// else what holds the place, nearest first (a claim: `ARC L3-A`, then
+    /// `ARC L3`). Not all of them are quantum targets.
     pub entries: Vec<Place>,
     /// The share of the area's ship rocks that hold the ore at the asked
     /// quality or better.
@@ -1677,11 +1678,13 @@ pub fn ore_sites(
                     }
                     let mut entries: Vec<Place> = Vec::new();
                     let field_sites = src.places.map(|p| p.sites_of(guid)).unwrap_or_default();
-                    for marker in field_sites
+                    let field_sites: Vec<_> = field_sites
                         .iter()
                         .filter(|s| places.iter().any(|p| p.id == s.place.to_string()))
-                        .flat_map(|s| &s.markers)
-                    {
+                        .collect();
+                    let markers = field_sites.iter().flat_map(|s| &s.markers);
+                    let anchors = field_sites.iter().flat_map(|s| &s.anchors);
+                    for marker in markers.chain(anchors) {
                         let id = marker.to_string();
                         if entries.iter().any(|e| e.id == id) {
                             continue;
