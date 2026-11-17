@@ -3690,6 +3690,10 @@ ship: string | null; loadout: string | null;
  */
 family: string | null }
 export type PlanTile = { value: string; label: string }
+/**
+ * One plan's tracks.
+ */
+export type PlanTracks = { plan: string; tracks: Tracks }
 export type PlansBoardView = { plans: PlanBoard[]; targets: PlanTargetView[]; steps: PlanStep[]; ledger: LedgerRow[]; 
 /**
  * One per choice, in the order the card offers them.
@@ -3697,6 +3701,12 @@ export type PlansBoardView = { plans: PlanBoard[]; targets: PlanTargetView[]; st
  * session suggests.
  */
 tracks: Tracks; 
+/**
+ * Each open plan's own tracks, ordered over its steps alone (and the
+ * other plans' mining its refining waits on): the card with that plan
+ * as the focus.
+ */
+planTracks: PlanTracks[]; 
 /**
  * The last known place, as the session log names it; `None` when no
  * session has one or the map does not know it.
