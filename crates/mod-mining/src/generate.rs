@@ -1540,10 +1540,25 @@ fn mass_buckets(rolled: &[Rolled], classes: Option<&Vec<RockClass>>) -> Vec<Mass
         .collect()
 }
 
-/// The mean SCU of `element` in the rocks of `entry`'s type that hold it,
-/// over [`ORE_ROLLS`] rolled rocks; `None` when the type cannot be rolled
-/// (no mesh) or no roll holds it.
-fn ore_scu_of(src: &Sources<'_>, catalog: &Catalog, entry: &Entry_, element: &Guid) -> Option<f32> {
+/// (ore SCU at the quality, whole rock SCU) of a holding rock.
+type OreRock = (f32, f32);
+
+/// Over rolled rocks of `entry` that hold `element` at `min_quality` or
+/// better (each entry's quality rolled where `quality` says, as the rock
+/// finder rolls it): the mean SCU of the element at that quality in such a
+/// rock, and the mean SCU of the whole rock. A rock holds an element in
+/// several entries of different quality (11.77 % at Q516 beside 52.11 % at
+/// Q295); only the entries at the quality count. `None` when no rolled rock
+/// holds it.
+fn ore_scu_of(
+    src: &Sources<'_>,
+    catalog: &Catalog,
+    entry: &Entry_,
+    composition: &Composition,
+    element: &Guid,
+    min_quality: u16,
+    quality: &QualityRoll<'_>,
+) -> Option<OreRock> {
     let shapes = src.shapes(entry.rock, entry.geometry_tags);
     if shapes.is_empty() {
         return None;
@@ -1555,21 +1570,27 @@ fn ore_scu_of(src: &Sources<'_>, catalog: &Catalog, entry: &Entry_, element: &Gu
         compositions: &src.index.compositions,
         shapes: &shapes,
     };
-    let ore: Vec<f32> = spawner
-        .spawns(ORE_ROLLS)
-        .iter()
-        .filter_map(|s| {
-            let share: f32 = s
-                .rock
-                .entries
-                .iter()
-                .filter(|e| e.element == *element)
-                .map(|e| e.fraction)
-                .sum();
-            (share > 0.0).then(|| s.rock.scu * share)
-        })
-        .collect();
-    (!ore.is_empty()).then(|| ore.iter().sum::<f32>() / ore.len() as f32)
+    let (mut ore, mut rock, mut n) = (0.0_f32, 0.0_f32, 0_u32);
+    for seed in 0..u64::from(ORE_ROLLS) {
+        let Some(spawn) = spawner.spawn(seed) else {
+            continue;
+        };
+        let share: f32 = composition
+            .roll_with_quality(composition_seed(seed), quality)
+            .iter()
+            .filter(|e| {
+                e.element == *element
+                    && (min_quality == 0 || e.quality.is_some_and(|q| q >= min_quality))
+            })
+            .map(|e| e.fraction)
+            .sum();
+        if share > 0.0 {
+            ore += spawn.rock.scu * share;
+            rock += spawn.rock.scu;
+            n += 1;
+        }
+    }
+    (n > 0).then(|| (ore / n as f32, rock / n as f32))
 }
 
 /// Composition rolls per rock type for [`ore_sites`]: which parts a rock
@@ -1601,10 +1622,15 @@ pub struct OreSite {
     /// The share of the area's ship rocks that hold the ore at the asked
     /// quality or better.
     pub find: f32,
-    /// SCU of the ore in a rock that holds it: the rock's SCU times the
-    /// ore's share of it, a mean over rolled rocks of the holding types
-    /// (weighted as `find` is). 0 when no holding type can be rolled.
+    /// SCU of the ore at the asked quality in a rock that holds it so: the
+    /// rock's SCU times the share of its entries at that quality, a mean
+    /// over rolled rocks of the holding types (weighted as `find` is). 0
+    /// when no holding type can be rolled.
     pub ore_scu: f32,
+    /// SCU of such a whole rock: what breaking one puts in the hold, since
+    /// everything collected takes space (only a head's inert reduction
+    /// makes it less). 0 as `ore_scu` is.
+    pub rock_scu: f32,
 }
 
 /// Where `element` is ship-mined at `min_quality` or better, best first.
@@ -1630,8 +1656,9 @@ pub fn ore_sites(
     // (composition, where the element's quality comes from) → the share of
     // its rocks with the ore.
     let mut hit_cache: HashMap<(Guid, Option<QualitySource>), f32> = HashMap::new();
-    // rock type → the mean ore SCU of its rocks that hold the element.
-    let mut ore_cache: HashMap<Guid, Option<f32>> = HashMap::new();
+    // (rock type, quality source) → the mean SCU of the element at the
+    // quality, and of the whole rock, over its rocks that hold it so.
+    let mut ore_cache: HashMap<(Guid, Option<QualitySource>), Option<OreRock>> = HashMap::new();
     let mut out: Vec<OreSite> = src
         .providers
         .iter()
@@ -1688,7 +1715,8 @@ pub fn ore_sites(
                         catalog: &src.index.quality,
                         locations: &chain,
                     };
-                    let (mut find, mut ore, mut weight) = (0.0_f32, 0.0_f32, 0.0_f32);
+                    let (mut find, mut ore, mut rock, mut weight) =
+                        (0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32);
                     for (share, c, e) in &holding {
                         let hits = *hit_cache.entry((c.guid, source)).or_insert_with(|| {
                             c.chance_at_quality(&element, min_quality, &quality, SITE_ROLLS)
@@ -1699,16 +1727,22 @@ pub fn ore_sites(
                         let w = share * hits;
                         find += w;
                         if w > 0.0 {
-                            let scu = *ore_cache
-                                .entry(e.rock.guid)
-                                .or_insert_with(|| ore_scu_of(src, catalog, e, &element));
-                            if let Some(scu) = scu {
-                                ore += w * scu;
+                            let scu =
+                                *ore_cache.entry((e.rock.guid, source)).or_insert_with(|| {
+                                    ore_scu_of(src, catalog, e, c, &element, min_quality, &quality)
+                                });
+                            if let Some((ore_scu, rock_scu)) = scu {
+                                ore += w * ore_scu;
+                                rock += w * rock_scu;
                                 weight += w;
                             }
                         }
                     }
-                    let ore_scu = if weight > 0.0 { ore / weight } else { 0.0 };
+                    let (ore_scu, rock_scu) = if weight > 0.0 {
+                        (ore / weight, rock / weight)
+                    } else {
+                        (0.0, 0.0)
+                    };
                     if find <= 0.0 {
                         return None;
                     }
@@ -1753,6 +1787,7 @@ pub fn ore_sites(
                         entries,
                         find,
                         ore_scu,
+                        rock_scu,
                     })
                 })
                 // Sources can be finer than the odds (each placed cluster

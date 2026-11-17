@@ -221,8 +221,12 @@ pub struct OreSite {
     /// The place's system: a load is the ore mined in one system, never
     /// flown through a jump point to a refinery. `None` off the map.
     pub system: Option<String>,
-    /// SCU of the ore in a rock there that holds it; `None` when unknown.
+    /// SCU of the ore at the quality in a rock there that holds it so;
+    /// `None` when unknown.
     pub ore_scu: Option<f32>,
+    /// SCU of such a whole rock: breaking one puts all of it in the hold.
+    /// `None` when unknown.
+    pub rock_scu: Option<f32>,
 }
 
 /// What mining knows about a material at a quality.
@@ -1100,6 +1104,10 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             rocks: None,
             scu: 0.0,
         };
+        // Bulk only: a counted material is no share of a rock.
+        let rocks = best
+            .filter(|_| row.bulk)
+            .and_then(|b| rocks(mined, b.find, b.ore_scu));
         // A refined material is mined as its ore and goes to its area's
         // refinery (below).
         if let (Some(best), Some(ore)) = (best, found.ore.as_ref()) {
@@ -1110,7 +1118,13 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 plans: base.plans.clone(),
                 near: best.refine_at.clone(),
                 system: best.system.clone(),
-                scu: if row.bulk { mined } else { 0.0 },
+                // Everything collected takes space: a rock broken for the
+                // ore goes into the hold whole.
+                scu: match (rocks, best.rock_scu.filter(|r| *r > 0.0)) {
+                    (Some(r), Some(rock)) => f64::from(r.to_break) * f64::from(rock),
+                    _ if row.bulk => mined,
+                    _ => 0.0,
+                },
                 refineries: found.refineries,
             });
         }
@@ -1128,12 +1142,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 ),
                 at: Some(best.at.clone()),
                 odds: Some(best.find),
-                // Bulk only: a counted material is no share of a rock.
-                rocks: if row.bulk {
-                    rocks(mined, best.find, best.ore_scu)
-                } else {
-                    None
-                },
+                rocks,
                 scu: if row.bulk { mined } else { 0.0 },
                 ..base
             },
@@ -1861,7 +1870,9 @@ struct ToRefine {
     near: Option<PlanPlace>,
     /// The system it is mined in: its load.
     system: Option<String>,
-    /// How much of it is mined, SCU (0 for a material not counted in SCU).
+    /// The hold it takes, SCU: the whole rocks it is mined from where the
+    /// data gives them, else the ore itself (0 for a material not counted
+    /// in SCU).
     scu: f64,
     refineries: u32,
 }
@@ -2729,6 +2740,7 @@ pub(crate) mod tests {
             sites: vec![OreSite {
                 system: None,
                 ore_scu: None,
+                rock_scu: None,
                 at: at("Moon One"),
                 find: 0.25,
                 refine_at: refine_at.clone(),
@@ -2781,6 +2793,7 @@ pub(crate) mod tests {
                     .map(|(place, find, refinery, system)| OreSite {
                         system: system.map(str::to_owned),
                         ore_scu: None,
+                        rock_scu: None,
                         at: if *place == "The Ring" {
                             PlanPlace {
                                 name: (*place).into(),
@@ -2910,6 +2923,7 @@ pub(crate) mod tests {
                 refine_at: Some(at("Station A")),
                 system: Some("Here".into()),
                 ore_scu: None,
+                rock_scu: None,
             }],
             mined: true,
             ore: Some(format!("{material} (Ore)")),
@@ -2921,6 +2935,51 @@ pub(crate) mod tests {
     /// A 32 SCU hold takes Iron and Gold (30) in one load; Tin no longer
     /// fits and is the next. An ore more than a hold holds is its own load
     /// of several holds.
+    /// A rock broken for its ore goes into the hold whole: 1 SCU refined is
+    /// 2 SCU of ore, 2 rocks of 1.5 at the quality, 2 × 20 SCU in the hold,
+    /// two 32 SCU loads where the ore alone would fill one.
+    #[test]
+    fn a_load_counts_the_whole_rocks_it_is_mined_from() {
+        let mut inputs = Inputs {
+            hold: Some(OreHold {
+                ship: "Prospector".into(),
+                scu: 32.0,
+            }),
+            ..Inputs::default()
+        };
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![slot("Iron", 1.0, 0)]));
+        let ores = |material: &str, _: u32| OreSites {
+            sites: vec![OreSite {
+                at: at("Moon A"),
+                find: 0.5,
+                refine_at: Some(at("Station A")),
+                system: Some("Here".into()),
+                ore_scu: Some(1.5),
+                rock_scu: Some(20.0),
+            }],
+            mined: true,
+            ore: Some(format!("{material} (Ore)")),
+            refineries: 1,
+        };
+        let board = derive(&craft_state(1, 0), &inputs, &ores);
+        let mine = board
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Mine)
+            .unwrap();
+        assert_eq!(mine.scu, 2.0);
+        assert_eq!(mine.rocks.map(|r| r.to_break), Some(2));
+        assert_eq!(
+            refine_titles(&board),
+            [(
+                "Refine Iron (Ore) at Station A".to_owned(),
+                "2 Prospector loads".to_owned()
+            )]
+        );
+    }
+
     #[test]
     fn a_system_ore_splits_into_loads_of_the_hold() {
         let board = held(

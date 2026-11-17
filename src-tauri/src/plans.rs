@@ -1314,6 +1314,7 @@ impl Gathered<'_> {
                         },
                         find: s.find,
                         ore_scu: Some(s.ore_scu).filter(|o| *o > 0.0),
+                        rock_scu: Some(s.rock_scu).filter(|r| *r > 0.0),
                     }
                 })
                 .collect();
