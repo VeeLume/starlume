@@ -12,26 +12,13 @@
   // Which plan is in view and which session choice is open are page-local.
   import { onMount, untrack } from "svelte";
   import { goto } from "$app/navigation";
-  import { Button, ConfirmDialog, Dialog, Picker, Segmented } from "@veelume/ui";
+  import { Button, ConfirmDialog, Dialog, Picker } from "@veelume/ui";
   import { ArrowDown, ArrowUp, ArrowUpRight, Plus } from "lucide-svelte";
   import type { BlueprintRowView, PlanBoard, PlanCraft, PlanSlot, StepKind, TrackKind } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import NowCard from "$lib/components/NowCard.svelte";
   import PlanGlyph, { type GlyphShape } from "$lib/modules/plans/PlanGlyph.svelte";
-  import {
-    KIND_TEXT,
-    TIMELINE_ROWS,
-    TRACKS,
-    ago,
-    amount,
-    ledgerBars,
-    planSteps,
-    stepFigure,
-    stopsText,
-    timeText,
-    timeline,
-    trackNote,
-  } from "$lib/modules/plans/model";
+  import { KIND_TEXT, TRACKS, ago, amount, focusView, ledgerBars, stepFigure, type Focus } from "$lib/modules/plans/model";
   import { snapUp, stopsOf } from "$lib/quality";
   import { getBlueprints } from "$lib/state/catalog.svelte";
   import { craftingStore, loadMarks } from "$lib/state/crafting.svelte";
@@ -62,8 +49,9 @@
   let now = $state(Date.now());
   let tab = $state<"active" | "done">("active");
   let picked = $state<string | null>(null);
-  /** The track the card shows; `null`: the one the board suggests. */
-  let track = $state<TrackKind | null>(null);
+  /** What the session is for: a kind of work across your plans, or one
+   *  plan to get ready; `null`: the kind of work the board suggests. */
+  let focus = $state<Focus | null>(null);
   let adding = $state(false);
   /** The project a craft is being picked for. */
   let addingTo = $state<PlanBoard | null>(null);
@@ -111,16 +99,43 @@
   /** The plan as stored: its own name (the board's is the shown one). */
   const stored = $derived(plansStore.plans?.find((p) => p.id === plan?.id) ?? null);
   const isFocus = $derived(!!plan && board?.plans[0]?.id === plan.id);
-  const steps = $derived(plan ? planSteps(board?.steps ?? [], plan.id) : []);
-  /** The tracks the board has, in the card's order. */
+  /** The kinds of work the board has, in the card's order. */
   const tracksShown = $derived(TRACKS.filter((t) => board?.tracks.tracks.some((x) => x.kind === t.id)));
-  const current = $derived(
-    board?.tracks.tracks.find((t) => t.kind === (track ?? board?.tracks.next)) ?? board?.tracks.tracks[0] ?? null,
+  /** The plans the card offers as a focus: the open ones. */
+  const focusPlans = $derived((board?.plans ?? []).filter((p) => !p.done && !p.parked && !p.missing));
+  const shownFocus = $derived<Focus>(
+    focus ??
+      (board?.tracks.next
+        ? { kind: "activity", track: board.tracks.next }
+        : { kind: "activity", track: tracksShown[0]?.id ?? "shopping" }),
   );
-  const session = $derived(current?.trip ?? null);
-  const rows = $derived(session ? timeline(session, board?.from ?? null) : []);
-  const bars = $derived(ledgerBars(board?.ledger ?? []));
+  /** The trips the focus flies: the board's for a kind of work, the
+   *  plan's own for a plan. */
+  const focusTracks = $derived(
+    shownFocus.kind === "plan"
+      ? (board?.planTracks.find((p) => p.plan === shownFocus.plan)?.tracks.tracks ?? [])
+      : (board?.tracks.tracks ?? []),
+  );
+  const view = $derived(focusView(board?.steps ?? [], focusTracks, shownFocus));
   const names = $derived(new Map((board?.plans ?? []).map((p) => [p.id, p.name])));
+  const focusName = $derived(
+    shownFocus.kind === "plan"
+      ? `to get ${names.get(shownFocus.plan) ?? "the plan"} ready`
+      : `for ${(TRACKS.find((t) => t.id === shownFocus.track)?.label ?? "").toLowerCase()} across your plans`,
+  );
+  const FOCUS_HUE: Record<TrackKind, string> = {
+    shopping: "var(--hue-apricot)",
+    mining: "var(--hue-quality)",
+    refining: "var(--hue-quality)",
+    missions: "var(--hue-sand)",
+    crafting: "var(--hue-rose)",
+  };
+  /** Picking a plan, in the list or on the card, makes it the focus. */
+  function pickPlan(id: string) {
+    picked = id;
+    focus = { kind: "plan", plan: id };
+  }
+  const bars = $derived(ledgerBars(board?.ledger ?? []));
   const counts = $derived({
     active: (board?.plans ?? []).filter((p) => !p.done).length,
     done: (board?.plans ?? []).filter((p) => p.done).length,
@@ -262,28 +277,27 @@
 </script>
 
 <div class="plans">
-  <header class="bar">
-    <Segmented
-      options={[
-        { value: "active", label: board ? `Active ${counts.active}` : "Active" },
-        { value: "done", label: board ? `Done ${counts.done}` : "Done" },
-      ]}
-      value={tab}
-      onchange={(v) => (tab = v as typeof tab)}
-    />
+  <!-- Active and Done are the page's views: the tab row Ships uses (a
+       Segmented is an input, not navigation; Valerie, 2026-11-17). -->
+  <header class="tabs" role="tablist" aria-label="Plans">
+    {#each [["active", "Active", counts.active], ["done", "Done", counts.done]] as const as [id, label, n] (id)}
+      <button type="button" role="tab" class="tab" class:active={tab === id} aria-selected={tab === id} onclick={() => (tab = id)}
+        >{label}{#if board}<span class="n">{n}</span>{/if}</button
+      >
+    {/each}
     <span class="grow"></span>
     {#if board}
       {#if board.inventoryAt != null}
-        <span class="dim small">Read from the game {ago(board.inventoryAt, now)}</span>
+        <span class="dim small side">Read from the game {ago(board.inventoryAt, now)}</span>
       {:else}
         {#if on("items")}
-          <a class="dim small" href="/items">Your inventory was never read, so nothing you hold is counted</a>
+          <a class="dim small side" href="/items">Your inventory was never read, so nothing you hold is counted</a>
         {:else}
-          <span class="dim small">Your inventory was never read, so nothing you hold is counted</span>
+          <span class="dim small side">Your inventory was never read, so nothing you hold is counted</span>
         {/if}
       {/if}
     {/if}
-    <Button onclick={() => (adding = true)}><Plus size={15} /> New plan</Button>
+    <span class="side"><Button onclick={() => (adding = true)}><Plus size={15} /> New plan</Button></span>
   </header>
 
   {#if board && plansStore.error}<p class="error">{plansStore.error}</p>{/if}
@@ -387,65 +401,88 @@
           </NowCard>
         {/if}
 
+        <!-- What the session is for (pass 6): a kind of work across your
+             plans, or one plan to get ready. Distance leads; every time
+             names its source; mining and refining have none (a dash). -->
         <NowCard
-          hue="var(--hue-quality)"
+          hue={shownFocus.kind === "plan" ? "var(--hue-rose)" : FOCUS_HUE[shownFocus.track]}
           chip="NEXT SESSION"
-          version={session ? stopsText(session) : "No trip"}
-          name={session ? timeText(session) : ""}
+          version={view.card.distance}
+          name={view.card.what}
           date={board.from ? `from ${board.from}` : "last place not known"}
         >
-          <div class="pills" role="group" aria-label="Which kind of work">
-            {#each tracksShown as t (t.id)}
-              {@const on = current?.kind === t.id}
-              <button type="button" class="pill" class:active={on} aria-pressed={on} onclick={() => (track = t.id)}>{t.label}</button>
+          <div class="pick">
+            <span class="pick-label">Activity</span>
+            <div class="pills" role="radiogroup" aria-label="Activity">
+              {#each tracksShown as t (t.id)}
+                {@const on = shownFocus.kind === "activity" && shownFocus.track === t.id}
+                <button type="button" role="radio" class="pill" class:active={on} aria-checked={on} onclick={() => (focus = { kind: "activity", track: t.id })}
+                  >{t.label}</button
+                >
+              {/each}
+            </div>
+            <span class="pick-label">Focus</span>
+            <div class="pills" role="radiogroup" aria-label="Focus">
+              {#each focusPlans as p (p.id)}
+                {@const on = shownFocus.kind === "plan" && shownFocus.plan === p.id}
+                <button type="button" role="radio" class="pill" class:active={on} aria-checked={on} title={p.name} onclick={() => pickPlan(p.id)}
+                  >{p.title}</button
+                >
+              {/each}
+            </div>
+          </div>
+          <div class="stat-tiles focus-tiles">
+            {#each view.card.tiles as t (t.label)}
+              <div class="stat-tile"><b>{t.value}</b><span>{t.label}</span></div>
             {/each}
           </div>
-          <p class="why">{current ? trackNote(current) : ""}</p>
-          <ol class="tl" style:--rows={TIMELINE_ROWS}>
-            {#each rows as row (row.key)}
-              <li title={row.full}>
-                <span class="n">{row.n}</span><span class="what"><b>{row.what}</b><span>{row.where}</span></span>
-              </li>
-            {/each}
-          </ol>
+          <p class="route-line" title={view.card.route}>{view.card.route}</p>
         </NowCard>
       </div>
 
       <div class="cols">
         <section class="steps" aria-label="Next steps">
-          <h2 class="sec-h">Next steps{#if plan}<span class="for">for {plan.name}</span>{/if}</h2>
-          {#if steps.length === 0}
+          <h2 class="sec-h">Next steps<span class="for">{focusName}</span></h2>
+          {#if view.groups.length === 0}
+            {@const focused = shownFocus.kind === "plan" ? board.plans.find((p) => p.id === shownFocus.plan) : null}
             <p class="dim none">
-              {!plan
-                ? ""
-                : plan.missing
-                  ? plan.note
-                  : plan.parked
-                    ? "Parked: it reserves nothing and has no steps until you take it up again."
-                    : plan.kind === "project" && plan.crafts.length === 0
-                      ? "No crafts in this project yet. Add one below, or from a recipe on Crafting."
-                      : "Nothing left to do: the game shows this goal reached."}
+              {focused?.missing
+                ? focused.note
+                : focused?.parked
+                  ? "Parked: it reserves nothing and has no steps until you take it up again."
+                  : focused?.kind === "project" && focused.crafts.length === 0
+                  ? "No crafts in this project yet. Add one below, or from a recipe on Crafting."
+                  : focused
+                    ? "Nothing left to do: the game shows this goal reached."
+                    : "Nothing of this kind to do."}
             </p>
-          {:else}
-            <div class="rows">
-              {#each steps as { step: s, other } (s.id)}
-                <div class="step k-{s.kind}" class:blocked={s.blocked} class:other>
-                  <PlanGlyph shape={STEP_SHAPE[s.kind]} />
-                  <span class="text">
-                    <span class="step-title">{s.title}</span>
-                    <span class="step-sub">
-                      <span class="hue-chip" class:wait={s.blocked}>{s.blocked ? "blocked" : KIND_TEXT[s.kind]}</span>
-                      <span>{s.detail}</span>
-                      {#if s.plans.length > 1 || other}
-                        {#each s.plans as p (p)}<span class="tag">{names.get(p) ?? p}</span>{/each}
-                      {/if}
-                    </span>
-                  </span>
-                  <span class="pright"><span class="mono">{stepFigure(s)}</span><small>{s.at?.name ?? ""}</small></span>
-                </div>
-              {/each}
-            </div>
           {/if}
+          <!-- The focus's steps by session and by run: a shopping run, a
+               mining load ending at its refinery, then what waits. -->
+          {#each view.groups as g (g.key)}
+            <div class="grp-h"><b>{g.title}</b><span class="grow"></span><span class="mono">{g.figure}</span></div>
+            {#each g.runs as r (r.key)}
+              <div class="run-h"><span>{r.title}</span><span class="grow"></span><span class="mono">{r.figure}</span></div>
+              <div class="rows">
+                {#each r.steps as { step: s, other } (s.id)}
+                  <div class="step k-{s.kind}" class:blocked={s.blocked} class:other>
+                    <PlanGlyph shape={STEP_SHAPE[s.kind]} />
+                    <span class="text">
+                      <span class="step-title">{s.title}</span>
+                      <span class="step-sub">
+                        <span class="hue-chip" class:wait={s.blocked}>{s.blocked ? "blocked" : KIND_TEXT[s.kind]}</span>
+                        <span>{s.detail}</span>
+                        {#if s.plans.length > 1 || other}
+                          {#each s.plans as p (p)}<span class="tag">{names.get(p) ?? p}</span>{/each}
+                        {/if}
+                      </span>
+                    </span>
+                    <span class="pright"><span class="mono">{stepFigure(s)}</span><small>{s.at?.name ?? ""}</small></span>
+                  </div>
+                {/each}
+              </div>
+            {/each}
+          {/each}
 
           {#if plan && (plan.kind === "project" || plan.crafts.length > 0)}
             <!-- What the plan crafts, each with the minimum quality of
@@ -538,7 +575,7 @@
             <div class="plan-list">
               {#each shown as p, n (p.id)}
                 <div class="plan-row kind-{p.kind}" class:sel={p.id === plan?.id} class:parked={p.parked}>
-                  <button type="button" class="plan-pick" aria-pressed={p.id === plan?.id} onclick={() => (picked = p.id)}>
+                  <button type="button" class="plan-pick" aria-pressed={p.id === plan?.id} onclick={() => pickPlan(p.id)}>
                     <PlanGlyph shape={PLAN_LOOK[p.kind].shape} />
                     <span class="plan-text">
                       <span class="plan-head"><b>{p.name}</b><span class="mono dim">{Math.round(p.progress * 100)}%</span></span>
@@ -871,56 +908,64 @@
     margin-top: 3px;
   }
 
-  /* The session card keeps its height whatever the choice: the sentence
-   * and the timeline reserve their tallest case. */
-  .why {
-    margin: 0;
-    min-height: 4.35em;
-    font-size: 0.9rem;
-    line-height: 1.45;
+  /* The tab row's other pieces sit on its middle, like the ship picker on
+   * Ships'. */
+  .tabs .side {
+    align-self: center;
+    margin: 0 0 6px 10px;
   }
-  .tl {
-    display: flex;
-    flex-direction: column;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    height: calc(var(--rows) * 3.3rem);
-  }
-  .tl li {
+
+  /* The session card keeps its height whatever the focus: the tiles and
+   * the route reserve their line each. */
+  .pick {
     display: grid;
-    grid-template-columns: 22px minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 12px;
     align-items: center;
-    height: 3.3rem;
-    font-size: 0.88rem;
   }
-  .tl .n {
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--hue) 16%, transparent);
-    color: color-mix(in srgb, var(--hue) 45%, var(--text-strong));
+  .pick-label {
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .focus-tiles {
+    min-height: 3.6rem;
+  }
+  .route-line {
+    margin: 0;
+    min-height: 1.4em;
     font-family: var(--font-mono);
     font-size: var(--text-small);
-  }
-  .tl .what {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    line-height: 1.4;
     color: var(--text-dim);
-  }
-  .tl .what > * {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .tl b {
-    font-weight: var(--weight-medium);
+
+  /* Next steps by session and by run. */
+  .grp-h {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 14px 0 0;
+    padding: 0 6px;
+  }
+  .grp-h b {
+    font-weight: var(--weight-semibold);
     color: var(--text-strong);
+  }
+  .grp-h .mono,
+  .run-h .mono {
+    font-size: var(--text-small);
+    color: var(--text-dim);
+  }
+  .run-h {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: 8px;
+    padding: 4px 6px;
+    font-size: var(--text-small);
+    color: var(--text-dim);
   }
 
   .cols {

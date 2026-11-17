@@ -319,6 +319,10 @@ pub struct PlansBoardView {
     /// One track per kind of work with its next trip, and the one the next
     /// session suggests.
     pub tracks: Tracks,
+    /// Each open plan's own tracks, ordered over its steps alone (and the
+    /// other plans' mining its refining waits on): the card with that plan
+    /// as the focus.
+    pub plan_tracks: Vec<PlanTracks>,
     /// The last known place, as the session log names it; `None` when no
     /// session has one or the map does not know it.
     pub from: Option<String>,
@@ -330,6 +334,14 @@ pub struct PlansBoardView {
     pub inventory_at: Option<f64>,
     /// When the UEX prices were fetched, unix seconds.
     pub prices_at: Option<f64>,
+}
+
+/// One plan's tracks.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanTracks {
+    pub plan: String,
+    pub tracks: Tracks,
 }
 
 /// The board: every plan with its stages, the open steps, the ledger and
@@ -722,6 +734,22 @@ impl Gathered<'_> {
         mod_plans::session::refine_after_mining(&mut board.steps, &tracks, &near);
         // The steps list follows the tracks and their trips' order.
         mod_plans::session::sort_steps(&mut board.steps, &tracks);
+        // Each open plan's own trips: what the session card shows with that
+        // plan as the focus.
+        let plan_tracks = board
+            .plans
+            .iter()
+            .filter(|p| !p.done && !p.parked)
+            .map(|p| PlanTracks {
+                plan: p.id.clone(),
+                tracks: mod_plans::session::tracks(
+                    &mod_plans::session::plan_steps(&board.steps, &p.id),
+                    &sites.sites,
+                    start.as_ref().map(|(_, site)| site.as_str()),
+                    router.as_ref().map(|r| r as &dyn Router),
+                ),
+            })
+            .collect();
 
         PlansBoardView {
             plans: board.plans,
@@ -729,6 +757,7 @@ impl Gathered<'_> {
             steps: board.steps,
             ledger: board.ledger,
             tracks,
+            plan_tracks,
             from: start.as_ref().map(|(name, _)| name.clone()),
             drive_ship: drive.map(|(ship, _)| ship),
             inventory_at: self.inventory.map(|i| i.fetched_at as f64),

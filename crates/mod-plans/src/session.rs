@@ -341,6 +341,23 @@ pub fn tracks(
     Tracks { tracks: out, next }
 }
 
+/// A plan's steps, for its own trips: its own, and the other plans' mining
+/// that feeds a refine step of its (one load mines it anyway, and the
+/// refining waits on it). Board order.
+pub fn plan_steps(steps: &[PlanStep], plan: &str) -> Vec<PlanStep> {
+    let own = |s: &PlanStep| s.plans.iter().any(|p| p == plan);
+    let feeds: HashSet<&str> = steps
+        .iter()
+        .filter(|s| own(s) && s.kind == StepKind::Refine)
+        .flat_map(|s| s.after.iter().map(String::as_str))
+        .collect();
+    steps
+        .iter()
+        .filter(|s| own(s) || feeds.contains(s.id.as_str()))
+        .cloned()
+        .collect()
+}
+
 /// Move each load's refine step beside the last stop the mining trip makes
 /// for that load: its ore is flown from there to the refinery `near` that
 /// stop (the shell's nearest, in its system). A load whose mining has no
@@ -621,6 +638,24 @@ mod tests {
             kinds,
             [TrackKind::Mining, TrackKind::Refining, TrackKind::Crafting]
         );
+    }
+
+    /// A plan's steps take the other plans' mining its refining waits on,
+    /// and nothing else of theirs.
+    #[test]
+    fn a_plan_takes_the_mining_its_refinery_waits_on() {
+        let mut mine_a = step("m-a", StepKind::Mine, Some("a"));
+        mine_a.plans = vec!["p1".into()];
+        let mut mine_b = step("m-b", StepKind::Mine, Some("b"));
+        mine_b.plans = vec!["p2".into()];
+        let mut far = step("m-far", StepKind::Mine, Some("c"));
+        far.plans = vec!["p2".into()];
+        let mut refine = step("refine:x", StepKind::Refine, Some("a"));
+        refine.plans = vec!["p1".into(), "p2".into()];
+        refine.after = vec!["m-a".into(), "m-b".into()];
+        let steps = vec![mine_a, mine_b, far, refine];
+        let ids: Vec<String> = plan_steps(&steps, "p1").into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, ["m-a", "m-b", "refine:x"]);
     }
 
     /// Each load's refining reads right after its own mining, not after
