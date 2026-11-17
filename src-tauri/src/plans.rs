@@ -1073,11 +1073,23 @@ impl Gathered<'_> {
                     // A gas pocket or a claim is flown to by its Lagrange
                     // point, and named by it: the pocket's own name
                     // ("ARC L3-A") is nowhere on the star map.
-                    let reach: Vec<(String, &mod_mining::Place)> = s
+                    let mut reach: Vec<(String, &mod_mining::Place)> = s
                         .travel
                         .iter()
                         .filter_map(|p| sites.of_location(cooked, &p.id).map(|site| (site, p)))
                         .collect();
+                    // A ring or belt field is no target itself: a run
+                    // starts from a quantum target inside it (the Glaciem
+                    // Ring from Levski). The step keeps the field's name.
+                    let entered = reach.is_empty();
+                    if entered {
+                        reach = s
+                            .entries
+                            .iter()
+                            .filter(|p| sites.ids.contains(&p.id))
+                            .map(|p| (p.id.clone(), p))
+                            .collect();
+                    }
                     // An area at several places (one table at ARC L3, CRU L5
                     // and MIC L4): the one nearest to you when you are in
                     // its system, else the first.
@@ -1095,7 +1107,8 @@ impl Gathered<'_> {
                     // chosen place for an area at several, else the area.
                     let name = at
                         .filter(|(_, p)| {
-                            s.travel.len() > 1 || !s.places.iter().any(|q| q.id == p.id)
+                            !entered
+                                && (s.travel.len() > 1 || !s.places.iter().any(|q| q.id == p.id))
                         })
                         .map(|(_, p)| p.name.clone());
                     let site = at.map(|(site, _)| site.clone());

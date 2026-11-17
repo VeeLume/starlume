@@ -66,7 +66,8 @@ use serde::{Deserialize, Serialize};
 /// ([`crate::ships::ShipsIndex::travel`]) for Plans' trips.
 /// rev 26: sc-holotable v0.54: Pyro's positions turned 85° into the
 /// starmap frame (distances unchanged), microTech's moons unmirrored.
-pub const STARLUME_COOK_REV: u32 = 26;
+/// rev 27: sc-holotable v0.55: ring entry markers and ore holds.
+pub const STARLUME_COOK_REV: u32 = 27;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

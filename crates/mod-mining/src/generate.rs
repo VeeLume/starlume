@@ -1556,6 +1556,11 @@ pub struct OreSite {
     /// Lagrange point for a gas pocket or a claim there (neither is a
     /// target on the star map).
     pub travel: Vec<Place>,
+    /// For a ring or belt field (its place is the system's star): the
+    /// named places inside it a run starts from (the Glaciem Ring's Levski
+    /// and asteroid bases), not all of them quantum targets. Empty
+    /// otherwise.
+    pub entries: Vec<Place>,
     /// The share of the area's ship rocks that hold the ore at the asked
     /// quality or better.
     pub find: f32,
@@ -1670,11 +1675,27 @@ pub fn ore_sites(
                             travel.push(target);
                         }
                     }
+                    let mut entries: Vec<Place> = Vec::new();
+                    let field_sites = src.places.map(|p| p.sites_of(guid)).unwrap_or_default();
+                    for marker in field_sites
+                        .iter()
+                        .filter(|s| places.iter().any(|p| p.id == s.place.to_string()))
+                        .flat_map(|s| &s.markers)
+                    {
+                        let id = marker.to_string();
+                        if entries.iter().any(|e| e.id == id) {
+                            continue;
+                        }
+                        if let Some(name) = src.place_name(marker) {
+                            entries.push(Place { id, name });
+                        }
+                    }
                     Some(OreSite {
                         area: guid.to_string(),
                         name: name.clone(),
                         places,
                         travel,
+                        entries,
                         find,
                     })
                 })
@@ -1688,6 +1709,11 @@ pub fn ore_sites(
                             for target in site.travel {
                                 if !same.travel.iter().any(|t| t.id == target.id) {
                                     same.travel.push(target);
+                                }
+                            }
+                            for entry in site.entries {
+                                if !same.entries.iter().any(|e| e.id == entry.id) {
+                                    same.entries.push(entry);
                                 }
                             }
                         }

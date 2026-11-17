@@ -861,6 +861,7 @@ mod tests {
             mass: None,
             inventory: None,
             occupancy: Default::default(),
+            resource_container: None,
         }
     }
 

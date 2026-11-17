@@ -283,6 +283,7 @@ mod tests {
             mass: None,
             inventory: None,
             occupancy: Default::default(),
+            resource_container: None,
         };
         let mut items = Items::new();
         items.insert(guid(1), item("@item_NameScope"));
