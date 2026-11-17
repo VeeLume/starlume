@@ -1101,6 +1101,10 @@ impl Gathered<'_> {
                     let site = at.map(|(site, _)| site.clone());
                     OreSite {
                         refine_at: refine_at(site.as_deref()),
+                        system: site
+                            .as_deref()
+                            .and_then(|s| sites.system_of(s))
+                            .map(str::to_owned),
                         at: PlanPlace {
                             site,
                             name: name.unwrap_or(s.name),

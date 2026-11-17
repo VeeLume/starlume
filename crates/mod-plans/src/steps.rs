@@ -181,6 +181,9 @@ pub struct OreSite {
     /// The refinery nearest to this place, in its system: the area its ore
     /// is mined and refined in, one load. `None` off the map.
     pub refine_at: Option<PlanPlace>,
+    /// The place's system: a load is the ore mined in one system, never
+    /// flown through a jump point to a refinery. `None` off the map.
+    pub system: Option<String>,
 }
 
 /// What mining knows about a material at a quality.
@@ -817,6 +820,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 mine: base.id.clone(),
                 plans: base.plans.clone(),
                 near: best.refine_at.clone(),
+                system: best.system.clone(),
                 refineries: found.refineries,
             });
         }
@@ -1454,6 +1458,8 @@ struct ToRefine {
     plans: Vec<String>,
     /// Its area's refinery: the one nearest to where it is mined.
     near: Option<PlanPlace>,
+    /// The system it is mined in: its load.
+    system: Option<String>,
     refineries: u32,
 }
 
@@ -1530,21 +1536,23 @@ fn choose_sites(ores: &[&[OreSite]]) -> Vec<Option<usize>> {
     pick
 }
 
-/// The prefix of a refine step's id; the rest is its area.
+/// The prefix of a refine step's id; the rest is its load's system.
 pub const REFINE: &str = "refine:";
 
-/// A run's ore goes to its area's refinery: one refine step a load, after
-/// the mining steps that feed it (Valerie, 2026-11-16: nobody carries ore
-/// across the system to split it over refineries). Ore mined off the map
-/// is a load of its own, at a refinery not known yet.
+/// A run's ore is refined in the system it is mined in, at one refinery:
+/// one refine step a system, after the mining steps that feed it (Valerie,
+/// 2026-11-16/17: nobody splits a run over refineries across the system,
+/// nor carries it through a jump point). Ore mined off the map is a load
+/// of its own, at a refinery not known yet. Its refinery here is the first
+/// ore's area's.
 /// [`crate::session::refine_after_mining`] moves each step beside the
 /// mining trip's last stop of its load once the trips are ordered. No
 /// amount of ore is named and no time: the game data has neither a yield
 /// nor a duration.
 fn refine_steps(ores: &[ToRefine]) -> Vec<PlanStep> {
-    let mut loads: Vec<(Option<&PlanPlace>, Vec<&ToRefine>)> = Vec::new();
+    let mut loads: Vec<(Option<&str>, Vec<&ToRefine>)> = Vec::new();
     for o in ores {
-        let key = o.near.as_ref();
+        let key = o.system.as_deref();
         match loads.iter_mut().find(|(k, _)| *k == key) {
             Some((_, list)) => list.push(o),
             None => loads.push((key, vec![o])),
@@ -1552,7 +1560,8 @@ fn refine_steps(ores: &[ToRefine]) -> Vec<PlanStep> {
     }
     loads
         .into_iter()
-        .map(|(at, load)| {
+        .map(|(system, load)| {
+            let at = load.iter().find_map(|o| o.near.as_ref());
             let mut plans: Vec<String> = Vec::new();
             for p in load.iter().flat_map(|o| &o.plans) {
                 if !plans.contains(p) {
@@ -1560,10 +1569,7 @@ fn refine_steps(ores: &[ToRefine]) -> Vec<PlanStep> {
                 }
             }
             let mut step = PlanStep {
-                id: format!(
-                    "{REFINE}{}",
-                    at.and_then(|p| p.site.as_deref()).unwrap_or("?")
-                ),
+                id: format!("{REFINE}{}", system.unwrap_or("?")),
                 kind: StepKind::Refine,
                 title: match load.as_slice() {
                     [one] => format!("Refine {}", one.ore),
@@ -1819,6 +1825,7 @@ pub(crate) mod tests {
             .insert("bp-1".into(), recipe(true, vec![slot("Ore A", 2.0, 1)]));
         let ores = |_: &str, _: u32| OreSites {
             sites: vec![OreSite {
+                system: None,
                 at: at("Moon One"),
                 find: 0.5,
                 ..OreSite::default()
@@ -1936,6 +1943,7 @@ pub(crate) mod tests {
         let ores = |material: &str, _: u32| match material {
             "Ore A" => OreSites {
                 sites: vec![OreSite {
+                    system: None,
                     at: at("Moon One"),
                     find: 0.42,
                     ..OreSite::default()
@@ -2021,6 +2029,7 @@ pub(crate) mod tests {
         inputs.stock = vec![stack("Ore A", 500, 2.0)];
         let ores = |_: &str, _: u32| OreSites {
             sites: vec![OreSite {
+                system: None,
                 at: at("Moon One"),
                 find: 0.5,
                 ..OreSite::default()
@@ -2050,6 +2059,7 @@ pub(crate) mod tests {
             .insert("bp-1".into(), recipe(true, vec![slot("Metal", 2.0, 0)]));
         let ores = move |_: &str, _: u32| OreSites {
             sites: vec![OreSite {
+                system: None,
                 at: at("Moon One"),
                 find: 0.25,
                 refine_at: refine_at.clone(),
@@ -2077,8 +2087,14 @@ pub(crate) mod tests {
         assert_eq!(board.plans[0].note, "Next: mine 2 SCU Metal, Q700+");
     }
 
-    /// A place an ore is mined at: (place, find, its refinery).
-    type AreaSite = (&'static str, f32, Option<&'static str>);
+    /// A place an ore is mined at: (place, find, its refinery, its
+    /// system).
+    type AreaSite = (
+        &'static str,
+        f32,
+        Option<&'static str>,
+        Option<&'static str>,
+    );
 
     /// Ores and the places they are mined at.
     fn area_ores(table: Vec<(&'static str, Vec<AreaSite>)>) -> Board {
@@ -2092,7 +2108,8 @@ pub(crate) mod tests {
             OreSites {
                 sites: sites
                     .iter()
-                    .map(|(place, find, refinery)| OreSite {
+                    .map(|(place, find, refinery, system)| OreSite {
+                        system: system.map(str::to_owned),
                         at: if *place == "The Ring" {
                             PlanPlace {
                                 name: (*place).into(),
@@ -2142,16 +2159,19 @@ pub(crate) mod tests {
             (
                 "Iron",
                 vec![
-                    ("Moon A", 0.30, Some("Station A")),
-                    ("Moon B", 0.20, Some("Station B")),
+                    ("Moon A", 0.30, Some("Station A"), Some("Here")),
+                    ("Moon B", 0.20, Some("Station B"), Some("Here")),
                 ],
             ),
-            ("Gold", vec![("Moon B", 0.25, Some("Station B"))]),
+            (
+                "Gold",
+                vec![("Moon B", 0.25, Some("Station B"), Some("Here"))],
+            ),
             (
                 "Tin",
                 vec![
-                    ("Moon C", 0.40, Some("Station C")),
-                    ("Moon B", 0.10, Some("Station B")),
+                    ("Moon C", 0.40, Some("Station C"), Some("There")),
+                    ("Moon B", 0.10, Some("Station B"), Some("Here")),
                 ],
             ),
         ]);
@@ -2176,14 +2196,40 @@ pub(crate) mod tests {
         assert_eq!(refine.after, ["mine:Iron:0:true", "mine:Gold:0:true"]);
     }
 
+    /// Two areas in one system are one load: the playtest's Nyx run split
+    /// 1.4 SCU over two refineries.
+    #[test]
+    fn a_system_is_one_load() {
+        let board = area_ores(vec![
+            (
+                "Iron",
+                vec![("Moon A", 0.30, Some("Station A"), Some("Here"))],
+            ),
+            (
+                "Tin",
+                vec![("Moon B", 0.30, Some("Station B"), Some("Here"))],
+            ),
+        ]);
+        assert_eq!(
+            refine_titles(&board),
+            [(
+                "Refine the ore at Station A".to_owned(),
+                "Iron and Tin".to_owned()
+            )]
+        );
+    }
+
     /// Ore from a place off the map (a ring without a marker) is a load of
     /// its own, at a refinery not known yet: where you stand says nothing
     /// about where the ring is.
     #[test]
     fn ore_off_the_map_is_its_own_load() {
         let board = area_ores(vec![
-            ("Iron", vec![("Moon A", 0.30, Some("Station A"))]),
-            ("Tin", vec![("The Ring", 0.30, None)]),
+            (
+                "Iron",
+                vec![("Moon A", 0.30, Some("Station A"), Some("Here"))],
+            ),
+            ("Tin", vec![("The Ring", 0.30, None, None)]),
         ]);
         assert_eq!(
             refine_titles(&board),
@@ -2222,6 +2268,7 @@ pub(crate) mod tests {
             .insert("bp-1".into(), recipe(true, vec![slot("Ore A", 2.0, 0)]));
         let raw = |_: &str, _: u32| OreSites {
             sites: vec![OreSite {
+                system: None,
                 at: at("Moon One"),
                 find: 0.5,
                 ..OreSite::default()
@@ -2371,6 +2418,7 @@ pub(crate) mod tests {
             asked.borrow_mut().push((material.to_owned(), quality));
             OreSites {
                 sites: vec![OreSite {
+                    system: None,
                     at: at("Moon One"),
                     find: 0.2,
                     ..OreSite::default()
