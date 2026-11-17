@@ -190,3 +190,166 @@ export function ago(unixSeconds: number, now: number): string {
   if (s < 48 * 3600) return `${Math.round(s / 3600)} h ago`;
   return `${Math.round(s / 86400)} d ago`;
 }
+
+// ── Session focus (pass 6) ─────────────────────────────────────────────
+// The session card picks what a session is for: a kind of work across all
+// plans, or one plan to get ready. Next steps are that focus's steps,
+// grouped into runs (a shopping run, a mining load ending at its refinery).
+// Distance leads, the number the quantum marker shows; every time names
+// its source ("flying" is sc-travel's estimate, "crafting" the game data);
+// mining and refining have none, so they show a dash.
+
+export type Focus = { kind: "activity"; track: TrackKind } | { kind: "plan"; plan: string };
+
+/** The kind of work a step is, as the tracks sort it; `null` for a step
+ *  nobody can do (a part no shop sells and no blueprint makes). */
+export const TRACK_OF: Record<StepKind, TrackKind | null> = {
+  fit: "shopping",
+  buy: "shopping",
+  earn: "missions",
+  mine: "mining",
+  gather: "mining",
+  refine: "refining",
+  craft: "crafting",
+  find: null,
+};
+
+export type FocusStep = { step: PlanStep; other: boolean };
+export type Run = { key: string; title: string; figure: string; steps: FocusStep[] };
+export type RunGroup = { key: string; title: string; figure: string; runs: Run[] };
+export type FocusTile = { value: string; label: string };
+export type FocusCard = { distance: string; what: string; tiles: FocusTile[]; route: string };
+export type FocusView = { card: FocusCard; groups: RunGroup[] };
+
+/** Ready: not blocked, and no step it follows is still open. */
+export function isReady(step: PlanStep, open: Set<string>): boolean {
+  return !step.blocked && !step.after.some((id) => open.has(id));
+}
+
+/** A load's run title from its refine step's id (`refine:<system>:<n>`). */
+function loadTitle(refine: PlanStep, loads: number): string {
+  const [, system = "", n = "0"] = refine.id.split(":");
+  const where = system && system !== "?" ? system : "off the map";
+  return loads > 1 ? `Mining in ${where}, load ${Number(n) + 1}` : `Mining in ${where}`;
+}
+
+type Legs = { stops: TripStop[]; gm: number; jumps: number; flying: number | null };
+
+/** The trip figures of the stops that hold any of `ids`: Gm, jumps and
+ *  flying seconds (null when a leg had no drive to time it). */
+function legs(trip: Trip | undefined, ids: Set<string>): Legs {
+  const stops = (trip?.stops ?? []).filter((s) => s.steps.some((x) => ids.has(x.id)));
+  const out: Legs = { stops, gm: 0, jumps: 0, flying: 0 };
+  for (const s of stops) {
+    if (!s.leg) continue;
+    out.gm += s.leg.gm;
+    if (s.leg.crosses) out.jumps += 1;
+    out.flying = s.leg.seconds != null && out.flying != null ? out.flying + s.leg.seconds : null;
+  }
+  return out;
+}
+
+/** "96 Gm, 1 jump, ~14 min flying"; empty without stops. */
+export function legsText(l: Legs): string {
+  if (l.stops.length === 0) return "";
+  const parts = [gm(l.gm)];
+  if (l.jumps) parts.push(l.jumps === 1 ? "1 jump" : `${l.jumps} jumps`);
+  if (l.flying != null && l.flying > 0) parts.push(`~${span(l.flying)} flying`);
+  return parts.join(", ");
+}
+
+/** The focus's session: the card's figures and the runs. `tracks` are the
+ *  board's for an activity, the plan's own for a plan. */
+export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): FocusView {
+  const open = new Set(all.map((s) => s.id));
+  const chosen: FocusStep[] =
+    focus.kind === "plan"
+      ? planSteps(all, focus.plan)
+      : all
+          // A mining run ends at its refinery: the refine steps ride with it.
+          .filter((s) => TRACK_OF[s.kind] === focus.track || (focus.track === "mining" && s.kind === "refine"))
+          .map((step) => ({ step, other: false }));
+  const tripOf = (kind: TrackKind) => tracks.find((t) => t.kind === kind)?.trip;
+  // A step's place in its track's trip: its stop's index, unplaced last.
+  const order = (s: PlanStep) => {
+    const kind = TRACK_OF[s.kind];
+    const stops = kind ? (tripOf(kind)?.stops ?? []) : [];
+    const i = stops.findIndex((st) => st.steps.some((x) => x.id === s.id));
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const byTrip = (a: FocusStep, b: FocusStep) => order(a.step) - order(b.step);
+  const ready = chosen.filter((f) => isReady(f.step, open));
+  const placed = new Set<string>();
+  const runs: Run[] = [];
+
+  for (const { id: kind, label } of TRACKS) {
+    const here = ready.filter((f) => TRACK_OF[f.step.kind] === kind).sort(byTrip);
+    if (kind === "mining") {
+      // One run per load: its mining in trip order, then its refinery.
+      const refines = chosen.filter((f) => f.step.kind === "refine");
+      const loaded = new Set(refines.flatMap((r) => r.step.after));
+      for (const r of refines) {
+        const steps = here.filter((f) => r.step.after.includes(f.step.id));
+        if (steps.length === 0) continue;
+        const ids = new Set(steps.map((f) => f.step.id));
+        runs.push({ key: r.step.id, title: loadTitle(r.step, refines.length), figure: legsText(legs(tripOf("mining"), ids)), steps: [...steps, r] });
+        placed.add(r.step.id);
+        steps.forEach((f) => placed.add(f.step.id));
+      }
+      const loose = here.filter((f) => !loaded.has(f.step.id));
+      if (loose.length) {
+        const ids = new Set(loose.map((f) => f.step.id));
+        runs.push({ key: "mining", title: "Mining", figure: legsText(legs(tripOf("mining"), ids)), steps: loose });
+        loose.forEach((f) => placed.add(f.step.id));
+      }
+      continue;
+    }
+    const left = here.filter((f) => !placed.has(f.step.id));
+    if (left.length === 0) continue;
+    const ids = new Set(left.map((f) => f.step.id));
+    const crafting = left.reduce((n, f) => n + (f.step.seconds ?? 0), 0);
+    const figure = kind === "crafting" ? (crafting > 0 ? `${clock(crafting)} crafting` : "") : legsText(legs(tripOf(kind), ids));
+    runs.push({ key: kind, title: label, figure, steps: left });
+    left.forEach((f) => placed.add(f.step.id));
+  }
+
+  const waiting = chosen.filter((f) => !placed.has(f.step.id));
+  const sessionIds = new Set(runs.flatMap((r) => r.steps.map((f) => f.step.id)));
+  const total: Legs = { stops: [], gm: 0, jumps: 0, flying: 0 };
+  for (const t of tracks) {
+    const l = legs(t.trip, sessionIds);
+    total.stops.push(...l.stops);
+    total.gm += l.gm;
+    total.jumps += l.jumps;
+    total.flying = l.flying != null && total.flying != null ? total.flying + l.flying : null;
+  }
+  const groups: RunGroup[] = [];
+  if (runs.length) groups.push({ key: "now", title: "This session", figure: total.stops.length ? gm(total.gm) : "", runs });
+  if (waiting.length) {
+    groups.push({ key: "waiting", title: "Waiting", figure: "", runs: [{ key: "waiting", title: "Waits on other steps", figure: "", steps: waiting }] });
+  }
+
+  const steps = runs.flatMap((r) => r.steps.map((f) => f.step));
+  const crafting = steps.filter((s) => s.kind === "craft").reduce((n, s) => n + (s.seconds ?? 0), 0);
+  const tiles: FocusTile[] = [];
+  if (total.stops.length && total.flying != null && total.flying > 0) tiles.push({ value: `~${span(total.flying)}`, label: "flying" });
+  if (crafting > 0) tiles.push({ value: clock(crafting), label: "crafting" });
+  if (steps.some((s) => s.kind === "mine")) tiles.push({ value: "—", label: "mining" });
+  if (steps.some((s) => s.kind === "refine")) tiles.push({ value: "—", label: "refinery" });
+  tiles.push({ value: String(steps.length), label: steps.length === 1 ? "step" : "steps" });
+  const plans = new Set(steps.flatMap((s) => s.plans));
+  if (plans.size) tiles.push({ value: String(plans.size), label: plans.size === 1 ? "plan" : "plans" });
+
+  const n = total.stops.length;
+  const what = [n === 1 ? "1 stop" : `${n} stops`];
+  if (total.jumps) what.push(total.jumps === 1 ? "1 jump" : `${total.jumps} jumps`);
+  return {
+    card: {
+      distance: runs.length === 0 ? "Nothing ready" : n ? gm(total.gm) : "0 Gm",
+      what: runs.length === 0 ? (waiting.length ? `${waiting.length} waiting` : "") : n ? what.join(", ") : "where you are",
+      tiles: tiles.slice(0, 4),
+      route: total.stops.map((s) => s.place).join(" → "),
+    },
+    groups,
+  };
+}

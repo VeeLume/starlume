@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { LedgerRow, PlanStep, Track, Trip, TripStop } from "$lib/bindings";
-import { ago, amount, clock, ledgerBars, planSteps, span, stepFigure, stopsText, timeText, timeline, trackNote } from "./model";
+import type { LedgerRow, PlanStep, StepKind, Track, TrackKind, Trip, TripStop } from "$lib/bindings";
+import { ago, amount, clock, focusView, ledgerBars, planSteps, span, stepFigure, stopsText, timeText, timeline, trackNote } from "./model";
 
 const stop = (site: string, leg: TripStop["leg"], titles: string[]): TripStop => ({
   site,
@@ -169,5 +169,83 @@ describe("a plan's steps", () => {
       ["mine-tin", true],
       ["refine", false],
     ]);
+  });
+});
+
+describe("a session focus", () => {
+  const ps = (id: string, kind: StepKind, plans: string[], site: string | null, more: Partial<PlanStep> = {}): PlanStep => ({
+    id,
+    kind,
+    title: id,
+    detail: "",
+    plans,
+    blocked: false,
+    at: site ? { name: `Place ${site}`, site } : null,
+    seconds: null,
+    cost: null,
+    odds: null,
+    sources: 1,
+    after: [],
+    ...more,
+  });
+  const at = (site: string, l: TripStop["leg"], ids: [string, StepKind][]): TripStop => ({
+    site,
+    place: `Place ${site}`,
+    at: null,
+    leg: l,
+    steps: ids.map(([id, kind]) => ({ id, kind, title: id, seconds: null })),
+  });
+  const track = (kind: TrackKind, stops: TripStop[]): Track => ({ kind, open: 0, ready: 0, waitsOn: null, trip: trip(stops, null) });
+  const steps = [
+    ps("buy1", "buy", ["a"], "s1"),
+    ps("m1", "mine", ["a"], "m1"),
+    ps("m2", "mine", ["b"], "m2"),
+    ps("refine:Pyro:0", "refine", ["a", "b"], "r", { after: ["m1", "m2"] }),
+    ps("craft1", "craft", ["a"], null, { blocked: true, seconds: 600 }),
+  ];
+  const tracks = [
+    track("shopping", [at("s1", leg(10, 300), [["buy1", "buy"]])]),
+    track("mining", [at("m1", leg(20, 400, true), [["m1", "mine"]]), at("m2", leg(5, 100), [["m2", "mine"]])]),
+  ];
+
+  it("takes a kind of work across plans, a load ending at its refinery", () => {
+    const v = focusView(steps, tracks, { kind: "activity", track: "mining" });
+    expect(v.groups.map((g) => g.title)).toEqual(["This session"]);
+    const [load] = v.groups[0].runs;
+    expect(load.title).toBe("Mining in Pyro");
+    expect(load.figure).toBe("25 Gm, 1 jump, ~8 min flying");
+    expect(load.steps.map((f) => f.step.id)).toEqual(["m1", "m2", "refine:Pyro:0"]);
+    expect(v.card).toEqual({
+      distance: "25 Gm",
+      what: "2 stops, 1 jump",
+      tiles: [
+        { value: "~8 min", label: "flying" },
+        { value: "—", label: "mining" },
+        { value: "—", label: "refinery" },
+        { value: "3", label: "steps" },
+      ],
+      route: "Place m1 → Place m2",
+    });
+  });
+
+  it("takes one plan, with another plan's mining in its load dimmed and what waits apart", () => {
+    const v = focusView(steps, tracks, { kind: "plan", plan: "a" });
+    const runs = v.groups[0].runs;
+    expect(runs.map((r) => r.title)).toEqual(["Shopping run", "Mining in Pyro"]);
+    expect(runs[0].figure).toBe("10 Gm, ~5 min flying");
+    expect(runs[1].steps.map((f) => [f.step.id, f.other])).toEqual([
+      ["m1", false],
+      ["m2", true],
+      ["refine:Pyro:0", false],
+    ]);
+    expect(v.groups[1].runs[0].steps.map((f) => f.step.id)).toEqual(["craft1"]);
+    expect(v.card.distance).toBe("35 Gm");
+    expect(v.card.what).toBe("3 stops, 1 jump");
+  });
+
+  it("says when nothing is ready", () => {
+    const v = focusView(steps, tracks, { kind: "activity", track: "crafting" });
+    expect(v.card.distance).toBe("Nothing ready");
+    expect(v.card.what).toBe("1 waiting");
   });
 });
