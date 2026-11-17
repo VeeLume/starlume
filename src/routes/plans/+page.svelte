@@ -27,7 +27,6 @@
     addCraftPlan,
     addLoadoutPlan,
     addProject,
-    focusPlan,
     loadBoard,
     loadChoices,
     loadPlans,
@@ -97,10 +96,6 @@
 
   const shown = $derived((board?.plans ?? []).filter((p) => (tab === "done" ? p.done : !p.done)));
   const plan = $derived(shown.find((p) => p.id === picked) ?? shown[0] ?? null);
-  const target = $derived(board?.targets.find((t) => t.plan === plan?.id) ?? null);
-  /** The plan as stored: its own name (the board's is the shown one). */
-  const stored = $derived(plansStore.plans?.find((p) => p.id === plan?.id) ?? null);
-  const isFocus = $derived(!!plan && board?.plans[0]?.id === plan.id);
   /** The kinds of work the board has, in the card's order. */
   const tracksShown = $derived(TRACKS.filter((t) => board?.tracks.tracks.some((x) => x.kind === t.id)));
   /** The plans the card offers as a focus: the open ones. */
@@ -120,17 +115,42 @@
   );
   const view = $derived(focusView(board?.steps ?? [], focusTracks, shownFocus));
   const names = $derived(new Map((board?.plans ?? []).map((p) => [p.id, p.name])));
+  /** The plan the page shows the controls of: the focus when it is a
+   *  plan; on Done, the one picked there. */
+  const detail = $derived(
+    shownFocus.kind === "plan"
+      ? (board?.plans.find((p) => p.id === shownFocus.plan) ?? null)
+      : tab === "done"
+        ? plan
+        : null,
+  );
+  const target = $derived(board?.targets.find((t) => t.plan === detail?.id) ?? null);
+  /** The plan as stored: its own name (the board's is the shown one). */
+  const stored = $derived(plansStore.plans?.find((p) => p.id === detail?.id) ?? null);
+  /** A plan's name where room is short (the Focus pills, step tags,
+   *  Components rows): your own name for it, else the ship or item
+   *  without its maker ("Constellation Mk V Centaurus"). The full name is
+   *  the tooltip. */
+  function short(id: string): string {
+    const p = board?.plans.find((x) => x.id === id);
+    if (!p) return names.get(id) ?? id;
+    const own = plansStore.plans?.find((x) => x.id === id)?.name;
+    if (own) return own;
+    if (p.kind !== "loadout") return p.kind === "project" ? p.name : p.title;
+    const words = p.title.split(" ");
+    return words.length > 1 ? words.slice(1).join(" ") : p.title;
+  }
   const focusName = $derived(
     shownFocus.kind === "plan"
       ? `to get ${names.get(shownFocus.plan) ?? "the plan"} ready`
       : `for ${(TRACKS.find((t) => t.id === shownFocus.track)?.label ?? "").toLowerCase()} across your plans`,
   );
   const FOCUS_HUE: Record<TrackKind, string> = {
-    shopping: "var(--hue-apricot)",
+    shopping: "var(--hue-sky)",
     mining: "var(--hue-quality)",
-    refining: "var(--hue-quality)",
+    refining: "var(--hue-sky)",
     missions: "var(--hue-sand)",
-    looting: "var(--hue-sky)",
+    looting: "var(--hue-apricot)",
     crafting: "var(--hue-rose)",
   };
   /** The Components panel's sources: id, the Prefer label, a row's. */
@@ -234,21 +254,21 @@
 
   function setCount(c: PlanCraft, raw: string) {
     const count = typed(raw, 1, 9999);
-    if (plan && count != null) void updateCraft(plan.id, c.blueprint, count, minimums(c));
+    if (detail && count != null) void updateCraft(detail.id, c.blueprint, count, minimums(c));
     return count ?? c.count;
   }
 
   /** One quality for every material of a craft: the shortcut. */
   function setAll(c: PlanCraft, raw: string) {
     const quality = typed(raw, 0, 1000);
-    if (plan && quality != null) void updateCraft(plan.id, c.blueprint, c.count, [], quality);
+    if (detail && quality != null) void updateCraft(detail.id, c.blueprint, c.count, [], quality);
   }
 
   function setSlot(c: PlanCraft, index: number, quality: number) {
-    if (!plan) return;
+    if (!detail) return;
     const slots = minimums(c);
     slots[index] = quality;
-    void updateCraft(plan.id, c.blueprint, c.count, slots);
+    void updateCraft(detail.id, c.blueprint, c.count, slots);
   }
 
   /** What a slot's minimum can be set to, and where it stands now. */
@@ -344,130 +364,65 @@
         </div>
       </section>
     {:else}
-      <div class="now-row">
-        {#if plan}
-          {@const look = PLAN_LOOK[plan.kind]}
+      <div class="cols">
+        <section class="lead" aria-label="Next session and next steps">
+          <!-- What the session is for (pass 6): a kind of work across your
+               plans, or one plan to get ready. Distance leads; every time
+               names its source; mining and refining have none (a dash). -->
+          <div class="session">
           <NowCard
             size="wide"
-            hue={plan.kind === "craft" || plan.kind === "project" ? "var(--hue-rose)" : "var(--hue-sky)"}
-            chip={plan.parked ? "PARKED" : isFocus && !plan.done ? "FOCUS" : look.chip}
-            version={plan.title}
-            name={plan.subtitle}
-            date={plan.done ? "done" : plan.parked ? look.chip.toLowerCase() : plan.waiting ? "waiting" : isFocus ? look.chip.toLowerCase() : ""}
+            hue={shownFocus.kind === "plan" ? "var(--hue-rose)" : FOCUS_HUE[shownFocus.track]}
+            chip="NEXT SESSION"
+            version={view.card.distance}
+            name={view.card.what}
+            date={board.from ? `from ${board.from}` : "last place not known"}
           >
-            {#snippet art()}<PlanGlyph shape={look.shape} large />{/snippet}
-            {#if plan.missing}
-              <p class="dim">{plan.note}. Remove the plan, or bring its goal back.</p>
-            {:else}
-              <ol class="stepper" aria-label="Stages" style:--n={plan.stages.length}>
-                {#each plan.stages as s (s.name)}
-                  <li class={s.state} aria-current={s.state === "current" ? "step" : undefined}>
-                    <i></i><span>{s.name}<small>{s.sub}</small></span>
-                  </li>
-                {/each}
-              </ol>
-              <div class="stat-tiles">
-                {#each plan.tiles as t (t.label)}
-                  <div class="stat-tile" title="{t.label}: {t.value}"><b>{t.value}</b><span>{t.label}</span></div>
-                {/each}
+            {#snippet above()}
+              <div class="pick">
+                <span class="pick-label">Activity</span>
+                <div class="pills" role="radiogroup" aria-label="Activity">
+                  {#each tracksShown as t (t.id)}
+                    {@const on = shownFocus.kind === "activity" && shownFocus.track === t.id}
+                    <button
+                      type="button"
+                      role="radio"
+                      class="pill"
+                      class:active={on}
+                      style:--hue={FOCUS_HUE[t.id]}
+                      aria-checked={on}
+                      onclick={() => (focus = { kind: "activity", track: t.id })}>{t.label}</button
+                    >
+                  {/each}
+                </div>
+                <span class="pick-label">Focus</span>
+                <div class="pills" role="radiogroup" aria-label="Focus">
+                  {#each focusPlans as p (p.id)}
+                    {@const on = shownFocus.kind === "plan" && shownFocus.plan === p.id}
+                    <button
+                      type="button"
+                      role="radio"
+                      class="pill"
+                      class:active={on}
+                      style:--hue="var(--hue-rose)"
+                      aria-checked={on}
+                      title={p.name}
+                      onclick={() => pickPlan(p.id)}>{short(p.id)}</button
+                    >
+                  {/each}
+                </div>
               </div>
-            {/if}
-            <!-- Every plan has a name and notes of its own, here for all
-                 kinds so the card is one height. -->
-            <div class="meta">
-              <label class="field"
-                >Name
-                <input
-                  class="input"
-                  value={stored?.name ?? ""}
-                  placeholder={plan.kind === "project" ? "Project" : `${plan.title}, ${plan.subtitle}`}
-                  onchange={(e) => void renamePlan(plan.id, e.currentTarget.value)}
-                /></label
-              >
-              <label class="field"
-                >Notes
-                <input
-                  class="input"
-                  value={plan.notes}
-                  placeholder="What it is for"
-                  onchange={(e) => void setPlanNotes(plan.id, e.currentTarget.value)}
-                /></label
-              >
-            </div>
-            {#snippet action()}
-              <span class="grow"></span>
-              <Button variant="ghost" onclick={() => (removing = plan)}>Remove</Button>
-              {#if !plan.done && !plan.missing}
-                <Button
-                  variant="ghost"
-                  title={plan.parked
-                    ? "It reserves materials and parts again, at its place in the order"
-                    : "It stays in the list and reserves nothing, so the plans behind it get the stock"}
-                  onclick={() => void parkPlan(plan.id, !plan.parked)}>{plan.parked ? "Take it up again" : "Park"}</Button
-                >
-              {/if}
-              {#if !isFocus && !plan.done && !plan.missing}
-                <Button variant="outline" onclick={() => void focusPlan(plan.id)}>Make it the focus</Button>
-              {/if}
-              {#if (target?.ship && on("ships")) || (target?.family && on("crafting"))}
-                <Button variant="outline" onclick={open}>
-                  {target.ship ? "Open ship" : "Open recipe"} <ArrowUpRight size={14} />
-                </Button>
-              {/if}
             {/snippet}
-          </NowCard>
-        {:else}
-          <NowCard size="wide" version={tab === "done" ? "Nothing finished yet" : "Everything is done"} muted>
-            <p class="dim">
-              {tab === "done"
-                ? "A plan moves here once the game shows its goal reached."
-                : "Every plan has reached its goal. Add a new one, or look at Done."}
-            </p>
-          </NowCard>
-        {/if}
-
-        <!-- What the session is for (pass 6): a kind of work across your
-             plans, or one plan to get ready. Distance leads; every time
-             names its source; mining and refining have none (a dash). -->
-        <NowCard
-          hue={shownFocus.kind === "plan" ? "var(--hue-rose)" : FOCUS_HUE[shownFocus.track]}
-          chip="NEXT SESSION"
-          version={view.card.distance}
-          name={view.card.what}
-          date={board.from ? `from ${board.from}` : "last place not known"}
-        >
-          <div class="pick">
-            <span class="pick-label">Activity</span>
-            <div class="pills" role="radiogroup" aria-label="Activity">
-              {#each tracksShown as t (t.id)}
-                {@const on = shownFocus.kind === "activity" && shownFocus.track === t.id}
-                <button type="button" role="radio" class="pill" class:active={on} aria-checked={on} onclick={() => (focus = { kind: "activity", track: t.id })}
-                  >{t.label}</button
-                >
+            <div class="stat-tiles focus-tiles">
+              {#each view.card.tiles as t (t.label)}
+                <div class="stat-tile"><b>{t.value}</b><span>{t.label}</span></div>
               {/each}
             </div>
-            <span class="pick-label">Focus</span>
-            <div class="pills" role="radiogroup" aria-label="Focus">
-              {#each focusPlans as p (p.id)}
-                {@const on = shownFocus.kind === "plan" && shownFocus.plan === p.id}
-                <button type="button" role="radio" class="pill" class:active={on} aria-checked={on} title={p.name} onclick={() => pickPlan(p.id)}
-                  >{p.title}</button
-                >
-              {/each}
-            </div>
+            <p class="route-line" title={view.card.route}>{view.card.route}</p>
+          </NowCard>
           </div>
-          <div class="stat-tiles focus-tiles">
-            {#each view.card.tiles as t (t.label)}
-              <div class="stat-tile"><b>{t.value}</b><span>{t.label}</span></div>
-            {/each}
-          </div>
-          <p class="route-line" title={view.card.route}>{view.card.route}</p>
-        </NowCard>
-      </div>
 
-      <div class="cols">
-        <section class="steps" aria-label="Next steps">
-          <h2 class="sec-h">Next steps<span class="for">{focusName}</span></h2>
+          <h2 class="sec-h steps-h">Next steps<span class="for">{focusName}</span></h2>
           {#if view.groups.length === 0}
             {@const focused = shownFocus.kind === "plan" ? board.plans.find((p) => p.id === shownFocus.plan) : null}
             <p class="dim none">
@@ -491,14 +446,14 @@
               <div class="rows">
                 {#each r.steps as { step: s, other } (s.id)}
                   <div class="step k-{s.kind}" class:blocked={s.blocked} class:other>
-                    <PlanGlyph shape={STEP_SHAPE[s.kind]} />
+                    <span class="glyph"><PlanGlyph shape={STEP_SHAPE[s.kind]} /></span>
                     <span class="text">
                       <span class="step-title">{s.title}</span>
                       <span class="step-sub">
-                        <span class="hue-chip" class:wait={s.blocked}>{s.blocked ? "blocked" : KIND_TEXT[s.kind]}</span>
+                        <span class="hue-chip" class:wait={s.blocked}>{s.blocked ? "waits" : KIND_TEXT[s.kind]}</span>
                         <span>{s.detail}</span>
-                        {#if s.plans.length > 1 || other}
-                          {#each s.plans as p (p)}<span class="tag">{names.get(p) ?? p}</span>{/each}
+                        {#if shownFocus.kind === "plan" ? other : s.plans.length > 1}
+                          {#each s.plans as p (p)}<span class="tag" title={names.get(p) ?? p}>{short(p)}</span>{/each}
                         {/if}
                       </span>
                     </span>
@@ -509,18 +464,78 @@
             {/each}
           {/each}
 
-          {#if plan && (plan.kind === "project" || plan.crafts.length > 0)}
-            <!-- What the plan crafts, each with the minimum quality of
+
+          {#if detail}
+            {@const look = PLAN_LOOK[detail.kind]}
+            <!-- The plan in focus, to rename, note, park or remove; not on
+                 the pass 6 mock, so it stays below the steps. -->
+            <section class="this-plan kind-{detail.kind}" aria-label="This plan">
+              <h2 class="sec-h">This plan<span class="for">{detail.name}</span></h2>
+              {#if detail.missing}
+                <p class="dim">{detail.note}. Remove the plan, or bring its goal back.</p>
+              {:else}
+                <ol class="stepper" aria-label="Stages" style:--n={detail.stages.length}>
+                  {#each detail.stages as st (st.name)}
+                    <li class={st.state} aria-current={st.state === "current" ? "step" : undefined}>
+                      <i></i><span>{st.name}<small>{st.sub}</small></span>
+                    </li>
+                  {/each}
+                </ol>
+              {/if}
+              <div class="meta">
+                <label class="field"
+                  >Name
+                  <input
+                    class="input"
+                    value={stored?.name ?? ""}
+                    placeholder={detail.kind === "project" ? "Project" : `${detail.title}, ${detail.subtitle}`}
+                    onchange={(e) => void renamePlan(detail.id, e.currentTarget.value)}
+                  /></label
+                >
+                <label class="field"
+                  >Notes
+                  <input
+                    class="input"
+                    value={detail.notes}
+                    placeholder="What it is for"
+                    onchange={(e) => void setPlanNotes(detail.id, e.currentTarget.value)}
+                  /></label
+                >
+              </div>
+              <div class="this-actions">
+                <span class="dim small">{look.chip.toLowerCase()}{detail.parked ? ", parked" : ""}</span>
+                <span class="grow"></span>
+                <Button variant="ghost" onclick={() => (removing = detail)}>Remove</Button>
+                {#if !detail.done && !detail.missing}
+                  <Button
+                    variant="ghost"
+                    title={detail.parked
+                      ? "It reserves materials and parts again, at its place in the order"
+                      : "It stays in the list and reserves nothing, so the plans behind it get the stock"}
+                    onclick={() => void parkPlan(detail.id, !detail.parked)}>{detail.parked ? "Take it up again" : "Park"}</Button
+                  >
+                {/if}
+                {#if (target?.ship && on("ships")) || (target?.family && on("crafting"))}
+                  <Button variant="outline" onclick={open}>
+                    {target.ship ? "Open ship" : "Open recipe"} <ArrowUpRight size={14} />
+                  </Button>
+                {/if}
+              </div>
+            </section>
+          {/if}
+
+          {#if detail && (detail.kind === "project" || detail.crafts.length > 0)}
+            <!-- What the detail crafts, each with the minimum quality of
                  every material. All of it is always shown: nothing here
                  opens or closes. -->
             <h2 class="sec-h crafts-h">
-              {plan.kind === "project" ? "Crafts in this project" : "Minimum quality per material"}
+              {detail.kind === "project" ? "Crafts in this project" : "Minimum quality per material"}
               <span class="grow"></span>
-              {#if plan.kind === "project"}
-                <Button variant="outline" onclick={() => (addingTo = plan)}><Plus size={14} /> Add a craft</Button>
+              {#if detail.kind === "project"}
+                <Button variant="outline" onclick={() => (addingTo = detail)}><Plus size={14} /> Add a craft</Button>
               {/if}
             </h2>
-            {#each plan.crafts as c (c.blueprint)}
+            {#each detail.crafts as c (c.blueprint)}
               <div class="craft" class:missing={c.missing}>
                 <div class="craft-head">
                   <b>{c.name}</b>
@@ -554,8 +569,8 @@
                       <Button variant="ghost" href="/crafting?sel={encodeURIComponent(c.family)}">Recipe <ArrowUpRight size={14} /></Button>
                     {/if}
                   {/if}
-                  {#if plan.kind === "project"}
-                    <Button variant="ghost" onclick={() => void removeCraft(plan.id, c.blueprint)}>Take out</Button>
+                  {#if detail.kind === "project"}
+                    <Button variant="ghost" onclick={() => void removeCraft(detail.id, c.blueprint)}>Take out</Button>
                   {/if}
                 </div>
                 <div class="slots">
@@ -599,9 +614,9 @@
             <h2 class="sec-h">{tab === "done" ? "Done" : "Your plans"}<span class="grow"></span><span class="mono">{shown.length}</span></h2>
             <div class="plan-list">
               {#each shown as p, n (p.id)}
-                <div class="plan-row kind-{p.kind}" class:sel={p.id === plan?.id} class:parked={p.parked}>
-                  <button type="button" class="plan-pick" aria-pressed={p.id === plan?.id} onclick={() => pickPlan(p.id)}>
-                    <PlanGlyph shape={PLAN_LOOK[p.kind].shape} />
+                <div class="plan-row kind-{p.kind}" class:sel={p.id === (detail?.id ?? (shownFocus.kind === "plan" ? shownFocus.plan : null))} class:parked={p.parked}>
+                  <button type="button" class="plan-pick" aria-pressed={p.id === detail?.id} onclick={() => pickPlan(p.id)}>
+                    <span class="glyph"><PlanGlyph shape={PLAN_LOOK[p.kind].shape} /></span>
                     <span class="plan-text">
                       <span class="plan-head"><b>{p.name}</b><span class="mono dim">{Math.round(p.progress * 100)}%</span></span>
                       <span class="track"><i style:width="{Math.round(p.progress * 100)}%"></i></span>
@@ -645,8 +660,9 @@
               {#each board.parts as c (c.item)}
                 <div class="part">
                   <span class="part-text"
-                    ><span class="part-name">{c.count > 1 ? `${c.count} × ${c.name}` : c.name}</span><span class="dim small"
-                      >{c.plans.map((p) => names.get(p) ?? p).join(", ")}</span
+                    ><span class="part-name" title={c.name}>{c.count > 1 ? `${c.count} × ${c.name}` : c.name}</span><span
+                      class="part-plans"
+                      title={c.plans.map((p) => names.get(p) ?? p).join(", ")}>{c.plans.map(short).join(", ")}</span
                     ></span
                   >
                   <span class="src" role="radiogroup" aria-label="{c.name} from">
@@ -768,14 +784,19 @@
 
   /* One hue a kind (the session page's idiom): role names here, the hue
    * tokens stay app.css's. */
+  /* Hues by role, as the pass 6 mock: a shop sky, mining teal, the
+   * refinery sky, missions sand, loot apricot, crafts and plans rose. */
   .k-fit,
-  .k-buy {
-    --hue: var(--hue-apricot);
+  .k-buy,
+  .k-refine {
+    --hue: var(--hue-sky);
   }
   .k-mine,
-  .k-refine,
   .k-gather {
     --hue: var(--hue-quality);
+  }
+  .k-loot {
+    --hue: var(--hue-apricot);
   }
   .k-craft,
   .kind-craft,
@@ -786,16 +807,57 @@
   .k-find {
     --hue: var(--hue-sand);
   }
-  .kind-loadout,
+  .kind-loadout {
+    --hue: var(--hue-rose);
+  }
   .kind-unknown {
     --hue: var(--hue-sky);
   }
 
-  .now-row {
+  /* The left column: the session card, then its steps. */
+  .lead {
     display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    align-items: stretch;
+    flex-direction: column;
+    min-width: 0;
+  }
+  /* A block, so the card is as tall as its content (a NowCard is a
+   * flex item sized for a row); one height for every focus. */
+  .session {
+    display: grid;
+  }
+  .session :global(.now .main) {
+    min-height: 250px;
+  }
+  .steps-h {
+    margin-top: 22px;
+  }
+  /* A row's thumbnail: the glyph on a tile in its hue. */
+  .glyph {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--hue) 16%, var(--bg-sunk)), var(--bg-sunk));
+    border: 1px solid color-mix(in srgb, var(--hue) 22%, var(--border));
+    box-sizing: border-box;
+  }
+  .glyph :global(svg) {
+    width: 30px;
+    height: 30px;
+    opacity: 0.9;
+  }
+  /* The plan in focus, below its steps. */
+  .this-plan {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 28px;
+  }
+  .this-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .stepper {
@@ -988,7 +1050,7 @@
    * the route reserve their line each. */
   .pick {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: 150px minmax(0, 1fr);
     gap: 8px 12px;
     align-items: center;
   }
@@ -996,7 +1058,25 @@
     font-size: var(--text-small);
     color: var(--text-faint);
   }
+  .pick .pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .pick .pill {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pick .pill.active {
+    background: color-mix(in srgb, var(--hue) 16%, transparent);
+    border-color: color-mix(in srgb, var(--hue) 42%, transparent);
+    color: var(--text-strong);
+    font-weight: var(--weight-semibold);
+  }
   .focus-tiles {
+    max-width: 760px;
     min-height: 3.6rem;
   }
   .route-line {
@@ -1063,7 +1143,19 @@
     gap: 8px;
     min-width: 0;
   }
+  /* The name keeps most of the line; the plans give way first. */
+  .part-plans {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: var(--text-small);
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .part-name {
+    flex: 0 1 auto;
+    max-width: 75%;
     color: var(--text-strong);
     white-space: nowrap;
     overflow: hidden;
@@ -1087,10 +1179,11 @@
     display: flex;
     align-items: baseline;
     gap: 10px;
-    margin: 14px 0 0;
+    margin: 20px 0 2px;
     padding: 0 6px;
   }
   .grp-h b {
+    font-size: 1rem;
     font-weight: var(--weight-semibold);
     color: var(--text-strong);
   }
@@ -1099,14 +1192,19 @@
     font-size: var(--text-small);
     color: var(--text-dim);
   }
+  /* A run's heading starts where its steps' titles do. */
   .run-h {
     display: flex;
     align-items: baseline;
     gap: 10px;
-    margin-top: 8px;
-    padding: 4px 6px;
+    margin-top: 10px;
+    padding: 6px 6px 4px 58px;
     font-size: var(--text-small);
     color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+  .run-h .mono {
+    color: var(--text-faint);
   }
 
   .cols {
@@ -1127,13 +1225,13 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
-    margin: 0 0 8px;
-    font-family: var(--font-mono);
-    font-size: var(--text-small);
-    font-weight: var(--weight-medium);
-    text-transform: var(--label-transform);
+    margin: 8px 0 10px;
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
     letter-spacing: var(--label-tracking);
-    color: var(--text-dim);
+    color: var(--text-faint);
   }
   .sec-h .for {
     font-family: var(--font-sans);
@@ -1214,11 +1312,11 @@
   .panel {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
+    gap: 12px;
+    padding: 14px 16px;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    background: var(--bg-raised);
+    background: color-mix(in srgb, var(--bg-raised) 55%, transparent);
   }
   .panel .sec-h {
     margin: 0;
