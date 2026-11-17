@@ -381,14 +381,14 @@
             {#snippet above()}
               <div class="pick">
                 <span class="pick-label">Activity</span>
-                <div class="pills" role="radiogroup" aria-label="Activity">
+                <div class="opts" role="radiogroup" aria-label="Activity">
                   {#each tracksShown as t (t.id)}
                     {@const on = shownFocus.kind === "activity" && shownFocus.track === t.id}
                     <button
                       type="button"
                       role="radio"
-                      class="pill"
-                      class:active={on}
+                      class="opt"
+                      class:on
                       style:--hue={FOCUS_HUE[t.id]}
                       aria-checked={on}
                       onclick={() => (focus = { kind: "activity", track: t.id })}>{t.label}</button
@@ -396,14 +396,14 @@
                   {/each}
                 </div>
                 <span class="pick-label">Focus</span>
-                <div class="pills" role="radiogroup" aria-label="Focus">
+                <div class="opts" role="radiogroup" aria-label="Focus">
                   {#each focusPlans as p (p.id)}
                     {@const on = shownFocus.kind === "plan" && shownFocus.plan === p.id}
                     <button
                       type="button"
                       role="radio"
-                      class="pill"
-                      class:active={on}
+                      class="opt"
+                      class:on
                       style:--hue="var(--hue-rose)"
                       aria-checked={on}
                       title={p.name}
@@ -465,64 +465,6 @@
           {/each}
 
 
-          {#if detail}
-            {@const look = PLAN_LOOK[detail.kind]}
-            <!-- The plan in focus, to rename, note, park or remove; not on
-                 the pass 6 mock, so it stays below the steps. -->
-            <section class="this-plan kind-{detail.kind}" aria-label="This plan">
-              <h2 class="sec-h">This plan<span class="for">{detail.name}</span></h2>
-              {#if detail.missing}
-                <p class="dim">{detail.note}. Remove the plan, or bring its goal back.</p>
-              {:else}
-                <ol class="stepper" aria-label="Stages" style:--n={detail.stages.length}>
-                  {#each detail.stages as st (st.name)}
-                    <li class={st.state} aria-current={st.state === "current" ? "step" : undefined}>
-                      <i></i><span>{st.name}<small>{st.sub}</small></span>
-                    </li>
-                  {/each}
-                </ol>
-              {/if}
-              <div class="meta">
-                <label class="field"
-                  >Name
-                  <input
-                    class="input"
-                    value={stored?.name ?? ""}
-                    placeholder={detail.kind === "project" ? "Project" : `${detail.title}, ${detail.subtitle}`}
-                    onchange={(e) => void renamePlan(detail.id, e.currentTarget.value)}
-                  /></label
-                >
-                <label class="field"
-                  >Notes
-                  <input
-                    class="input"
-                    value={detail.notes}
-                    placeholder="What it is for"
-                    onchange={(e) => void setPlanNotes(detail.id, e.currentTarget.value)}
-                  /></label
-                >
-              </div>
-              <div class="this-actions">
-                <span class="dim small">{look.chip.toLowerCase()}{detail.parked ? ", parked" : ""}</span>
-                <span class="grow"></span>
-                <Button variant="ghost" onclick={() => (removing = detail)}>Remove</Button>
-                {#if !detail.done && !detail.missing}
-                  <Button
-                    variant="ghost"
-                    title={detail.parked
-                      ? "It reserves materials and parts again, at its place in the order"
-                      : "It stays in the list and reserves nothing, so the plans behind it get the stock"}
-                    onclick={() => void parkPlan(detail.id, !detail.parked)}>{detail.parked ? "Take it up again" : "Park"}</Button
-                  >
-                {/if}
-                {#if (target?.ship && on("ships")) || (target?.family && on("crafting"))}
-                  <Button variant="outline" onclick={open}>
-                    {target.ship ? "Open ship" : "Open recipe"} <ArrowUpRight size={14} />
-                  </Button>
-                {/if}
-              </div>
-            </section>
-          {/if}
 
           {#if detail && (detail.kind === "project" || detail.crafts.length > 0)}
             <!-- What the detail crafts, each with the minimum quality of
@@ -642,6 +584,52 @@
               {/each}
             </div>
           </section>
+
+          {#if detail}
+            <!-- The plan in focus: rename, note, park, remove, open its goal. -->
+            <section class="panel" aria-label="This plan">
+              <h2 class="sec-h">This plan<span class="grow"></span><span class="for">{PLAN_LOOK[detail.kind].chip.toLowerCase()}{detail.parked ? ", parked" : ""}</span></h2>
+              {#if detail.missing}
+                <p class="dim">{detail.note}. Remove the plan, or bring its goal back.</p>
+              {/if}
+              <label class="this-field"
+                >Name
+                <input
+                  class="input"
+                  value={stored?.name ?? ""}
+                  placeholder={detail.kind === "project" ? "Project" : `${detail.title}, ${detail.subtitle}`}
+                  onchange={(e) => void renamePlan(detail.id, e.currentTarget.value)}
+                /></label
+              >
+              <label class="this-field"
+                >Notes
+                <input
+                  class="input"
+                  value={detail.notes}
+                  placeholder="What it is for"
+                  onchange={(e) => void setPlanNotes(detail.id, e.currentTarget.value)}
+                /></label
+              >
+              <div class="this-actions">
+                <Button variant="ghost" onclick={() => (removing = detail)}>Remove</Button>
+                {#if !detail.done && !detail.missing}
+                  <Button
+                    variant="ghost"
+                    title={detail.parked
+                      ? "It reserves materials and parts again, at its place in the order"
+                      : "It stays in the list and reserves nothing, so the plans behind it get the stock"}
+                    onclick={() => void parkPlan(detail.id, !detail.parked)}>{detail.parked ? "Take it up again" : "Park"}</Button
+                  >
+                {/if}
+                <span class="grow"></span>
+                {#if (target?.ship && on("ships")) || (target?.family && on("crafting"))}
+                  <Button variant="outline" onclick={open}>
+                    {target.ship ? "Open ship" : "Open recipe"} <ArrowUpRight size={14} />
+                  </Button>
+                {/if}
+              </div>
+            </section>
+          {/if}
 
           {#if board.parts.length}
             <!-- Where each part the plans still need comes from: one choice
@@ -847,85 +835,21 @@
     height: 30px;
     opacity: 0.9;
   }
-  /* The plan in focus, below its steps. */
-  .this-plan {
+  /* The plan in focus, in the side column under Your plans. */
+  .this-field {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-top: 28px;
+    gap: 4px;
+    font-size: var(--text-small);
+    color: var(--text-dim);
   }
   .this-actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
   }
 
-  .stepper {
-    display: grid;
-    grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr));
-    max-width: 680px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .stepper li {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    font-size: var(--text-small);
-    color: var(--text-faint);
-    text-align: center;
-  }
-  .stepper li::before {
-    content: "";
-    position: absolute;
-    top: 5px;
-    right: 50%;
-    width: 100%;
-    height: 2px;
-    background: var(--border);
-  }
-  .stepper li:first-child::before {
-    display: none;
-  }
-  .stepper li.done::before,
-  .stepper li.current::before {
-    background: color-mix(in srgb, var(--hue) 55%, var(--border));
-  }
-  .stepper i {
-    position: relative;
-    /* Above the next stage's line, which starts at this dot's centre. */
-    z-index: 1;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--bg-raised);
-    border: 2px solid var(--border);
-  }
-  .stepper li.done i {
-    background: color-mix(in srgb, var(--hue) 70%, transparent);
-    border-color: transparent;
-  }
-  .stepper li.done {
-    color: var(--text-dim);
-  }
-  .stepper li.current i {
-    background: var(--hue);
-    border-color: var(--hue);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--hue) 22%, transparent);
-  }
-  .stepper li.current {
-    font-weight: var(--weight-semibold);
-    color: color-mix(in srgb, var(--hue) 80%, var(--text));
-  }
-  .stepper small {
-    display: block;
-    font-weight: var(--weight-regular, 400);
-    font-family: var(--font-mono);
-    color: var(--text-faint);
-  }
   .stat-tiles {
     max-width: 680px;
   }
@@ -939,21 +863,6 @@
   .field .input {
     width: 76px;
   }
-  .meta {
-    display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-    gap: 12px;
-    max-width: 680px;
-  }
-  .meta .field {
-    min-width: 0;
-  }
-  .meta .input {
-    flex: 1;
-    width: auto;
-    min-width: 0;
-  }
-
   .crafts-h {
     align-items: center;
     min-height: 32px;
@@ -1058,18 +967,36 @@
     font-size: var(--text-small);
     color: var(--text-faint);
   }
-  .pick .pills {
+  /* What the session is for: square options (an input, not chips), the
+   * picked one in its focus's hue. */
+  .opts {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
   }
-  .pick .pill {
-    max-width: 240px;
+  .opt {
+    all: unset;
+    box-sizing: border-box;
+    cursor: pointer;
+    max-width: 260px;
+    padding: 7px 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-chip);
+    font-size: var(--text-small);
+    line-height: 1;
+    color: var(--text-dim);
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .pick .pill.active {
+  .opt:hover {
+    color: var(--text);
+  }
+  .opt:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .opt.on {
     background: color-mix(in srgb, var(--hue) 16%, transparent);
     border-color: color-mix(in srgb, var(--hue) 42%, transparent);
     color: var(--text-strong);
