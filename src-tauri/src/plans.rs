@@ -590,7 +590,10 @@ impl Gathered<'_> {
         let cooked = self.cooked;
         let sites = Sites::new(cooked);
         let finder = self.inventory.map(|inv| mod_items::finder(inv, cooked));
-        let mut inputs = Inputs::default();
+        let mut inputs = Inputs {
+            hold: self.mining_hold(),
+            ..Inputs::default()
+        };
         let mut targets: Vec<PlanTargetView> = Vec::new();
         let mut drive: Option<(String, svc_data::ships::Quantum)> = None;
 
@@ -995,6 +998,71 @@ impl Gathered<'_> {
                 edits: saved.edits.clone(),
             },
         )
+    }
+
+    /// The mining ship a run is flown with, and its ore hold: the biggest
+    /// hold among the ships you have set up (a saved loadout on Ships, its
+    /// pods as fitted) and own (the hangar My Items last read; any, before
+    /// a first read), else among your owned ships as they come. `None`:
+    /// no such ship, a system's ore is one load.
+    fn mining_hold(&self) -> Option<mod_plans::steps::OreHold> {
+        let cooked = self.cooked;
+        let catalog = crate::mining::catalog_of(cooked).ok()?;
+        // Every ship-mined ore goes in the same pods: any one asks for all.
+        let ore = catalog
+            .element_names
+            .iter()
+            .find_map(|n| catalog.elements.get(&n.value).and_then(|e| e.resource))?;
+        let owned: Option<HashSet<String>> = self.inventory.map(|inv| {
+            inv.entitlements
+                .iter()
+                .filter(|e| e.held())
+                .map(|e| e.class_guid.to_ascii_lowercase())
+                .collect()
+        });
+        let mine = |ship: &str| {
+            owned
+                .as_ref()
+                .is_none_or(|o| o.contains(&ship.to_ascii_lowercase()))
+        };
+        let hold = |input: &mod_ships::LoadoutInput| {
+            mod_ships::ore_hold(cooked, input, &ore).filter(|scu| *scu > 0.0)
+        };
+        let best = |found: Vec<(String, f64)>| {
+            found
+                .into_iter()
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(ship, scu)| mod_plans::steps::OreHold {
+                    ship: mod_ships::ship_name(cooked, &ship).unwrap_or(ship),
+                    scu,
+                })
+        };
+        let set_up: Vec<(String, f64)> = crate::ships::saved_loadouts()
+            .iter()
+            .filter(|s| mine(&s.ship))
+            .filter_map(|s| {
+                let input = mod_ships::LoadoutInput {
+                    ship: s.ship.clone(),
+                    edits: s.edits.clone(),
+                };
+                Some((s.ship.clone(), hold(&input)?))
+            })
+            .collect();
+        best(set_up).or_else(|| {
+            best(
+                owned
+                    .iter()
+                    .flatten()
+                    .filter_map(|ship| {
+                        let input = mod_ships::LoadoutInput {
+                            ship: ship.clone(),
+                            edits: Vec::new(),
+                        };
+                        Some((ship.clone(), hold(&input)?))
+                    })
+                    .collect(),
+            )
+        })
     }
 
     /// Where a material is ship-mined at a quality: its ore's areas from

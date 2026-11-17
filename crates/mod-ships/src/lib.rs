@@ -36,5 +36,5 @@ pub use tree::{CraftedMark, Slot, System, slots};
 pub use view::{
     ArmorSummary, BoostLevel, Edit, Gun, HullPart, HullSummary, InsuranceSummary, LoadoutInput,
     QuantumSummary, ShieldSummary, ShipView, StorageSummary, Summary, Tour, Typed, ViewError,
-    loadout, quantum_drive, view,
+    loadout, ore_hold, quantum_drive, view,
 };

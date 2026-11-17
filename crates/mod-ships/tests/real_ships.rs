@@ -555,6 +555,49 @@ fn ground_vehicles_and_bikes_listed() {
     }
 }
 
+/// The stock mining ships' ore holds, as players know them (LIVE 4.10):
+/// Prospector 32 SCU, MOLE 96, Golem 32; a fighter holds none.
+#[test]
+#[ignore = "needs a real Data.p4k — set STARLUME_REAL_P4K"]
+fn ore_holds_match_the_pods() {
+    let cooked = cooked();
+    let resources = cooked.holotable.resources.as_ref().expect("resources");
+    let ore = resources
+        .iter()
+        .find(|(g, _)| {
+            cooked
+                .resource_name(&g.to_string())
+                .is_some_and(|n| n == "Titanium (Ore)")
+        })
+        .map(|(g, _)| *g)
+        .expect("no Titanium (Ore)");
+    let hold = |record: &str| {
+        let (guid, _) = cooked
+            .ships
+            .by_record_name(record)
+            .unwrap_or_else(|| panic!("{record} not listed"));
+        mod_ships::ore_hold(
+            &cooked,
+            &LoadoutInput {
+                ship: guid.to_string(),
+                edits: Vec::new(),
+            },
+            &ore,
+        )
+        .unwrap_or_else(|| panic!("{record}: no hold"))
+    };
+    for (record, scu) in [
+        ("MISC_Prospector", 32.0),
+        ("ARGO_MOLE", 96.0),
+        ("DRAK_Golem", 32.0),
+        ("AEGS_Gladius", 0.0),
+    ] {
+        let got = hold(record);
+        eprintln!("{record}: {got} SCU");
+        assert!((got - scu).abs() < 1e-6, "{record}: {got}, not {scu}");
+    }
+}
+
 /// Every system with a refinery has it on the travel map: Levski and the
 /// gateway stations refine in Nyx.
 #[test]

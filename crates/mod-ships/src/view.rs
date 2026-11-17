@@ -882,6 +882,32 @@ pub fn quantum_drive(
     crafted_quantum(&cooked.ships, &loadout, &crafted)
 }
 
+/// How much ore `input`'s holds take, SCU: its mining pods as fitted (a
+/// crafted Enhanced pod holds 15, the stock one 8). `ore` is a mined
+/// resource's GUID; 0 for a ship without pods. `None` for an unknown ship
+/// or resource.
+pub fn ore_hold(cooked: &CookedData, input: &LoadoutInput, ore: &Guid) -> Option<f64> {
+    use svc_data::RecordCollection;
+    let loadout = loadout(cooked, input).ok()?;
+    let index = &cooked.ships;
+    let vehicle = index.vehicles.get(&loadout.vehicle)?;
+    let items = cooked.holotable.items.as_ref()?;
+    let ore = cooked.holotable.resources.as_ref()?.get(ore)?;
+    let entities = index
+        .interiors
+        .get(&loadout.vehicle)
+        .map_or(&[][..], Vec::as_slice);
+    let storage = Storage::compute(
+        vehicle,
+        &loadout.mounted,
+        entities,
+        &index.vehicles,
+        items,
+        &index.containers,
+    );
+    Some(storage.capacity_for(ore))
+}
+
 /// The page for `input` under `settings`; a part `input` marks crafted
 /// takes what `recipes` says crafting changes ([`crate::crafted`]).
 pub fn view(
