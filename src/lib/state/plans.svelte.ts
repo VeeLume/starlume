@@ -7,7 +7,7 @@
 // re-read catches up after a suspension.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { commands, type CraftGoal, type LoadoutChoiceView, type Plan, type PlansBoardView } from "$lib/bindings";
+import { commands, type CraftGoal, type LoadoutChoiceView, type PartSource, type Plan, type PlansBoardView } from "$lib/bindings";
 
 /** Where a blueprint is planned: a plan of its own, or an entry of a project. */
 export type CraftHolder = { plan: Plan; craft: CraftGoal };
@@ -166,6 +166,17 @@ export async function setPlanNotes(id: string, notes: string): Promise<boolean> 
 /** Park a plan (it reserves nothing), or take it back up. */
 export async function parkPlan(id: string, parked: boolean): Promise<boolean> {
   return settle(await commands.plansSetParked(id, parked));
+}
+
+/** Where parts come from when they have a choice; every part's own pick
+ *  gives way to it. */
+export async function setPrefer(source: PartSource): Promise<boolean> {
+  return settle(await commands.plansSetPrefer(source));
+}
+
+/** A part's own source (null: follow the preference). */
+export async function setPartSource(item: string, source: PartSource | null): Promise<boolean> {
+  return settle(await commands.plansSetSource(item, source));
 }
 
 /** Move a plan to just before `before` (null: to the end). */

@@ -15,4 +15,4 @@ mod model;
 pub mod session;
 pub mod steps;
 
-pub use model::{CraftGoal, Goal, LoadoutGoal, Plan, PlansState, ProjectGoal};
+pub use model::{CraftGoal, Goal, LoadoutGoal, PartSource, Plan, PlansState, ProjectGoal};

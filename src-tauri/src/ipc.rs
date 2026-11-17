@@ -133,6 +133,8 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         plans::plans_rename,
         plans::plans_set_notes,
         plans::plans_set_parked,
+        plans::plans_set_prefer,
+        plans::plans_set_source,
         plans::plans_move,
         plans::plans_board,
         plans::plans_loadout_choices,

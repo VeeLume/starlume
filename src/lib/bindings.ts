@@ -1292,6 +1292,29 @@ async plansSetParked(id: string, parked: boolean) : Promise<Result<Plan[], AppEr
 }
 },
 /**
+ * Where parts come from when they have a choice (every part's own pick
+ * gives way to it).
+ */
+async plansSetPrefer(source: PartSource) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_set_prefer", { source }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A part's own source; `None`: follow the preference.
+ */
+async plansSetSource(item: string, source: PartSource | null) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_set_source", { item, source }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Move a plan to just before another (`before` absent: to the end). The
  * order is who the ledger serves first.
  */
@@ -3418,6 +3441,36 @@ count: number;
  */
 rented: number }
 /**
+ * A part the plans still need (not fitted, no free copy held), with its
+ * sources and the one the plan takes.
+ */
+export type PartChoice = { item: string; name: string; count: number; plans: string[]; 
+/**
+ * `None`: no source at all (no shop, no listing, no blueprint).
+ */
+chosen: PartSource | null; 
+/**
+ * The sources it has, in the panel's order (Store, Market, Craft).
+ */
+options: SourceOption[] }
+/**
+ * Where a part comes from (decision 'Plans pick one source per need with a
+ * switch', 2026-11-16).
+ */
+export type PartSource = 
+/**
+ * An in-game shop (UEX's prices and places).
+ */
+"store" | 
+/**
+ * Another player, on the UEX marketplace.
+ */
+"market" | 
+/**
+ * Crafted from its blueprint.
+ */
+"craft"
+/**
  * A patch-note thread and what its title says.
  */
 export type PatchNoteView = { 
@@ -3707,6 +3760,15 @@ tracks: Tracks;
  * as the focus.
  */
 planTracks: PlanTracks[]; 
+/**
+ * The parts the plans still need, with their sources: the Components
+ * panel.
+ */
+parts: PartChoice[]; 
+/**
+ * Where parts come from when they have a choice.
+ */
+prefer: PartSource; 
 /**
  * The last known place, as the session log names it; `None` when no
  * session has one or the map does not know it.
@@ -4479,6 +4541,15 @@ export type Source =
  * A source a later version added.
  */
 "unknown"
+export type SourceOption = { source: PartSource; 
+/**
+ * aUEC each; `None` for a craft.
+ */
+price: number | null; 
+/**
+ * The shop, the listings, or the blueprint's state.
+ */
+detail: string }
 export type SourceView = { itemType: string; em: number; ir: number }
 /**
  * Which sources fed a session.

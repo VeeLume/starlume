@@ -218,6 +218,28 @@ pub(crate) fn plans_set_parked(
     change(&app, |state| state.set_parked(&id, parked))
 }
 
+/// Where parts come from when they have a choice (every part's own pick
+/// gives way to it).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_set_prefer(
+    app: AppHandle,
+    source: mod_plans::PartSource,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| state.set_prefer(source))
+}
+
+/// A part's own source; `None`: follow the preference.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_set_source(
+    app: AppHandle,
+    item: String,
+    source: Option<mod_plans::PartSource>,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| state.set_source(&item, source))
+}
+
 /// Move a plan to just before another (`before` absent: to the end). The
 /// order is who the ledger serves first.
 #[tauri::command]
@@ -323,6 +345,11 @@ pub struct PlansBoardView {
     /// other plans' mining its refining waits on): the card with that plan
     /// as the focus.
     pub plan_tracks: Vec<PlanTracks>,
+    /// The parts the plans still need, with their sources: the Components
+    /// panel.
+    pub parts: Vec<mod_plans::steps::PartChoice>,
+    /// Where parts come from when they have a choice.
+    pub prefer: mod_plans::PartSource,
     /// The last known place, as the session log names it; `None` when no
     /// session has one or the map does not know it.
     pub from: Option<String>,
@@ -404,6 +431,29 @@ async fn last_place(app: &AppHandle) -> Option<String> {
         }
     }
     None
+}
+
+/// What players ask for an item on the UEX marketplace: the cheapest
+/// average among the rows of players selling it (any crafted tier), with
+/// every listing counted. `None` when nobody lists it.
+fn market_offer(
+    index: &svc_uex::Index,
+    item: &str,
+    name: &str,
+) -> Option<mod_plans::steps::MarketOffer> {
+    let selling: Vec<_> = index
+        .market(item, name)
+        .into_iter()
+        .filter(|m| m.operation == "sell" && m.listings_count > 0 && m.price_avg > 0.0)
+        .collect();
+    let price = selling
+        .iter()
+        .map(|m| m.price_avg)
+        .fold(f64::INFINITY, f64::min);
+    price.is_finite().then(|| mod_plans::steps::MarketOffer {
+        price,
+        listings: selling.iter().map(|m| m.listings_count as u32).sum(),
+    })
 }
 
 /// The site ids of the places with a refinery.
@@ -758,6 +808,8 @@ impl Gathered<'_> {
             ledger: board.ledger,
             tracks,
             plan_tracks,
+            parts: board.parts,
+            prefer: state.prefer,
             from: start.as_ref().map(|(name, _)| name.clone()),
             drive_ship: drive.map(|(ship, _)| ship),
             inventory_at: self.inventory.map(|i| i.fetched_at as f64),
@@ -864,6 +916,7 @@ impl Gathered<'_> {
                         .find(|b| b.entity_guid.as_deref() == Some(item.as_str()))
                         .map(|b| b.guid.clone())
                 }),
+                market: market_offer(&index, &item, &name),
                 item,
                 name,
                 offers,
