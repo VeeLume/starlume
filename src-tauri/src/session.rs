@@ -831,7 +831,8 @@ mod tests {
 
     fn watched_ptu(events: Vec<LogEvent>) -> Option<Watched> {
         Some(Watched {
-            log: PathBuf::from(r"C:\Games\StarCitizen\PTU\Game.log"),
+            // Joined, not a Windows literal: CI runs the tests on Linux too.
+            log: ["Games", "StarCitizen", "PTU", "Game.log"].iter().collect(),
             events,
         })
     }
@@ -957,7 +958,12 @@ mod tests {
     #[test]
     fn the_channel_is_the_logs_directory() {
         assert_eq!(
-            channel_of(Path::new(r"C:\Games\StarCitizen\LIVE\Game.log")).as_deref(),
+            channel_of(
+                &["Games", "StarCitizen", "LIVE", "Game.log"]
+                    .iter()
+                    .collect::<PathBuf>()
+            )
+            .as_deref(),
             Some("LIVE")
         );
         assert_eq!(channel_of(Path::new("Game.log")), None);
