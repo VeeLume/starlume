@@ -404,6 +404,31 @@ fn ore_sites_send_pockets_to_their_lagrange_point() {
     }
     assert!(split, "no area splits by quality source for Savrilium");
 
+    // The ore a holding rock carries (Plans' rocks to break): a fraction of
+    // a rock's SCU, and known for the sites that can be rolled.
+    let titanium = catalog
+        .element_names
+        .iter()
+        .find(|e| e.name.to_lowercase().contains("titanium"))
+        .expect("no Titanium element");
+    let sites = mod_mining::ore_sites(&src, &catalog, &titanium.id, 500);
+    for s in sites.iter().take(6) {
+        eprintln!(
+            "titanium Q500+ at {}: {:.0}% hold it, {:.2} SCU of it a rock",
+            s.name,
+            s.find * 100.0,
+            s.ore_scu
+        );
+    }
+    assert!(
+        sites.iter().any(|s| s.ore_scu > 0.0),
+        "no ore SCU for Titanium"
+    );
+    assert!(
+        sites.iter().all(|s| s.ore_scu < 200.0),
+        "ore SCU beyond any rock"
+    );
+
     // A ring field is no place of its own: its site names the places a run
     // starts from (LIVE 4.10: the Glaciem Ring's Levski).
     let mut entered: Vec<String> = Vec::new();

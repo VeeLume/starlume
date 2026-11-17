@@ -481,6 +481,8 @@ mod tests {
             odds: None,
             sources: 1,
             after: Vec::new(),
+            parts: 0,
+            rocks: None,
         }
     }
 

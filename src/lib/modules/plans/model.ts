@@ -1,7 +1,7 @@
 // How the Plans page words and draws what the board holds. Pure: no store,
 // no IPC. Every figure here is one the board carries; nothing is estimated.
 
-import type { LedgerRow, PlanStep, StepKind, Track, TrackKind, Trip, TripStop } from "$lib/bindings";
+import type { LedgerRow, PlanStep, Rocks, StepKind, Track, TrackKind, Trip, TripStop } from "$lib/bindings";
 
 /** The tracks of the next-session card, one per kind of work, in the order
  *  the board picks the next one (decision 'Plans show parallel tracks by
@@ -76,6 +76,13 @@ export function span(seconds: number): string {
   return rest ? `${Math.floor(minutes / 60)} h ${rest} min` : `${Math.floor(minutes / 60)} h`;
 }
 
+/** "1.33 M", "768 k", "950": aUEC where a tile has little room. */
+export function uec(value: number): string {
+  if (value >= 1e6) return `${(value / 1e6).toFixed(2)} M`;
+  if (value >= 1e4) return `${Math.round(value / 1e3)} k`;
+  return Math.round(value).toLocaleString("en-US");
+}
+
 export function gm(value: number): string {
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} Gm`;
 }
@@ -83,7 +90,9 @@ export function gm(value: number): string {
 /** What the step's right-hand figure says: its craft time, CIG's minutes
  *  for the shortest mission that grants a blueprint, or its price. Empty
  *  when the data gives none. */
-export function stepFigure(step: Pick<PlanStep, "seconds" | "cost"> & { kind?: StepKind }): string {
+export function stepFigure(step: Pick<PlanStep, "seconds" | "cost"> & { kind?: StepKind; rocks?: Rocks | null }): string {
+  // Mining: rocks to break out of the rocks to scan for them.
+  if (step.rocks) return `${step.rocks.toBreak} of ~${step.rocks.toScan} rocks`;
   if (step.seconds != null && step.kind === "earn") return `≈${Math.round(step.seconds / 60)} min CIG`;
   if (step.seconds != null) return clock(step.seconds);
   if (step.cost != null) return `${Math.round(step.cost).toLocaleString("en-US")} aUEC`;
@@ -347,12 +356,24 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus, origin
   if (total.stops.length && total.flying != null && total.flying > 0) tiles.push({ value: `~${span(total.flying)}`, label: "flying" });
   if (crafting > 0) tiles.push({ value: clock(crafting), label: "crafting" });
   if (missions > 0) tiles.push({ value: `≈${span(missions)}`, label: "missions, CIG's estimate" });
-  if (steps.some((s) => s.kind === "mine")) tiles.push({ value: "—", label: "mining" });
+  // Mining has no time the data gives: the rocks it takes stand in for it.
+  const mines = steps.filter((s) => s.kind === "mine");
+  if (mines.length) {
+    const known = mines.every((s) => s.rocks);
+    const scan = mines.reduce((n, s) => n + (s.rocks?.toScan ?? 0), 0);
+    tiles.push(known ? { value: `~${scan}`, label: "rocks to scan" } : { value: "—", label: "mining" });
+  }
   if (steps.some((s) => s.kind === "refine")) tiles.push({ value: "—", label: "refinery" });
   if (steps.some((s) => s.kind === "loot")) tiles.push({ value: "—", label: "looting" });
-  tiles.push({ value: String(steps.length), label: steps.length === 1 ? "step" : "steps" });
+  // A shopping run: the parts it buys and what they cost.
+  const buys = steps.filter((s) => s.kind === "buy");
+  const parts = buys.reduce((n, s) => n + s.parts, 0);
+  const cost = buys.reduce((n, s) => n + (s.cost ?? 0), 0);
+  if (parts) tiles.push({ value: String(parts), label: parts === 1 ? "part to buy" : "parts to buy" });
+  if (cost > 0) tiles.push({ value: uec(cost), label: "aUEC" });
   const plans = new Set(steps.flatMap((s) => s.plans));
   if (plans.size) tiles.push({ value: String(plans.size), label: plans.size === 1 ? "plan" : "plans" });
+  tiles.push({ value: String(steps.length), label: steps.length === 1 ? "step" : "steps" });
 
   const n = total.stops.length;
   const what = [n === 1 ? "1 stop" : `${n} stops`];

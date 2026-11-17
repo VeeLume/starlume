@@ -3736,7 +3736,16 @@ sources: number;
  * The steps this one follows (their ids): refining comes after the
  * mining that gives the ore. A trip never puts it before them.
  */
-after: string[] }
+after: string[]; 
+/**
+ * Parts it buys, fits or loots; 0 for any other step.
+ */
+parts: number; 
+/**
+ * Mining: the rocks it takes, where the data gives the ore a rock
+ * holds.
+ */
+rocks: Rocks | null }
 /**
  * Where a plan's goal lives in the app, for the board's "open" link.
  */
@@ -4008,6 +4017,21 @@ mass: number; entries: RockEntryView[];
  * as in space). How the beam's distance drifts depends on it.
  */
 surface?: boolean | null }
+/**
+ * The rocks a mining step takes (Valerie, 2026-11-17: a count of rocks
+ * in place of a mining time the data cannot give).
+ */
+export type Rocks = { 
+/**
+ * Rocks holding the ore at the quality, to break for the amount: the
+ * SCU wanted over the ore such a rock holds.
+ */
+toBreak: number; 
+/**
+ * Rocks to scan to find those: `to_break` over the share of the rocks
+ * there that hold it at the quality.
+ */
+toScan: number }
 /**
  * A recognized RSI account. `citizen_record`/`enlisted` are the immutable
  * anchors from the public profile — `None` until verified.
