@@ -2,8 +2,11 @@
 
 ## [Unreleased]
 
-Starlume gets a crafting module, and My Items opens on what you care about.
-Game data is rebuilt once on the first start after updating.
+## [0.6.0] - 2026-11-17
+
+Starlume gets a crafting module, Ships and Mining try a part as crafted, and
+My Items opens on what you care about. Game data is rebuilt once on the first
+start after updating.
 
 - **Crafting** — every blueprint in the game, the ones you own and want
   marked. One field narrows the catalog by type, kind, weight or class, then
@@ -21,6 +24,19 @@ Game data is rebuilt once on the first start after updating.
 - **Items as rows** — a kind lists one row per model, the variants you hold
   named in it, so about twice as much fits on a screen. Its filters stay in a
   rail beside the list.
+- **Try a part as crafted** — in the part picker of Ships and Mining, a
+  fitted part a blueprint makes can be set to crafted at a quality. The
+  page's figures follow its recipe: power, cooling, shields, quantum speed
+  and fuel, gun damage, and a mining head's laser power.
+- **Each ship copy named** — a ship you own twice (a pledge and a rental)
+  says which copy is which, on Ships and in My Items alike: "Saved" is what a
+  claim restores, "Fitted now" what is on it. Each page links to the other.
+- **Owned parts in the picker** — parts you bought or looted in game, loose
+  in your own storage, count as owned; the row says where they are.
+- **Ground vehicles and hover bikes** — Ships and the ship picker list them
+  in a group of their own.
+- **Pyro's rock quality** — Mining's odds for Pyro now include the
+  system-wide quality the game applies there.
 - **Fixed: text patching waited for a game that wasn't running** — the RSI
   launcher's new shader pre-compile starts the game binary in the
   background; Starlume no longer mistakes it for the game.
@@ -29,6 +45,11 @@ Game data is rebuilt once on the first start after updating.
 - **Fixed: the Drake Marauder's power plants** — its two power plant ports
   accepted no power plant, not even the stock one; they take the S1 power
   plants again.
+- **Fixed: power counted as the game counts it** — the power panel counts
+  whole segments: the last free pip can be assigned (the Marauder held its
+  16th back), and a minimum is one block, as on the game's power screen.
+- **Fixed: the ship part picker reopens at once**, and Crafting's recipe
+  sheet fits its sidebar.
 
 ## [0.5.0] - 2026-11-09
 

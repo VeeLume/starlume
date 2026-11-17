@@ -39,6 +39,20 @@ export const RELEASE_GUIDES: ReleaseGuide[] = [
         href: "/items",
         action: "Open My Items",
       },
+      {
+        kind: "new",
+        title: "Try a part as crafted",
+        body: "In the part picker of Ships and Mining, set a fitted part to crafted at a quality: the page's figures follow its recipe.",
+        href: "/ships",
+        action: "Open Ships",
+      },
+      {
+        kind: "changed",
+        title: "Saved and Fitted now",
+        body: "A ship you own twice says which copy is which. Saved is what a claim restores, Fitted now what is on it, on Ships and in My Items alike.",
+        href: "/ships",
+        action: "Open Ships",
+      },
     ],
   },
   {
