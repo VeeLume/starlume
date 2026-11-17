@@ -14,7 +14,7 @@
   import { goto } from "$app/navigation";
   import { Button, ConfirmDialog, Dialog, Picker } from "@veelume/ui";
   import { ArrowDown, ArrowUp, ArrowUpRight, Plus } from "lucide-svelte";
-  import type { BlueprintRowView, PlanBoard, PlanCraft, PlanSlot, StepKind, TrackKind } from "$lib/bindings";
+  import type { BlueprintRowView, PartChoice, PartSource, PlanBoard, PlanCraft, PlanSlot, StepKind, TrackKind } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import NowCard from "$lib/components/NowCard.svelte";
   import PlanGlyph, { type GlyphShape } from "$lib/modules/plans/PlanGlyph.svelte";
@@ -38,7 +38,9 @@
     removeCraft,
     removePlan,
     renamePlan,
+    setPartSource,
     setPlanNotes,
+    setPrefer,
     updateCraft,
     watchPlans,
   } from "$lib/state/plans.svelte";
@@ -130,6 +132,20 @@
     missions: "var(--hue-sand)",
     crafting: "var(--hue-rose)",
   };
+  /** The Components panel's sources: id, the Prefer label, a row's. */
+  const SOURCES: [PartSource, string, string][] = [
+    ["store", "Store", "Store"],
+    ["market", "Player market", "Market"],
+    ["craft", "Crafting", "Craft"],
+  ];
+  /** What a part's chosen source asks: the total for its count and where,
+   *  or the blueprint's state for a craft. */
+  function partFigure(c: PartChoice): { value: string; detail: string } | null {
+    const o = c.options.find((x) => x.source === c.chosen);
+    if (!o) return null;
+    return { value: o.price != null ? `${Math.round(o.price * c.count).toLocaleString("en-US")} aUEC` : "craft", detail: o.detail };
+  }
+
   /** Picking a plan, in the list or on the card, makes it the focus. */
   function pickPlan(id: string) {
     picked = id;
@@ -603,6 +619,50 @@
             </div>
           </section>
 
+          {#if board.parts.length}
+            <!-- Where each part the plans still need comes from: one choice
+                 for all, and each part's own over it (decision 'one source
+                 per need with a switch'). A source a part lacks is off. -->
+            <section class="panel">
+              <h2 class="sec-h">Components across plans</h2>
+              <div class="src-pref" role="radiogroup" aria-label="Prefer">
+                <span class="pick-label">Prefer</span>
+                {#each SOURCES as [id, label] (id)}
+                  <button type="button" role="radio" class="src-btn" class:on={board.prefer === id} aria-checked={board.prefer === id} onclick={() => void setPrefer(id)}
+                    >{label}</button
+                  >
+                {/each}
+              </div>
+              {#each board.parts as c (c.item)}
+                <div class="part">
+                  <span class="part-text"
+                    ><span class="part-name">{c.count > 1 ? `${c.count} × ${c.name}` : c.name}</span><span class="dim small"
+                      >{c.plans.map((p) => names.get(p) ?? p).join(", ")}</span
+                    ></span
+                  >
+                  <span class="src" role="radiogroup" aria-label="{c.name} from">
+                    {#each SOURCES as [id, , short] (id)}
+                      {@const has = c.options.some((o) => o.source === id)}
+                      <button
+                        type="button"
+                        role="radio"
+                        class="src-btn"
+                        class:on={c.chosen === id}
+                        aria-checked={c.chosen === id}
+                        disabled={!has}
+                        onclick={() => void setPartSource(c.item, id)}>{short}</button
+                      >
+                    {/each}
+                  </span>
+                  {#if partFigure(c)}
+                    {@const f = partFigure(c)}
+                    <span class="pright"><span class="mono">{f?.value}</span><small>{f?.detail}</small></span>
+                  {/if}
+                </div>
+              {/each}
+            </section>
+          {/if}
+
           <section class="panel">
             <h2 class="sec-h">Materials across plans</h2>
             {#if board.ledger.length === 0}
@@ -939,6 +999,78 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* Components across plans: Prefer, then each part on two lines (name
+   * and plans, its sources under them), its figure beside both. */
+  .src-pref {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .src-pref .pick-label {
+    margin-right: 4px;
+  }
+  .src-btn {
+    all: unset;
+    box-sizing: border-box;
+    cursor: pointer;
+    font-size: var(--text-small);
+    line-height: 1;
+    padding: 5px 9px;
+    border-radius: var(--radius-chip);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .src-btn:hover:not(:disabled) {
+    color: var(--text);
+  }
+  .src-btn.on {
+    background: var(--accent-fill-weak);
+    border-color: var(--accent-border);
+    color: var(--text-strong);
+    font-weight: var(--weight-semibold);
+  }
+  .src-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .part {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 12px;
+    align-items: start;
+    padding: 8px 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.86rem;
+  }
+  .part-text {
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .part-name {
+    color: var(--text-strong);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .part .src {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .part .pright {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
   }
 
   /* Next steps by session and by run. */

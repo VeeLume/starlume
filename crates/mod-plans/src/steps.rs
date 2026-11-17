@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::ledger::{self, Demand, Fill, LedgerRow, Stack};
-use crate::model::{CraftGoal, Goal, Plan, PlansState};
+use crate::model::{CraftGoal, Goal, PartSource, Plan, PlansState};
 
 /// A place by its display name, and the quantum-travel place it resolves to
 /// when the shell could tell (the id is opaque here).
@@ -84,6 +84,16 @@ pub struct PartFacts {
     pub offers: Vec<Offer>,
     /// The blueprint that crafts it, when there is one.
     pub blueprint: Option<String>,
+    /// What players ask for it on the UEX marketplace, when anyone lists it.
+    pub market: Option<MarketOffer>,
+}
+
+/// The player market's ask for a part: the average of the listings.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MarketOffer {
+    /// aUEC.
+    pub price: f64,
+    pub listings: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -379,6 +389,73 @@ pub struct Board {
     /// Ready steps first, each group in plan order.
     pub steps: Vec<PlanStep>,
     pub ledger: Vec<LedgerRow>,
+    /// The parts the plans still need and where each can come from: the
+    /// Components panel.
+    pub parts: Vec<PartChoice>,
+}
+
+/// A part the plans still need (not fitted, no free copy held), with its
+/// sources and the one the plan takes.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PartChoice {
+    pub item: String,
+    pub name: String,
+    pub count: u32,
+    pub plans: Vec<String>,
+    /// `None`: no source at all (no shop, no listing, no blueprint).
+    pub chosen: Option<PartSource>,
+    /// The sources it has, in the panel's order (Store, Market, Craft).
+    pub options: Vec<SourceOption>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct SourceOption {
+    pub source: PartSource,
+    /// aUEC each; `None` for a craft.
+    pub price: Option<f64>,
+    /// The shop, the listings, or the blueprint's state.
+    pub detail: String,
+}
+
+/// The sources a part has, in the panel's order.
+fn sources_of(part: &PartFacts, inputs: &Inputs) -> Vec<PartSource> {
+    let mut out = Vec::new();
+    if !part.offers.is_empty() {
+        out.push(PartSource::Store);
+    }
+    if part.market.is_some() {
+        out.push(PartSource::Market);
+    }
+    if part
+        .blueprint
+        .as_ref()
+        .is_some_and(|bp| inputs.recipes.contains_key(bp))
+    {
+        out.push(PartSource::Craft);
+    }
+    out
+}
+
+/// The source a part is taken from: its own choice, else the preferred
+/// one, else a shop, a craft, the market, in that order (a shop before a
+/// craft keeps what plans did before there was a choice).
+fn choose(state: &PlansState, part: &PartFacts, inputs: &Inputs) -> Option<PartSource> {
+    let has = sources_of(part, inputs);
+    state
+        .sources
+        .get(&part.item)
+        .copied()
+        .filter(|s| has.contains(s))
+        .or(Some(state.prefer).filter(|s| has.contains(s)))
+        .or_else(|| {
+            [PartSource::Store, PartSource::Craft, PartSource::Market]
+                .into_iter()
+                .find(|s| has.contains(s))
+        })
 }
 
 /// One craft a plan wants: a craft project, or a loadout part only a
@@ -463,6 +540,8 @@ struct Part<'a> {
     facts: &'a PartFacts,
     /// A free copy reserved for it.
     held: Option<PlanPlace>,
+    /// Where it comes from when it is still needed.
+    source: Option<PartSource>,
 }
 
 struct LoadoutWork<'a> {
@@ -508,9 +587,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     let held = (!part.fitted && !plan.parked)
                         .then(|| take(pool.get_mut(part.item.as_str())))
                         .flatten();
-                    let lacks =
-                        !part.fitted && !plan.parked && held.is_none() && part.offers.is_empty();
-                    if let (true, Some(bp)) = (lacks, &part.blueprint)
+                    let needed = !part.fitted && !plan.parked && held.is_none();
+                    let source = needed.then(|| choose(state, part, inputs)).flatten();
+                    if let (Some(PartSource::Craft), Some(bp)) = (source, &part.blueprint)
                         && let Some(recipe) = inputs.recipes.get(bp)
                     {
                         match crafts
@@ -539,7 +618,11 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             }),
                         }
                     }
-                    work.parts.push(Part { facts: part, held });
+                    work.parts.push(Part {
+                        facts: part,
+                        held,
+                        source,
+                    });
                 }
                 loadouts.push(work);
             }
@@ -607,11 +690,16 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     let mut finds: Vec<PlanStep> = Vec::new();
     let mut buys: Vec<PlanStep> = Vec::new();
     let mut buy_lines: Vec<Vec<(String, u32)>> = Vec::new();
+    let mut market: Option<(PlanStep, Vec<(String, u32)>)> = None;
+    let mut parts: Vec<PartChoice> = Vec::new();
     for work in loadouts.iter().filter(|w| !w.parked) {
         for (n, part) in work.parts.iter().enumerate() {
             let facts = part.facts;
             if facts.fitted {
                 continue;
+            }
+            if part.held.is_none() {
+                note_part(&mut parts, work.plan, part, inputs);
             }
             if let Some(at) = &part.held {
                 // Two ports wanting the same part from the same place are
@@ -643,7 +731,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     },
                     1,
                 ));
-            } else if let Some(offer) = facts.offers.first() {
+            } else if let (Some(PartSource::Store), Some(offer)) =
+                (part.source, facts.offers.first())
+            {
                 let at = match buys
                     .iter()
                     .position(|b| b.id == format!("buy:{}", offer.shop))
@@ -681,11 +771,38 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     Some((_, count)) => *count += 1,
                     None => buy_lines[at].push((facts.name.clone(), 1)),
                 }
-            } else if facts
-                .blueprint
-                .as_ref()
-                .is_none_or(|bp| !inputs.recipes.contains_key(bp))
-            {
+            } else if let (Some(PartSource::Market), Some(offer)) = (part.source, facts.market) {
+                // Every part bought from players is one step: the market is
+                // no place to fly to.
+                let (step, lines) = market.get_or_insert_with(|| {
+                    (
+                        PlanStep {
+                            id: "market".to_owned(),
+                            kind: StepKind::Buy,
+                            title: String::new(),
+                            detail: String::new(),
+                            plans: Vec::new(),
+                            blocked: false,
+                            at: None,
+                            seconds: None,
+                            cost: Some(0.0),
+                            odds: None,
+                            sources: 0,
+                            after: Vec::new(),
+                        },
+                        Vec::new(),
+                    )
+                });
+                step.cost = Some(step.cost.unwrap_or(0.0) + offer.price);
+                step.sources += offer.listings;
+                if !step.plans.iter().any(|p| p == work.plan) {
+                    step.plans.push(work.plan.to_owned());
+                }
+                match lines.iter_mut().find(|(name, _)| *name == facts.name) {
+                    Some((_, count)) => *count += 1,
+                    None => lines.push((facts.name.clone(), 1)),
+                }
+            } else if part.source.is_none() {
                 finds.push(PlanStep {
                     id: format!("find:{}:{}:{n}", work.plan, facts.item),
                     kind: StepKind::Find,
@@ -728,6 +845,20 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 .map(|(name, c)| format!("{c} × {name}"))
                 .collect();
             step.detail = and(&list);
+        }
+        push(step);
+    }
+
+    if let Some((mut step, lines)) = market {
+        let count: u32 = lines.iter().map(|(_, c)| c).sum();
+        if let [(name, 1)] = lines.as_slice() {
+            step.title = format!("Buy the {name} from a player");
+        } else {
+            step.title = format!("Buy {count} parts from players");
+            step.detail = and(&lines
+                .iter()
+                .map(|(name, c)| format!("{c} × {name}"))
+                .collect::<Vec<_>>());
         }
         push(step);
     }
@@ -1052,7 +1183,68 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
         plans,
         steps,
         ledger: ledger.rows,
+        parts,
     }
+}
+
+/// Count a still-needed part into the Components panel's list.
+fn note_part(parts: &mut Vec<PartChoice>, plan: &str, part: &Part, inputs: &Inputs) {
+    let facts = part.facts;
+    if let Some(row) = parts.iter_mut().find(|p| p.item == facts.item) {
+        row.count += 1;
+        if !row.plans.iter().any(|p| p == plan) {
+            row.plans.push(plan.to_owned());
+        }
+        return;
+    }
+    let options = sources_of(facts, inputs)
+        .into_iter()
+        .map(|source| match source {
+            PartSource::Store => {
+                let offer = &facts.offers[0];
+                SourceOption {
+                    source,
+                    price: Some(offer.price),
+                    detail: offer.at.name.clone(),
+                }
+            }
+            PartSource::Market => {
+                let m = facts.market.expect("a market source has an offer");
+                SourceOption {
+                    source,
+                    price: Some(m.price),
+                    detail: match m.listings {
+                        1 => "1 listing".to_owned(),
+                        n => format!("{n} listings"),
+                    },
+                }
+            }
+            PartSource::Craft => {
+                let owned = facts
+                    .blueprint
+                    .as_ref()
+                    .and_then(|bp| inputs.recipes.get(bp))
+                    .is_some_and(|r| r.owned);
+                SourceOption {
+                    source,
+                    price: None,
+                    detail: if owned {
+                        "blueprint owned".to_owned()
+                    } else {
+                        "blueprint to earn".to_owned()
+                    },
+                }
+            }
+        })
+        .collect();
+    parts.push(PartChoice {
+        item: facts.item.clone(),
+        name: facts.name.clone(),
+        count: 1,
+        plans: vec![plan.to_owned()],
+        chosen: part.source,
+        options,
+    });
 }
 
 /// Take up to `n` free copies; returns how many there were.
@@ -1877,6 +2069,81 @@ pub(crate) mod tests {
         assert_eq!(board.steps[0].title, "Buy 3 parts at Shop One");
         assert_eq!(board.steps[0].detail, "2 × Part a and 1 × Part b");
         assert_eq!(board.steps[0].cost, Some(61_300.0));
+    }
+
+    /// A part a shop sells, players list and a blueprint makes.
+    fn three_sources() -> Inputs {
+        let mut a = part("a");
+        a.offers = vec![Offer {
+            shop: "Shop One".into(),
+            at: at("Town"),
+            price: 20_000.0,
+        }];
+        a.market = Some(MarketOffer {
+            price: 15_000.0,
+            listings: 3,
+        });
+        a.blueprint = Some("bp-a".into());
+        let mut inputs = loadout(vec![a]);
+        inputs
+            .recipes
+            .insert("bp-a".into(), recipe(true, vec![slot("Iron", 1.0, 0)]));
+        inputs
+    }
+
+    #[test]
+    fn a_part_comes_from_the_shop_unless_a_source_is_picked() {
+        let inputs = three_sources();
+        let mut state = loadout_state();
+        let kinds = |board: &Board| board.steps.iter().map(|s| s.kind).collect::<Vec<_>>();
+        assert_eq!(kinds(&derive(&state, &inputs, &no_ores)), [StepKind::Buy]);
+
+        // Prefer crafting: the buy becomes the craft and its materials.
+        state.set_prefer(PartSource::Craft);
+        let board = derive(&state, &inputs, &no_ores);
+        assert!(board.steps.iter().all(|s| s.kind != StepKind::Buy));
+        assert!(board.steps.iter().any(|s| s.kind == StepKind::Craft));
+
+        // The part's own pick wins over the preference.
+        state.set_source("a", Some(PartSource::Market));
+        let board = derive(&state, &inputs, &no_ores);
+        assert_eq!(kinds(&board), [StepKind::Buy]);
+        let step = &board.steps[0];
+        assert_eq!(step.title, "Buy the Part a from a player");
+        assert_eq!(step.at, None);
+        assert_eq!(step.cost, Some(15_000.0));
+    }
+
+    #[test]
+    fn the_components_panel_lists_each_needed_part_with_its_sources() {
+        let board = derive(&loadout_state(), &three_sources(), &no_ores);
+        let [row] = board.parts.as_slice() else {
+            panic!("one part, got {}", board.parts.len());
+        };
+        assert_eq!(row.chosen, Some(PartSource::Store));
+        let options: Vec<(PartSource, Option<f64>, &str)> = row
+            .options
+            .iter()
+            .map(|o| (o.source, o.price, o.detail.as_str()))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                (PartSource::Store, Some(20_000.0), "Town"),
+                (PartSource::Market, Some(15_000.0), "3 listings"),
+                (PartSource::Craft, None, "blueprint owned"),
+            ]
+        );
+        // A part with a free copy held is not needed.
+        let mut inputs = three_sources();
+        inputs.parts.insert(
+            "a".into(),
+            vec![HeldPart {
+                at: at("Depot"),
+                count: 1,
+            }],
+        );
+        assert!(derive(&loadout_state(), &inputs, &no_ores).parts.is_empty());
     }
 
     #[test]

@@ -14,6 +14,26 @@ pub struct PlansState {
     /// Feeds the next plan id; never reused, so a removed plan's id stays
     /// gone.
     pub next_id: u64,
+    /// Where a part comes from when it has a choice: the Components panel's
+    /// Prefer.
+    pub prefer: PartSource,
+    /// A part's own source (item GUID → source), over [`Self::prefer`].
+    pub sources: std::collections::BTreeMap<String, PartSource>,
+}
+
+/// Where a part comes from (decision 'Plans pick one source per need with a
+/// switch', 2026-11-16).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum PartSource {
+    /// An in-game shop (UEX's prices and places).
+    #[default]
+    Store,
+    /// Another player, on the UEX marketplace.
+    Market,
+    /// Crafted from its blueprint.
+    Craft,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -216,6 +236,25 @@ impl PlansState {
     }
 
     /// Park a plan, or take it back up. A parked plan keeps its place.
+    /// Where parts come from when they have a choice; a part's own source
+    /// gives way to it.
+    pub fn set_prefer(&mut self, source: PartSource) {
+        self.prefer = source;
+        self.sources.clear();
+    }
+
+    /// A part's own source (`None`: follow [`Self::prefer`]).
+    pub fn set_source(&mut self, item: &str, source: Option<PartSource>) {
+        match source {
+            Some(s) => {
+                self.sources.insert(item.to_owned(), s);
+            }
+            None => {
+                self.sources.remove(item);
+            }
+        }
+    }
+
     pub fn set_parked(&mut self, id: &str, parked: bool) {
         if let Some(plan) = self.plans.iter_mut().find(|p| p.id == id) {
             plan.parked = parked;
@@ -297,6 +336,8 @@ fn same_target(a: &Goal, b: &Goal) -> bool {
 struct FileState {
     plans: Vec<serde_json::Value>,
     next_id: u64,
+    prefer: PartSource,
+    sources: std::collections::BTreeMap<String, PartSource>,
 }
 
 impl<'de> Deserialize<'de> for PlansState {
@@ -317,6 +358,8 @@ impl<'de> Deserialize<'de> for PlansState {
         Ok(Self {
             plans,
             next_id: file.next_id,
+            prefer: file.prefer,
+            sources: file.sources,
         })
     }
 }
@@ -337,6 +380,8 @@ impl Serialize for PlansState {
         FileState {
             plans,
             next_id: self.next_id,
+            prefer: self.prefer,
+            sources: self.sources.clone(),
         }
         .serialize(serializer)
     }
@@ -352,6 +397,24 @@ mod tests {
 
     fn ids(state: &PlansState) -> Vec<&str> {
         state.plans.iter().map(|p| p.id.as_str()).collect()
+    }
+
+    #[test]
+    fn the_sources_survive_the_file_and_prefer_resets_the_picks() {
+        let mut state = PlansState::default();
+        state.set_source("item-a", Some(PartSource::Market));
+        let json = serde_json::to_string(&state).unwrap();
+        let back: PlansState = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.sources.get("item-a"), Some(&PartSource::Market));
+        assert_eq!(back.prefer, PartSource::Store);
+        // An older file without them reads as the defaults.
+        let old: PlansState = serde_json::from_str(r#"{"plans":[],"next_id":3}"#).unwrap();
+        assert_eq!(
+            (old.prefer, old.sources.len(), old.next_id),
+            (PartSource::Store, 0, 3)
+        );
+        state.set_prefer(PartSource::Craft);
+        assert!(state.sources.is_empty());
     }
 
     #[test]
