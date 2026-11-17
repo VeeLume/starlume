@@ -1313,6 +1313,8 @@ impl Gathered<'_> {
                             name: name.unwrap_or(s.name),
                         },
                         find: s.find,
+                        ore_scu: Some(s.ore_scu).filter(|o| *o > 0.0),
+                        rock_scu: Some(s.rock_scu).filter(|r| *r > 0.0),
                     }
                 })
                 .collect();

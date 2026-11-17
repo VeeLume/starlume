@@ -1,7 +1,7 @@
 // How the Plans page words and draws what the board holds. Pure: no store,
 // no IPC. Every figure here is one the board carries; nothing is estimated.
 
-import type { LedgerRow, PlanStep, StepKind, Track, TrackKind, Trip, TripStop } from "$lib/bindings";
+import type { LedgerRow, PlanStep, Rocks, StepKind, Track, TrackKind, Trip, TripStop } from "$lib/bindings";
 
 /** The tracks of the next-session card, one per kind of work, in the order
  *  the board picks the next one (decision 'Plans show parallel tracks by
@@ -76,6 +76,13 @@ export function span(seconds: number): string {
   return rest ? `${Math.floor(minutes / 60)} h ${rest} min` : `${Math.floor(minutes / 60)} h`;
 }
 
+/** "1.33 M", "768 k", "950": aUEC where a tile has little room. */
+export function uec(value: number): string {
+  if (value >= 1e6) return `${(value / 1e6).toFixed(2)} M`;
+  if (value >= 1e4) return `${Math.round(value / 1e3)} k`;
+  return Math.round(value).toLocaleString("en-US");
+}
+
 export function gm(value: number): string {
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} Gm`;
 }
@@ -83,7 +90,9 @@ export function gm(value: number): string {
 /** What the step's right-hand figure says: its craft time, CIG's minutes
  *  for the shortest mission that grants a blueprint, or its price. Empty
  *  when the data gives none. */
-export function stepFigure(step: Pick<PlanStep, "seconds" | "cost"> & { kind?: StepKind }): string {
+export function stepFigure(step: Pick<PlanStep, "seconds" | "cost"> & { kind?: StepKind; rocks?: Rocks | null }): string {
+  // Mining: rocks to break out of the rocks to scan for them.
+  if (step.rocks) return `${step.rocks.toBreak} of ~${step.rocks.toScan} rocks`;
   if (step.seconds != null && step.kind === "earn") return `≈${Math.round(step.seconds / 60)} min CIG`;
   if (step.seconds != null) return clock(step.seconds);
   if (step.cost != null) return `${Math.round(step.cost).toLocaleString("en-US")} aUEC`;
@@ -201,7 +210,7 @@ export function ago(unixSeconds: number, now: number): string {
 // grouped into runs (a shopping run, a mining load ending at its refinery).
 // Distance leads, the number the quantum marker shows; every time names
 // its source ("flying" is sc-travel's estimate, "crafting" the game data);
-// mining and refining have none, so they show a dash.
+// mining shows its counts (rocks, SCU), refining a dash.
 
 export type Focus = { kind: "activity"; track: TrackKind } | { kind: "plan"; plan: string };
 
@@ -238,13 +247,17 @@ function loadTitle(refine: PlanStep, loads: number): string {
   return loads > 1 ? `Mining in ${where}, load ${Number(n) + 1}` : `Mining in ${where}`;
 }
 
-type Legs = { stops: TripStop[]; gm: number; jumps: number; flying: number | null };
+type Legs = { stops: TripStop[]; from: string; gm: number; jumps: number; flying: number | null };
 
-/** The trip figures of the stops that hold any of `ids`: Gm, jumps and
- *  flying seconds (null when a leg had no drive to time it). */
-function legs(trip: Trip | undefined, ids: Set<string>): Legs {
-  const stops = (trip?.stops ?? []).filter((s) => s.steps.some((x) => ids.has(x.id)));
-  const out: Legs = { stops, gm: 0, jumps: 0, flying: 0 };
+/** The trip figures of the stops that hold any of `ids`: where the first
+ *  leg starts (the stop before, else the trip's start `origin`), Gm, jump
+ *  points and flying seconds (null when a leg had no drive to time it). */
+function legs(trip: Trip | undefined, ids: Set<string>, origin = ""): Legs {
+  const all = trip?.stops ?? [];
+  const stops = all.filter((s) => s.steps.some((x) => ids.has(x.id)));
+  const first = stops.length ? all.indexOf(stops[0]) : -1;
+  const from = first > 0 ? all[first - 1].place : origin;
+  const out: Legs = { stops, from, gm: 0, jumps: 0, flying: 0 };
   for (const s of stops) {
     if (!s.leg) continue;
     out.gm += s.leg.gm;
@@ -254,18 +267,19 @@ function legs(trip: Trip | undefined, ids: Set<string>): Legs {
   return out;
 }
 
-/** "96 Gm, 1 jump, ~14 min flying"; empty without stops. */
+/** "96 Gm from Levski, ~14 min flying" (Valerie, 2026-11-17: a jump
+ *  count read as quantum hops); empty without stops. */
 export function legsText(l: Legs): string {
   if (l.stops.length === 0) return "";
-  const parts = [gm(l.gm)];
-  if (l.jumps) parts.push(l.jumps === 1 ? "1 jump" : `${l.jumps} jumps`);
+  const parts = [l.from ? `${gm(l.gm)} from ${l.from}` : gm(l.gm)];
   if (l.flying != null && l.flying > 0) parts.push(`~${span(l.flying)} flying`);
   return parts.join(", ");
 }
 
 /** The focus's session: the card's figures and the runs. `tracks` are the
  *  board's for an activity, the plan's own for a plan. */
-export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): FocusView {
+/** `origin`: where the session starts (the board's last known place). */
+export function focusView(all: PlanStep[], tracks: Track[], focus: Focus, origin = ""): FocusView {
   const open = new Set(all.map((s) => s.id));
   const chosen: FocusStep[] =
     focus.kind === "plan"
@@ -297,14 +311,14 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): Focus
         const steps = here.filter((f) => r.step.after.includes(f.step.id));
         if (steps.length === 0) continue;
         const ids = new Set(steps.map((f) => f.step.id));
-        runs.push({ key: r.step.id, title: loadTitle(r.step, refines.length), figure: legsText(legs(tripOf("mining"), ids)), steps: [...steps, r] });
+        runs.push({ key: r.step.id, title: loadTitle(r.step, refines.length), figure: legsText(legs(tripOf("mining"), ids, origin)), steps: [...steps, r] });
         placed.add(r.step.id);
         steps.forEach((f) => placed.add(f.step.id));
       }
       const loose = here.filter((f) => !loaded.has(f.step.id));
       if (loose.length) {
         const ids = new Set(loose.map((f) => f.step.id));
-        runs.push({ key: "mining", title: "Mining", figure: legsText(legs(tripOf("mining"), ids)), steps: loose });
+        runs.push({ key: "mining", title: "Mining", figure: legsText(legs(tripOf("mining"), ids, origin)), steps: loose });
         loose.forEach((f) => placed.add(f.step.id));
       }
       continue;
@@ -313,14 +327,14 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): Focus
     if (left.length === 0) continue;
     const ids = new Set(left.map((f) => f.step.id));
     const crafting = left.reduce((n, f) => n + (f.step.seconds ?? 0), 0);
-    const figure = kind === "crafting" ? (crafting > 0 ? `${clock(crafting)} crafting` : "") : legsText(legs(tripOf(kind), ids));
+    const figure = kind === "crafting" ? (crafting > 0 ? `${clock(crafting)} crafting` : "") : legsText(legs(tripOf(kind), ids, origin));
     runs.push({ key: kind, title: label, figure, steps: left });
     left.forEach((f) => placed.add(f.step.id));
   }
 
   const waiting = chosen.filter((f) => !placed.has(f.step.id));
   const sessionIds = new Set(runs.flatMap((r) => r.steps.map((f) => f.step.id)));
-  const total: Legs = { stops: [], gm: 0, jumps: 0, flying: 0 };
+  const total: Legs = { stops: [], from: "", gm: 0, jumps: 0, flying: 0 };
   for (const t of tracks) {
     const l = legs(t.trip, sessionIds);
     total.stops.push(...l.stops);
@@ -342,12 +356,30 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): Focus
   if (total.stops.length && total.flying != null && total.flying > 0) tiles.push({ value: `~${span(total.flying)}`, label: "flying" });
   if (crafting > 0) tiles.push({ value: clock(crafting), label: "crafting" });
   if (missions > 0) tiles.push({ value: `≈${span(missions)}`, label: "missions, CIG's estimate" });
-  if (steps.some((s) => s.kind === "mine")) tiles.push({ value: "—", label: "mining" });
-  if (steps.some((s) => s.kind === "refine")) tiles.push({ value: "—", label: "refinery" });
+  // Mining has no time the data gives: the rocks it takes stand in for it.
+  const mines = steps.filter((s) => s.kind === "mine");
+  if (mines.length) {
+    const known = mines.every((s) => s.rocks);
+    const scan = mines.reduce((n, s) => n + (s.rocks?.toScan ?? 0), 0);
+    tiles.push(known ? { value: `~${scan}`, label: "rocks to scan" } : { value: "—", label: "mining" });
+    // The SCU to mine: ore, where a refinery makes the material (Rust
+    // applies the refining yield).
+    const scu = mines.reduce((n, s) => n + s.scu, 0);
+    if (scu > 0) tiles.push({ value: amount({ bulk: true }, scu), label: "SCU to mine" });
+  }
+  // Refining time is not in the data: a dash, unless the load's own
+  // figures already fill the card.
+  if (!mines.length && steps.some((s) => s.kind === "refine")) tiles.push({ value: "—", label: "refinery" });
   if (steps.some((s) => s.kind === "loot")) tiles.push({ value: "—", label: "looting" });
-  tiles.push({ value: String(steps.length), label: steps.length === 1 ? "step" : "steps" });
+  // A shopping run: the parts it buys and what they cost.
+  const buys = steps.filter((s) => s.kind === "buy");
+  const parts = buys.reduce((n, s) => n + s.parts, 0);
+  const cost = buys.reduce((n, s) => n + (s.cost ?? 0), 0);
+  if (parts) tiles.push({ value: String(parts), label: parts === 1 ? "part to buy" : "parts to buy" });
+  if (cost > 0) tiles.push({ value: uec(cost), label: "aUEC" });
   const plans = new Set(steps.flatMap((s) => s.plans));
   if (plans.size) tiles.push({ value: String(plans.size), label: plans.size === 1 ? "plan" : "plans" });
+  tiles.push({ value: String(steps.length), label: steps.length === 1 ? "step" : "steps" });
 
   const n = total.stops.length;
   const what = [n === 1 ? "1 stop" : `${n} stops`];

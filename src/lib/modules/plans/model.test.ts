@@ -153,6 +153,9 @@ describe("a plan's steps", () => {
     odds: null,
     sources: 1,
     after,
+    parts: 0,
+    rocks: null,
+    scu: 0,
   });
   const all = [
     step("mine-iron", "mine", ["a"], "moon"),
@@ -187,6 +190,9 @@ describe("a session focus", () => {
     odds: null,
     sources: 1,
     after: [],
+    parts: 0,
+    rocks: null,
+    scu: 0,
     ...more,
   });
   const at = (site: string, l: TripStop["leg"], ids: [string, StepKind][]): TripStop => ({
@@ -214,7 +220,7 @@ describe("a session focus", () => {
     expect(v.groups.map((g) => g.title)).toEqual(["This session"]);
     const [load] = v.groups[0].runs;
     expect(load.title).toBe("Mining in Pyro");
-    expect(load.figure).toBe("25 Gm, 1 jump, ~8 min flying");
+    expect(load.figure).toBe("25 Gm, ~8 min flying");
     expect(load.steps.map((f) => f.step.id)).toEqual(["m1", "m2", "refine:Pyro:0"]);
     expect(v.card).toEqual({
       distance: "25 Gm",
@@ -222,7 +228,7 @@ describe("a session focus", () => {
       tiles: [
         { value: "~8 min", label: "flying" },
         { value: "—", label: "mining" },
-        { value: "—", label: "refinery" },
+        { value: "2", label: "plans" },
         { value: "3", label: "steps" },
       ],
       route: "Place m1 → Place m2",
@@ -234,6 +240,9 @@ describe("a session focus", () => {
     const runs = v.groups[0].runs;
     expect(runs.map((r) => r.title)).toEqual(["Shopping run", "Mining in Pyro"]);
     expect(runs[0].figure).toBe("10 Gm, ~5 min flying");
+    // The mining run starts where the trip does: from the session's start.
+    const from = focusView(steps, tracks, { kind: "activity", track: "mining" }, "New Babbage");
+    expect(from.groups[0].runs[0].figure).toBe("25 Gm from New Babbage, ~8 min flying");
     expect(runs[1].steps.map((f) => [f.step.id, f.other])).toEqual([
       ["m1", false],
       ["m2", true],
@@ -242,6 +251,30 @@ describe("a session focus", () => {
     expect(v.groups[1].runs[0].steps.map((f) => f.step.id)).toEqual(["craft1"]);
     expect(v.card.distance).toBe("35 Gm");
     expect(v.card.what).toBe("3 stops, 1 jump");
+  });
+
+  it("counts rocks for mining, and parts and aUEC for a shopping run", () => {
+    const rocks = [
+      ps("m1", "mine", ["a"], "m1", { rocks: { toBreak: 4, toScan: 15 }, scu: 9.5 }),
+      ps("m2", "mine", ["b"], "m2", { rocks: { toBreak: 1, toScan: 5 }, scu: 2 }),
+    ];
+    const mining = focusView(rocks, tracks, { kind: "activity", track: "mining" });
+    expect(mining.card.tiles.slice(1, 3)).toEqual([
+      { value: "~20", label: "rocks to scan" },
+      { value: "12", label: "SCU to mine" },
+    ]);
+    expect(stepFigure(rocks[0])).toBe("4 of ~15 rocks");
+
+    const buys = [
+      ps("buy1", "buy", ["a"], "s1", { parts: 2, cost: 768000 }),
+      ps("buy2", "buy", ["b"], "s1", { parts: 7, cost: 560000 }),
+    ];
+    const shopping = focusView(buys, tracks, { kind: "activity", track: "shopping" });
+    expect(shopping.card.tiles.slice(1)).toEqual([
+      { value: "9", label: "parts to buy" },
+      { value: "1.33 M", label: "aUEC" },
+      { value: "2", label: "plans" },
+    ]);
   });
 
   it("says when nothing is ready", () => {

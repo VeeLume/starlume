@@ -404,6 +404,59 @@ fn ore_sites_send_pockets_to_their_lagrange_point() {
     }
     assert!(split, "no area splits by quality source for Savrilium");
 
+    // The ore a holding rock carries (Plans' rocks to break): only its
+    // entries at the quality count. A rock holds Titanium in several entries
+    // of different quality (11.77 % at Q516 beside 52.11 % at Q295), so the
+    // Q500+ share is well below the share at any quality.
+    let titanium = catalog
+        .element_names
+        .iter()
+        .find(|e| e.name.to_lowercase().contains("titanium"))
+        .expect("no Titanium element");
+    let any = mod_mining::ore_sites(&src, &catalog, &titanium.id, 0);
+    let sites = mod_mining::ore_sites(&src, &catalog, &titanium.id, 500);
+    for s in sites.iter().take(6) {
+        let at_any = any
+            .iter()
+            .find(|a| a.area == s.area && a.places == s.places)
+            .map_or(0.0, |a| a.ore_scu);
+        eprintln!(
+            "titanium Q500+ at {} ({}): {:.0}% hold it, {:.2} SCU of it a rock of {:.1} SCU ({:.2} at any quality)",
+            s.name,
+            s.travel
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            s.find * 100.0,
+            s.ore_scu,
+            s.rock_scu,
+            at_any
+        );
+    }
+    assert!(
+        sites.iter().any(|s| s.ore_scu > 0.0),
+        "no ore SCU for Titanium"
+    );
+    assert!(
+        sites.iter().all(|s| s.ore_scu <= s.rock_scu + 1e-3),
+        "more ore than rock"
+    );
+    let rich = sites
+        .iter()
+        .find(|s| s.name == "Aberdeen")
+        .expect("Titanium Q500+ at Aberdeen");
+    let rich_any = any
+        .iter()
+        .find(|a| a.name == "Aberdeen")
+        .expect("Titanium at Aberdeen");
+    assert!(
+        rich.ore_scu < rich_any.ore_scu * 0.5,
+        "Q500+ counts entries below Q500 ({:.2} of {:.2})",
+        rich.ore_scu,
+        rich_any.ore_scu
+    );
+
     // A ring field is no place of its own: its site names the places a run
     // starts from (LIVE 4.10: the Glaciem Ring's Levski).
     let mut entered: Vec<String> = Vec::new();

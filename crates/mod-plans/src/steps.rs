@@ -221,6 +221,12 @@ pub struct OreSite {
     /// The place's system: a load is the ore mined in one system, never
     /// flown through a jump point to a refinery. `None` off the map.
     pub system: Option<String>,
+    /// SCU of the ore at the quality in a rock there that holds it so;
+    /// `None` when unknown.
+    pub ore_scu: Option<f32>,
+    /// SCU of such a whole rock: breaking one puts all of it in the hold.
+    /// `None` when unknown.
+    pub rock_scu: Option<f32>,
 }
 
 /// What mining knows about a material at a quality.
@@ -288,6 +294,49 @@ pub struct PlanStep {
     /// The steps this one follows (their ids): refining comes after the
     /// mining that gives the ore. A trip never puts it before them.
     pub after: Vec<String>,
+    /// Parts it buys, fits or loots; 0 for any other step.
+    pub parts: u32,
+    /// Mining: the rocks it takes, where the data gives the ore a rock
+    /// holds.
+    pub rocks: Option<Rocks>,
+    /// Mining: the SCU it mines of a bulk material, as ore where a refinery
+    /// makes the material (the shortfall over `REFINE_YIELD`); 0 for any
+    /// other step.
+    pub scu: f64,
+}
+
+/// The share of mined ore a refinery gives back as the material. The game
+/// data has no yield (the yield types have no records); this is Valerie's
+/// in-game figure (2026-11-17), to stand until a better source exists.
+pub const REFINE_YIELD: f64 = 0.5;
+
+/// The rocks a mining step takes (Valerie, 2026-11-17: a count of rocks
+/// in place of a mining time the data cannot give).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct Rocks {
+    /// Rocks holding the ore at the quality, to break for the amount: the
+    /// SCU wanted over the ore such a rock holds.
+    pub to_break: u32,
+    /// Rocks to scan to find those: `to_break` over the share of the rocks
+    /// there that hold it at the quality.
+    pub to_scan: u32,
+}
+
+/// The rocks `scu` of an ore takes at a place where a share `find` of the
+/// rocks hold it, `ore_scu` each; `None` when either is unknown.
+fn rocks(scu: f64, find: f32, ore_scu: Option<f32>) -> Option<Rocks> {
+    let ore = f64::from(ore_scu.filter(|o| *o > 0.0)?);
+    if find <= 0.0 || scu <= 0.0 {
+        return None;
+    }
+    let to_break = (scu / ore).ceil().max(1.0);
+    let to_scan = (to_break / f64::from(find)).ceil().max(to_break);
+    Some(Rocks {
+        to_break: to_break as u32,
+        to_scan: to_scan as u32,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -759,6 +808,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                         odds: None,
                         sources: 1,
                         after: Vec::new(),
+                        parts: 0,
+                        rocks: None,
+                        scu: 0.0,
                     },
                     1,
                 ));
@@ -784,6 +836,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             odds: None,
                             sources: u32::MAX,
                             after: Vec::new(),
+                            parts: 0,
+                            rocks: None,
+                            scu: 0.0,
                         });
                         buy_lines.push(Vec::new());
                         buys.len() - 1
@@ -820,6 +875,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             odds: None,
                             sources: 0,
                             after: Vec::new(),
+                            parts: 0,
+                            rocks: None,
+                            scu: 0.0,
                         },
                         Vec::new(),
                     )
@@ -856,6 +914,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             odds: Some(offer.chance as f32),
                             sources: offer.places,
                             after: Vec::new(),
+                            parts: 0,
+                            rocks: None,
+                            scu: 0.0,
                         },
                         1,
                     )),
@@ -874,11 +935,15 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     odds: None,
                     sources: 0,
                     after: Vec::new(),
+                    parts: 0,
+                    rocks: None,
+                    scu: 0.0,
                 });
             }
         }
     }
     for (mut step, count) in fits {
+        step.parts = count;
         let name = std::mem::take(&mut step.title);
         // No "It is at …" line: the row's right column names the place.
         (step.title, step.detail) = match (count, step.blocked) {
@@ -891,6 +956,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     }
     for (mut step, lines) in buys.into_iter().zip(buy_lines) {
         let count: u32 = lines.iter().map(|(_, c)| c).sum();
+        step.parts = count;
         let shop = step.id.trim_start_matches("buy:").to_owned();
         // The total is the row's figure, so the detail names only the parts.
         if let [(name, 1)] = lines.as_slice() {
@@ -909,6 +975,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
 
     if let Some((mut step, lines)) = market {
         let count: u32 = lines.iter().map(|(_, c)| c).sum();
+        step.parts = count;
         if let [(name, 1)] = lines.as_slice() {
             step.title = format!("Buy the {name} from a player");
         } else {
@@ -922,6 +989,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     }
 
     for (mut step, count) in loots {
+        step.parts = count;
         step.title = match count {
             1 => format!("Loot the {}", step.title),
             n => format!("Loot {n} × {}", step.title),
@@ -972,6 +1040,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             odds: None,
             sources: grants.len() as u32,
             after: Vec::new(),
+            parts: 0,
+            rocks: None,
+            scu: 0.0,
         });
     }
     earns.into_iter().for_each(&mut push);
@@ -994,7 +1065,13 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     for ((row, found), pick) in short.iter().zip(picks) {
         let row = *row;
         let best = pick.map(|i| &found.sites[i]);
-        let amount = amount(row.short(), row.bulk);
+        // A refined material is mined as ore, about twice its weight.
+        let mined = if found.ore.is_some() {
+            row.short() / REFINE_YIELD
+        } else {
+            row.short()
+        };
+        let amount = amount(mined, row.bulk);
         let grade = quality_suffix(row.min_quality);
         let id = format!("mine:{}:{}:{}", row.material, row.min_quality, row.bulk);
         let base = PlanStep {
@@ -1023,7 +1100,14 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             odds: None,
             sources: found.sites.len() as u32,
             after: Vec::new(),
+            parts: 0,
+            rocks: None,
+            scu: 0.0,
         };
+        // Bulk only: a counted material is no share of a rock.
+        let rocks = best
+            .filter(|_| row.bulk)
+            .and_then(|b| rocks(mined, b.find, b.ore_scu));
         // A refined material is mined as its ore and goes to its area's
         // refinery (below).
         if let (Some(best), Some(ore)) = (best, found.ore.as_ref()) {
@@ -1034,7 +1118,13 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 plans: base.plans.clone(),
                 near: best.refine_at.clone(),
                 system: best.system.clone(),
-                scu: if row.bulk { row.short() } else { 0.0 },
+                // Everything collected takes space: a rock broken for the
+                // ore goes into the hold whole.
+                scu: match (rocks, best.rock_scu.filter(|r| *r > 0.0)) {
+                    (Some(r), Some(rock)) => f64::from(r.to_break) * f64::from(rock),
+                    _ if row.bulk => mined,
+                    _ => 0.0,
+                },
                 refineries: found.refineries,
             });
         }
@@ -1052,11 +1142,18 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 ),
                 at: Some(best.at.clone()),
                 odds: Some(best.find),
+                rocks,
+                scu: if row.bulk { mined } else { 0.0 },
                 ..base
             },
             None => PlanStep {
                 kind: StepKind::Gather,
-                title: format!("Get {amount} {}{grade}", row.material),
+                // Not mined: the material itself, as the plans need it.
+                title: format!(
+                    "Get {} {}{grade}",
+                    self::amount(row.short(), row.bulk),
+                    row.material
+                ),
                 detail: if found.mined {
                     format!(
                         "No ship mining place rolls it at Q{} or better",
@@ -1121,6 +1218,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 odds: None,
                 sources: 0,
                 after: Vec::new(),
+                parts: 0,
+                rocks: None,
+                scu: 0.0,
             });
         }
         let rest = craft.left - can;
@@ -1151,6 +1251,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 odds: None,
                 sources: 0,
                 after: Vec::new(),
+                parts: 0,
+                rocks: None,
+                scu: 0.0,
             });
         }
     }
@@ -1767,7 +1870,9 @@ struct ToRefine {
     near: Option<PlanPlace>,
     /// The system it is mined in: its load.
     system: Option<String>,
-    /// How much of it is mined, SCU (0 for a material not counted in SCU).
+    /// The hold it takes, SCU: the whole rocks it is mined from where the
+    /// data gives them, else the ore itself (0 for a material not counted
+    /// in SCU).
     scu: f64,
     refineries: u32,
 }
@@ -1909,6 +2014,9 @@ fn refine_steps(ores: &[ToRefine], hold: Option<&OreHold>) -> Vec<PlanStep> {
                 odds: None,
                 sources: load[0].refineries,
                 after: load.iter().map(|o| o.mine.clone()).collect(),
+                parts: 0,
+                rocks: None,
+                scu: 0.0,
             };
             place_refine(&mut step, at.cloned());
             out.push(step);
@@ -2264,6 +2372,79 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn rocks_to_break_and_to_scan_follow_the_ore_a_rock_holds() {
+        assert_eq!(
+            rocks(4.6, 0.28, Some(1.2)),
+            Some(Rocks {
+                to_break: 4,
+                to_scan: 15
+            })
+        );
+        // A little ore is still one rock; every rock holding it is one scan.
+        assert_eq!(
+            rocks(0.2, 1.0, Some(3.0)),
+            Some(Rocks {
+                to_break: 1,
+                to_scan: 1
+            })
+        );
+        assert_eq!(rocks(4.6, 0.28, None), None);
+        assert_eq!(rocks(4.6, 0.0, Some(1.2)), None);
+    }
+
+    #[test]
+    fn a_mine_step_counts_its_rocks_and_a_buy_its_parts() {
+        let mut inputs = Inputs::default();
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![slot("Ore A", 2.0, 1)]));
+        let ores = |_: &str, _: u32| OreSites {
+            sites: vec![OreSite {
+                at: at("Moon One"),
+                find: 0.5,
+                ore_scu: Some(0.4),
+                ..OreSite::default()
+            }],
+            mined: true,
+            ..OreSites::default()
+        };
+        let board = derive(&craft_state(1, 0), &inputs, &ores);
+        let mine = board
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Mine)
+            .unwrap();
+        assert_eq!(
+            mine.rocks,
+            Some(Rocks {
+                to_break: 5,
+                to_scan: 10
+            })
+        );
+        assert_eq!(mine.scu, 2.0);
+
+        // A refined material is mined as its ore, at the refining yield.
+        let refined = |m: &str, q: u32| OreSites {
+            ore: Some("Ore A (Ore)".into()),
+            refineries: 1,
+            ..ores(m, q)
+        };
+        let board = derive(&craft_state(1, 0), &inputs, &refined);
+        let mine = board
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Mine)
+            .unwrap();
+        assert_eq!(mine.scu, 4.0);
+        assert_eq!(mine.title, "Mine 4 SCU Ore A");
+        assert_eq!(mine.rocks.map(|r| r.to_break), Some(10));
+
+        let board = derive(&loadout_state(), &three_sources(), &no_ores);
+        assert_eq!(board.steps[0].kind, StepKind::Buy);
+        assert_eq!(board.steps[0].parts, 1);
+    }
+
+    #[test]
     fn a_looted_part_is_one_step_at_its_best_place() {
         let inputs = four_sources();
         let mut state = loadout_state();
@@ -2558,6 +2739,8 @@ pub(crate) mod tests {
         let ores = move |_: &str, _: u32| OreSites {
             sites: vec![OreSite {
                 system: None,
+                ore_scu: None,
+                rock_scu: None,
                 at: at("Moon One"),
                 find: 0.25,
                 refine_at: refine_at.clone(),
@@ -2581,8 +2764,9 @@ pub(crate) mod tests {
         assert_eq!(refine.plans, mine.plans);
         assert_eq!(refine.sources, 4);
         assert!(!refine.blocked);
-        // Mining comes first in the plan's note.
-        assert_eq!(board.plans[0].note, "Next: mine 2 SCU Metal, Q700+");
+        // Mining comes first in the plan's note: twice the 2 SCU wanted,
+        // as ore refines at about half.
+        assert_eq!(board.plans[0].note, "Next: mine 4 SCU Metal, Q700+");
     }
 
     /// A place an ore is mined at: (place, find, its refinery, its
@@ -2608,6 +2792,8 @@ pub(crate) mod tests {
                     .iter()
                     .map(|(place, find, refinery, system)| OreSite {
                         system: system.map(str::to_owned),
+                        ore_scu: None,
+                        rock_scu: None,
                         at: if *place == "The Ring" {
                             PlanPlace {
                                 name: (*place).into(),
@@ -2736,6 +2922,8 @@ pub(crate) mod tests {
                 find: 0.3,
                 refine_at: Some(at("Station A")),
                 system: Some("Here".into()),
+                ore_scu: None,
+                rock_scu: None,
             }],
             mined: true,
             ore: Some(format!("{material} (Ore)")),
@@ -2747,10 +2935,55 @@ pub(crate) mod tests {
     /// A 32 SCU hold takes Iron and Gold (30) in one load; Tin no longer
     /// fits and is the next. An ore more than a hold holds is its own load
     /// of several holds.
+    /// A rock broken for its ore goes into the hold whole: 1 SCU refined is
+    /// 2 SCU of ore, 2 rocks of 1.5 at the quality, 2 × 20 SCU in the hold,
+    /// two 32 SCU loads where the ore alone would fill one.
+    #[test]
+    fn a_load_counts_the_whole_rocks_it_is_mined_from() {
+        let mut inputs = Inputs {
+            hold: Some(OreHold {
+                ship: "Prospector".into(),
+                scu: 32.0,
+            }),
+            ..Inputs::default()
+        };
+        inputs
+            .recipes
+            .insert("bp-1".into(), recipe(true, vec![slot("Iron", 1.0, 0)]));
+        let ores = |material: &str, _: u32| OreSites {
+            sites: vec![OreSite {
+                at: at("Moon A"),
+                find: 0.5,
+                refine_at: Some(at("Station A")),
+                system: Some("Here".into()),
+                ore_scu: Some(1.5),
+                rock_scu: Some(20.0),
+            }],
+            mined: true,
+            ore: Some(format!("{material} (Ore)")),
+            refineries: 1,
+        };
+        let board = derive(&craft_state(1, 0), &inputs, &ores);
+        let mine = board
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Mine)
+            .unwrap();
+        assert_eq!(mine.scu, 2.0);
+        assert_eq!(mine.rocks.map(|r| r.to_break), Some(2));
+        assert_eq!(
+            refine_titles(&board),
+            [(
+                "Refine Iron (Ore) at Station A".to_owned(),
+                "2 Prospector loads".to_owned()
+            )]
+        );
+    }
+
     #[test]
     fn a_system_ore_splits_into_loads_of_the_hold() {
         let board = held(
-            vec![("Iron", 20.0), ("Gold", 10.0), ("Tin", 8.0)],
+            vec![("Iron", 10.0), ("Gold", 5.0), ("Tin", 4.0)],
             Some(32.0),
         );
         assert_eq!(
@@ -2766,7 +2999,7 @@ pub(crate) mod tests {
                 ),
             ]
         );
-        let board = held(vec![("Iron", 70.0), ("Gold", 2.0)], Some(32.0));
+        let board = held(vec![("Iron", 35.0), ("Gold", 1.0)], Some(32.0));
         assert_eq!(
             refine_titles(&board),
             [
@@ -2781,7 +3014,7 @@ pub(crate) mod tests {
             ]
         );
         // Without a hold, the system's ore is one load.
-        let board = held(vec![("Iron", 70.0), ("Gold", 2.0)], None);
+        let board = held(vec![("Iron", 35.0), ("Gold", 1.0)], None);
         assert_eq!(
             refine_titles(&board),
             [(
