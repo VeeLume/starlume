@@ -21,6 +21,7 @@
     size = "normal",
     muted = false,
     top,
+    above,
     art,
     children,
     action,
@@ -43,6 +44,9 @@
     muted?: boolean;
     /** Controls at the right of the chip row, in place of the date. */
     top?: Snippet;
+    /** Between the chip row and the title (Plans' session card: what the
+     *  session is for, then its distance). */
+    above?: Snippet;
     /** Decoration drawn behind the content (top right). */
     art?: Snippet;
     children?: Snippet;
@@ -67,6 +71,7 @@
       <span class="grow"></span>
       {#if top}{@render top()}{:else}<span class="date">{date}</span>{/if}
     </header>
+    {#if above}{@render above()}{/if}
     {#if version}
       <div class="title">
         <span class="version">{version}</span>
