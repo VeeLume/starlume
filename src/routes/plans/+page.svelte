@@ -130,6 +130,7 @@
     mining: "var(--hue-quality)",
     refining: "var(--hue-quality)",
     missions: "var(--hue-sand)",
+    looting: "var(--hue-sky)",
     crafting: "var(--hue-rose)",
   };
   /** The Components panel's sources: id, the Prefer label, a row's. */
@@ -137,13 +138,20 @@
     ["store", "Store", "Store"],
     ["market", "Player market", "Market"],
     ["craft", "Crafting", "Craft"],
+    ["loot", "Looting", "Loot"],
   ];
   /** What a part's chosen source asks: the total for its count and where,
-   *  or the blueprint's state for a craft. */
+   *  the blueprint's state for a craft, the best odds and place for loot. */
   function partFigure(c: PartChoice): { value: string; detail: string } | null {
     const o = c.options.find((x) => x.source === c.chosen);
     if (!o) return null;
-    return { value: o.price != null ? `${Math.round(o.price * c.count).toLocaleString("en-US")} aUEC` : "craft", detail: o.detail };
+    if (o.price != null) return { value: `${Math.round(o.price * c.count).toLocaleString("en-US")} aUEC`, detail: o.detail };
+    if (o.source === "loot") {
+      // "4.0% at Ruin Station": the odds lead, the place is the detail.
+      const cut = o.detail.indexOf(" at ");
+      return cut < 0 ? { value: o.detail, detail: "" } : { value: o.detail.slice(0, cut), detail: o.detail.slice(cut + 4) };
+    }
+    return { value: "craft", detail: o.detail };
   }
 
   /** Picking a plan, in the list or on the card, makes it the focus. */
@@ -172,6 +180,7 @@
     craft: "craft",
     earn: "mission",
     find: "find",
+    loot: "find",
   };
 
   // What "New plan" offers: your saved loadouts and the items you marked

@@ -81,6 +81,8 @@ pub enum TrackKind {
     Mining,
     /// Take ore to a refinery and wait for it.
     Refining,
+    /// Loot parts from containers in the world.
+    Looting,
     /// Craft from what you hold.
     Crafting,
 }
@@ -89,12 +91,13 @@ impl TrackKind {
     /// Track order on the page, and the order the next session is picked
     /// in: the order the work flows. A shopping run first (it fits one
     /// session and unblocks fitting), then mining, the refinery the ore
-    /// goes to, missions, crafting.
-    pub const ALL: [TrackKind; 5] = [
+    /// goes to, missions, looting, crafting.
+    pub const ALL: [TrackKind; 6] = [
         TrackKind::Shopping,
         TrackKind::Mining,
         TrackKind::Refining,
         TrackKind::Missions,
+        TrackKind::Looting,
         TrackKind::Crafting,
     ];
 
@@ -106,6 +109,7 @@ impl TrackKind {
             StepKind::Earn => Some(TrackKind::Missions),
             StepKind::Mine | StepKind::Gather => Some(TrackKind::Mining),
             StepKind::Refine => Some(TrackKind::Refining),
+            StepKind::Loot => Some(TrackKind::Looting),
             StepKind::Craft => Some(TrackKind::Crafting),
             StepKind::Find => None,
         }

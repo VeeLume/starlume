@@ -27,6 +27,7 @@ use sc_holotable::asset::{
 
 use crate::blueprints::BlueprintIndex;
 use crate::cooked::{CookedData, DATA_COOK_VERSION};
+use crate::loot::LootIndex;
 use crate::ships::ShipVisuals;
 use crate::{InstallRef, LoadTier};
 
@@ -35,6 +36,7 @@ pub(crate) const PROCESSED_SNAPSHOT_NAME: &str = "foundations.cook";
 /// only when a holo opens.
 pub(crate) const VISUALS_SNAPSHOT_NAME: &str = "visuals.cook";
 pub(crate) const BLUEPRINTS_SNAPSHOT_NAME: &str = "blueprints.cook";
+pub(crate) const LOOT_SNAPSHOT_NAME: &str = "loot.cook";
 pub(crate) const EXTRACT_SNAPSHOT_NAME: &str = "extract.snap";
 /// Where the files Starlume reads outside a cook sit in the p4k, so reading
 /// one never loads the archive's whole file list (see [`save_asset_index`]).
@@ -156,6 +158,7 @@ pub(crate) fn drop_processed(dir: &Path) -> std::io::Result<()> {
     let _ = std::fs::remove_file(key_path(dir, PROCESSED_SNAPSHOT_NAME));
     let _ = std::fs::remove_file(dir.join(VISUALS_SNAPSHOT_NAME));
     let _ = std::fs::remove_file(dir.join(BLUEPRINTS_SNAPSHOT_NAME));
+    let _ = std::fs::remove_file(dir.join(LOOT_SNAPSHOT_NAME));
     let _ = std::fs::remove_file(dir.join(ASSET_INDEX_NAME));
     std::fs::remove_file(dir.join(PROCESSED_SNAPSHOT_NAME))
 }
@@ -225,6 +228,27 @@ pub(crate) fn save_blueprints(dir: &Path, install: &InstallRef, blueprints: Blue
             tracing::info!(bytes = size, "wrote blueprint snapshot");
         }
         Err(e) => tracing::warn!("failed to save blueprints to {}: {e}", path.display()),
+    }
+}
+
+pub(crate) fn try_load_loot(dir: &Path, install: &InstallRef) -> Option<LootIndex> {
+    let path = dir.join(LOOT_SNAPSHOT_NAME);
+    let snap = ProcessedSnapshot::<LootIndex>::load(&path, DATA_COOK_VERSION)
+        .inspect_err(|e| tracing::info!("loot snapshot unusable ({e})"))
+        .ok()?;
+    same_build(&snap.meta.build_id, install).then(|| snap.into_index())
+}
+
+/// Persist the loot index. Failure is non-fatal (logged).
+pub(crate) fn save_loot(dir: &Path, install: &InstallRef, loot: LootIndex) {
+    let path = dir.join(LOOT_SNAPSHOT_NAME);
+    let saved = ProcessedSnapshot::new(meta_for(install), DATA_COOK_VERSION, loot).save(&path);
+    match saved {
+        Ok(()) => {
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            tracing::info!(bytes = size, "wrote loot snapshot");
+        }
+        Err(e) => tracing::warn!("failed to save loot to {}: {e}", path.display()),
     }
 }
 

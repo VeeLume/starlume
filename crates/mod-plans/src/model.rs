@@ -34,6 +34,9 @@ pub enum PartSource {
     Market,
     /// Crafted from its blueprint.
     Craft,
+    /// Looted from a container placed in the world (sc-loot's simulated
+    /// drops).
+    Loot,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

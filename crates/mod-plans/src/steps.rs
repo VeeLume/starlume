@@ -86,6 +86,19 @@ pub struct PartFacts {
     pub blueprint: Option<String>,
     /// What players ask for it on the UEX marketplace, when anyone lists it.
     pub market: Option<MarketOffer>,
+    /// Where it drops in containers placed on the map, when anywhere.
+    pub loot: Option<LootOffer>,
+}
+
+/// Where a part drops: the best container fill and how widely it spreads.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LootOffer {
+    /// The chance the best fill yields one, 0 to 1.
+    pub chance: f64,
+    /// Where that fill sits most often.
+    pub at: PlanPlace,
+    /// How many places it drops at, over every fill.
+    pub places: u32,
 }
 
 /// The player market's ask for a part: the average of the listings.
@@ -238,6 +251,8 @@ pub enum StepKind {
     Earn,
     /// A part no shop sells and no blueprint makes.
     Find,
+    /// Loot a part from containers in the world.
+    Loot,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -260,10 +275,11 @@ pub struct PlanStep {
     /// aUEC.
     pub cost: Option<f64>,
     /// Mining: the share of the rocks at the place that hold the ore at the
-    /// wanted quality.
+    /// wanted quality. Looting: the chance the best container fill yields
+    /// the part.
     pub odds: Option<f32>,
     /// How many places it can be done at (mining places, shops, missions,
-    /// refineries).
+    /// refineries, places the part drops).
     pub sources: u32,
     /// The steps this one follows (their ids): refining comes after the
     /// mining that gives the ore. A trip never puts it before them.
@@ -437,12 +453,16 @@ fn sources_of(part: &PartFacts, inputs: &Inputs) -> Vec<PartSource> {
     {
         out.push(PartSource::Craft);
     }
+    if part.loot.is_some() {
+        out.push(PartSource::Loot);
+    }
     out
 }
 
 /// The source a part is taken from: its own choice, else the preferred
-/// one, else a shop, a craft, the market, in that order (a shop before a
-/// craft keeps what plans did before there was a choice).
+/// one, else a shop, a craft, the market, loot, in that order (a shop
+/// before a craft keeps what plans did before there was a choice; loot is
+/// luck, so it comes last).
 fn choose(state: &PlansState, part: &PartFacts, inputs: &Inputs) -> Option<PartSource> {
     let has = sources_of(part, inputs);
     state
@@ -452,9 +472,14 @@ fn choose(state: &PlansState, part: &PartFacts, inputs: &Inputs) -> Option<PartS
         .filter(|s| has.contains(s))
         .or(Some(state.prefer).filter(|s| has.contains(s)))
         .or_else(|| {
-            [PartSource::Store, PartSource::Craft, PartSource::Market]
-                .into_iter()
-                .find(|s| has.contains(s))
+            [
+                PartSource::Store,
+                PartSource::Craft,
+                PartSource::Market,
+                PartSource::Loot,
+            ]
+            .into_iter()
+            .find(|s| has.contains(s))
         })
 }
 
@@ -691,6 +716,8 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     let mut buys: Vec<PlanStep> = Vec::new();
     let mut buy_lines: Vec<Vec<(String, u32)>> = Vec::new();
     let mut market: Option<(PlanStep, Vec<(String, u32)>)> = None;
+    // One step per looted part, whichever plans want it: (step, count).
+    let mut loots: Vec<(PlanStep, u32)> = Vec::new();
     let mut parts: Vec<PartChoice> = Vec::new();
     for work in loadouts.iter().filter(|w| !w.parked) {
         for (n, part) in work.parts.iter().enumerate() {
@@ -802,6 +829,33 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     Some((_, count)) => *count += 1,
                     None => lines.push((facts.name.clone(), 1)),
                 }
+            } else if let (Some(PartSource::Loot), Some(offer)) = (part.source, &facts.loot) {
+                let id = format!("loot:{}", facts.item);
+                match loots.iter_mut().find(|(s, _)| s.id == id) {
+                    Some((step, count)) => {
+                        *count += 1;
+                        if !step.plans.iter().any(|p| p == work.plan) {
+                            step.plans.push(work.plan.to_owned());
+                        }
+                    }
+                    None => loots.push((
+                        PlanStep {
+                            id,
+                            kind: StepKind::Loot,
+                            title: facts.name.clone(),
+                            detail: loot_detail(offer),
+                            plans: vec![work.plan.to_owned()],
+                            blocked: false,
+                            at: Some(offer.at.clone()),
+                            seconds: None,
+                            cost: None,
+                            odds: Some(offer.chance as f32),
+                            sources: offer.places,
+                            after: Vec::new(),
+                        },
+                        1,
+                    )),
+                }
             } else if part.source.is_none() {
                 finds.push(PlanStep {
                     id: format!("find:{}:{}:{n}", work.plan, facts.item),
@@ -860,6 +914,14 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 .map(|(name, c)| format!("{c} × {name}"))
                 .collect::<Vec<_>>());
         }
+        push(step);
+    }
+
+    for (mut step, count) in loots {
+        step.title = match count {
+            1 => format!("Loot the {}", step.title),
+            n => format!("Loot {n} × {}", step.title),
+        };
         push(step);
     }
 
@@ -1217,6 +1279,14 @@ fn note_part(parts: &mut Vec<PartChoice>, plan: &str, part: &Part, inputs: &Inpu
                         1 => "1 listing".to_owned(),
                         n => format!("{n} listings"),
                     },
+                }
+            }
+            PartSource::Loot => {
+                let offer = facts.loot.as_ref().expect("a loot source has an offer");
+                SourceOption {
+                    source,
+                    price: None,
+                    detail: format!("{} at {}", percent(offer.chance), offer.at.name),
                 }
             }
             PartSource::Craft => {
@@ -1644,6 +1714,28 @@ fn auec_figure(value: f64) -> String {
         out.push(c);
     }
     out
+}
+
+/// A chance as the page shows it: whole percent, one decimal below 10 %,
+/// "<0.1%" below that.
+fn percent(chance: f64) -> String {
+    let p = chance * 100.0;
+    if p >= 10.0 {
+        format!("{p:.0}%")
+    } else if p >= 0.1 {
+        format!("{p:.1}%")
+    } else {
+        "<0.1%".to_owned()
+    }
+}
+
+/// "drops in 3 places, 4.0% at the best".
+fn loot_detail(offer: &LootOffer) -> String {
+    let places = match offer.places {
+        1 => "1 place".to_owned(),
+        n => format!("{n} places"),
+    };
+    format!("drops in {places}, {} at the best", percent(offer.chance))
 }
 
 /// "a", "a and b", "a, b and c".
@@ -2144,6 +2236,55 @@ pub(crate) mod tests {
             }],
         );
         assert!(derive(&loadout_state(), &inputs, &no_ores).parts.is_empty());
+    }
+
+    /// `three_sources` plus a drop at Ruin Station.
+    fn four_sources() -> Inputs {
+        let mut a = part("a");
+        a.offers = vec![Offer {
+            shop: "Shop One".into(),
+            at: at("Town"),
+            price: 20_000.0,
+        }];
+        a.loot = Some(LootOffer {
+            chance: 0.04,
+            at: at("Ruin Station"),
+            places: 3,
+        });
+        loadout(vec![a])
+    }
+
+    #[test]
+    fn a_looted_part_is_one_step_at_its_best_place() {
+        let inputs = four_sources();
+        let mut state = loadout_state();
+        let board = derive(&state, &inputs, &no_ores);
+        let row = &board.parts[0];
+        assert_eq!(
+            row.chosen,
+            Some(PartSource::Store),
+            "loot is never the default"
+        );
+        let loot = row.options.last().unwrap();
+        assert_eq!(
+            (loot.source, loot.price, loot.detail.as_str()),
+            (PartSource::Loot, None, "4.0% at Ruin Station")
+        );
+
+        state.set_source("a", Some(PartSource::Loot));
+        let board = derive(&state, &inputs, &no_ores);
+        let [step] = board.steps.as_slice() else {
+            panic!("one step, got {:?}", board.steps);
+        };
+        assert_eq!(step.kind, StepKind::Loot);
+        assert_eq!(step.title, "Loot the Part a");
+        assert_eq!(step.detail, "drops in 3 places, 4.0% at the best");
+        assert_eq!(step.at, Some(at("Ruin Station")));
+        assert_eq!(step.odds, Some(0.04));
+        assert_eq!(
+            crate::session::TrackKind::of(step.kind),
+            Some(crate::session::TrackKind::Looting)
+        );
     }
 
     #[test]
