@@ -18,7 +18,7 @@ description = "Starlume data service — one shared DCB parse + snapshot cache p
 # ports, loadouts, the power network) for the ships-index cook. `visuals`
 # adds the render recipes the ship holo assembles from. `refining` adds
 # sc-refining (the places with a refinery, the refining methods) for Plans.
-sc-holotable = { workspace = true, features = ["foundations", "missions-payout", "weapons", "crafting", "mining", "vehicles", "visuals", "refining", "travel"] }
+sc-holotable = { workspace = true, features = ["foundations", "loot", "missions-payout", "weapons", "crafting", "mining", "vehicles", "visuals", "refining", "travel"] }
 app-kit.workspace = true
 serde.workspace = true
 serde_json.workspace = true

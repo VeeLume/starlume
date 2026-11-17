@@ -47,6 +47,7 @@ pub mod cooked;
 pub mod craft;
 pub mod crafting;
 pub mod legality;
+pub mod loot;
 pub mod mining;
 pub mod missions;
 pub mod names;
@@ -79,6 +80,7 @@ pub use cooked::{
 pub use craft::{Change, Crafted, Gain, PropertyChange, Recipes};
 pub use crafting::{CraftingIndex, CraftingProperty};
 pub use legality::{JurisdictionRef, LegalityEntry, LegalityKind};
+pub use loot::{LootDrop, LootIndex, LootPlace};
 pub use mining::{ElementEntry, GadgetEntry, LaserEntry, MiningIndex, ModuleEntry, RulesetEntry};
 pub use missions::{
     BpPoolEntry, BpPoolReward, CargoLeg, CrimestatRisk, EncounterKind, EventLadder, EventReward,
@@ -197,6 +199,7 @@ pub struct DataService {
     visuals: Mutex<HashMap<String, Arc<ships::ShipVisuals>>>,
     /// `build key → the blueprint catalog`, once Crafting has asked.
     blueprints: Mutex<HashMap<String, Arc<BlueprintIndex>>>,
+    loot: Mutex<HashMap<String, Arc<LootIndex>>>,
     /// `build key → parse lock` — the single-flight guard behind
     /// [`Self::load`]. Concurrent loads of one build (two channels on the
     /// same changelist included) serialize on this and the losers pick up
@@ -219,6 +222,7 @@ impl DataService {
             loaded: Mutex::new(HashMap::new()),
             visuals: Mutex::new(HashMap::new()),
             blueprints: Mutex::new(HashMap::new()),
+            loot: Mutex::new(HashMap::new()),
             parse_locks: Mutex::new(HashMap::new()),
             loading: Mutex::new(HashSet::new()),
         }
@@ -327,6 +331,19 @@ impl DataService {
         Some(blueprints)
     }
 
+    /// The loot index for an install's build: from memory, else from its
+    /// snapshot. **Never parses**; `None` until a cook has written it.
+    pub fn loot(&self, install: &InstallRef) -> Option<Arc<LootIndex>> {
+        let key = install.build_key();
+        if let Some(loot) = self.loot.lock().unwrap().get(&key) {
+            return Some(Arc::clone(loot));
+        }
+        let dir = self.build_dir(install);
+        let loot = Arc::new(cache::try_load_loot(&dir, install)?);
+        self.loot.lock().unwrap().insert(key, Arc::clone(&loot));
+        Some(loot)
+    }
+
     /// Run the full load waterfall for an install, on a dedicated
     /// 32 MiB-stack thread (see module docs). Blocking — the shell wraps
     /// this in `spawn_blocking`. Idempotent: if the bundle is already in
@@ -381,6 +398,7 @@ impl DataService {
     pub fn evict(&self) {
         self.visuals.lock().unwrap().clear();
         self.blueprints.lock().unwrap().clear();
+        self.loot.lock().unwrap().clear();
         let mut loaded = self.loaded.lock().unwrap();
         if !loaded.is_empty() {
             tracing::debug!(builds = loaded.len(), "evicting cooked data");
@@ -396,6 +414,7 @@ impl DataService {
                 self.loaded.lock().unwrap().remove(&install.build_key());
                 self.visuals.lock().unwrap().remove(&install.build_key());
                 self.blueprints.lock().unwrap().remove(&install.build_key());
+                self.loot.lock().unwrap().remove(&install.build_key());
                 remove_dir_if_present(&self.build_dir(install))
             }
             None => {
@@ -723,7 +742,8 @@ fn load_blocking(
         let assets = AssetSource::open(&install.p4k_path)
             .inspect_err(|e| tracing::warn!("opening the p4k for the rock meshes: {e:#}"))
             .ok();
-        let (cooked, visuals, blueprints) = cook(datacore, asset_data, assets.as_ref(), progress);
+        let (cooked, visuals, blueprints, loot) =
+            cook(datacore, asset_data, assets.as_ref(), progress);
         progress(Stage::Saving);
         if let Some(assets) = &assets {
             cache::save_asset_index(dir, assets, &visuals);
@@ -732,6 +752,7 @@ fn load_blocking(
         cache::save_processed(dir, install, &cooked);
         cache::save_visuals(dir, install, visuals);
         cache::save_blueprints(dir, install, blueprints);
+        cache::save_loot(dir, install, loot);
         tracing::info!(
             channel = %install.channel_key,
             elapsed_ms = start.elapsed().as_millis(),
@@ -758,13 +779,14 @@ fn load_blocking(
     cache::save_extract(dir, install, &assets);
 
     // The p4k stays open through the cook for the rock meshes.
-    let (cooked, visuals, blueprints) = cook(datacore, asset_data, Some(&assets), progress);
+    let (cooked, visuals, blueprints, loot) = cook(datacore, asset_data, Some(&assets), progress);
     progress(Stage::Saving);
     cache::save_asset_index(dir, &assets, &visuals);
     drop(assets);
     cache::save_processed(dir, install, &cooked);
     cache::save_visuals(dir, install, visuals);
     cache::save_blueprints(dir, install, blueprints);
+    cache::save_loot(dir, install, loot);
 
     tracing::info!(
         channel = %install.channel_key,
@@ -788,7 +810,7 @@ fn cook(
     asset_data: AssetData,
     assets: Option<&AssetSource>,
     progress: &impl Fn(Stage),
-) -> (CookedData, ships::ShipVisuals, BlueprintIndex) {
+) -> (CookedData, ships::ShipVisuals, BlueprintIndex, LootIndex) {
     progress(Stage::Cooking);
     let foundations = build_foundations(&datacore);
     // Missions cook off the same parse, reusing the foundations' item /
@@ -820,6 +842,7 @@ fn cook(
     let visuals = ships::ShipVisuals::build(&datacore, &foundations.items);
     let blueprints =
         blueprints::build_blueprints(&datacore, &foundations, &asset_data.locale, &missions);
+    let loot = loot::build_loot(&datacore, &foundations, &asset_data.locale, assets);
     let holotable = sc_holotable::HolotableSnapshot::from_foundations(&foundations);
     drop(datacore);
     let cooked = CookedData {
@@ -833,7 +856,7 @@ fn cook(
         ships,
         refining,
     };
-    (cooked, visuals, blueprints)
+    (cooked, visuals, blueprints, loot)
 }
 
 #[cfg(test)]

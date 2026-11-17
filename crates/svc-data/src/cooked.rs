@@ -68,7 +68,9 @@ use serde::{Deserialize, Serialize};
 /// starmap frame (distances unchanged), microTech's moons unmirrored.
 /// rev 27: sc-holotable v0.55: ring entry markers and ore holds.
 /// rev 28: sc-holotable v0.56: mining-site anchors and ring shapes.
-pub const STARLUME_COOK_REV: u32 = 28;
+/// rev 29: sc-holotable v0.57: the loot index, written beside the cook
+/// ([`crate::loot::LootIndex`]).
+pub const STARLUME_COOK_REV: u32 = 29;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

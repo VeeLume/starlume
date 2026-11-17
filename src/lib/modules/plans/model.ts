@@ -11,6 +11,7 @@ export const TRACKS: { id: TrackKind; label: string }[] = [
   { id: "mining", label: "Mining" },
   { id: "refining", label: "Refinery" },
   { id: "missions", label: "Missions" },
+  { id: "looting", label: "Looting" },
   { id: "crafting", label: "Crafting" },
 ];
 
@@ -38,6 +39,7 @@ export const KIND_TEXT: Record<StepKind, string> = {
   craft: "craft",
   earn: "mission",
   find: "find",
+  loot: "loot",
 };
 
 /** The steps a plan shows: its own, and other plans' mining in the same
@@ -211,6 +213,7 @@ export const TRACK_OF: Record<StepKind, TrackKind | null> = {
   gather: "mining",
   refine: "refining",
   craft: "crafting",
+  loot: "looting",
   find: null,
 };
 
@@ -336,6 +339,7 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): Focus
   if (crafting > 0) tiles.push({ value: clock(crafting), label: "crafting" });
   if (steps.some((s) => s.kind === "mine")) tiles.push({ value: "—", label: "mining" });
   if (steps.some((s) => s.kind === "refine")) tiles.push({ value: "—", label: "refinery" });
+  if (steps.some((s) => s.kind === "loot")) tiles.push({ value: "—", label: "looting" });
   tiles.push({ value: String(steps.length), label: steps.length === 1 ? "step" : "steps" });
   const plans = new Set(steps.flatMap((s) => s.plans));
   if (plans.size) tiles.push({ value: String(plans.size), label: plans.size === 1 ? "plan" : "plans" });

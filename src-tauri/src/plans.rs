@@ -16,8 +16,8 @@ use std::sync::Arc;
 use mod_plans::ledger::{LedgerRow, Stack};
 use mod_plans::session::{Ordered, OrderedVisit, Router, Site, StopSpec, Tracks, TripLeg};
 use mod_plans::steps::{
-    CraftedCopy, Grant, HeldPart, Inputs, LoadoutFacts, Offer, OreSite, OreSites, PartFacts,
-    PlanBoard, PlanPlace, PlanStep, QualityBand, RecipeFacts, ShipRead, SlotNeed,
+    CraftedCopy, Grant, HeldPart, Inputs, LoadoutFacts, LootOffer, Offer, OreSite, OreSites,
+    PartFacts, PlanBoard, PlanPlace, PlanStep, QualityBand, RecipeFacts, ShipRead, SlotNeed,
 };
 use mod_plans::{CraftGoal, Goal, LoadoutGoal, Plan, PlansState};
 use svc_data::RecordCollection;
@@ -381,6 +381,11 @@ pub(crate) async fn plans_board(
 ) -> Result<PlansBoardView, AppError> {
     let cooked = cooked_for(&app, &channel).await?;
     let blueprints = crate::crafting::index_for(&app, &channel).await.ok();
+    // Loaded on demand beside the cook; evicted with it on hide.
+    let loot = match crate::data::install_for(&app, &channel).await {
+        Ok(install) => app.state::<AppState>().data.loot(&install),
+        Err(_) => None,
+    };
     let last_place = last_place(&app).await;
     let state = app.state::<AppState>();
     let inventory = state.dossier.cached_inventory();
@@ -396,6 +401,7 @@ pub(crate) async fn plans_board(
         let gathered = Gathered {
             cooked: &cooked,
             blueprints: blueprints.as_deref(),
+            loot: loot.as_deref(),
             inventory: inventory.as_ref(),
             owned_blueprints,
             hand_owned: crate::crafting::hand_owned().into_iter().collect(),
@@ -457,6 +463,32 @@ fn market_offer(
 }
 
 /// The site ids of the places with a refinery.
+/// Where a part drops: its most likely fill, at the place holding most of
+/// those containers, and how many places it drops at over all its fills.
+fn loot_offer(
+    loot: &svc_data::LootIndex,
+    item: &str,
+    cooked: &svc_data::CookedData,
+    sites: &Sites,
+) -> Option<LootOffer> {
+    let drops = loot.get(item);
+    let best = drops.first()?;
+    let (top, _) = best.places.first()?;
+    let place = loot.place(*top);
+    let places: HashSet<u32> = drops
+        .iter()
+        .flat_map(|d| d.places.iter().map(|(p, _)| *p))
+        .collect();
+    Some(LootOffer {
+        chance: f64::from(best.chance),
+        at: PlanPlace {
+            name: place.name.clone(),
+            site: sites.of_location(cooked, &place.guid),
+        },
+        places: places.len() as u32,
+    })
+}
+
 fn refinery_ids(cooked: &svc_data::CookedData) -> Vec<String> {
     mod_ships::refinery_places(cooked)
         .into_iter()
@@ -530,6 +562,7 @@ impl Router for TravelRouter<'_> {
 struct Gathered<'a> {
     cooked: &'a Arc<svc_data::CookedData>,
     blueprints: Option<&'a svc_data::BlueprintIndex>,
+    loot: Option<&'a svc_data::LootIndex>,
     inventory: Option<&'a svc_dossier::inventory::Inventory>,
     owned_blueprints: HashSet<String>,
     hand_owned: HashSet<String>,
@@ -917,6 +950,7 @@ impl Gathered<'_> {
                         .map(|b| b.guid.clone())
                 }),
                 market: market_offer(&index, &item, &name),
+                loot: self.loot.and_then(|l| loot_offer(l, &item, cooked, sites)),
                 item,
                 name,
                 offers,

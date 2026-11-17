@@ -69,6 +69,42 @@ fn cook_from_real_install() {
         .load(&install, |stage| eprintln!("stage: {stage:?}"))
         .expect("load real install");
 
+    // ── Loot (Plans' Looting, sc-loot) ─────────────────────────────────
+    let loot = service
+        .loot(&install)
+        .expect("the cook writes the loot index");
+    let mut busiest: std::collections::HashMap<u32, usize> = Default::default();
+    for drops in loot.items.values() {
+        for d in drops {
+            for (p, _) in &d.places {
+                *busiest.entry(*p).or_default() += 1;
+            }
+        }
+    }
+    let mut busiest: Vec<_> = busiest.into_iter().collect();
+    busiest.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    eprintln!(
+        "loot: {} items, {} places; most drops at: {}",
+        loot.items.len(),
+        loot.places.len(),
+        busiest
+            .iter()
+            .take(8)
+            .map(|(p, n)| format!("{} ({n})", loot.place(*p).name))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    assert!(
+        loot.items.len() > 100,
+        "items that drop somewhere on the map"
+    );
+    assert!(loot.places.len() > 20, "named places with loot");
+    assert!(
+        loot.items
+            .values()
+            .all(|d| !d.is_empty() && d.len() <= svc_data::loot::PER_ITEM)
+    );
+
     // ── Travel graph (Plans' trips, sc-travel) ─────────────────────────
     let travel = &cooked.ships.travel;
     eprintln!(

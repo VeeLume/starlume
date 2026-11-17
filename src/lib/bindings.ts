@@ -3469,7 +3469,12 @@ export type PartSource =
 /**
  * Crafted from its blueprint.
  */
-"craft"
+"craft" | 
+/**
+ * Looted from a container placed in the world (sc-loot's simulated
+ * drops).
+ */
+"loot"
 /**
  * A patch-note thread and what its title says.
  */
@@ -3717,12 +3722,13 @@ seconds: number | null;
 cost: number | null; 
 /**
  * Mining: the share of the rocks at the place that hold the ore at the
- * wanted quality.
+ * wanted quality. Looting: the chance the best container fill yields
+ * the part.
  */
 odds: number | null; 
 /**
  * How many places it can be done at (mining places, shops, missions,
- * refineries).
+ * refineries, places the part drops).
  */
 sources: number; 
 /**
@@ -4597,7 +4603,11 @@ export type StepKind =
 /**
  * A part no shop sells and no blueprint makes.
  */
-"find"
+"find" | 
+/**
+ * Loot a part from containers in the world.
+ */
+"loot"
 /**
  * One stack of a material you hold.
  */
@@ -4817,6 +4827,10 @@ export type TrackKind =
  * Take ore to a refinery and wait for it.
  */
 "refining" | 
+/**
+ * Loot parts from containers in the world.
+ */
+"looting" | 
 /**
  * Craft from what you hold.
  */
