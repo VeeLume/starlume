@@ -36,6 +36,17 @@ pub struct Inputs {
     pub loadouts: HashMap<String, LoadoutFacts>,
     /// By blueprint GUID.
     pub recipes: HashMap<String, RecipeFacts>,
+    /// The mining ship you would fly and its ore hold: a system's ore is
+    /// split into loads of this size. `None`: one load per system.
+    pub hold: Option<OreHold>,
+}
+
+/// A mining ship's ore hold, its pods as fitted.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OreHold {
+    /// The ship's name ("MISC Prospector").
+    pub ship: String,
+    pub scu: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -821,6 +832,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 plans: base.plans.clone(),
                 near: best.refine_at.clone(),
                 system: best.system.clone(),
+                scu: if row.bulk { row.short() } else { 0.0 },
                 refineries: found.refineries,
             });
         }
@@ -855,7 +867,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             },
         });
     }
-    refine_steps(&refines).into_iter().for_each(&mut push);
+    refine_steps(&refines, inputs.hold.as_ref())
+        .into_iter()
+        .for_each(&mut push);
 
     // Crafts: what the reserved stock covers now, and what still waits.
     let mut craft_now: HashMap<(&str, &str), u32> = HashMap::new();
@@ -1460,6 +1474,8 @@ struct ToRefine {
     near: Option<PlanPlace>,
     /// The system it is mined in: its load.
     system: Option<String>,
+    /// How much of it is mined, SCU (0 for a material not counted in SCU).
+    scu: f64,
     refineries: u32,
 }
 
@@ -1539,45 +1555,58 @@ fn choose_sites(ores: &[&[OreSite]]) -> Vec<Option<usize>> {
 /// The prefix of a refine step's id; the rest is its load's system.
 pub const REFINE: &str = "refine:";
 
-/// A run's ore is refined in the system it is mined in, at one refinery:
-/// one refine step a system, after the mining steps that feed it (Valerie,
-/// 2026-11-16/17: nobody splits a run over refineries across the system,
-/// nor carries it through a jump point). Ore mined off the map is a load
-/// of its own, at a refinery not known yet. Its refinery here is the first
-/// ore's area's.
+/// A run's ore is refined in the system it is mined in, one refine step a
+/// load, after the mining steps that feed it (Valerie, 2026-11-16/17:
+/// nobody splits a run over refineries across the system, nor carries it
+/// through a jump point). A load is what the mining ship's hold takes
+/// ([`Inputs::hold`]); without one, a system's ore is one load. Ore mined
+/// off the map is a load of its own, at a refinery not known yet. Its
+/// refinery here is the first ore's area's.
 /// [`crate::session::refine_after_mining`] moves each step beside the
 /// mining trip's last stop of its load once the trips are ordered. No
 /// amount of ore is named and no time: the game data has neither a yield
 /// nor a duration.
-fn refine_steps(ores: &[ToRefine]) -> Vec<PlanStep> {
-    let mut loads: Vec<(Option<&str>, Vec<&ToRefine>)> = Vec::new();
+fn refine_steps(ores: &[ToRefine], hold: Option<&OreHold>) -> Vec<PlanStep> {
+    let mut systems: Vec<(Option<&str>, Vec<&ToRefine>)> = Vec::new();
     for o in ores {
         let key = o.system.as_deref();
-        match loads.iter_mut().find(|(k, _)| *k == key) {
+        match systems.iter_mut().find(|(k, _)| *k == key) {
             Some((_, list)) => list.push(o),
-            None => loads.push((key, vec![o])),
+            None => systems.push((key, vec![o])),
         }
     }
-    loads
-        .into_iter()
-        .map(|(system, load)| {
-            let at = load.iter().find_map(|o| o.near.as_ref());
+    let mut out = Vec::new();
+    for (system, ores) in systems {
+        let at = ores.iter().find_map(|o| o.near.as_ref());
+        for (n, (load, holds)) in loads(&ores, hold).into_iter().enumerate() {
             let mut plans: Vec<String> = Vec::new();
             for p in load.iter().flat_map(|o| &o.plans) {
                 if !plans.contains(p) {
                     plans.push(p.clone());
                 }
             }
+            let materials = and(&load.iter().map(|o| o.material.clone()).collect::<Vec<_>>());
             let mut step = PlanStep {
-                id: format!("{REFINE}{}", system.unwrap_or("?")),
+                id: format!("{REFINE}{}:{n}", system.unwrap_or("?")),
                 kind: StepKind::Refine,
                 title: match load.as_slice() {
                     [one] => format!("Refine {}", one.ore),
                     _ => "Refine the ore".to_owned(),
                 },
-                detail: match load.as_slice() {
-                    [_] => String::new(),
-                    _ => and(&load.iter().map(|o| o.material.clone()).collect::<Vec<_>>()),
+                // The materials when they are not in the title, and how
+                // many holds of the ship it is.
+                detail: match (hold, load.len()) {
+                    (None, 1) => String::new(),
+                    (None, _) => materials,
+                    (Some(h), 1) => {
+                        format!("{} {} {}", count_word(holds), h.ship, loads_word(holds))
+                    }
+                    (Some(h), _) => format!(
+                        "{materials}, {} {} {}",
+                        count_word(holds),
+                        h.ship,
+                        loads_word(holds)
+                    ),
                 },
                 plans,
                 blocked: false,
@@ -1589,9 +1618,58 @@ fn refine_steps(ores: &[ToRefine]) -> Vec<PlanStep> {
                 after: load.iter().map(|o| o.mine.clone()).collect(),
             };
             place_refine(&mut step, at.cloned());
-            step
+            out.push(step);
+        }
+    }
+    out
+}
+
+/// One system's ore in loads of the hold, each with how many holds it
+/// fills: most ore first, each into the first load it still fits (an ore
+/// more than one hold holds is its own load, filling several). Without a
+/// hold, all of it is one load.
+fn loads<'a>(ores: &[&'a ToRefine], hold: Option<&OreHold>) -> Vec<(Vec<&'a ToRefine>, u32)> {
+    let Some(cap) = hold.map(|h| h.scu).filter(|c| *c > 0.0) else {
+        return vec![(ores.to_vec(), 1)];
+    };
+    let mut by_size = ores.to_vec();
+    by_size.sort_by(|a, b| b.scu.total_cmp(&a.scu));
+    let mut out: Vec<(Vec<&ToRefine>, f64, u32)> = Vec::new();
+    for o in by_size {
+        if o.scu > cap {
+            out.push((vec![o], o.scu, (o.scu / cap).ceil() as u32));
+            continue;
+        }
+        match out
+            .iter_mut()
+            .find(|(_, used, holds)| *holds == 1 && used + o.scu <= cap + 1e-9)
+        {
+            Some((load, used, _)) => {
+                load.push(o);
+                *used += o.scu;
+            }
+            None => out.push((vec![o], o.scu, 1)),
+        }
+    }
+    // Each load lists its ores in the order they were asked for.
+    out.into_iter()
+        .map(|(mut load, _, holds)| {
+            load.sort_by_key(|o| ores.iter().position(|x| std::ptr::eq(*x, *o)));
+            (load, holds)
         })
         .collect()
+}
+
+fn count_word(n: u32) -> String {
+    if n == 1 {
+        "one".to_owned()
+    } else {
+        n.to_string()
+    }
+}
+
+fn loads_word(n: u32) -> &'static str {
+    if n == 1 { "load" } else { "loads" }
 }
 
 /// Put the refine step at `at` (`None`: a refinery not known yet).
@@ -2215,6 +2293,80 @@ pub(crate) mod tests {
             [(
                 "Refine the ore at Station A".to_owned(),
                 "Iron and Tin".to_owned()
+            )]
+        );
+    }
+
+    /// Ores of the given SCU mined in one system, with the ship's hold.
+    fn held(amounts: Vec<(&'static str, f64)>, hold: Option<f64>) -> Board {
+        let mut inputs = Inputs {
+            hold: hold.map(|scu| OreHold {
+                ship: "Prospector".into(),
+                scu,
+            }),
+            ..Inputs::default()
+        };
+        inputs.recipes.insert(
+            "bp-1".into(),
+            recipe(true, amounts.iter().map(|(m, a)| slot(m, *a, 0)).collect()),
+        );
+        let ores = |material: &str, _: u32| OreSites {
+            sites: vec![OreSite {
+                at: at("Moon A"),
+                find: 0.3,
+                refine_at: Some(at("Station A")),
+                system: Some("Here".into()),
+            }],
+            mined: true,
+            ore: Some(format!("{material} (Ore)")),
+            refineries: 4,
+        };
+        derive(&craft_state(1, 0), &inputs, &ores)
+    }
+
+    /// A 32 SCU hold takes Iron and Gold (30) in one load; Tin no longer
+    /// fits and is the next. An ore more than a hold holds is its own load
+    /// of several holds.
+    #[test]
+    fn a_system_ore_splits_into_loads_of_the_hold() {
+        let board = held(
+            vec![("Iron", 20.0), ("Gold", 10.0), ("Tin", 8.0)],
+            Some(32.0),
+        );
+        assert_eq!(
+            refine_titles(&board),
+            [
+                (
+                    "Refine the ore at Station A".to_owned(),
+                    "Iron and Gold, one Prospector load".to_owned()
+                ),
+                (
+                    "Refine Tin (Ore) at Station A".to_owned(),
+                    "one Prospector load".to_owned()
+                ),
+            ]
+        );
+        let board = held(vec![("Iron", 70.0), ("Gold", 2.0)], Some(32.0));
+        assert_eq!(
+            refine_titles(&board),
+            [
+                (
+                    "Refine Iron (Ore) at Station A".to_owned(),
+                    "3 Prospector loads".to_owned()
+                ),
+                (
+                    "Refine Gold (Ore) at Station A".to_owned(),
+                    "one Prospector load".to_owned()
+                ),
+            ]
+        );
+        // Without a hold, the system's ore is one load.
+        let board = held(vec![("Iron", 70.0), ("Gold", 2.0)], None);
+        assert_eq!(
+            refine_titles(&board),
+            [(
+                "Refine the ore at Station A".to_owned(),
+                "Iron and Gold".to_owned()
             )]
         );
     }
