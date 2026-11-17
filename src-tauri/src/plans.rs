@@ -1003,30 +1003,36 @@ impl Gathered<'_> {
         let grants = entry
             .granted_by
             .iter()
-            .map(|g| Grant {
-                title: g.title.clone(),
-                at: self
+            .map(|g| {
+                let mission = self
                     .cooked
                     .missions
                     .iter()
-                    .find(|m| m.mission_id == g.mission_id)
-                    .map(|m| {
-                        m.locations
-                            .iter()
-                            .map(|region| {
-                                let name = if region.name.is_empty() {
-                                    &region.system
-                                } else {
-                                    &region.name
-                                };
-                                PlanPlace {
-                                    name: name.clone(),
-                                    site: sites.of_names([region.name.as_str()]),
-                                }
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                    .find(|m| m.mission_id == g.mission_id);
+                Grant {
+                    title: g.title.clone(),
+                    minutes: mission
+                        .map(|m| m.payout.time_to_complete)
+                        .filter(|m| *m > 0.0),
+                    at: mission
+                        .map(|m| {
+                            m.locations
+                                .iter()
+                                .map(|region| {
+                                    let name = if region.name.is_empty() {
+                                        &region.system
+                                    } else {
+                                        &region.name
+                                    };
+                                    PlanPlace {
+                                        name: name.clone(),
+                                        site: sites.of_names([region.name.as_str()]),
+                                    }
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                }
             })
             .collect();
         // Crafted copies that are free to use (not on a ship, not in one,

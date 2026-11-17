@@ -105,6 +105,33 @@ fn cook_from_real_install() {
             .all(|d| !d.is_empty() && d.len() <= svc_data::loot::PER_ITEM)
     );
 
+    // ── Mission minutes (Plans' earn steps, CIG's time_to_complete) ────
+    let blueprints = service
+        .blueprints(&install)
+        .expect("the cook writes blueprints");
+    let granting: std::collections::HashSet<&str> = blueprints
+        .blueprints
+        .iter()
+        .flat_map(|b| b.granted_by.iter().map(|g| g.mission_id.as_str()))
+        .collect();
+    let mut minutes: Vec<f32> = cooked
+        .missions
+        .iter()
+        .filter(|m| granting.contains(m.mission_id.as_str()))
+        .map(|m| m.payout.time_to_complete)
+        .filter(|t| *t > 0.0)
+        .collect();
+    minutes.sort_by(f32::total_cmp);
+    eprintln!(
+        "mission minutes: {} of {} granting missions have one; min {:?}, median {:?}, max {:?}",
+        minutes.len(),
+        granting.len(),
+        minutes.first(),
+        minutes.get(minutes.len() / 2),
+        minutes.last()
+    );
+    assert!(!minutes.is_empty(), "granting missions carry CIG's minutes");
+
     // ── Travel graph (Plans' trips, sc-travel) ─────────────────────────
     let travel = &cooked.ships.travel;
     eprintln!(
