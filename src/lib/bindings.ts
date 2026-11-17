@@ -3745,7 +3745,13 @@ parts: number;
  * Mining: the rocks it takes, where the data gives the ore a rock
  * holds.
  */
-rocks: Rocks | null }
+rocks: Rocks | null; 
+/**
+ * Mining: the SCU it mines of a bulk material, as ore where a refinery
+ * makes the material (the shortfall over `REFINE_YIELD`); 0 for any
+ * other step.
+ */
+scu: number }
 /**
  * Where a plan's goal lives in the app, for the board's "open" link.
  */

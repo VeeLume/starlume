@@ -210,7 +210,7 @@ export function ago(unixSeconds: number, now: number): string {
 // grouped into runs (a shopping run, a mining load ending at its refinery).
 // Distance leads, the number the quantum marker shows; every time names
 // its source ("flying" is sc-travel's estimate, "crafting" the game data);
-// mining and refining have none, so they show a dash.
+// mining shows its counts (rocks, SCU), refining a dash.
 
 export type Focus = { kind: "activity"; track: TrackKind } | { kind: "plan"; plan: string };
 
@@ -362,8 +362,14 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus, origin
     const known = mines.every((s) => s.rocks);
     const scan = mines.reduce((n, s) => n + (s.rocks?.toScan ?? 0), 0);
     tiles.push(known ? { value: `~${scan}`, label: "rocks to scan" } : { value: "—", label: "mining" });
+    // The SCU to mine: ore, where a refinery makes the material (Rust
+    // applies the refining yield).
+    const scu = mines.reduce((n, s) => n + s.scu, 0);
+    if (scu > 0) tiles.push({ value: amount({ bulk: true }, scu), label: "SCU to mine" });
   }
-  if (steps.some((s) => s.kind === "refine")) tiles.push({ value: "—", label: "refinery" });
+  // Refining time is not in the data: a dash, unless the load's own
+  // figures already fill the card.
+  if (!mines.length && steps.some((s) => s.kind === "refine")) tiles.push({ value: "—", label: "refinery" });
   if (steps.some((s) => s.kind === "loot")) tiles.push({ value: "—", label: "looting" });
   // A shopping run: the parts it buys and what they cost.
   const buys = steps.filter((s) => s.kind === "buy");

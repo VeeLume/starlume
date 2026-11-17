@@ -155,6 +155,7 @@ describe("a plan's steps", () => {
     after,
     parts: 0,
     rocks: null,
+    scu: 0,
   });
   const all = [
     step("mine-iron", "mine", ["a"], "moon"),
@@ -191,6 +192,7 @@ describe("a session focus", () => {
     after: [],
     parts: 0,
     rocks: null,
+    scu: 0,
     ...more,
   });
   const at = (site: string, l: TripStop["leg"], ids: [string, StepKind][]): TripStop => ({
@@ -226,8 +228,8 @@ describe("a session focus", () => {
       tiles: [
         { value: "~8 min", label: "flying" },
         { value: "—", label: "mining" },
-        { value: "—", label: "refinery" },
         { value: "2", label: "plans" },
+        { value: "3", label: "steps" },
       ],
       route: "Place m1 → Place m2",
     });
@@ -253,11 +255,14 @@ describe("a session focus", () => {
 
   it("counts rocks for mining, and parts and aUEC for a shopping run", () => {
     const rocks = [
-      ps("m1", "mine", ["a"], "m1", { rocks: { toBreak: 4, toScan: 15 } }),
-      ps("m2", "mine", ["b"], "m2", { rocks: { toBreak: 1, toScan: 5 } }),
+      ps("m1", "mine", ["a"], "m1", { rocks: { toBreak: 4, toScan: 15 }, scu: 9.5 }),
+      ps("m2", "mine", ["b"], "m2", { rocks: { toBreak: 1, toScan: 5 }, scu: 2 }),
     ];
     const mining = focusView(rocks, tracks, { kind: "activity", track: "mining" });
-    expect(mining.card.tiles[1]).toEqual({ value: "~20", label: "rocks to scan" });
+    expect(mining.card.tiles.slice(1, 3)).toEqual([
+      { value: "~20", label: "rocks to scan" },
+      { value: "12", label: "SCU to mine" },
+    ]);
     expect(stepFigure(rocks[0])).toBe("4 of ~15 rocks");
 
     const buys = [

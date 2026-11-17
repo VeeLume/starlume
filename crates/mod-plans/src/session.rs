@@ -483,6 +483,7 @@ mod tests {
             after: Vec::new(),
             parts: 0,
             rocks: None,
+            scu: 0.0,
         }
     }
 

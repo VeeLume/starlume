@@ -295,7 +295,16 @@ pub struct PlanStep {
     /// Mining: the rocks it takes, where the data gives the ore a rock
     /// holds.
     pub rocks: Option<Rocks>,
+    /// Mining: the SCU it mines of a bulk material, as ore where a refinery
+    /// makes the material (the shortfall over `REFINE_YIELD`); 0 for any
+    /// other step.
+    pub scu: f64,
 }
+
+/// The share of mined ore a refinery gives back as the material. The game
+/// data has no yield (the yield types have no records); this is Valerie's
+/// in-game figure (2026-11-17), to stand until a better source exists.
+pub const REFINE_YIELD: f64 = 0.5;
 
 /// The rocks a mining step takes (Valerie, 2026-11-17: a count of rocks
 /// in place of a mining time the data cannot give).
@@ -797,6 +806,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                         after: Vec::new(),
                         parts: 0,
                         rocks: None,
+                        scu: 0.0,
                     },
                     1,
                 ));
@@ -824,6 +834,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             after: Vec::new(),
                             parts: 0,
                             rocks: None,
+                            scu: 0.0,
                         });
                         buy_lines.push(Vec::new());
                         buys.len() - 1
@@ -862,6 +873,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             after: Vec::new(),
                             parts: 0,
                             rocks: None,
+                            scu: 0.0,
                         },
                         Vec::new(),
                     )
@@ -900,6 +912,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             after: Vec::new(),
                             parts: 0,
                             rocks: None,
+                            scu: 0.0,
                         },
                         1,
                     )),
@@ -920,6 +933,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     after: Vec::new(),
                     parts: 0,
                     rocks: None,
+                    scu: 0.0,
                 });
             }
         }
@@ -1024,6 +1038,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             after: Vec::new(),
             parts: 0,
             rocks: None,
+            scu: 0.0,
         });
     }
     earns.into_iter().for_each(&mut push);
@@ -1046,7 +1061,13 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     for ((row, found), pick) in short.iter().zip(picks) {
         let row = *row;
         let best = pick.map(|i| &found.sites[i]);
-        let amount = amount(row.short(), row.bulk);
+        // A refined material is mined as ore, about twice its weight.
+        let mined = if found.ore.is_some() {
+            row.short() / REFINE_YIELD
+        } else {
+            row.short()
+        };
+        let amount = amount(mined, row.bulk);
         let grade = quality_suffix(row.min_quality);
         let id = format!("mine:{}:{}:{}", row.material, row.min_quality, row.bulk);
         let base = PlanStep {
@@ -1077,6 +1098,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             after: Vec::new(),
             parts: 0,
             rocks: None,
+            scu: 0.0,
         };
         // A refined material is mined as its ore and goes to its area's
         // refinery (below).
@@ -1088,7 +1110,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 plans: base.plans.clone(),
                 near: best.refine_at.clone(),
                 system: best.system.clone(),
-                scu: if row.bulk { row.short() } else { 0.0 },
+                scu: if row.bulk { mined } else { 0.0 },
                 refineries: found.refineries,
             });
         }
@@ -1108,15 +1130,21 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 odds: Some(best.find),
                 // Bulk only: a counted material is no share of a rock.
                 rocks: if row.bulk {
-                    rocks(row.short(), best.find, best.ore_scu)
+                    rocks(mined, best.find, best.ore_scu)
                 } else {
                     None
                 },
+                scu: if row.bulk { mined } else { 0.0 },
                 ..base
             },
             None => PlanStep {
                 kind: StepKind::Gather,
-                title: format!("Get {amount} {}{grade}", row.material),
+                // Not mined: the material itself, as the plans need it.
+                title: format!(
+                    "Get {} {}{grade}",
+                    self::amount(row.short(), row.bulk),
+                    row.material
+                ),
                 detail: if found.mined {
                     format!(
                         "No ship mining place rolls it at Q{} or better",
@@ -1183,6 +1211,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 after: Vec::new(),
                 parts: 0,
                 rocks: None,
+                scu: 0.0,
             });
         }
         let rest = craft.left - can;
@@ -1215,6 +1244,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 after: Vec::new(),
                 parts: 0,
                 rocks: None,
+                scu: 0.0,
             });
         }
     }
@@ -1975,6 +2005,7 @@ fn refine_steps(ores: &[ToRefine], hold: Option<&OreHold>) -> Vec<PlanStep> {
                 after: load.iter().map(|o| o.mine.clone()).collect(),
                 parts: 0,
                 rocks: None,
+                scu: 0.0,
             };
             place_refine(&mut step, at.cloned());
             out.push(step);
@@ -2379,6 +2410,23 @@ pub(crate) mod tests {
                 to_scan: 10
             })
         );
+        assert_eq!(mine.scu, 2.0);
+
+        // A refined material is mined as its ore, at the refining yield.
+        let refined = |m: &str, q: u32| OreSites {
+            ore: Some("Ore A (Ore)".into()),
+            refineries: 1,
+            ..ores(m, q)
+        };
+        let board = derive(&craft_state(1, 0), &inputs, &refined);
+        let mine = board
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Mine)
+            .unwrap();
+        assert_eq!(mine.scu, 4.0);
+        assert_eq!(mine.title, "Mine 4 SCU Ore A");
+        assert_eq!(mine.rocks.map(|r| r.to_break), Some(10));
 
         let board = derive(&loadout_state(), &three_sources(), &no_ores);
         assert_eq!(board.steps[0].kind, StepKind::Buy);
@@ -2704,8 +2752,9 @@ pub(crate) mod tests {
         assert_eq!(refine.plans, mine.plans);
         assert_eq!(refine.sources, 4);
         assert!(!refine.blocked);
-        // Mining comes first in the plan's note.
-        assert_eq!(board.plans[0].note, "Next: mine 2 SCU Metal, Q700+");
+        // Mining comes first in the plan's note: twice the 2 SCU wanted,
+        // as ore refines at about half.
+        assert_eq!(board.plans[0].note, "Next: mine 4 SCU Metal, Q700+");
     }
 
     /// A place an ore is mined at: (place, find, its refinery, its
@@ -2875,7 +2924,7 @@ pub(crate) mod tests {
     #[test]
     fn a_system_ore_splits_into_loads_of_the_hold() {
         let board = held(
-            vec![("Iron", 20.0), ("Gold", 10.0), ("Tin", 8.0)],
+            vec![("Iron", 10.0), ("Gold", 5.0), ("Tin", 4.0)],
             Some(32.0),
         );
         assert_eq!(
@@ -2891,7 +2940,7 @@ pub(crate) mod tests {
                 ),
             ]
         );
-        let board = held(vec![("Iron", 70.0), ("Gold", 2.0)], Some(32.0));
+        let board = held(vec![("Iron", 35.0), ("Gold", 1.0)], Some(32.0));
         assert_eq!(
             refine_titles(&board),
             [
@@ -2906,7 +2955,7 @@ pub(crate) mod tests {
             ]
         );
         // Without a hold, the system's ore is one load.
-        let board = held(vec![("Iron", 70.0), ("Gold", 2.0)], None);
+        let board = held(vec![("Iron", 35.0), ("Gold", 1.0)], None);
         assert_eq!(
             refine_titles(&board),
             [(
