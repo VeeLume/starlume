@@ -27,7 +27,9 @@ export const moduleRegistry: ModuleDescriptor[] = [
   miningModule,
   shipsModule,
   craftingModule,
-  ...(SHOW_UNRELEASED ? [contractsModule, sessionModule, plansModule] : []),
+  ...(SHOW_UNRELEASED ? [contractsModule] : []),
+  sessionModule,
+  plansModule,
 ];
 
 export function moduleById(id: string): ModuleDescriptor | undefined {

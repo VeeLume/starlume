@@ -5,7 +5,6 @@
 // what Ships, Crafting, My Items and Mining already hold, so the unofficial
 // features below are theirs (all optional: without a read of your inventory
 // every step is still shown, as if you held nothing).
-// Unreleased: see registry.ts.
 
 import { Target } from "lucide-svelte";
 import type { ModuleDescriptor } from "../types";

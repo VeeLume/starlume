@@ -4,9 +4,9 @@
 
 ## [0.6.0] - 2026-11-17
 
-Starlume gets a crafting module, Ships and Mining try a part as crafted, and
-My Items opens on what you care about. Game data is rebuilt once on the first
-start after updating.
+Starlume gets Crafting, Plans and a Session Log, Ships and Mining try a part
+as crafted, and My Items opens on what you care about. Game data is rebuilt
+once on the first start after updating.
 
 - **Crafting** — every blueprint in the game, the ones you own and want
   marked. One field narrows the catalog by type, kind, weight or class, then
@@ -15,6 +15,19 @@ start after updating.
   item comes out as, what you hold towards it and the missions that grant
   it. It reads your game install; which blueprints you own comes from your
   account when online features and its unofficial-API feature are allowed.
+- **Plans** — set a goal, a saved loadout on its ship or an item crafted at
+  a quality, and Plans lists what your inventory leaves open: parts to fit,
+  buy, loot or craft, ore to mine and refine, missions that grant a
+  blueprint. One materials list covers every plan. The next session picks a
+  kind of work or one plan and lays out its stops in order, with distance
+  and flying time; mining shows the rocks to scan and the SCU to mine.
+  Mining figures assume a refinery gives back about half the ore.
+- **Session Log** — each time you play becomes a timeline of shards,
+  places, missions and purchases, with your aUEC balance at the start and
+  now. It reads the game's own log and the game's telemetry on this PC,
+  each an opt-in under Settings → Game data, which can also set up what the
+  game needs to send its telemetry. Nothing is sent anywhere; past sessions
+  stay on this computer.
 - **My Items opens on your gear** — every place leads with what you crafted,
   your full armour sets and your kitted weapons. A place that holds nothing of
   its own lists the storages below it, biggest first.

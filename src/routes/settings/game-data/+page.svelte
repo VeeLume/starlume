@@ -18,7 +18,6 @@
     wipe,
   } from "$lib/state/data.svelte";
   import { activityFor, activityLabel } from "$lib/state/activities.svelte";
-  import { SHOW_UNRELEASED } from "$lib/unreleased";
   import {
     installTelemetryEnv,
     telemetryStore,
@@ -232,8 +231,7 @@
     </Settings.Row>
   </Settings.Section>
 
-  <!-- Unreleased: nothing shows what is read yet (session log, presence). -->
-  {#if settings && SHOW_UNRELEASED}
+  {#if settings}
     <Settings.Section title="Game log">
       <Settings.Row
         label="Follow the game's log"
@@ -248,8 +246,7 @@
     </Settings.Section>
   {/if}
 
-  <!-- Unreleased: nothing shows what is read yet (wallet, session log). -->
-  {#if settings && SHOW_UNRELEASED}
+  {#if settings}
     <Settings.Section title="Live telemetry">
       <Settings.Row
         label="Read the game's telemetry"

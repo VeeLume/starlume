@@ -949,10 +949,9 @@ mod tests {
     }
 
     #[test]
-    fn the_module_is_offered_by_a_debug_build() {
-        // The release half of the registry leaves it out, and `gates` then
-        // reads the module as off whatever the settings say.
-        assert_eq!(offered(), cfg!(debug_assertions));
+    fn the_module_is_offered_by_every_build() {
+        // Shipped in v0.6.0: both halves of the registry list it.
+        assert!(offered());
     }
 
     #[test]
