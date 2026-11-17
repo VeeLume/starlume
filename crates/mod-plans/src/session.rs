@@ -405,6 +405,27 @@ pub fn sort_steps(steps: &mut [PlanStep], tracks: &Tracks) {
         })
         .collect();
     steps.sort_by_key(|s| keys[&s.id]);
+    // A load's refining reads right after its mining, waiting or not: the
+    // ore goes from the last rock to the refinery.
+    let refines: Vec<String> = steps
+        .iter()
+        .filter(|s| s.kind == StepKind::Refine && !s.after.is_empty())
+        .map(|s| s.id.clone())
+        .collect();
+    for id in refines {
+        let Some(at) = steps.iter().position(|s| s.id == id) else {
+            continue;
+        };
+        let after = &steps[at].after;
+        let Some(last) = steps.iter().rposition(|s| after.contains(&s.id)) else {
+            continue;
+        };
+        if last > at {
+            steps[at..=last].rotate_left(1);
+        } else {
+            steps[last + 1..=at].rotate_right(1);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -600,6 +621,30 @@ mod tests {
             kinds,
             [TrackKind::Mining, TrackKind::Refining, TrackKind::Crafting]
         );
+    }
+
+    /// Each load's refining reads right after its own mining, not after
+    /// every ready step (the playtest list put both refineries below a
+    /// mission).
+    #[test]
+    fn a_load_refines_right_after_its_mining() {
+        let mut refine_x = step("refine:x", StepKind::Refine, Some("a"));
+        refine_x.after = vec!["m1".into()];
+        let mut refine_y = step("refine:y", StepKind::Refine, Some("c"));
+        refine_y.after = vec!["m2".into(), "m3".into()];
+        let mut steps = vec![
+            step("earn", StepKind::Earn, Some("b")),
+            refine_y,
+            refine_x,
+            step("m3", StepKind::Mine, Some("c")),
+            step("m2", StepKind::Mine, Some("b")),
+            step("m1", StepKind::Mine, Some("a")),
+        ];
+        let t = tracks(&steps, &sites(), None, Some(&Backwards));
+        sort_steps(&mut steps, &t);
+        let ids: Vec<&str> = steps.iter().map(|s| s.id.as_str()).collect();
+        // The stops listed c, b, a, flown backwards: m1, then m2 and m3.
+        assert_eq!(ids, ["m1", "refine:x", "m2", "m3", "refine:y", "earn"]);
     }
 
     /// The refinery moves beside the mining trip's last stop: flown
