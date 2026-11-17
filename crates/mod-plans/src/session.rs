@@ -341,28 +341,33 @@ pub fn tracks(
     Tracks { tracks: out, next }
 }
 
-/// Move the run's refine step beside the mining trip's last stop: the
-/// ore is flown from there to the refinery `near` that stop (the shell's
-/// nearest, in its system). Nothing changes while the mining trip has no
-/// stop on the map or `near` knows none.
+/// Move each load's refine step beside the last stop the mining trip makes
+/// for that load: its ore is flown from there to the refinery `near` that
+/// stop (the shell's nearest, in its system). A load whose mining has no
+/// stop on the trip, or whose last stop `near` knows no refinery for,
+/// keeps its area's.
 pub fn refine_after_mining(
     steps: &mut [PlanStep],
     tracks: &Tracks,
     near: &dyn Fn(&str) -> Option<PlanPlace>,
 ) {
-    let Some(last) = tracks
+    let Some(trip) = tracks
         .tracks
         .iter()
         .find(|t| t.kind == TrackKind::Mining)
-        .and_then(|t| t.trip.stops.last())
+        .map(|t| &t.trip)
     else {
         return;
     };
-    let Some(at) = near(&last.site) else {
-        return;
-    };
-    if let Some(step) = steps.iter_mut().find(|s| s.id == REFINE) {
-        place_refine(step, Some(at));
+    for step in steps.iter_mut().filter(|s| s.id.starts_with(REFINE)) {
+        let last = trip
+            .stops
+            .iter()
+            .rev()
+            .find(|stop| stop.steps.iter().any(|s| step.after.contains(&s.id)));
+        if let Some(at) = last.and_then(|stop| near(&stop.site)) {
+            place_refine(step, Some(at));
+        }
     }
 }
 
@@ -601,7 +606,7 @@ mod tests {
     /// backwards, c then b then a, so the one nearest a.
     #[test]
     fn the_refinery_follows_the_last_mining_stop() {
-        let mut refine = step(REFINE, StepKind::Refine, Some("c"));
+        let mut refine = step(&format!("{REFINE}c"), StepKind::Refine, Some("c"));
         refine.title = "Refine the ore at Place c".into();
         refine.after = vec!["m1".into(), "m2".into(), "m3".into()];
         let mut steps = vec![
@@ -618,7 +623,7 @@ mod tests {
             })
         };
         refine_after_mining(&mut steps, &t, &near);
-        let refine = steps.iter().find(|s| s.id == REFINE).unwrap();
+        let refine = steps.iter().find(|s| s.id.starts_with(REFINE)).unwrap();
         assert_eq!(refine.title, "Refine the ore at Refinery by a");
         assert_eq!(
             refine.at.as_ref().and_then(|p| p.site.as_deref()),

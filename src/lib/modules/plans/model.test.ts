@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { LedgerRow, Track, Trip, TripStop } from "$lib/bindings";
-import { ago, amount, clock, ledgerBars, span, stepFigure, stopsText, timeText, timeline, trackNote } from "./model";
+import type { LedgerRow, PlanStep, Track, Trip, TripStop } from "$lib/bindings";
+import { ago, amount, clock, ledgerBars, planSteps, span, stepFigure, stopsText, timeText, timeline, trackNote } from "./model";
 
 const stop = (site: string, leg: TripStop["leg"], titles: string[]): TripStop => ({
   site,
@@ -135,5 +135,39 @@ describe("the ledger", () => {
     expect(amount({ bulk: true }, 2.5)).toBe("2.5");
     expect(amount({ bulk: true }, 0.06)).toBe("0.06");
     expect(amount({ bulk: false }, 3)).toBe("3");
+  });
+});
+
+describe("a plan's steps", () => {
+  const step = (id: string, kind: PlanStep["kind"], plans: string[], site: string | null, after: string[] = []): PlanStep => ({
+    id,
+    kind,
+    title: id,
+    detail: "",
+    plans,
+    blocked: false,
+    at: site ? { name: site, site } : null,
+    seconds: null,
+    cost: null,
+    odds: null,
+    sources: 1,
+    after,
+  });
+  const all = [
+    step("mine-iron", "mine", ["a"], "moon"),
+    step("mine-ice", "mine", ["b"], "moon"),
+    step("mine-tin", "mine", ["b"], "ring"),
+    step("mine-far", "mine", ["b"], "elsewhere"),
+    step("refine", "refine", ["a", "b"], "station", ["mine-iron", "mine-ice", "mine-tin"]),
+    step("craft-b", "craft", ["b"], null),
+  ];
+  it("shows another plan's mining in the same load, dimmer", () => {
+    const shown = planSteps(all, "a").map((s) => [s.step.id, s.other]);
+    expect(shown).toEqual([
+      ["mine-iron", false],
+      ["mine-ice", true],
+      ["mine-tin", true],
+      ["refine", false],
+    ]);
   });
 });

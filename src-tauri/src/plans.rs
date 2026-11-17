@@ -504,6 +504,24 @@ impl Sites {
                 .entry(svc_uex::norm(&s.name))
                 .or_insert_with(|| s.id.clone());
         }
+        // Shown with its system when another system has a place of the
+        // same name: each gateway station is in two systems ("Pyro Gateway
+        // (Stanton)", "Pyro Gateway (Nyx)"). Lookups above keep the bare
+        // name.
+        let shared: Vec<bool> = sites
+            .iter()
+            .map(|s| {
+                sites
+                    .iter()
+                    .any(|o| o.name == s.name && o.system != s.system)
+            })
+            .collect();
+        let mut sites = sites;
+        for (s, shared) in sites.iter_mut().zip(shared) {
+            if shared {
+                s.name = format!("{} ({})", s.name, s.system);
+            }
+        }
         Self {
             sites,
             ids,
@@ -1035,17 +1053,19 @@ impl Gathered<'_> {
             let mined = !at_quality.is_empty() || (quality > 0 && !found(0).is_empty());
             // The refinery nearest to a place; to you when the place is
             // unknown or its system has none.
+            // The refinery nearest to a place on the map, in its system: the
+            // area its ore is mined and refined in. None for a place off
+            // the map (a ring without a marker): where you stand says
+            // nothing about where the ring is.
             let refine_at = |site: Option<&str>| {
-                let near = |from: &str| {
+                site.and_then(|from| {
                     mod_plans::session::nearest(
                         &sites.sites,
                         from,
                         refineries.iter().map(String::as_str),
                     )
-                };
-                site.and_then(near)
-                    .or_else(|| start.and_then(near))
-                    .and_then(|id| sites.place(id))
+                })
+                .and_then(|id| sites.place(id))
             };
             let mut found: Vec<OreSite> = at_quality
                 .into_iter()
@@ -1080,7 +1100,7 @@ impl Gathered<'_> {
                         .map(|(_, p)| p.name.clone());
                     let site = at.map(|(site, _)| site.clone());
                     OreSite {
-                        refine_at: ore.as_ref().and_then(|_| refine_at(site.as_deref())),
+                        refine_at: refine_at(site.as_deref()),
                         at: PlanPlace {
                             site,
                             name: name.unwrap_or(s.name),

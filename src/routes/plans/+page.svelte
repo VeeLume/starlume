@@ -25,6 +25,7 @@
     ago,
     amount,
     ledgerBars,
+    planSteps,
     stepFigure,
     stopsText,
     timeText,
@@ -110,7 +111,7 @@
   /** The plan as stored: its own name (the board's is the shown one). */
   const stored = $derived(plansStore.plans?.find((p) => p.id === plan?.id) ?? null);
   const isFocus = $derived(!!plan && board?.plans[0]?.id === plan.id);
-  const steps = $derived((board?.steps ?? []).filter((s) => plan && s.plans.includes(plan.id)));
+  const steps = $derived(plan ? planSteps(board?.steps ?? [], plan.id) : []);
   /** The tracks the board has, in the card's order. */
   const tracksShown = $derived(TRACKS.filter((t) => board?.tracks.tracks.some((x) => x.kind === t.id)));
   const current = $derived(
@@ -427,15 +428,15 @@
             </p>
           {:else}
             <div class="rows">
-              {#each steps as s (s.id)}
-                <div class="step k-{s.kind}" class:blocked={s.blocked}>
+              {#each steps as { step: s, other } (s.id)}
+                <div class="step k-{s.kind}" class:blocked={s.blocked} class:other>
                   <PlanGlyph shape={STEP_SHAPE[s.kind]} />
                   <span class="text">
                     <span class="step-title">{s.title}</span>
                     <span class="step-sub">
                       <span class="hue-chip" class:wait={s.blocked}>{s.blocked ? "blocked" : KIND_TEXT[s.kind]}</span>
                       <span>{s.detail}</span>
-                      {#if s.plans.length > 1}
+                      {#if s.plans.length > 1 || other}
                         {#each s.plans as p (p)}<span class="tag">{names.get(p) ?? p}</span>{/each}
                       {/if}
                     </span>
@@ -968,6 +969,14 @@
     border-bottom: 1px solid var(--border);
   }
   .step.blocked {
+    opacity: 0.6;
+  }
+  /* Another plan's mining in the same load: there, but not this plan's. */
+  .step.other .step-title {
+    color: var(--text-dim);
+    font-weight: var(--weight-medium);
+  }
+  .step.other :global(svg) {
     opacity: 0.6;
   }
   .text {

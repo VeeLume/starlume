@@ -40,6 +40,18 @@ export const KIND_TEXT: Record<StepKind, string> = {
   find: "find",
 };
 
+/** The steps a plan shows: its own, and other plans' mining in the same
+ *  load (feeding a refine step it shows, or at a place it mines at): one
+ *  run mines them anyway, so they show beside its own, dimmer. Board
+ *  order. */
+export function planSteps(all: PlanStep[], plan: string): { step: PlanStep; other: boolean }[] {
+  const own = all.filter((s) => s.plans.includes(plan));
+  const feeds = new Set(own.filter((s) => s.kind === "refine").flatMap((s) => s.after));
+  const sites = new Set(own.filter((s) => s.kind === "mine").flatMap((s) => (s.at?.site ? [s.at.site] : [])));
+  const near = (s: PlanStep) => s.kind === "mine" && (feeds.has(s.id) || (!!s.at?.site && sites.has(s.at.site)));
+  return all.filter((s) => s.plans.includes(plan) || near(s)).map((step) => ({ step, other: !step.plans.includes(plan) }));
+}
+
 export function lowerFirst(text: string): string {
   return text ? text[0].toLowerCase() + text.slice(1) : text;
 }
