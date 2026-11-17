@@ -80,9 +80,11 @@ export function gm(value: number): string {
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} Gm`;
 }
 
-/** What the step's right-hand figure says: its craft time or its price.
- *  Empty when the data gives neither. */
-export function stepFigure(step: Pick<PlanStep, "seconds" | "cost">): string {
+/** What the step's right-hand figure says: its craft time, CIG's minutes
+ *  for the shortest mission that grants a blueprint, or its price. Empty
+ *  when the data gives none. */
+export function stepFigure(step: Pick<PlanStep, "seconds" | "cost"> & { kind?: StepKind }): string {
+  if (step.seconds != null && step.kind === "earn") return `≈${Math.round(step.seconds / 60)} min CIG`;
   if (step.seconds != null) return clock(step.seconds);
   if (step.cost != null) return `${Math.round(step.cost).toLocaleString("en-US")} aUEC`;
   return "";
@@ -334,9 +336,12 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus): Focus
 
   const steps = runs.flatMap((r) => r.steps.map((f) => f.step));
   const crafting = steps.filter((s) => s.kind === "craft").reduce((n, s) => n + (s.seconds ?? 0), 0);
+  // CIG's duration for each blueprint's shortest granting mission.
+  const missions = steps.filter((s) => s.kind === "earn").reduce((n, s) => n + (s.seconds ?? 0), 0);
   const tiles: FocusTile[] = [];
   if (total.stops.length && total.flying != null && total.flying > 0) tiles.push({ value: `~${span(total.flying)}`, label: "flying" });
   if (crafting > 0) tiles.push({ value: clock(crafting), label: "crafting" });
+  if (missions > 0) tiles.push({ value: `≈${span(missions)}`, label: "missions, CIG's estimate" });
   if (steps.some((s) => s.kind === "mine")) tiles.push({ value: "—", label: "mining" });
   if (steps.some((s) => s.kind === "refine")) tiles.push({ value: "—", label: "refinery" });
   if (steps.some((s) => s.kind === "loot")) tiles.push({ value: "—", label: "looting" });

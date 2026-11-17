@@ -53,6 +53,7 @@ describe("a step's figure", () => {
     expect(stepFigure({ seconds: 510, cost: null })).toBe("8:30");
     expect(stepFigure({ seconds: null, cost: 41300 })).toBe("41,300 aUEC");
     expect(stepFigure({ seconds: null, cost: null })).toBe("");
+    expect(stepFigure({ seconds: 1200, cost: null, kind: "earn" })).toBe("≈20 min CIG");
   });
 });
 

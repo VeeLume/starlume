@@ -204,6 +204,9 @@ pub struct QualityBand {
 pub struct Grant {
     pub title: String,
     pub at: Vec<PlanPlace>,
+    /// CIG's duration for the mission, the one its payout assumes
+    /// (`time_to_complete`), in minutes; `None` when it has none.
+    pub minutes: Option<f32>,
 }
 
 /// Where an ore can be ship-mined at a quality.
@@ -269,8 +272,9 @@ pub struct PlanStep {
     pub plans: Vec<String>,
     pub blocked: bool,
     pub at: Option<PlanPlace>,
-    /// Time the step itself takes, where the data gives one (a recipe's
-    /// craft time).
+    /// Time the step itself takes, where the data gives one: a recipe's
+    /// craft time; for an earn step, CIG's estimate for the shortest
+    /// mission that grants the blueprint.
     pub seconds: Option<f64>,
     /// aUEC.
     pub cost: Option<f64>,
@@ -958,7 +962,12 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 .find(|w| w.site.is_some())
                 .or_else(|| grants.iter().flat_map(|g| &g.at).next())
                 .cloned(),
-            seconds: None,
+            // The shortest granting mission, by CIG's own estimate.
+            seconds: grants
+                .iter()
+                .filter_map(|g| g.minutes)
+                .min_by(f32::total_cmp)
+                .map(|m| f64::from(m) * 60.0),
             cost: None,
             odds: None,
             sources: grants.len() as u32,
@@ -2418,10 +2427,12 @@ pub(crate) mod tests {
             Grant {
                 title: "Run One".into(),
                 at: vec![at("Planet One")],
+                minutes: Some(45.0),
             },
             Grant {
                 title: "Run Two".into(),
                 at: vec![],
+                minutes: Some(20.0),
             },
         ];
         inputs.recipes.insert("bp-1".into(), widget);
@@ -2446,6 +2457,7 @@ pub(crate) mod tests {
         assert_eq!(earn.title, "Earn the Widget blueprint");
         assert_eq!(earn.detail, "2 missions grant it");
         assert_eq!(earn.at, Some(at("Planet One")));
+        assert_eq!(earn.seconds, Some(20.0 * 60.0), "the shortest mission");
 
         // The plan's Q700 lifts both slots: Ore B at Q100 no longer counts.
         let mine = by_kind(StepKind::Mine);

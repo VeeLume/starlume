@@ -3712,8 +3712,9 @@ detail: string;
  */
 plans: string[]; blocked: boolean; at: PlanPlace | null; 
 /**
- * Time the step itself takes, where the data gives one (a recipe's
- * craft time).
+ * Time the step itself takes, where the data gives one: a recipe's
+ * craft time; for an earn step, CIG's estimate for the shortest
+ * mission that grants the blueprint.
  */
 seconds: number | null; 
 /**
