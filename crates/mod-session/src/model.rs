@@ -248,6 +248,23 @@ pub enum EntryKind {
         class_name: String,
         name: String,
     },
+    /// A ship you destroyed: the log names you its killer, and it was not
+    /// yours. Once per ship.
+    ShipDestroyed {
+        class_name: String,
+        /// The log's reason (`Combat`, `Collision`).
+        reason: String,
+    },
+    /// A ship of yours was destroyed. Once per ship.
+    ShipLost {
+        class_name: String,
+        /// The log's reason (`Combat`, `Collision`, `SelfDestruct`,
+        /// `ShipItemCritical`).
+        reason: String,
+        /// The player who destroyed it, when the killer was one (an NPC is
+        /// named by its entity, which says nothing).
+        by: Option<String>,
+    },
     Died,
     Downed,
     Respawned,
@@ -423,6 +440,10 @@ pub struct SessionSummary {
     /// Timeline entries kept.
     pub entries: u32,
     pub missions_completed: u32,
+    /// Ships you destroyed ([`EntryKind::ShipDestroyed`]).
+    pub ships_destroyed: u32,
+    /// Ships of yours destroyed ([`EntryKind::ShipLost`]).
+    pub ships_lost: u32,
     #[cfg_attr(feature = "specta", specta(type = Option<f64>))]
     pub opening_balance: Option<i64>,
     #[cfg_attr(feature = "specta", specta(type = Option<f64>))]
@@ -495,6 +516,8 @@ impl Session {
                 )
             })
             .count() as u32;
+        let counted =
+            |f: fn(&EntryKind) -> bool| self.timeline.iter().filter(|e| f(&e.kind)).count() as u32;
         SessionSummary {
             id: self.id.clone(),
             started_at: self.started_at,
@@ -506,6 +529,8 @@ impl Session {
             shards: self.shards.iter().map(|s| s.shard.clone()).collect(),
             entries: self.timeline.len() as u32,
             missions_completed,
+            ships_destroyed: counted(|k| matches!(k, EntryKind::ShipDestroyed { .. })),
+            ships_lost: counted(|k| matches!(k, EntryKind::ShipLost { .. })),
             opening_balance: self.wallet.opening.map(|s| s.balance),
             latest_balance: self.wallet.latest.map(|s| s.balance),
             net: self.wallet.net,

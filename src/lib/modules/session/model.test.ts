@@ -23,6 +23,7 @@ import {
   signed,
   signedAuec,
   summaryParts,
+  tally,
   unanswered,
   walletLine,
   type LogRow,
@@ -549,6 +550,49 @@ describe("readSession", () => {
     expect(texts(single)).toEqual([]);
   });
 
+  const kill = (seq: number, at: number): Entry =>
+    entry(seq, at, { type: "ship_destroyed", class_name: "VEGA_Courier_Mk2", reason: "Combat" });
+
+  it("puts the ships destroyed during the one running mission on its row", () => {
+    const accepted = entry(0, T0 + MIN, { type: "mission_accepted", mission_id: MISSION, title: "Clear the Lane" });
+    const reading = readSession(
+      session([accepted, kill(1, T0 + 2 * MIN), kill(2, T0 + 3 * MIN)]),
+      names,
+      T0 + 4 * MIN,
+    );
+    const m = reading.rows.find((r) => r.kind === "mission")!;
+    expect(texts(m)).toEqual(["running", "2 kills"]);
+    expect(m.facts.find((f) => f.label === "Destroyed")?.value).toBe("2 × Vega Courier Mk II");
+    expect(reading.rows.filter((r) => r.kind === "ship")).toHaveLength(0);
+  });
+
+  it("folds kills with no mission running into one fight per stretch", () => {
+    const reading = readSession(
+      session([kill(0, T0 + MIN), kill(1, T0 + 3 * MIN), kill(2, T0 + 30 * MIN)]),
+      names,
+      T0 + 40 * MIN,
+    );
+    const fights = reading.rows.filter((r) => r.kind === "ship");
+    expect(titles(fights)).toEqual(["Destroyed 2 ships", "Destroyed Vega Courier Mk II"]);
+    expect(fights[0].took).toBe(2 * MIN);
+  });
+
+  it("makes a lost ship its own row with how and by whom", () => {
+    const lost = entry(0, T0 + MIN, {
+      type: "ship_lost",
+      class_name: "VEGA_Courier_Mk2",
+      reason: "Combat",
+      by: "Rival",
+    });
+    const r = readSession(session([lost]), names, T0 + 2 * MIN).rows.find((x) => x.kind === "life")!;
+    expect(r.title).toBe("Lost Vega Courier Mk II");
+    expect(texts(r)).toEqual(["in combat", "by Rival"]);
+  });
+
+  it("counts ships by name, most first", () => {
+    expect(tally(["Mantis", "Razor LX", "Razor LX"])).toBe("2 × Razor LX, Mantis");
+  });
+
   it("keeps the rows in time order", () => {
     const reading = readSession(
       session(
@@ -614,6 +658,8 @@ describe("history", () => {
     shards: ["pub_euw1b_13165946_100"],
     entries: 47,
     missions_completed: 1,
+    ships_destroyed: 0,
+    ships_lost: 0,
     opening_balance: 125_000,
     latest_balance: 100_000,
     net: -25_000,
@@ -622,6 +668,12 @@ describe("history", () => {
   it("gives a session's facts one at a time", () => {
     expect(summaryParts(summary)).toEqual(["1 h 55 min", "1 mission completed", "1 shard"]);
     expect(summaryParts({ ...summary, missions_completed: 0, shards: [] })).toEqual(["1 h 55 min"]);
+    expect(summaryParts({ ...summary, ships_destroyed: 12, ships_lost: 1, shards: [] })).toEqual([
+      "1 h 55 min",
+      "1 mission completed",
+      "12 kills",
+      "1 ship lost",
+    ]);
   });
 
   it("says which source a session lacks", () => {

@@ -28,7 +28,7 @@
 //! flag only decides where a session without a quit line ends: one that was
 //! only ever replayed ends at its last recorded moment, not "now".
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use svc_log::{ContractChange, LogEvent, LogEventKind, MoneyChange, TradeSide};
 
@@ -169,6 +169,9 @@ pub struct Reducer {
     /// Your character's GEID, from the login line: tells your leaving a
     /// mission from a party member's. Not stored in the session.
     character: Option<String>,
+    /// Vehicles already recorded as destroyed: a ship disabled, then
+    /// blown up, logs twice.
+    destroyed: HashSet<String>,
     /// The `seq` of the request the next shop answer belongs to.
     last_request: Option<u32>,
     last_location: Option<String>,
@@ -386,6 +389,7 @@ impl Reducer {
         self.ledger = Ledger::default();
         self.missions.clear();
         self.character = None;
+        self.destroyed.clear();
         self.last_request = None;
         self.last_location = None;
         self.last_jurisdiction = None;
@@ -832,6 +836,44 @@ impl Reducer {
                         location: location.clone(),
                     },
                 );
+            }
+            // Yours or by you; anything else destroyed nearby is not this
+            // session's. Without the login line there is no telling.
+            E::VehicleDestroyed {
+                vehicle_id,
+                class,
+                owner,
+                reason,
+                killer,
+                killer_id,
+                ..
+            } => {
+                let Some(me) = self.character.as_deref() else {
+                    return false;
+                };
+                let kind = if owner.as_deref() == Some(me) {
+                    // An NPC's name ends in its entity id; a player's is a
+                    // handle. You and the ship itself are no one to name.
+                    let player = killer_id != me
+                        && killer_id != vehicle_id
+                        && !killer.ends_with(&format!("_{killer_id}"));
+                    EntryKind::ShipLost {
+                        class_name: class.clone(),
+                        reason: reason.clone(),
+                        by: player.then(|| killer.clone()),
+                    }
+                } else if killer_id == me {
+                    EntryKind::ShipDestroyed {
+                        class_name: class.clone(),
+                        reason: reason.clone(),
+                    }
+                } else {
+                    return false;
+                };
+                if !self.destroyed.insert(vehicle_id.clone()) {
+                    return false;
+                }
+                log(session, false, kind);
             }
             E::BlueprintReceived { name } => {
                 log(
@@ -1420,6 +1462,97 @@ mod tests {
             .filter(|k| matches!(k, EntryKind::MissionAccepted { .. }))
             .count();
         assert_eq!(accepts, 1);
+    }
+
+    fn destroyed(
+        ts: &str,
+        vehicle: &str,
+        owner: Option<&str>,
+        killer: &str,
+        killer_id: &str,
+    ) -> LogEvent {
+        let class = if owner.is_some() {
+            "DRAK_Marauder"
+        } else {
+            "MISC_Razor_LX_PU_AI_CRIM"
+        };
+        ev(
+            ts,
+            LogEventKind::VehicleDestroyed {
+                vehicle_id: vehicle.into(),
+                class: class.into(),
+                owner: owner.map(Into::into),
+                reason: "Combat".into(),
+                level: 2,
+                killer: killer.into(),
+                killer_id: killer_id.into(),
+            },
+        )
+    }
+
+    #[test]
+    fn ships_you_destroy_and_ships_you_lose() {
+        let mut events = header();
+        events.extend([
+            destroyed("2026-11-13T16:40:00.000Z", "9001", None, "You", ME),
+            // The same ship again, disabled first and then blown up.
+            destroyed("2026-11-13T16:40:01.000Z", "9001", None, "You", ME),
+            // Someone else's kill nearby.
+            destroyed(
+                "2026-11-13T16:41:00.000Z",
+                "9002",
+                None,
+                "Other",
+                "200000000002",
+            ),
+            // Yours, by an NPC, and by a player.
+            destroyed(
+                "2026-11-13T16:42:00.000Z",
+                "9003",
+                Some(ME),
+                "PU_Pilots-Human-Criminal-Pilot_Light_9100",
+                "9100",
+            ),
+            destroyed(
+                "2026-11-13T16:50:00.000Z",
+                "9004",
+                Some(ME),
+                "Rival",
+                "200000000002",
+            ),
+        ]);
+        let r = started(&events, false);
+        let s = r.current().unwrap();
+        let combat: Vec<_> = kinds(s)
+            .into_iter()
+            .filter(|k| {
+                matches!(
+                    k,
+                    EntryKind::ShipDestroyed { .. } | EntryKind::ShipLost { .. }
+                )
+            })
+            .collect();
+        assert_eq!(
+            combat,
+            [
+                &EntryKind::ShipDestroyed {
+                    class_name: "MISC_Razor_LX_PU_AI_CRIM".into(),
+                    reason: "Combat".into(),
+                },
+                &EntryKind::ShipLost {
+                    class_name: "DRAK_Marauder".into(),
+                    reason: "Combat".into(),
+                    by: None,
+                },
+                &EntryKind::ShipLost {
+                    class_name: "DRAK_Marauder".into(),
+                    reason: "Combat".into(),
+                    by: Some("Rival".into()),
+                },
+            ]
+        );
+        let summary = s.summary();
+        assert_eq!((summary.ships_destroyed, summary.ships_lost), (1, 2));
     }
 
     #[test]
@@ -2182,6 +2315,14 @@ mod tests {
                 EntryKind::MissionEnded {
                     contract, outcome, ..
                 } => println!("{} ended: {outcome:?} {contract:?}", clock(e.at)),
+                EntryKind::ShipDestroyed { class_name, reason } => {
+                    println!("{} destroyed: {class_name} ({reason})", clock(e.at))
+                }
+                EntryKind::ShipLost {
+                    class_name,
+                    reason,
+                    by,
+                } => println!("{} lost: {class_name} ({reason}) by {by:?}", clock(e.at)),
                 EntryKind::Attachments { weapon, items, .. } => println!(
                     "{} attachments on {weapon:?}: {:?}",
                     clock(e.at),

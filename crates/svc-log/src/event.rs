@@ -262,6 +262,29 @@ pub enum LogEventKind {
     /// never carries the record guid. **Locale-dependent** (and the name is
     /// the localized one).
     BlueprintReceived { name: String },
+
+    // ── Combat ──────────────────────────────────────────────────────────
+    /// A vehicle was destroyed near the player: one they shot down, one of
+    /// their own, or anyone's the client saw go. Logged once per step
+    /// (`level [0] -> [2]`; a ship disabled first may log a second line for
+    /// the same `vehicle_id`). Seen in 4.10.
+    VehicleDestroyed {
+        /// The vehicle's entity id.
+        vehicle_id: String,
+        /// Its class (`DRAK_Marauder`, `MISC_Razor_LX_PU_AI_CRIM`).
+        class: String,
+        /// The GEID of the player who owns it; `None` for an NPC's (`[0]`).
+        owner: Option<String>,
+        /// `Combat`, `Collision`, `SelfDestruct`, `ShipItemCritical`, ….
+        reason: String,
+        /// The destruction level reached: 1 disabled, 2 destroyed.
+        level: u8,
+        /// Who or what destroyed it: a handle, an NPC's entity name, or the
+        /// vehicle itself (a self-destruct).
+        killer: String,
+        /// The killer's GEID or entity id.
+        killer_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

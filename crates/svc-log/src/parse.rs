@@ -83,6 +83,7 @@ fn parse_body(rest: &str) -> Option<LogEventKind> {
             "Quantum Drive Arrived - Arrived at Final Destination" => quantum_arrived(body),
             "AttachmentReceived" => held_item_received(body),
             "EquipItem" => attachment_requested(body),
+            "Vehicle Destroyed" => vehicle_destroyed(body),
             _ => None,
         };
     }
@@ -536,6 +537,40 @@ fn mission_left(body: &str) -> Option<LogEventKind> {
     })
 }
 
+// ── Combat ──────────────────────────────────────────────────────────────
+
+/// ```text
+/// <2026-11-18T19:26:26.880Z> [Notice] <Vehicle Destroyed> Vehicle 'MISC_Razor_LX_PU_AI_CRIM_939606349453' [939606349453] class 'MISC_Razor_LX_PU_AI_CRIM' (owner player [0], driver [0]) destroyed: reason [Combat] level [0] -> [2] flags [4066] killer 'VeeLume' [204717100112] authority [0] [Team_CGP4][Vehicle]
+/// ```
+fn vehicle_destroyed(body: &str) -> Option<LogEventKind> {
+    let vehicle = body.find("Vehicle '")?;
+    let rest = &body[vehicle..];
+    let id_start = rest.find("' [")? + 3;
+    let vehicle_id = owned(&rest[id_start..id_start + rest[id_start..].find(']')?])?;
+    let class = owned(quoted(rest, "class '")?)?;
+    let owner = bracket(rest, "(owner player [")?;
+    let killer_at = rest.find(" killer '")?;
+    let killer_rest = &rest[killer_at..];
+    let killer = owned(quoted(killer_rest, " killer '")?)?;
+    let killer_id = owned(bracket(killer_rest, "' [")?)?;
+    Some(LogEventKind::VehicleDestroyed {
+        vehicle_id,
+        class,
+        owner: (owner != "0").then(|| owner.to_owned()),
+        reason: owned(bracket(rest, " reason [")?)?,
+        level: bracket(rest, " -> [")?.parse().ok()?,
+        killer,
+        killer_id,
+    })
+}
+
+/// The text between `key` and the next `'`.
+fn quoted<'a>(s: &'a str, key: &str) -> Option<&'a str> {
+    let start = s.find(key)? + key.len();
+    let rest = &s[start..];
+    Some(&rest[..rest.find('\'')?])
+}
+
 // ── Economy ─────────────────────────────────────────────────────────────
 
 /// ```text
@@ -700,6 +735,52 @@ mod tests {
                 player_id: "204717100112".into(),
             })
         );
+    }
+
+    #[test]
+    fn a_ship_you_shot_down() {
+        let line = r#"<2026-11-18T19:26:26.880Z> [Notice] <Vehicle Destroyed> Vehicle 'MISC_Razor_LX_PU_AI_CRIM_939606349453' [939606349453] class 'MISC_Razor_LX_PU_AI_CRIM' (owner player [0], driver [0]) destroyed: reason [Combat] level [0] -> [2] flags [4066] killer 'VeeLume' [204717100112] authority [0] [Team_CGP4][Vehicle]"#;
+        assert_eq!(
+            kind(line),
+            Some(LogEventKind::VehicleDestroyed {
+                vehicle_id: "939606349453".into(),
+                class: "MISC_Razor_LX_PU_AI_CRIM".into(),
+                owner: None,
+                reason: "Combat".into(),
+                level: 2,
+                killer: "VeeLume".into(),
+                killer_id: "204717100112".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn your_ship_lost_to_an_npc_and_to_itself() {
+        let rammed = r#"<2026-11-17T23:31:05.927Z> [Notice] <Vehicle Destroyed> Vehicle 'DRAK_Marauder_939405947782' [939405947782] class 'DRAK_Marauder' (owner player [204717100112], driver [0]) destroyed: reason [Collision] level [0] -> [2] flags [4066] killer 'PU_Pilots-Human-Criminal-Pilot_Light_939479930047' [939479930047] authority [0] [Team_CGP4][Vehicle]"#;
+        assert_eq!(
+            kind(rammed),
+            Some(LogEventKind::VehicleDestroyed {
+                vehicle_id: "939405947782".into(),
+                class: "DRAK_Marauder".into(),
+                owner: Some("204717100112".into()),
+                reason: "Collision".into(),
+                level: 2,
+                killer: "PU_Pilots-Human-Criminal-Pilot_Light_939479930047".into(),
+                killer_id: "939479930047".into(),
+            })
+        );
+        let self_destruct = r#"<2026-11-17T21:58:50.410Z> [Notice] <Vehicle Destroyed> Vehicle 'DRAK_Marauder_939283554698' [939283554698] class 'DRAK_Marauder' (owner player [204717100112], driver [0]) destroyed: reason [SelfDestruct] level [0] -> [2] flags [16482] killer 'DRAK_Marauder_939283554698' [939283554698] authority [0] [Team_CGP4][Vehicle]"#;
+        let Some(LogEventKind::VehicleDestroyed {
+            reason,
+            killer_id,
+            vehicle_id,
+            ..
+        }) = kind(self_destruct)
+        else {
+            panic!("not a destroyed vehicle");
+        };
+        assert_eq!(reason, "SelfDestruct");
+        assert_eq!(killer_id, vehicle_id);
     }
 
     #[test]

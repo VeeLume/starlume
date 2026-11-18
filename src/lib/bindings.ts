@@ -2462,7 +2462,16 @@ export type EntryKind =
  * Seated in a vehicle (from the stream's vehicle, not its seat events,
  * which are incomplete).
  */
-{ type: "vehicle_entered"; class_name: string; name: string } | { type: "vehicle_left"; class_name: string; name: string } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" } | 
+{ type: "vehicle_entered"; class_name: string; name: string } | { type: "vehicle_left"; class_name: string; name: string } | 
+/**
+ * A ship you destroyed: the log names you its killer, and it was not
+ * yours. Once per ship.
+ */
+{ type: "ship_destroyed"; class_name: string; reason: string } | 
+/**
+ * A ship of yours was destroyed. Once per ship.
+ */
+{ type: "ship_lost"; class_name: string; reason: string; by: string | null } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" } | 
 /**
  * One quantum trip: a destination was set on the star map (the
  * entry's time) and, if `arrived_at` says so, the drive got there. The
@@ -3016,7 +3025,7 @@ export type LogEventKind =
  * keeps it; CIG rotated it once (Oct–Dec 2024), so it is a strong hint,
  * not an absolute key.
  */
-{ type: "SessionAccountId"; account_id: string } | 
+{ type: "SessionAccountId"; account_id: string; geid: string | null } | 
 /**
  * The player joined the persistent universe on a shard.
  */
@@ -3091,6 +3100,13 @@ export type LogEventKind =
  */
 { type: "MissionMarkerCreated"; mission_id: string; generator: string; contract: string; contract_definition_id: string; objective_id: string } | 
 /**
+ * A player left a mission: the server's push when you abandon one.
+ * Usually beside an `Abandon` [`LogEventKind::MissionEnded`], but
+ * sometimes the only line that says the mission is over. `player_id`
+ * is a character GEID: in a shared mission it may be someone else.
+ */
+{ type: "MissionLeft"; mission_id: string; player_id: string } | 
+/**
  * A mission ended for the player.
  */
 { type: "MissionEnded"; mission_id: string; completion: string; reason: string } | 
@@ -3137,7 +3153,14 @@ export type LogEventKind =
  * never carries the record guid. **Locale-dependent** (and the name is
  * the localized one).
  */
-{ type: "BlueprintReceived"; name: string }
+{ type: "BlueprintReceived"; name: string } | 
+/**
+ * A vehicle was destroyed near the player: one they shot down, one of
+ * their own, or anyone's the client saw go. Logged once per step
+ * (`level [0] -> [2]`; a ship disabled first may log a second line for
+ * the same `vehicle_id`). Seen in 4.10.
+ */
+{ type: "VehicleDestroyed"; vehicle_id: string; class: string; owner: string | null; reason: string; level: number; killer: string; killer_id: string }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
 /**
  * UEX's marketplace average for an item, one side, one quality tier.
@@ -4485,7 +4508,15 @@ shards: string[];
 /**
  * Timeline entries kept.
  */
-entries: number; missions_completed: number; opening_balance: number | null; latest_balance: number | null; net: number }
+entries: number; missions_completed: number; 
+/**
+ * Ships you destroyed ([`EntryKind::ShipDestroyed`]).
+ */
+ships_destroyed: number; 
+/**
+ * Ships of yours destroyed ([`EntryKind::ShipLost`]).
+ */
+ships_lost: number; opening_balance: number | null; latest_balance: number | null; net: number }
 /**
  * One stay on a shard.
  */
