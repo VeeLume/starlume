@@ -422,12 +422,6 @@
     height: 100%;
     min-height: 0;
   }
-  /* app.css bullets every `main ul`; a short list is the kit's bare <ul>. */
-  .page :global(ul) {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
   .fieldrow {
     display: flex;
   }
