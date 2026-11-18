@@ -14,7 +14,7 @@
   // Everything stays the surface's URL-backed browse state, so back and
   // forward walk the filters. A candidate for the kit once a second catalog
   // wants it (a pattern on 2+ pages goes to the kit).
-  import { getSurfaceContext } from "@veelume/ui";
+  import { Select, getSurfaceContext } from "@veelume/ui";
   import { Search, X } from "lucide-svelte";
 
   type Browse = {
@@ -161,9 +161,11 @@
   const rankAt = $derived(rankNames.indexOf(rank));
 
   const shown = $derived(s.visible.length);
+  const fmt = (n: number) => n.toLocaleString("en-US");
 </script>
 
 <div class="bar">
+  <div class="row1">
   <div class="field-wrap">
     <label class="field">
       <Search size={15} aria-hidden="true" />
@@ -203,6 +205,15 @@
       </ul>
     {/if}
   </div>
+  <span class="count">{shown === total ? `${fmt(total)} missions` : `${fmt(shown)} of ${fmt(total)}`}</span>
+  <Select
+    class="w-40 shrink-0"
+    label="Sort"
+    options={s.sorts.map((o) => ({ value: o.value, label: o.label }))}
+    value={s.activeSort?.value ?? ""}
+    onchange={(v) => browse.set("sort", v)}
+  />
+  </div>
 
   <div class="row2">
     {#if rankNames.length > 1}
@@ -221,9 +232,7 @@
           {/each}
         </span>
         <span class="rp-v" class:set={rankAt >= 0}>{rankAt >= 0 ? rank : "any rank"}</span>
-        {#if rankAt >= 0}
-          <button type="button" class="rp-x" aria-label="Any rank" onclick={() => browse.set("rank", "")}><X size={12} /></button>
-        {/if}
+        <button type="button" class="rp-x" class:hidden={rankAt < 0} aria-label="Any rank" disabled={rankAt < 0} onclick={() => browse.set("rank", "")}><X size={12} /></button>
       </div>
     {/if}
     <div class="chips" role="group" aria-label="Filter">
@@ -231,18 +240,11 @@
         {#if gi > 0}<span class="sep" aria-hidden="true"></span>{/if}
         {#each g.chips as c (c.key)}
           <button type="button" class="chip" class:on={c.on} aria-pressed={c.on} onclick={c.toggle}>
-            {c.label}<span class="n">{c.count}</span>
+            {c.label}<span class="n">{fmt(c.count)}</span>
           </button>
         {/each}
       {/each}
     </div>
-    <span class="count">{shown === total ? `${total} missions` : `${shown} of ${total}`}</span>
-    <label class="sort">
-      <span class="sr-only">Sort</span>
-      <select class="select" value={s.activeSort} onchange={(e) => browse.set("sort", e.currentTarget.value)}>
-        {#each s.sorts as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
-      </select>
-    </label>
   </div>
 </div>
 
@@ -254,8 +256,15 @@
     padding: 12px 12px 10px;
     border-bottom: 1px solid var(--border);
   }
+  .row1 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
   .field-wrap {
     position: relative;
+    flex: 1;
+    min-width: 0;
   }
   .field {
     display: flex;
@@ -416,14 +425,17 @@
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
+  /* Fixed width (the longest common rank name), no weight change, and the
+   * clear button's slot always reserved: picking a rank moves nothing. */
   .rp-v {
-    min-width: 92px;
+    width: 132px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--text-dim);
     white-space: nowrap;
   }
   .rp-v.set {
     color: var(--text-strong);
-    font-weight: 600;
   }
   .rp-x {
     all: unset;
@@ -437,6 +449,9 @@
   }
   .rp-x:hover {
     color: var(--text-strong);
+  }
+  .rp-x.hidden {
+    visibility: hidden;
   }
   .chip {
     all: unset;
@@ -456,32 +471,30 @@
   .chip:hover {
     color: var(--text);
   }
+  /* No weight change on the active chip: bold is wider, and a chip must
+   * not move under the pointer that just clicked it. */
   .chip.on {
     background: var(--accent-fill-weak);
     border-color: var(--accent-border);
     color: var(--text-strong);
-    font-weight: 600;
   }
+  /* The count keeps one width whatever it reads (up to "1,706"), so the
+   * chips stay put as the numbers change. */
   .chip .n {
+    display: inline-block;
+    min-width: 5ch;
+    text-align: right;
     font-size: 0.7rem;
     color: var(--text-faint);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
   .count {
-    margin-left: auto;
+    flex: none;
+    min-width: 13ch;
+    text-align: right;
     font-size: var(--text-small);
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
-  }
-  .sort .select {
-    font-size: var(--text-small);
-  }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
   }
 </style>
