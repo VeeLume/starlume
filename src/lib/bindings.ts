@@ -99,6 +99,27 @@ async blueprintsRefresh() : Promise<Result<OwnedBlueprintsView, AppError>> {
 }
 },
 /**
+ * The cached standing, or an empty one when never fetched. **No network,
+ * no gate.**
+ */
+async standingCached() : Promise<PlayerStandingView> {
+    return await TAURI_INVOKE("standing_cached");
+},
+/**
+ * Read the standing live from CIG's backend and cache it.
+ * 
+ * **Gated** by `require_unofficial("standing")`: online, the unofficial-API
+ * master and the feature's own toggle must all be on.
+ */
+async standingRefresh() : Promise<Result<PlayerStandingView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("standing_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List compiled-in modules with their enabled state — drives the onboarding
  * picker and the settings module list.
  */
@@ -1572,7 +1593,12 @@ export type ActivityKind =
 /**
  * svc-uex: the first fill of UEX's price lists.
  */
-"uex"
+"uex" | 
+/**
+ * svc-dossier standing read for Contracts (reputation, completed
+ * contracts).
+ */
+"standing"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -3208,8 +3234,18 @@ export type MissionEncounterView = { label: string; difficulty: string | null; w
  * `waves[].ships`, the others `waves[].spawns`.
  */
 kind: string }
-export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; abandon_cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; event_rewards: EventRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView }
-export type MissionFactionView = { guid: string; name: string | null }
+export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; abandon_cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; event_rewards: EventRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView; 
+/**
+ * Every member's contract record name: how a completed contract finds
+ * its entry.
+ */
+contracts: string[] }
+export type MissionFactionView = { guid: string; name: string | null; 
+/**
+ * `FactionReputation.GEID`, decimal: the org a reputation standing is
+ * reported under.
+ */
+geid: string | null }
 /**
  * How a mission ended.
  */
@@ -3248,7 +3284,11 @@ id: string; title: PreviewTextView; description: PreviewTextView;
  * The Mission Enhancer option ids this mission shows.
  */
 showcases: string[] }
-export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean }
+export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean; 
+/**
+ * Contract record names that clear this step when completed.
+ */
+contracts: string[] }
 export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
 export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[]; spawns: SpawnSlotView[] }
 export type ModeView = "scm" | "nav"
@@ -3812,6 +3852,18 @@ inventoryAt: number | null;
 pricesAt: number | null }
 export type PlantView = { path: string; on: boolean }
 /**
+ * The player's standing as it crosses IPC (`svc_dossier::PlayerStanding`).
+ */
+export type PlayerStandingView = { reputations: RepRowView[]; 
+/**
+ * Contract record names with a completion token.
+ */
+completed_contracts: string[]; 
+/**
+ * When fetched, epoch seconds; `null` when never.
+ */
+fetched_at: number | null }
+/**
  * The player's hand on the power network.
  */
 export type PowerSettingsView = { mode: ModeView; 
@@ -3979,7 +4031,11 @@ image: string | null }
 /**
  * One rank of a reputation ladder (`svc_data::RepRank`).
  */
-export type RepRankView = { name: string | null; 
+export type RepRankView = { 
+/**
+ * The rank's standing GUID (what the reputation service reports).
+ */
+id: string; name: string | null; 
 /**
  * Reputation the rank begins at (game ladders top out in the
  * millions, so i32 holds them).
@@ -3993,8 +4049,28 @@ scope: string | null;
 /**
  * The scope's whole ladder, lowest rank first.
  */
-ladder: RepRankView[] }
+ladder: RepRankView[]; 
+/**
+ * The faction's `FactionReputation.GEID`, decimal.
+ */
+faction_geid: string | null }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }
+/**
+ * One reputation row as it crosses IPC (`svc_dossier::RepRow`).
+ */
+export type RepRowView = { 
+/**
+ * `FactionReputation.GEID`, decimal.
+ */
+org_geid: string | null; scope: string; 
+/**
+ * The scope's ladder (`SReputationScopeParams` GUID).
+ */
+scope_id: string; score: number; 
+/**
+ * The rank the score falls in (`SReputationStandingParams` GUID).
+ */
+standing_id: string | null; standing_min: number | null }
 /**
  * What became of a request the client sent a shop.
  */

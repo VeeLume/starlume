@@ -214,11 +214,18 @@ pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
 /// Rust half of `$lib/unreleased` for features, like the debug-only half of
 /// `modules::registry()`. Move an entry into [`GRPC_FEATURES`] when its
 /// consumer ships.
-const UNRELEASED_GRPC_FEATURES: &[(&str, &str, &str)] = &[(
-    "launcher",
-    "Launcher library",
-    "Read which game channels your account can play and their current builds from the RSI launcher's API, so Home can tell when an install needs an update.",
-)];
+const UNRELEASED_GRPC_FEATURES: &[(&str, &str, &str)] = &[
+    (
+        "launcher",
+        "Launcher library",
+        "Read which game channels your account can play and their current builds from the RSI launcher's API, so Home can tell when an install needs an update.",
+    ),
+    (
+        "standing",
+        "Reputation and completed contracts",
+        "Read your reputation with each faction and which contracts you have completed from CIG's backend, so Contracts can show what is open to you.",
+    ),
+];
 
 /// The unofficial-API features this build offers.
 fn grpc_features() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str)> {

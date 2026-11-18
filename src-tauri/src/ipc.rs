@@ -25,6 +25,8 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         performance::performance_memory,
         dossier::blueprints_owned,
         dossier::blueprints_refresh,
+        dossier::standing_cached,
+        dossier::standing_refresh,
         modules::list_modules,
         notify::recent_notifications,
         activity::current_activities,

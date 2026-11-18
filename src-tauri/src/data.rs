@@ -233,6 +233,9 @@ pub struct MissionEntryView {
     pub placeholders: Vec<String>,
     pub instance_count: u32,
     pub facts: MissionPoolFactsView,
+    /// Every member's contract record name: how a completed contract finds
+    /// its entry.
+    pub contracts: Vec<String>,
 }
 
 /// Within-pool divergence flags + crimestat (`svc_data::MissionPoolFacts`).
@@ -264,6 +267,9 @@ pub struct MissionCategoryView {
 pub struct MissionFactionView {
     pub guid: String,
     pub name: Option<String>,
+    /// `FactionReputation.GEID`, decimal: the org a reputation standing is
+    /// reported under.
+    pub geid: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -347,11 +353,15 @@ pub struct RepRequirementView {
     pub scope: Option<String>,
     /// The scope's whole ladder, lowest rank first.
     pub ladder: Vec<RepRankView>,
+    /// The faction's `FactionReputation.GEID`, decimal.
+    pub faction_geid: Option<String>,
 }
 
 /// One rank of a reputation ladder (`svc_data::RepRank`).
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct RepRankView {
+    /// The rank's standing GUID (what the reputation service reports).
+    pub id: String,
     pub name: Option<String>,
     /// Reputation the rank begins at (game ladders top out in the
     /// millions, so i32 holds them).
@@ -363,6 +373,8 @@ pub struct MissionRefView {
     pub mission_id: String,
     pub title: Option<String>,
     pub once_only: bool,
+    /// Contract record names that clear this step when completed.
+    pub contracts: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -441,6 +453,7 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
             faction: m.faction.map(|f| MissionFactionView {
                 guid: f.guid,
                 name: f.name,
+                geid: f.geid,
             }),
             difficulty: m.difficulty.map(|d| MissionDifficultyView {
                 mechanical_skill: d.mechanical_skill,
@@ -530,10 +543,12 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
                     max_rank_index: r.max_rank_index,
                     exclude: r.exclude,
                     scope: r.scope,
+                    faction_geid: r.faction_geid,
                     ladder: r
                         .ladder
                         .into_iter()
                         .map(|k| RepRankView {
+                            id: k.id,
                             name: k.name,
                             min_reputation: i32::try_from(k.min_reputation).unwrap_or(
                                 if k.min_reputation < 0 {
@@ -553,6 +568,7 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
                     mission_id: c.mission_id,
                     title: c.title,
                     once_only: c.once_only,
+                    contracts: c.contracts,
                 })
                 .collect(),
             locations: m
@@ -630,6 +646,7 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
                 .collect(),
             placeholders: m.placeholders,
             instance_count: m.instance_count,
+            contracts: m.contracts,
             facts: MissionPoolFactsView {
                 shareable_mixed: m.facts.shareable_mixed,
                 once_only_mixed: m.facts.once_only_mixed,

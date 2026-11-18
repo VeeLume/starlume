@@ -94,6 +94,10 @@ pub struct MissionEntry {
     pub placeholders: Vec<String>,
     /// How many raw contract expansions this entry collapses.
     pub instance_count: u32,
+    /// The contract record names of every member, deduped: how a completed
+    /// contract (Game.log, a mission token) finds its catalog entry.
+    #[serde(default)]
+    pub contracts: Vec<String>,
     /// What still diverges *within* this entry's collapsed pool — the axes
     /// the pooling key doesn't pin (see [`MissionPoolFacts`]). Cross-entry
     /// divergence (contracts sharing a title/description key but split into
@@ -144,6 +148,10 @@ pub struct MissionCategory {
 pub struct MissionFaction {
     pub guid: String,
     pub name: Option<String>,
+    /// `FactionReputation.GEID`, decimal: the org id the reputation service
+    /// reports a standing under (`urn:sc:reputations:org:geid:<geid>`).
+    #[serde(default)]
+    pub geid: Option<String>,
 }
 
 /// The four authored difficulty axes, each `1..=8` (`0` = unparsed).
@@ -265,11 +273,19 @@ pub struct RepRequirement {
     /// unknown.
     #[serde(default)]
     pub ladder: Vec<RepRank>,
+    /// The faction's `FactionReputation.GEID`, decimal (see
+    /// [`MissionFaction::geid`]).
+    #[serde(default)]
+    pub faction_geid: Option<String>,
 }
 
 /// One rank of a reputation ladder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepRank {
+    /// The rank's `SReputationStandingParams` GUID, the standing id the
+    /// reputation service reports.
+    #[serde(default)]
+    pub id: String,
     /// Resolved rank name (`"Jr. Contractor"`); `None` if the locale has none.
     pub name: Option<String>,
     /// Reputation the rank begins at.
@@ -283,6 +299,11 @@ pub struct MissionRef {
     pub mission_id: String,
     pub title: Option<String>,
     pub once_only: bool,
+    /// The contract record names of every mission that grants this step
+    /// (the step is deduped by title, so several contracts can stand for
+    /// it); a completed-contract token for any of them clears the step.
+    #[serde(default)]
+    pub contracts: Vec<String>,
 }
 
 /// One locality's worth of accept-locations — the "available in" card
@@ -578,6 +599,12 @@ pub(crate) fn build_missions(
             cargo,
             placeholders: missions.unresolved_markers(rep, locale),
             instance_count: members.len() as u32,
+            contracts: {
+                let mut names: Vec<String> = members.iter().map(|m| m.debug_name.clone()).collect();
+                names.sort();
+                names.dedup();
+                names
+            },
             facts,
         });
     }
@@ -748,14 +775,14 @@ fn build_category(m: &Mission, missions: &Missions, locale: &LocaleMap) -> Optio
 /// Resolve the mission's reputation faction → display name + stable guid key.
 fn build_faction(m: &Mission, missions: &Missions, locale: &LocaleMap) -> Option<MissionFaction> {
     let guid = m.faction?;
-    let name = missions
-        .factions
-        .get(&guid)
+    let rep = missions.factions.get(&guid);
+    let name = rep
         .and_then(|f| locale.resolve(&f.display_name_key))
         .map(str::to_owned);
     Some(MissionFaction {
         guid: guid.to_string(),
         name,
+        geid: rep.map(|f| f.geid.to_string()),
     })
 }
 
@@ -783,8 +810,9 @@ fn build_rep_required(m: &Mission, missions: &Missions, locale: &LocaleMap) -> V
             .map(|s| {
                 s.ranks
                     .iter()
-                    .filter_map(|g| missions.rep_standings.get(g))
-                    .map(|st| RepRank {
+                    .filter_map(|g| missions.rep_standings.get(g).map(|st| (g, st)))
+                    .map(|(g, st)| RepRank {
+                        id: g.to_string(),
                         name: locale.resolve(&st.display_name_key).map(str::to_owned),
                         min_reputation: st.min_reputation,
                     })
@@ -805,6 +833,10 @@ fn build_rep_required(m: &Mission, missions: &Missions, locale: &LocaleMap) -> V
             } => Some(RepRequirement {
                 scope: scope.as_ref().map(ToString::to_string),
                 ladder: ladder(scope),
+                faction_geid: faction
+                    .as_ref()
+                    .and_then(|g| missions.factions.get(g))
+                    .map(|f| f.geid.to_string()),
                 faction: faction
                     .as_ref()
                     .and_then(|g| missions.factions.get(g))
@@ -831,12 +863,19 @@ fn build_chain(m: &Mission, missions: &Missions, locale: &LocaleMap) -> Vec<Miss
         };
         let title = missions.title_text(grantor, locale);
         let dedupe_key = title.clone().unwrap_or_else(|| grantor.id.to_string());
-        if seen.insert(dedupe_key) {
+        if seen.insert(dedupe_key.clone()) {
             out.push(MissionRef {
                 mission_id: grantor.id.to_string(),
                 title,
                 once_only: grantor.availability.once_only,
+                contracts: vec![grantor.debug_name.clone()],
             });
+        } else if let Some(step) = out
+            .iter_mut()
+            .find(|r| r.title.clone().unwrap_or_else(|| r.mission_id.clone()) == dedupe_key)
+            && !step.contracts.contains(&grantor.debug_name)
+        {
+            step.contracts.push(grantor.debug_name.clone());
         }
     }
     out

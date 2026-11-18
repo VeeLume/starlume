@@ -1008,6 +1008,7 @@ mod tests {
             cargo: Vec::new(),
             placeholders: Vec::new(),
             instance_count: 3,
+            contracts: vec!["TestDelivery_01".into()],
             facts: missions::MissionPoolFacts {
                 crimestat: missions::CrimestatRisk::Moderate,
                 cooldowns_mixed: true,

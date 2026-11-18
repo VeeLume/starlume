@@ -41,9 +41,11 @@
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import RichText from "$lib/components/catalog/RichText.svelte";
   import CatalogBar from "./CatalogBar.svelte";
+  import RankLadder from "./RankLadder.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { getMissions } from "$lib/state/catalog.svelte";
   import { blueprintsStore, loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
+  import { loadStanding, standingStore } from "$lib/state/standing.svelte";
   import {
     blueprintCell,
     blueprintChance,
@@ -58,6 +60,11 @@
     ownRequirement,
     paysCell,
     rangeText,
+    rankIndex,
+    rowFor,
+    standingOf,
+    STANDING_GROUPS,
+    type Standing,
     runsFor,
     timeCell,
     whereCell,
@@ -65,7 +72,15 @@
     type Ladder,
   } from "./model";
 
-  type MissionRow = MissionEntryView & { key: string; title: string; ladder: Ladder | null };
+  type MissionRow = MissionEntryView & {
+    key: string;
+    title: string;
+    ladder: Ladder | null;
+    /** Your rank on that ladder, -1 when not known. */
+    you: number;
+    /** What the mission is to you; null until your standing is read. */
+    standing: Standing | null;
+  };
 
   let missions = $state<MissionEntryView[]>([]);
   let browseError = $state("");
@@ -83,6 +98,7 @@
     share: { kind: "one", default: "" },
     repeat: { kind: "one", default: "" },
     rank: { kind: "one", default: "" },
+    status: { kind: "one", default: "" },
     bp: { kind: "one", default: "", narrows: false },
     sort: { kind: "one", default: "pays", narrows: false },
   });
@@ -134,6 +150,8 @@
   });
   const ownedKnown = $derived(blueprintsStore.fetchedAt != null);
 
+  const groupOrder = (id: string) => STANDING_GROUPS.findIndex((g) => g.id === id);
+
   const facets = $derived<FacetDef<MissionRow>[]>([
     {
       id: "faction",
@@ -174,6 +192,19 @@
         })),
       ],
     },
+    ...(standingStore.known
+      ? [
+          {
+            id: "status",
+            label: "For you",
+            mode: "one" as const,
+            options: [
+              { value: "", label: "Every mission" },
+              ...STANDING_GROUPS.map((g) => ({ value: g.id, label: g.label, test: (r: MissionRow) => r.standing === g.id })),
+            ],
+          },
+        ]
+      : []),
     {
       id: "gives",
       label: "Gives",
@@ -250,8 +281,28 @@
     derive: (ms: MissionEntryView[]): MissionRow[] =>
       ms.map((m) => {
         const req = ownRequirement(m);
-        return { ...m, key: m.mission_id, title: missionTitle(m), ladder: req ? ladderOf(req) : null };
+        const ladder = req ? ladderOf(req) : null;
+        const row = req ? rowFor(req, standingStore.rows) : null;
+        return {
+          ...m,
+          key: m.mission_id,
+          title: missionTitle(m),
+          ladder,
+          you: ladder && row ? rankIndex(ladder, row) : -1,
+          standing: standingStore.known ? standingOf(m, standingStore.rows, standingStore.completed) : null,
+        };
       }),
+    // Once your standing is read, the list falls into what each mission is
+    // to you, in a fixed order; unread, it stays one list.
+    groupBy: standingStore.known
+      ? [
+          {
+            key: (r: MissionRow) => r.standing ?? "unknown",
+            label: (k: string) => STANDING_GROUPS.find((g) => g.id === k)?.label ?? k,
+            compare: (a: string, b: string) => groupOrder(a) - groupOrder(b),
+          },
+        ]
+      : undefined,
     searchIn: (r: MissionRow) => [
       r.title,
       r.description ?? "",
@@ -339,6 +390,7 @@
 
   onMount(() => {
     void loadOwnedBlueprints();
+    void loadStanding();
     void (async () => {
       const channel = await ensureChannel();
       ready = true;
@@ -401,7 +453,7 @@
         {/snippet}
         {#snippet row(r: MissionRow)}
           {@const cat = categoryOf(r)}
-          {@const note = needsNote(r)}
+          {@const note = needsNote(r, standingStore.rows, standingStore.completed)}
           {@const where = whereCell(r)}
           {@const bp = blueprintCell(r, blueprintsStore.owns, blueprintsStore.fetchedAt != null)}
           {@const pay = paysCell(r)}
@@ -425,9 +477,7 @@
                 <span class="c2">
                   <span>{r.faction?.name ?? "No faction"}</span>
                   {#if r.ladder}
-                    <span class="lad" title={windowText(r.ladder)} aria-label="Rank: {windowText(r.ladder)}">
-                      {#each r.ladder.ranks as _, i (i)}<i class:in={i >= r.ladder.lo && i <= r.ladder.hi}></i>{/each}
-                    </span>
+                    <span title={windowText(r.ladder)}><RankLadder ladder={r.ladder} you={r.you} label="Rank: {windowText(r.ladder)}" /></span>
                   {:else}
                     <small>no rank needed</small>
                   {/if}
@@ -520,14 +570,11 @@
       <h4>Unlock</h4>
       {#if m.ladder && own}
         <p class="u-need">{windowText(m.ladder)}<small>{own.faction ?? "Faction"} rank</small></p>
-        <div class="uladder" aria-label="{own.faction} ranks: {windowText(m.ladder)}">
-          {#each m.ladder.ranks as name, i (i)}
-            <div class:in={i >= m.ladder.lo && i <= m.ladder.hi}>
-              <i></i><span>{name}</span><small>{fmt(m.ladder.reps[i])}</small>
-            </div>
-          {/each}
+        <RankLadder ladder={m.ladder} you={m.you} named label="{own.faction} ranks: {windowText(m.ladder)}" />
+        <div class="ulegend">
+          <span><i class="k1"></i>can take it</span>
+          {#if m.you >= 0}<span><i class="k2"></i>your rank</span>{/if}
         </div>
-        <div class="ulegend"><span><i class="k1"></i>can take it</span></div>
       {:else}
         <p class="u-need">Any rank<small>no rank in the data</small></p>
       {/if}
@@ -659,15 +706,6 @@
   .c2 .est {
     color: var(--text);
   }
-  .lad {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
-    gap: 2px;
-    width: 112px;
-  }
-  .lad i,
-  .uladder i,
   .bigl i {
     display: block;
     height: 8px;
@@ -676,8 +714,6 @@
     border: 1px solid var(--border);
     box-sizing: border-box;
   }
-  .lad i.in,
-  .uladder .in i,
   .bigl .in i {
     background: color-mix(in srgb, var(--good) 40%, transparent);
     border-color: color-mix(in srgb, var(--good) 50%, transparent);
@@ -722,26 +758,22 @@
     font-size: 0.75rem;
     color: var(--text-dim);
   }
-  .bigl,
-  .uladder {
+  .bigl {
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: minmax(0, 1fr);
     gap: 3px;
   }
-  .bigl div,
-  .uladder div {
+  .bigl div {
     display: flex;
     flex-direction: column;
     gap: 5px;
     min-width: 0;
   }
-  .bigl i,
-  .uladder i {
+  .bigl i {
     height: 12px;
   }
-  .bigl span,
-  .uladder span {
+  .bigl span {
     font-size: 0.68rem;
     line-height: 1.2;
     color: var(--text-dim);
@@ -749,8 +781,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .bigl small,
-  .uladder small {
+  .bigl small {
     font-size: 0.68rem;
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
@@ -897,6 +928,12 @@
     margin-right: 6px;
     border-radius: 2px;
     box-sizing: border-box;
+  }
+  .ulegend .k2 {
+    background: var(--bg-sunk);
+    border: 1px solid var(--border);
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
   .ulegend .k1 {
     background: color-mix(in srgb, var(--good) 40%, transparent);

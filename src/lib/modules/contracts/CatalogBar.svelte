@@ -43,7 +43,7 @@
   /** Facets whose picks live as tokens in the field; the rest are chips. */
   const TOKEN_FACETS: Record<string, string> = { faction: "faction", region: "place", category: "category" };
   /** Chip groups, in order; a thin rule sits between groups. */
-  const CHIP_FACETS = ["system", "gives", "legal", "share", "repeat"];
+  const CHIP_FACETS = ["status", "system", "gives", "legal", "share", "repeat"];
 
   // Mirrors the URL's q (the effect below), so typing never waits on navigation.
   let draft = $state("");

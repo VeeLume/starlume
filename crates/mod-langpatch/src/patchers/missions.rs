@@ -2048,6 +2048,7 @@ mod tests {
             cargo: Vec::new(),
             placeholders: Vec::new(),
             instance_count: 1,
+            contracts: Vec::new(),
             facts: MissionPoolFacts::default(),
         }
     }

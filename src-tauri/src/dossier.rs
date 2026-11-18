@@ -128,3 +128,94 @@ pub fn spawn_startup_fetch(app: &AppHandle) {
         }
     });
 }
+
+// ── Standing (Contracts) ─────────────────────────────────────────────────
+
+/// Fired after a standing refresh; the Contracts store reloads on it.
+pub const STANDING_CHANGED_EVENT: &str = "standing:changed";
+
+/// One reputation row as it crosses IPC (`svc_dossier::RepRow`).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct RepRowView {
+    /// `FactionReputation.GEID`, decimal.
+    pub org_geid: Option<String>,
+    pub scope: String,
+    /// The scope's ladder (`SReputationScopeParams` GUID).
+    pub scope_id: String,
+    pub score: i32,
+    /// The rank the score falls in (`SReputationStandingParams` GUID).
+    pub standing_id: Option<String>,
+    pub standing_min: Option<i32>,
+}
+
+/// The player's standing as it crosses IPC (`svc_dossier::PlayerStanding`).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct PlayerStandingView {
+    pub reputations: Vec<RepRowView>,
+    /// Contract record names with a completion token.
+    pub completed_contracts: Vec<String>,
+    /// When fetched, epoch seconds; `null` when never.
+    pub fetched_at: Option<f64>,
+}
+
+impl From<svc_dossier::PlayerStanding> for PlayerStandingView {
+    fn from(s: svc_dossier::PlayerStanding) -> Self {
+        Self {
+            reputations: s
+                .reputations
+                .into_iter()
+                .map(|r| RepRowView {
+                    org_geid: r.org_geid,
+                    scope: r.scope,
+                    scope_id: r.scope_id,
+                    score: r.score,
+                    standing_id: r.standing_id,
+                    standing_min: r.standing_min,
+                })
+                .collect(),
+            completed_contracts: s.completed_contracts.into_iter().collect(),
+            fetched_at: Some(s.fetched_at as f64),
+        }
+    }
+}
+
+/// The cached standing, or an empty one when never fetched. **No network,
+/// no gate.**
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn standing_cached(state: tauri::State<'_, AppState>) -> PlayerStandingView {
+    match state.dossier.cached_standing() {
+        Some(s) => s.into(),
+        None => PlayerStandingView {
+            reputations: Vec::new(),
+            completed_contracts: Vec::new(),
+            fetched_at: None,
+        },
+    }
+}
+
+/// Read the standing live from CIG's backend and cache it.
+///
+/// **Gated** by `require_unofficial("standing")`: online, the unofficial-API
+/// master and the feature's own toggle must all be on.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn standing_refresh(app: AppHandle) -> Result<PlayerStandingView, AppError> {
+    let dossier = {
+        let state = app.state::<AppState>();
+        state.require_unofficial("standing")?;
+        state.dossier.clone()
+    };
+    let standing = {
+        let _activity = Activity::start(
+            &app,
+            ActivityKind::Standing,
+            None,
+            "Reputation and contracts",
+        )
+        .stage("Fetching from game services…");
+        dossier.refresh_standing(GRPC_USER_AGENT).await?
+    };
+    let _ = app.emit(STANDING_CHANGED_EVENT, ());
+    Ok(standing.into())
+}
