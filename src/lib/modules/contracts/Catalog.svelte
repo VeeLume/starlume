@@ -371,6 +371,28 @@
   const SHIPS_SHOWN = 10;
   let shipsAll = $state<Record<string, boolean>>({});
   let placesAll = $state(false);
+  /** A chain link: find the mission before this one and open it. The
+   *  filters are cleared so nothing hides it; the sort stays. */
+  function openMission(ref: { mission_id: string; title: string | null }) {
+    browse.setMany({
+      q: ref.title ?? "",
+      faction: "",
+      region: "",
+      category: "",
+      gives: "",
+      system: "",
+      legal: "",
+      share: "",
+      repeat: "",
+      rank: "",
+      status: "",
+      bp: "",
+    });
+    expanded.open(ref.mission_id);
+    shipsAll = {};
+    placesAll = false;
+  }
+
   function toggleRow(key: string) {
     expanded.toggle(key);
     shipsAll = {};
@@ -504,135 +526,153 @@
   {@const closedTo = m.rep_required.filter((r) => r.exclude)}
   {@const places = m.locations.flatMap((l) => l.places.map((p) => p.name ?? p.record_name))}
   <div class="opened">
-    <section class="span2 brief">
-      <h4>Briefing</h4>
-      {#if m.description}
-        <p><RichText text={m.description} /></p>
-      {:else}
-        <p class="none">The game gives this mission no text.</p>
-      {/if}
+    <section class="brief">
       <div class="plan-row">
         <PlanButtons
           planned={plansStore.missionOf(m.mission_id)}
           add={(parked) => addMissionPlan({ mission: m.mission_id, title: missionTitle(m) }, parked)}
         />
       </div>
-    </section>
-
-    <section>
-      <h4>Time and place</h4>
-      <dl class="kv">
-        <dt>Game estimate</dt><dd class="mono">{m.payout.time_to_complete > 0 ? `${Math.round(m.payout.time_to_complete)} min` : "—"}</dd>
-        {#if m.cooldown_seconds}<dt>Cooldown</dt><dd class="mono">{Math.round(m.cooldown_seconds / 60)} min</dd>{/if}
-        {#each m.locations as l, i (i)}
-          <dt>{i === 0 ? "Offered in" : ""}</dt><dd>{l.name ? `${l.name}, ${l.system}` : l.system}</dd>
-        {/each}
-        <dt>Places</dt><dd class="mono">{places.length}</dd>
-      </dl>
-      {#if places.length > 0}
-        <p class="places">
-          {(placesAll ? places : places.slice(0, 6)).join(", ")}
-          {#if !placesAll && places.length > 6}
-            <button type="button" class="more" onclick={() => (placesAll = true)}>+{places.length - 6} more</button>
-          {/if}
-        </p>
-      {/if}
-    </section>
-
-    <section>
-      <h4>Encounters</h4>
-      {#if m.encounters.length === 0}
-        <p class="none">No encounter in the data.</p>
-      {/if}
-      {#each m.encounters as e, ei (ei)}
-        {#if encounterHead(e)}<p class="enc-h">{encounterHead(e)}</p>{/if}
-        {#each e.waves as w, wi (wi)}
-          <div class="wave">
-            {#each w.ships as s, si (si)}
-              {@const key = `${ei}:${wi}:${si}`}
-              <div class="wave-h">
-                <b>{w.name || "Ships"}</b>
-                <span>{count(s.count_min, s.count_max, "ship", "ships")}</span>
-                <span class="from">{s.ships.length === 1 ? "one type" : `from ${s.ships.length} types`}</span>
-              </div>
-              <div class="ships">
-                {#each shipsAll[key] ? s.ships : s.ships.slice(0, SHIPS_SHOWN) as name (name)}<span>{name}</span>{/each}
-                {#if !shipsAll[key] && s.ships.length > SHIPS_SHOWN}
-                  <button type="button" onclick={() => (shipsAll = { ...shipsAll, [key]: true })}>+{s.ships.length - SHIPS_SHOWN} more</button>
-                {/if}
-              </div>
-            {/each}
-            {#each w.spawns as s, si (si)}
-              <div class="wave-h">
-                <b>{w.name || (s.target ? "Target" : "On site")}</b>
-                <span>{spawnText(s)}</span>
-                {#if s.factions.length}<span class="from">{s.factions.join(", ")}</span>{/if}
-              </div>
-            {/each}
-          </div>
-        {/each}
-      {/each}
-    </section>
-
-    <section>
-      <h4>Unlock</h4>
-      {#if m.ladder && own}
-        <p class="u-need">{windowText(m.ladder)}<small>{own.faction ?? "Faction"} rank</small></p>
-        <RankLadder ladder={m.ladder} you={m.you} named label="{own.faction} ranks: {windowText(m.ladder)}" />
-        <div class="ulegend">
-          <span><i class="k1"></i>can take it</span>
-          {#if m.you >= 0}<span><i class="k2"></i>your rank</span>{/if}
-        </div>
+      <h4>Briefing</h4>
+      {#if m.description}
+        <p><RichText text={m.description} /></p>
       {:else}
-        <p class="u-need">Any rank<small>no rank in the data</small></p>
+        <p class="none">The game gives this mission no text.</p>
       {/if}
-      <dl class="kv" style="margin-top:14px">
-        <dt>Missions first</dt>
-        <dd>{m.chain_required.length ? m.chain_required.map((c) => c.title ?? "?").join(", ") : "none"}</dd>
-        <dt>Other standing</dt>
-        <dd>{others.length ? others.map((o) => `${o.faction ?? "?"} ${rangeText(o)}`).join(", ") : "none"}</dd>
-        {#each closedTo as c, i (i)}
-          <dt>{i === 0 ? "Closed at" : ""}</dt><dd>{c.faction ?? "?"} {rangeText(c)}</dd>
-        {/each}
-        <dt>Legal</dt><dd>{m.illegal ? "illegal" : "legal"}</dd>
-        {#if m.once_only}<dt>Repeat</dt><dd>once only</dd>{/if}
-        {#if m.shareable}<dt>Share</dt><dd>shareable</dd>{/if}
-      </dl>
     </section>
 
-    <section>
-      <h4>Gives</h4>
-      <dl class="kv">
-        <dt>aUEC</dt><dd class="mono">{paysCell(m).value}</dd>
-        {#each m.reputation as r, i (i)}
-          <dt>{i === 0 ? "Rep" : ""}</dt><dd class="mono">{r.amount == null ? "calculated" : `+${fmt(r.amount)}`}</dd>
-        {/each}
-        {#each m.scrip as s, i (i)}<dt>{s.name ?? "Scrip"}</dt><dd class="mono">{s.amount}</dd>{/each}
-        {#each m.item_rewards as it (it.entity_guid)}<dt>{it.name ?? "Item"}</dt><dd class="mono">{it.amount}</dd>{/each}
-        {#each m.cargo as leg, i (i)}
-          <dt>{i === 0 ? "Cargo" : ""}</dt>
-          <dd>{leg.commodity ?? "?"} {leg.min_scu === leg.max_scu ? leg.max_scu : `${leg.min_scu} to ${leg.max_scu}`} SCU</dd>
-        {/each}
-      </dl>
-      {#each m.blueprint_rewards as p (p.pool_name)}
-        {@const total = p.blueprints.reduce((n, b) => n + b.weight, 0)}
-        <ul class="pool" aria-label="Blueprint pool">
-          {#each p.blueprints as b (b.blueprint_record_guid)}
-            {@const owned = blueprintsStore.owns(b.blueprint_record_guid)}
-            <li class:own={owned} class:want={b.blueprint_record_guid === scope}>
-              <span class="nm">{b.name ?? "?"}</span>
-              <span class="od">{owned ? "yours" : `${Math.round((p.chance * b.weight * 1000) / (total || 1)) / 10}%`}</span>
-            </li>
+    <!-- The facts beside the briefing, so a long text never pushes them
+         down (Valerie, 2026-11-18; Hearth's shape). -->
+    <div class="facts">
+      <section class="wide">
+        <h4>Unlock</h4>
+        {#if m.ladder && own}
+          <p class="u-need">{windowText(m.ladder)}<small>{own.faction ?? "Faction"} rank</small></p>
+          <RankLadder ladder={m.ladder} you={m.you} named label="{own.faction} ranks: {windowText(m.ladder)}" />
+          <div class="ulegend">
+            <span><i class="k1"></i>can take it</span>
+            {#if m.you >= 0}<span><i class="k2"></i>your rank</span>{/if}
+          </div>
+        {:else}
+          <p class="u-need">Any rank<small>no rank in the data</small></p>
+        {/if}
+        {#if m.chain_required.length}
+          <p class="chain-h">Missions first</p>
+          <ul class="chain">
+            {#each m.chain_required as c (c.mission_id)}
+              {@const done = c.contracts.some((x) => standingStore.completed.has(x))}
+              <li class:done>
+                <button type="button" class="link" title="Find {c.title ?? 'it'} in the catalog" onclick={() => openMission(c)}>↳ {c.title ?? "?"}</button>
+                {#if done}<small>done</small>{/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <dl class="kv" style="margin-top:14px">
+          {#if !m.chain_required.length}<dt>Missions first</dt><dd>none</dd>{/if}
+          <dt>Other standing</dt>
+          <dd>{others.length ? others.map((o) => `${o.faction ?? "?"} ${rangeText(o)}`).join(", ") : "none"}</dd>
+          {#each closedTo as c, i (i)}
+            <dt>{i === 0 ? "Closed at" : ""}</dt><dd>{c.faction ?? "?"} {rangeText(c)}</dd>
           {/each}
-        </ul>
-      {/each}
-    </section>
+          <dt>Legal</dt><dd>{m.illegal ? "illegal" : "legal"}</dd>
+          {#if m.once_only}<dt>Repeat</dt><dd>once only</dd>{/if}
+          {#if m.shareable}<dt>Share</dt><dd>shareable</dd>{/if}
+        </dl>
+      </section>
+
+      <section>
+        <h4>Time and place</h4>
+        <dl class="kv">
+          <dt>Game estimate</dt><dd class="mono">{m.payout.time_to_complete > 0 ? `${Math.round(m.payout.time_to_complete)} min` : "—"}</dd>
+          {#if m.cooldown_seconds}<dt>Cooldown</dt><dd class="mono">{Math.round(m.cooldown_seconds / 60)} min</dd>{/if}
+          {#each m.locations as l, i (i)}
+            <dt>{i === 0 ? "Offered in" : ""}</dt><dd>{l.name ? `${l.name}, ${l.system}` : l.system}</dd>
+          {/each}
+          <dt>Places</dt><dd class="mono">{places.length}</dd>
+        </dl>
+        {#if places.length > 0}
+          <p class="places">
+            {(placesAll ? places : places.slice(0, 6)).join(", ")}
+            {#if !placesAll && places.length > 6}
+              <button type="button" class="more" onclick={() => (placesAll = true)}>+{places.length - 6} more</button>
+            {/if}
+          </p>
+        {/if}
+      </section>
+
+      <section>
+        <h4>Gives</h4>
+        <dl class="kv">
+          <dt>aUEC</dt><dd class="mono">{paysCell(m).value}</dd>
+          {#each m.reputation as r, i (i)}
+            <dt>{i === 0 ? "Rep" : ""}</dt><dd class="mono">{r.amount == null ? "calculated" : `+${fmt(r.amount)}`}</dd>
+          {/each}
+          {#each m.scrip as s, i (i)}<dt>{s.name ?? "Scrip"}</dt><dd class="mono">{s.amount}</dd>{/each}
+          {#each m.item_rewards as it (it.entity_guid)}<dt>{it.name ?? "Item"}</dt><dd class="mono">{it.amount}</dd>{/each}
+          {#each m.cargo as leg, i (i)}
+            <dt>{i === 0 ? "Cargo" : ""}</dt>
+            <dd>{leg.commodity ?? "?"} {leg.min_scu === leg.max_scu ? leg.max_scu : `${leg.min_scu} to ${leg.max_scu}`} SCU</dd>
+          {/each}
+        </dl>
+        {#each m.blueprint_rewards as p (p.pool_name)}
+          {@const total = p.blueprints.reduce((n, b) => n + b.weight, 0)}
+          <ul class="pool" aria-label="Blueprint pool">
+            {#each p.blueprints as b (b.blueprint_record_guid)}
+              {@const owned = blueprintsStore.owns(b.blueprint_record_guid)}
+              <li class:own={owned} class:want={b.blueprint_record_guid === scope}>
+                <span class="nm">{b.name ?? "?"}</span>
+                <span class="od">{owned ? "yours" : `${Math.round((p.chance * b.weight * 1000) / (total || 1)) / 10}%`}</span>
+              </li>
+            {/each}
+          </ul>
+        {/each}
+      </section>
+
+      <section class="wide">
+        <h4>Encounters</h4>
+        {#if m.encounters.length === 0}
+          <p class="none">No encounter in the data.</p>
+        {/if}
+        {#each m.encounters as e, ei (ei)}
+          {#if encounterHead(e)}<p class="enc-h">{encounterHead(e)}</p>{/if}
+          {#each e.waves as w, wi (wi)}
+            <div class="wave">
+              {#each w.ships as s, si (si)}
+                {@const key = `${ei}:${wi}:${si}`}
+                <div class="wave-h">
+                  <b>{w.name || "Ships"}</b>
+                  <span>{count(s.count_min, s.count_max, "ship", "ships")}</span>
+                  <span class="from">{s.ships.length === 1 ? "one type" : `from ${s.ships.length} types`}</span>
+                </div>
+                <div class="ships">
+                  {#each shipsAll[key] ? s.ships : s.ships.slice(0, SHIPS_SHOWN) as name (name)}<span>{name}</span>{/each}
+                  {#if !shipsAll[key] && s.ships.length > SHIPS_SHOWN}
+                    <button type="button" onclick={() => (shipsAll = { ...shipsAll, [key]: true })}>+{s.ships.length - SHIPS_SHOWN} more</button>
+                  {/if}
+                </div>
+              {/each}
+              {#each w.spawns as s, si (si)}
+                <div class="wave-h">
+                  <b>{w.name || (s.target ? "Target" : "On site")}</b>
+                  <span>{spawnText(s)}</span>
+                  {#if s.factions.length}<span class="from">{s.factions.join(", ")}</span>{/if}
+                </div>
+              {/each}
+            </div>
+          {/each}
+        {/each}
+      </section>
+    </div>
   </div>
 {/snippet}
 
 <style>
   .plan-row {
-    margin-top: 12px;
+    margin-bottom: 16px;
+  }
+  .plan-row:empty {
+    display: none;
   }
   /* The row's columns sit in the kit row's right slot; each is a value over
    * its caption, in the body font with tabular figures. */
@@ -799,18 +839,63 @@
   }
 
   /* The opened row */
+  /* The briefing on the left, the facts beside it in two columns. */
   .opened {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 22px 36px;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: 22px 40px;
     padding: 6px 12px 10px 0;
     cursor: auto;
+    align-items: start;
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px 36px;
+    align-items: start;
   }
   .opened section {
     min-width: 0;
   }
-  .opened .span2 {
+  .facts .wide {
     grid-column: span 2;
+  }
+  .chain-h {
+    margin: 14px 0 6px;
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .chain {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+    font-size: var(--text-small);
+  }
+  .chain li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .chain .link {
+    all: unset;
+    cursor: pointer;
+    color: var(--accent);
+  }
+  .chain .link:hover {
+    text-decoration: underline;
+  }
+  .chain .link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .chain small {
+    margin-left: auto;
+    color: var(--good);
+  }
+  .chain .done .link {
+    color: var(--text-dim);
   }
   .opened h4 {
     margin: 0 0 10px;
@@ -985,11 +1070,16 @@
   .pool .want .od {
     color: color-mix(in srgb, var(--hue-rose) 80%, var(--text));
   }
-  @media (max-width: 1000px) {
+  @media (max-width: 1100px) {
     .opened {
       grid-template-columns: minmax(0, 1fr);
     }
-    .opened .span2 {
+  }
+  @media (max-width: 700px) {
+    .facts {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .facts .wide {
       grid-column: auto;
     }
   }
