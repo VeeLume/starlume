@@ -318,6 +318,19 @@ export interface FactionSummary {
   open: number | null;
   /** Per rank: missions whose window starts there, how many give a blueprint, median aUEC. */
   perRank: { missions: number; blueprints: number; median: number | null }[];
+  /** Most rep with this faction one run of a mission open to you gives, null without a row or a fixed amount. */
+  bestRep: number | null;
+  /** Kinds of work (mission categories), most missions first; `open` = open to you. */
+  kinds: { name: string; missions: number; open: number }[];
+  /** Missions you completed a contract of (the token wallet; plain repeatables leave none). */
+  done: number;
+  /** Blueprint record GUIDs the missions open to you can give. */
+  openBlueprints: string[];
+}
+
+/** Rep with the mission's own faction one run gives, null when calculated or none. */
+export function ownRep(m: MissionEntryView): number | null {
+  return m.reputation.find((r) => r.faction_guid === m.faction?.guid)?.amount ?? null;
 }
 
 const median = (xs: number[]) => {
@@ -330,7 +343,11 @@ const median = (xs: number[]) => {
  * Summaries for every faction that gives missions, yours first (by score),
  * then by mission count. Event payouts over 5M aUEC stay out of the medians.
  */
-export function factionSummaries(ms: MissionEntryView[], rows: RepRowView[]): FactionSummary[] {
+export function factionSummaries(
+  ms: MissionEntryView[],
+  rows: RepRowView[],
+  completed: Set<string> = new Set(),
+): FactionSummary[] {
   const by = new Map<string, MissionEntryView[]>();
   for (const m of ms) {
     const name = m.faction?.name;
@@ -349,7 +366,16 @@ export function factionSummaries(ms: MissionEntryView[], rows: RepRowView[]): Fa
     const you = ladder && row ? rankIndex(ladder, row) : -1;
     const perRank = (ladder?.ranks ?? []).map(() => ({ missions: 0, blueprints: 0, pays: [] as number[] }));
     let open = 0;
+    let bestRep: number | null = null;
+    let done = 0;
+    const kinds = new Map<string, { name: string; missions: number; open: number }>();
+    const openBlueprints = new Set<string>();
     for (const m of list) {
+      const kindName = m.category?.name ?? "Other";
+      const kind = kinds.get(kindName) ?? { name: kindName, missions: 0, open: 0 };
+      kind.missions += 1;
+      kinds.set(kindName, kind);
+      if (m.contracts.some((c) => completed.has(c))) done += 1;
       const r = ownRequirement(m);
       const l = r && r.faction === name ? ladderOf(r) : null;
       const at = l && ladder && l.ranks.join() === ladder.ranks.join() ? l.lo : ladder ? 0 : -1;
@@ -359,7 +385,13 @@ export function factionSummaries(ms: MissionEntryView[], rows: RepRowView[]): Fa
         const pay = m.payout.fixed ?? m.payout.estimate;
         if (pay != null && pay < 5_000_000) perRank[at].pays.push(pay);
       }
-      if (row && (!l || (you >= l.lo && you <= l.hi))) open += 1;
+      if (row && (!l || (you >= l.lo && you <= l.hi))) {
+        open += 1;
+        kind.open += 1;
+        const rep = ownRep(m);
+        if (rep != null && rep > (bestRep ?? 0)) bestRep = rep;
+        for (const p of m.blueprint_rewards) for (const b of p.blueprints) openBlueprints.add(b.blueprint_record_guid);
+      }
     }
     out.push({
       name,
@@ -372,6 +404,10 @@ export function factionSummaries(ms: MissionEntryView[], rows: RepRowView[]): Fa
       withBlueprint: list.filter((m) => m.blueprint_rewards.length > 0).length,
       open: row ? open : null,
       perRank: perRank.map((p) => ({ missions: p.missions, blueprints: p.blueprints, median: median(p.pays) })),
+      bestRep,
+      kinds: [...kinds.values()].sort((a, b) => b.missions - a.missions || a.name.localeCompare(b.name)),
+      done,
+      openBlueprints: [...openBlueprints],
     });
   }
   return out.sort((a, b) => (b.score != null ? 1 : 0) - (a.score != null ? 1 : 0) || b.missions - a.missions);

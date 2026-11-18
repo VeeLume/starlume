@@ -246,6 +246,22 @@ describe("the Standing tab", () => {
     expect(hh.perRank.slice(0, 3).map((p) => p.missions)).toEqual([1, 1, 1]);
     expect(hh.perRank[0].median).toBe(36250);
   });
+  it("adds what is open to you: best rep, kinds of work, blueprints, contracts done", () => {
+    const ms = [
+      simpleHit({ contracts: ["HH_A"] }),
+      simpleHit({ mission_id: "m2", reputation: [{ faction_guid: "hh", amount: 200 }], category: { name: "Delivery", icon: "" }, blueprint_rewards: [] }),
+      simpleHit({ mission_id: "m3", reputation: [{ faction_guid: "hh", amount: 900 }], rep_required: [req("Headhunters", "Contractor", null, 2)] }),
+    ];
+    const [hh] = factionSummaries(ms, [row], new Set(["HH_A"]));
+    // m3 needs Contractor: its 900 rep is not open to you.
+    expect(hh.bestRep).toBe(200);
+    expect(hh.kinds).toEqual([
+      { name: "Bounty Hunter", missions: 2, open: 1 },
+      { name: "Delivery", missions: 1, open: 1 },
+    ]);
+    expect(hh.openBlueprints).toHaveLength(5);
+    expect(hh.done).toBe(1);
+  });
   it("without a row, your place stays unknown", () => {
     const [hh] = factionSummaries([simpleHit()], []);
     expect([hh.you, hh.score, hh.open, hh.next]).toEqual([-1, null, null, null]);
