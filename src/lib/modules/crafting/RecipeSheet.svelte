@@ -402,7 +402,7 @@
       {:else}
         <ul>
           {#each detail.grantedBy as m (m.missionId)}
-            <li><a href="/data/missions?q={encodeURIComponent(m.title)}">{m.title}</a></li>
+            <li><a href="/contracts?bp={encodeURIComponent(variant.guid)}&q={encodeURIComponent(m.title)}">{m.title}</a></li>
           {/each}
         </ul>
       {/if}

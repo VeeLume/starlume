@@ -256,6 +256,24 @@ pub struct RepRequirement {
     pub max_rank_index: Option<i32>,
     /// True for an *exclusion* requirement (must NOT be in this range).
     pub exclude: bool,
+    /// The reputation scope the window is measured on
+    /// (`SReputationScopeParams` GUID, the gRPC standing's `scope_id`).
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// That scope's whole ladder, lowest rank first, so a page can draw
+    /// every rank with the window inside it. Empty when the scope is
+    /// unknown.
+    #[serde(default)]
+    pub ladder: Vec<RepRank>,
+}
+
+/// One rank of a reputation ladder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepRank {
+    /// Resolved rank name (`"Jr. Contractor"`); `None` if the locale has none.
+    pub name: Option<String>,
+    /// Reputation the rank begins at.
+    pub min_reputation: i64,
 }
 
 /// A lean reference to another mission (chain prerequisites).
@@ -757,16 +775,36 @@ fn build_rep_required(m: &Mission, missions: &Missions, locale: &LocaleMap) -> V
             .and_then(|g| missions.rep_standings.get(g))
             .and_then(|s| s.record_name.rsplit("Rank").next()?.parse::<i32>().ok())
     };
+    // The scope's ranks, lowest first (holotable sorts them by threshold).
+    let ladder = |scope: &Option<Guid>| -> Vec<RepRank> {
+        scope
+            .as_ref()
+            .and_then(|g| missions.rep_scopes.get(g))
+            .map(|s| {
+                s.ranks
+                    .iter()
+                    .filter_map(|g| missions.rep_standings.get(g))
+                    .map(|st| RepRank {
+                        name: locale.resolve(&st.display_name_key).map(str::to_owned),
+                        min_reputation: st.min_reputation,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
     m.prerequisites
         .iter()
         .filter_map(|p| match p {
             PrereqView::Reputation {
                 faction,
+                scope,
                 min_standing,
                 max_standing,
                 exclude,
                 ..
             } => Some(RepRequirement {
+                scope: scope.as_ref().map(ToString::to_string),
+                ladder: ladder(scope),
                 faction: faction
                     .as_ref()
                     .and_then(|g| missions.factions.get(g))

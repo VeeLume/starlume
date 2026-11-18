@@ -85,7 +85,7 @@ pub use mining::{ElementEntry, GadgetEntry, LaserEntry, MiningIndex, ModuleEntry
 pub use missions::{
     BpPoolEntry, BpPoolReward, CargoLeg, CrimestatRisk, EncounterKind, EventLadder, EventReward,
     ItemReward, MissionCategory, MissionDifficulty, MissionEncounter, MissionEntry, MissionFaction,
-    MissionPayout, MissionPlace, MissionPoolFacts, MissionRef, MissionRegion, MissionWave,
+    MissionPayout, MissionPlace, MissionPoolFacts, MissionRef, MissionRegion, MissionWave, RepRank,
     RepRequirement, RepReward, ScripReward, ShipSlot, SpawnSlot,
 };
 pub use refining::RefiningIndex;

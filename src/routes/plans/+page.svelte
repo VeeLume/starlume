@@ -452,6 +452,10 @@
                       <span class="step-sub">
                         <span class="hue-chip" class:wait={s.blocked}>{s.blocked ? "waits" : KIND_TEXT[s.kind]}</span>
                         <span>{s.detail}</span>
+                        {#if s.kind === "earn" && s.id.startsWith("earn:") && on("contracts")}
+                          <!-- The step's id carries the blueprint; Contracts scopes its catalog to it. -->
+                          <a class="earn-lk" href="/contracts?bp={encodeURIComponent(s.id.slice(5))}">Missions</a>
+                        {/if}
                         {#if shownFocus.kind === "plan" ? other : s.plans.length > 1}
                           {#each s.plans as p (p)}<span class="tag" title={names.get(p) ?? p}>{short(p)}</span>{/each}
                         {/if}
@@ -1192,6 +1196,13 @@
   }
   .text {
     min-width: 0;
+  }
+  .earn-lk {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .earn-lk:hover {
+    text-decoration: underline;
   }
   .step-title {
     display: block;

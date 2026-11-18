@@ -3976,7 +3976,24 @@ highlights: string[]; bug_fixes: number | null; known_issues: number | null;
  * only the newest LIVE release's article has one. `null` = none.
  */
 image: string | null }
-export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
+/**
+ * One rank of a reputation ladder (`svc_data::RepRank`).
+ */
+export type RepRankView = { name: string | null; 
+/**
+ * Reputation the rank begins at (game ladders top out in the
+ * millions, so i32 holds them).
+ */
+min_reputation: number }
+export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean; 
+/**
+ * The reputation scope (GUID) the window is measured on.
+ */
+scope: string | null; 
+/**
+ * The scope's whole ladder, lowest rank first.
+ */
+ladder: RepRankView[] }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }
 /**
  * What became of a request the client sent a shop.

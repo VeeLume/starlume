@@ -70,7 +70,9 @@ use serde::{Deserialize, Serialize};
 /// rev 28: sc-holotable v0.56: mining-site anchors and ring shapes.
 /// rev 29: sc-holotable v0.57: the loot index, written beside the cook
 /// ([`crate::loot::LootIndex`]).
-pub const STARLUME_COOK_REV: u32 = 29;
+/// rev 30: each mission rank requirement carries its scope's full ladder
+/// ([`crate::missions::RepRequirement::ladder`]) for the Contracts catalog.
+pub const STARLUME_COOK_REV: u32 = 30;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

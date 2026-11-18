@@ -343,6 +343,19 @@ pub struct RepRequirementView {
     pub min_rank_index: Option<i32>,
     pub max_rank_index: Option<i32>,
     pub exclude: bool,
+    /// The reputation scope (GUID) the window is measured on.
+    pub scope: Option<String>,
+    /// The scope's whole ladder, lowest rank first.
+    pub ladder: Vec<RepRankView>,
+}
+
+/// One rank of a reputation ladder (`svc_data::RepRank`).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct RepRankView {
+    pub name: Option<String>,
+    /// Reputation the rank begins at (game ladders top out in the
+    /// millions, so i32 holds them).
+    pub min_reputation: i32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -516,6 +529,21 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
                     min_rank_index: r.min_rank_index,
                     max_rank_index: r.max_rank_index,
                     exclude: r.exclude,
+                    scope: r.scope,
+                    ladder: r
+                        .ladder
+                        .into_iter()
+                        .map(|k| RepRankView {
+                            name: k.name,
+                            min_reputation: i32::try_from(k.min_reputation).unwrap_or(
+                                if k.min_reputation < 0 {
+                                    i32::MIN
+                                } else {
+                                    i32::MAX
+                                },
+                            ),
+                        })
+                        .collect(),
                 })
                 .collect(),
             chain_required: m
