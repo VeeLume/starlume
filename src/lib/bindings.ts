@@ -1204,6 +1204,30 @@ async plansAddLoadout(loadout: string) : Promise<Result<Plan[], AppError>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Plan a rank with a faction (by the ids the standing read reports), as
+ * a goal or, `parked`, a bookmark. Planning it again changes nothing.
+ */
+async plansAddRank(goal: RankGoal, parked: boolean) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_rank", { goal, parked }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Plan a mission, as a goal or, `parked`, a bookmark. Planning it again
+ * changes nothing.
+ */
+async plansAddMission(goal: MissionGoal, parked: boolean) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_mission", { goal, parked }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async plansRemove(id: string) : Promise<Result<Plan[], AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("plans_remove", { id }) };
@@ -2586,7 +2610,16 @@ export type Goal =
  * A named group of crafts, served together at the plan's place in the
  * order.
  */
-({ kind: "project" } & ProjectGoal) | { kind: "unknown" }
+({ kind: "project" } & ProjectGoal) | 
+/**
+ * A rank with a faction, reached by running its missions.
+ */
+({ kind: "rank" } & RankGoal) | 
+/**
+ * A mission: open it to you (its ranks, the missions before it), then
+ * run it.
+ */
+({ kind: "mission" } & MissionGoal) | { kind: "unknown" }
 export type GrantingMissionView = { missionId: string; title: string }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
@@ -3247,6 +3280,10 @@ export type MissionFactionView = { guid: string; name: string | null;
  */
 geid: string | null }
 /**
+ * A mission by its catalog id; the title is the one it was planned with.
+ */
+export type MissionGoal = { mission: string; title: string }
+/**
  * How a mission ended.
  */
 export type MissionOutcome = "completed" | "failed" | "abandoned" | 
@@ -3705,7 +3742,7 @@ missing: boolean;
  * The one quality every slot is set to; `None` when they differ.
  */
 quality: number | null; slots: PlanSlot[] }
-export type PlanKind = "loadout" | "craft" | "project" | "unknown"
+export type PlanKind = "loadout" | "craft" | "project" | "rank" | "mission" | "unknown"
 /**
  * A place by its display name, and the quantum-travel place it resolves to
  * when the shell could tell (the id is opaque here).
@@ -3974,6 +4011,13 @@ powerShare: number;
  * bring the balance throttle back into the lasers' range.
  */
 backOff: BackOffView | null }
+/**
+ * A rank on one faction's ladder, by the ids the standing read reports: the
+ * org's `FactionReputation.GEID`, the ladder (its reputation scope GUID)
+ * and the rank (its standing GUID). The names are the ones it was planned
+ * with, shown when this build has no such ladder.
+ */
+export type RankGoal = { faction: string; geid: string; scope: string; standing: string; rank: string }
 /**
  * One LIVE release as the page and Home show it (specta mirror of
  * `sc_dossier::patchnotes::Release`, overview fields only).
@@ -4731,7 +4775,15 @@ export type StepKind =
 /**
  * Loot a part from containers in the world.
  */
-"loot"
+"loot" | 
+/**
+ * Earn rep with a faction, up to its next rank.
+ */
+"rep" | 
+/**
+ * Run a mission.
+ */
+"run"
 /**
  * One stack of a material you hold.
  */

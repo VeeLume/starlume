@@ -16,6 +16,8 @@
     named = false,
     counts = null,
     label = "",
+    picked = -1,
+    onpick,
   }: {
     ladder: Ladder;
     /** Your rank index, -1 when not known. */
@@ -28,6 +30,10 @@
     /** Per rank, a figure under the name instead of the rep (missions per rank). */
     counts?: string[] | null;
     label?: string;
+    /** Named mode: the rank picked (to plan), -1 for none. */
+    picked?: number;
+    /** Named mode: ranks above yours become buttons that pick. */
+    onpick?: (rank: number) => void;
   } = $props();
 
   const fits = $derived(you >= ladder.lo && you <= ladder.hi);
@@ -46,9 +52,22 @@
 {#if named}
   <div class="named" class:own={!window} role="img" aria-label={label}>
     {#each ladder.ranks as name, i (i)}
-      <div class:in={window && i >= ladder.lo && i <= ladder.hi} class:passed={!window && i < you} class:you={i === you} style:--p={fill(i)}>
-        <i></i><span>{name}</span><small>{counts ? counts[i] : fmt(ladder.reps[i])}</small>
-      </div>
+      {#if onpick && i > you}
+        <button
+          type="button"
+          class="cell pick"
+          class:picked={i === picked}
+          style:--p={fill(i)}
+          title="Pick {name} to plan"
+          onclick={() => onpick(i)}
+        >
+          <i></i><span>{name}</span><small>{counts ? counts[i] : fmt(ladder.reps[i])}</small>
+        </button>
+      {:else}
+        <div class="cell" class:in={window && i >= ladder.lo && i <= ladder.hi} class:passed={!window && i < you} class:you={i === you} style:--p={fill(i)}>
+          <i></i><span>{name}</span><small>{counts ? counts[i] : fmt(ladder.reps[i])}</small>
+        </div>
+      {/if}
     {/each}
   </div>
 {:else}
@@ -116,7 +135,7 @@
   .named.own .passed i {
     border-color: color-mix(in srgb, var(--good) 50%, transparent);
   }
-  .named div {
+  .named .cell {
     position: relative;
     display: flex;
     flex-direction: column;
@@ -139,6 +158,27 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .named .pick {
+    all: unset;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+  .named .pick:hover span,
+  .named .picked span {
+    color: var(--text-strong);
+  }
+  .named .picked i {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .named .pick:focus-visible i {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
   .named .you span {
     color: var(--text-strong);

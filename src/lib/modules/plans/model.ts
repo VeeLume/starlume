@@ -40,6 +40,8 @@ export const KIND_TEXT: Record<StepKind, string> = {
   earn: "mission",
   find: "find",
   loot: "loot",
+  rep: "rep",
+  run: "mission",
 };
 
 /** The steps a plan shows: its own, and other plans' mining in the same
@@ -93,7 +95,7 @@ export function gm(value: number): string {
 export function stepFigure(step: Pick<PlanStep, "seconds" | "cost"> & { kind?: StepKind; rocks?: Rocks | null }): string {
   // Mining: rocks to break out of the rocks to scan for them.
   if (step.rocks) return `${step.rocks.toBreak} of ~${step.rocks.toScan} rocks`;
-  if (step.seconds != null && step.kind === "earn") return `≈${Math.round(step.seconds / 60)} min CIG`;
+  if (step.seconds != null && (step.kind === "earn" || step.kind === "rep" || step.kind === "run")) return `≈${Math.round(step.seconds / 60)} min CIG`;
   if (step.seconds != null) return clock(step.seconds);
   if (step.cost != null) return `${Math.round(step.cost).toLocaleString("en-US")} aUEC`;
   return "";
@@ -226,6 +228,8 @@ export const TRACK_OF: Record<StepKind, TrackKind | null> = {
   craft: "crafting",
   loot: "looting",
   find: null,
+  rep: "missions",
+  run: "missions",
 };
 
 export type FocusStep = { step: PlanStep; other: boolean };

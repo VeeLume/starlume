@@ -10,9 +10,12 @@
 //! routes from the services and hands them in as the small input types of
 //! [`ledger`], [`steps`] and [`session`].
 
+pub mod contracts;
 pub mod ledger;
 mod model;
 pub mod session;
 pub mod steps;
 
-pub use model::{CraftGoal, Goal, LoadoutGoal, PartSource, Plan, PlansState, ProjectGoal};
+pub use model::{
+    CraftGoal, Goal, LoadoutGoal, MissionGoal, PartSource, Plan, PlansState, ProjectGoal, RankGoal,
+};

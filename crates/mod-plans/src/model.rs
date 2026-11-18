@@ -73,6 +73,11 @@ pub enum Goal {
     /// A named group of crafts, served together at the plan's place in the
     /// order.
     Project(ProjectGoal),
+    /// A rank with a faction, reached by running its missions.
+    Rank(RankGoal),
+    /// A mission: open it to you (its ranks, the missions before it), then
+    /// run it.
+    Mission(MissionGoal),
     #[default]
     #[serde(other)]
     Unknown,
@@ -164,6 +169,30 @@ impl CraftGoal {
             self.slots.clear();
         }
     }
+}
+
+/// A rank on one faction's ladder, by the ids the standing read reports: the
+/// org's `FactionReputation.GEID`, the ladder (its reputation scope GUID)
+/// and the rank (its standing GUID). The names are the ones it was planned
+/// with, shown when this build has no such ladder.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(default, rename_all = "camelCase")]
+pub struct RankGoal {
+    pub faction: String,
+    pub geid: String,
+    pub scope: String,
+    pub standing: String,
+    pub rank: String,
+}
+
+/// A mission by its catalog id; the title is the one it was planned with.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(default, rename_all = "camelCase")]
+pub struct MissionGoal {
+    pub mission: String,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -329,6 +358,10 @@ fn same_target(a: &Goal, b: &Goal) -> bool {
     match (a, b) {
         (Goal::Loadout(a), Goal::Loadout(b)) => a.loadout == b.loadout,
         (Goal::Craft(a), Goal::Craft(b)) => a.blueprint == b.blueprint,
+        (Goal::Rank(a), Goal::Rank(b)) => {
+            (&a.geid, &a.scope, &a.standing) == (&b.geid, &b.scope, &b.standing)
+        }
+        (Goal::Mission(a), Goal::Mission(b)) => a.mission == b.mission,
         _ => false,
     }
 }

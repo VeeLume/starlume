@@ -42,6 +42,8 @@
   import RichText from "$lib/components/catalog/RichText.svelte";
   import CatalogBar from "./CatalogBar.svelte";
   import RankLadder from "./RankLadder.svelte";
+  import PlanButtons from "./PlanButtons.svelte";
+  import { addMissionPlan, plansStore } from "$lib/state/plans.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { getMissions } from "$lib/state/catalog.svelte";
   import { blueprintsStore, loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
@@ -509,6 +511,12 @@
       {:else}
         <p class="none">The game gives this mission no text.</p>
       {/if}
+      <div class="plan-row">
+        <PlanButtons
+          planned={plansStore.missionOf(m.mission_id)}
+          add={(parked) => addMissionPlan({ mission: m.mission_id, title: missionTitle(m) }, parked)}
+        />
+      </div>
     </section>
 
     <section>
@@ -623,6 +631,9 @@
 {/snippet}
 
 <style>
+  .plan-row {
+    margin-top: 12px;
+  }
   /* The row's columns sit in the kit row's right slot; each is a value over
    * its caption, in the body font with tabular figures. */
   .tile {

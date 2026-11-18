@@ -305,6 +305,8 @@ export const STANDING_GROUPS: { id: Standing; label: string }[] = [
 export interface FactionSummary {
   name: string;
   geid: string | null;
+  /** The ladder's reputation scope GUID (with the GEID, how a rank is planned). */
+  scope: string | null;
   ladder: Ladder | null;
   /** Your rank on the ladder, -1 when no row. */
   you: number;
@@ -395,7 +397,8 @@ export function factionSummaries(
     }
     out.push({
       name,
-      geid: list[0].faction?.geid ?? null,
+      geid: sample?.faction_geid ?? list[0].faction?.geid ?? null,
+      scope: sample?.scope ?? null,
       ladder,
       you,
       score: row?.score ?? null,

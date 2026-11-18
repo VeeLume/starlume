@@ -39,6 +39,8 @@ pub struct Inputs {
     /// The mining ship you would fly and its ore hold: a system's ore is
     /// split into loads of this size. `None`: one load per system.
     pub hold: Option<OreHold>,
+    /// Your standing and the missions, for rank and mission plans.
+    pub contracts: crate::contracts::ContractInputs,
 }
 
 /// A mining ship's ore hold, its pods as fitted.
@@ -262,6 +264,10 @@ pub enum StepKind {
     Find,
     /// Loot a part from containers in the world.
     Loot,
+    /// Earn rep with a faction, up to its next rank.
+    Rep,
+    /// Run a mission.
+    Run,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -346,6 +352,8 @@ pub enum PlanKind {
     Loadout,
     Craft,
     Project,
+    Rank,
+    Mission,
     Unknown,
 }
 
@@ -712,7 +720,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     crafts.extend(start_craft(plan, goal, inputs, &mut pool, &mut used));
                 }
             }
-            Goal::Unknown => {}
+            Goal::Rank(_) | Goal::Mission(_) | Goal::Unknown => {}
         }
     }
 
@@ -1047,6 +1055,11 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     }
     earns.into_iter().for_each(&mut push);
 
+    // Ranks and missions: the path to each.
+    crate::contracts::steps(&state.plans, &inputs.contracts)
+        .into_iter()
+        .for_each(&mut push);
+
     // Materials still short: one step a ledger row, their places chosen
     // together so the run stays in as few refinery areas as it can.
     let short: Vec<(&crate::ledger::LedgerRow, OreSites)> = ledger
@@ -1306,6 +1319,8 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                         .collect(),
                     &mine,
                 ),
+                Goal::Rank(goal) => crate::contracts::rank_board(goal, &inputs.contracts),
+                Goal::Mission(goal) => crate::contracts::mission_board(goal, &inputs.contracts),
                 Goal::Unknown => missing(PlanKind::Unknown, "Plan", "Made by a newer Starlume"),
             };
             board.id = plan.id.clone();
@@ -1442,7 +1457,7 @@ fn take(pool: Option<&mut Vec<(PlanPlace, u32)>>) -> Option<PlanPlace> {
     Some(entry.0.clone())
 }
 
-fn missing(kind: PlanKind, title: &str, note: &str) -> PlanBoard {
+pub(crate) fn missing(kind: PlanKind, title: &str, note: &str) -> PlanBoard {
     PlanBoard {
         id: String::new(),
         kind,
@@ -1764,7 +1779,7 @@ fn stages(counts: &[(&str, (u32, u32))]) -> Vec<PlanStage> {
         .collect()
 }
 
-fn tile(value: String, label: &str) -> PlanTile {
+pub(crate) fn tile(value: String, label: &str) -> PlanTile {
     PlanTile {
         value,
         label: label.to_owned(),
@@ -1816,7 +1831,7 @@ fn share(share: f32) -> String {
     }
 }
 
-fn auec_figure(value: f64) -> String {
+pub(crate) fn auec_figure(value: f64) -> String {
     let digits = format!("{:.0}", value.round());
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
@@ -1830,7 +1845,7 @@ fn auec_figure(value: f64) -> String {
 
 /// A chance as the page shows it: whole percent, one decimal below 10 %,
 /// "<0.1%" below that.
-fn percent(chance: f64) -> String {
+pub(crate) fn percent(chance: f64) -> String {
     let p = chance * 100.0;
     if p >= 10.0 {
         format!("{p:.0}%")

@@ -7,7 +7,16 @@
 // re-read catches up after a suspension.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { commands, type CraftGoal, type LoadoutChoiceView, type PartSource, type Plan, type PlansBoardView } from "$lib/bindings";
+import {
+  commands,
+  type CraftGoal,
+  type LoadoutChoiceView,
+  type MissionGoal,
+  type PartSource,
+  type Plan,
+  type PlansBoardView,
+  type RankGoal,
+} from "$lib/bindings";
 
 /** Where a blueprint is planned: a plan of its own, or an entry of a project. */
 export type CraftHolder = { plan: Plan; craft: CraftGoal };
@@ -43,6 +52,14 @@ export const plansStore = {
   /** The plan of its own for this blueprint, if it has one. */
   craftOf(blueprint: string): Plan | undefined {
     return _plans?.find((p) => p.goal.kind === "craft" && p.goal.blueprint === blueprint);
+  },
+  /** The plan of this rank (faction ladder and rank), if it has one. */
+  rankOf(geid: string, scope: string, standing: string): Plan | undefined {
+    return _plans?.find((p) => p.goal.kind === "rank" && p.goal.geid === geid && p.goal.scope === scope && p.goal.standing === standing);
+  },
+  /** The plan of this mission, if it has one. */
+  missionOf(mission: string): Plan | undefined {
+    return _plans?.find((p) => p.goal.kind === "mission" && p.goal.mission === mission);
   },
   /** Your projects, in plan order. */
   get projects(): Plan[] {
@@ -117,6 +134,16 @@ export async function addLoadoutPlan(loadout: string): Promise<boolean> {
   return settle(await commands.plansAddLoadout(loadout));
 }
 
+/** Plan a rank with a faction: a goal, or `parked` a bookmark. */
+export async function addRankPlan(goal: RankGoal, parked = false): Promise<boolean> {
+  return settle(await commands.plansAddRank(goal, parked));
+}
+
+/** Plan a mission: a goal, or `parked` a bookmark. */
+export async function addMissionPlan(goal: MissionGoal, parked = false): Promise<boolean> {
+  return settle(await commands.plansAddMission(goal, parked));
+}
+
 export async function removePlan(id: string): Promise<boolean> {
   return settle(await commands.plansRemove(id));
 }
@@ -185,7 +212,8 @@ export async function movePlan(id: string, before: string | null): Promise<boole
 }
 
 /** What the board is derived from: a change to any of these re-derives it. */
-const SOURCES = ["plans:changed", "items:changed", "blueprints:changed", "data:changed", "uex:changed"];
+// `standing:changed`: rank and mission plans read your standing.
+const SOURCES = ["plans:changed", "items:changed", "blueprints:changed", "data:changed", "uex:changed", "standing:changed"];
 
 let _watchers = 0;
 let _unlisten: Promise<UnlistenFn>[] = [];

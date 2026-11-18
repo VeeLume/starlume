@@ -189,6 +189,8 @@
     loadout: { shape: "ship", chip: "LOADOUT" },
     craft: { shape: "craft", chip: "CRAFT" },
     project: { shape: "blueprint", chip: "PROJECT" },
+    rank: { shape: "mission", chip: "RANK" },
+    mission: { shape: "mission", chip: "MISSION" },
     unknown: { shape: "blueprint", chip: "PLAN" },
   };
   const STEP_SHAPE: Record<StepKind, GlyphShape> = {
@@ -201,6 +203,8 @@
     earn: "mission",
     find: "find",
     loot: "find",
+    rep: "mission",
+    run: "mission",
   };
 
   // What "New plan" offers: your saved loadouts and the items you marked
@@ -796,7 +800,11 @@
     --hue: var(--hue-rose);
   }
   .k-earn,
-  .k-find {
+  .k-rep,
+  .k-run,
+  .k-find,
+  .kind-rank,
+  .kind-mission {
     --hue: var(--hue-sand);
   }
   .kind-loadout {

@@ -19,7 +19,7 @@ use mod_plans::steps::{
     CraftedCopy, Grant, HeldPart, Inputs, LoadoutFacts, LootOffer, Offer, OreSite, OreSites,
     PartFacts, PlanBoard, PlanPlace, PlanStep, QualityBand, RecipeFacts, ShipRead, SlotNeed,
 };
-use mod_plans::{CraftGoal, Goal, LoadoutGoal, Plan, PlansState};
+use mod_plans::{CraftGoal, Goal, LoadoutGoal, MissionGoal, Plan, PlansState, RankGoal};
 use svc_data::RecordCollection;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -261,6 +261,36 @@ pub(crate) fn plans_add_loadout(app: AppHandle, loadout: String) -> Result<Vec<P
     })
 }
 
+/// Plan a rank with a faction (by the ids the standing read reports), as
+/// a goal or, `parked`, a bookmark. Planning it again changes nothing.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_add_rank(
+    app: AppHandle,
+    goal: RankGoal,
+    parked: bool,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| {
+        let id = state.add("", Goal::Rank(goal));
+        state.set_parked(&id, parked);
+    })
+}
+
+/// Plan a mission, as a goal or, `parked`, a bookmark. Planning it again
+/// changes nothing.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_add_mission(
+    app: AppHandle,
+    goal: MissionGoal,
+    parked: bool,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| {
+        let id = state.add("", Goal::Mission(goal));
+        state.set_parked(&id, parked);
+    })
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn plans_remove(app: AppHandle, id: String) -> Result<Vec<Plan>, AppError> {
@@ -389,6 +419,7 @@ pub(crate) async fn plans_board(
     let last_place = last_place(&app).await;
     let state = app.state::<AppState>();
     let inventory = state.dossier.cached_inventory();
+    let standing = state.dossier.cached_standing();
     let owned_blueprints: HashSet<String> = state
         .dossier
         .cached_blueprints()
@@ -403,6 +434,7 @@ pub(crate) async fn plans_board(
             blueprints: blueprints.as_deref(),
             loot: loot.as_deref(),
             inventory: inventory.as_ref(),
+            standing: standing.as_ref(),
             owned_blueprints,
             hand_owned: crate::crafting::hand_owned().into_iter().collect(),
             prices: uex.snapshot(),
@@ -564,6 +596,8 @@ struct Gathered<'a> {
     blueprints: Option<&'a svc_data::BlueprintIndex>,
     loot: Option<&'a svc_data::LootIndex>,
     inventory: Option<&'a svc_dossier::inventory::Inventory>,
+    /// The cached standing read: rank and mission plans' ranks.
+    standing: Option<&'a svc_dossier::PlayerStanding>,
     owned_blueprints: HashSet<String>,
     hand_owned: HashSet<String>,
     prices: svc_uex::Snapshot,
@@ -782,10 +816,22 @@ impl Gathered<'_> {
                         );
                     }
                 }
-                Goal::Unknown => {}
+                // Gathered for all of them at once, below.
+                Goal::Rank(_) | Goal::Mission(_) | Goal::Unknown => {}
             }
             targets.push(target);
         }
+        inputs.contracts =
+            crate::plans_contracts::gather(state, &cooked.missions, self.standing, &|region| {
+                PlanPlace {
+                    name: if region.name.is_empty() {
+                        region.system.clone()
+                    } else {
+                        region.name.clone()
+                    },
+                    site: sites.of_names([region.name.as_str()]),
+                }
+            });
 
         let start = self.last_place.as_deref().and_then(|internal| {
             let place = cooked.place_names().get(internal)?;

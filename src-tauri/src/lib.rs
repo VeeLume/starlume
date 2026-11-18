@@ -46,6 +46,7 @@ pub mod notify;
 mod patchnotes;
 mod performance;
 mod plans;
+mod plans_contracts;
 mod sc;
 mod session;
 mod session_names;

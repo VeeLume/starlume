@@ -17,6 +17,8 @@
   import { loadStanding, refreshStanding, standingStore } from "$lib/state/standing.svelte";
   import { factionSummaries, type FactionSummary } from "./model";
   import RankLadder from "./RankLadder.svelte";
+  import PlanButtons from "./PlanButtons.svelte";
+  import { addRankPlan, plansStore } from "$lib/state/plans.svelte";
 
   let missions = $state<MissionEntryView[]>([]);
   let ready = $state(false);
@@ -33,6 +35,9 @@
     return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
   };
 
+  /** The rank picked on each faction's ladder, to plan; the next one by default. */
+  let picks = $state<Record<string, number>>({});
+  const pickOf = (f: FactionSummary) => picks[f.name] ?? (f.ladder && f.you >= 0 && f.you + 1 < f.ladder.ranks.length ? f.you + 1 : -1);
   const toNext = (f: FactionSummary) => (f.next != null && f.score != null ? Math.max(0, f.next - f.score) : null);
   const nextName = (f: FactionSummary) => (f.ladder && f.you >= 0 ? (f.ladder.ranks[f.you + 1] ?? null) : null);
   const newBlueprints = (f: FactionSummary) => f.openBlueprints.filter((g) => !blueprintsStore.owns(g)).length;
@@ -127,10 +132,30 @@
 
           {#if f.ladder}
             {@const nx = nextName(f)}
+            {@const pick = pickOf(f)}
             {@const runs = gap != null && f.bestRep ? Math.ceil(gap / f.bestRep) : null}
             {@const most = Math.max(1, ...f.kinds.map((k) => k.missions))}
             <div class="opened">
-              <RankLadder ladder={f.ladder} you={f.you} score={f.score} window={false} named label="{f.name} ranks" />
+              <RankLadder
+                ladder={f.ladder}
+                you={f.you}
+                score={f.score}
+                window={false}
+                named
+                label="{f.name} ranks"
+                picked={pick}
+                onpick={f.geid && f.scope ? (i) => (picks[f.name] = i) : undefined}
+              />
+              {#if f.geid && f.scope && pick >= 0}
+                {@const rank = { faction: f.name, geid: f.geid, scope: f.scope, standing: f.ladder.ids[pick], rank: f.ladder.ranks[pick] }}
+                <div class="plan-rank">
+                  <PlanButtons
+                    planned={plansStore.rankOf(rank.geid, rank.scope, rank.standing)}
+                    add={(parked) => addRankPlan(rank, parked)}
+                    what={rank.rank}
+                  />
+                </div>
+              {/if}
 
               {#if f.you >= 0}
                 <div class="stat-tiles">
@@ -276,6 +301,9 @@
   }
   .opened > p {
     margin: 0;
+  }
+  .plan-rank {
+    margin-top: -6px;
   }
   .charts {
     display: grid;
