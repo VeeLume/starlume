@@ -9,6 +9,8 @@
   //    search plus every other facet);
   //  - the sort.
   //
+  //  - the rank picker: the ladder's cells, a pick keeps missions open there.
+  //
   // Everything stays the surface's URL-backed browse state, so back and
   // forward walk the filters. A candidate for the kit once a second catalog
   // wants it (a pattern on 2+ pages goes to the kit).
@@ -24,11 +26,14 @@
   let {
     browse,
     blueprints,
+    rankNames,
     total,
   }: {
     browse: Browse;
     /** Blueprints any mission grants: guid and name, for the field's offers. */
     blueprints: { guid: string; name: string }[];
+    /** The rank picker's ladder, lowest first (the picked faction's, else the common one). */
+    rankNames: string[];
     /** Missions in the whole catalog, for the count line. */
     total: number;
   } = $props();
@@ -37,7 +42,8 @@
 
   /** Facets whose picks live as tokens in the field; the rest are chips. */
   const TOKEN_FACETS: Record<string, string> = { faction: "faction", region: "place", category: "category" };
-  const CHIP_FACETS = ["gives"];
+  /** Chip groups, in order; a thin rule sits between groups. */
+  const CHIP_FACETS = ["system", "gives", "legal", "share", "repeat"];
 
   // Mirrors the URL's q (the effect below), so typing never waits on navigation.
   let draft = $state("");
@@ -130,20 +136,29 @@
     if (q !== draft && document.activeElement !== input) draft = q;
   });
 
-  const chips = $derived(
-    CHIP_FACETS.flatMap((id) => {
+  const chipGroups = $derived(
+    CHIP_FACETS.map((id) => {
       const facet = s.facets.find((f) => f.id === id);
-      return (facet?.options ?? [])
-        .filter((o) => o.value)
-        .map((o) => ({
-          key: `${id}:${o.value}`,
-          label: o.label,
-          on: value(id) === o.value,
-          count: s.counts[id]?.[o.value] ?? 0,
-          toggle: () => browse.set(id, value(id) === o.value ? "" : o.value),
-        }));
-    }),
+      return {
+        id,
+        label: facet?.label ?? id,
+        chips: (facet?.options ?? [])
+          .filter((o) => o.value)
+          .map((o) => ({
+            key: `${id}:${o.value}`,
+            label: o.label,
+            on: value(id) === o.value,
+            count: s.counts[id]?.[o.value] ?? 0,
+            toggle: () => browse.set(id, value(id) === o.value ? "" : o.value),
+          })),
+      };
+    }).filter((g) => g.chips.length > 0),
   );
+
+  // The rank picker: one cell per rank of the ladder; a pick keeps the
+  // missions open at that rank (its window contains it).
+  const rank = $derived(value("rank"));
+  const rankAt = $derived(rankNames.indexOf(rank));
 
   const shown = $derived(s.visible.length);
 </script>
@@ -190,11 +205,35 @@
   </div>
 
   <div class="row2">
+    {#if rankNames.length > 1}
+      <div class="rankpick" role="group" aria-label="Open at rank">
+        <span class="rp-l">Open at</span>
+        <span class="rp-cells">
+          {#each rankNames as name, i (name)}
+            <button
+              type="button"
+              class:on={i === rankAt}
+              aria-pressed={i === rankAt}
+              aria-label="{name}, {s.counts.rank?.[name] ?? 0} missions"
+              title="{name}: {s.counts.rank?.[name] ?? 0} missions"
+              onclick={() => browse.set("rank", i === rankAt ? "" : name)}
+            ></button>
+          {/each}
+        </span>
+        <span class="rp-v" class:set={rankAt >= 0}>{rankAt >= 0 ? rank : "any rank"}</span>
+        {#if rankAt >= 0}
+          <button type="button" class="rp-x" aria-label="Any rank" onclick={() => browse.set("rank", "")}><X size={12} /></button>
+        {/if}
+      </div>
+    {/if}
     <div class="chips" role="group" aria-label="Filter">
-      {#each chips as c (c.key)}
-        <button type="button" class="chip" class:on={c.on} aria-pressed={c.on} onclick={c.toggle}>
-          {c.label}<span class="n">{c.count}</span>
-        </button>
+      {#each chipGroups as g, gi (g.id)}
+        {#if gi > 0}<span class="sep" aria-hidden="true"></span>{/if}
+        {#each g.chips as c (c.key)}
+          <button type="button" class="chip" class:on={c.on} aria-pressed={c.on} onclick={c.toggle}>
+            {c.label}<span class="n">{c.count}</span>
+          </button>
+        {/each}
       {/each}
     </div>
     <span class="count">{shown === total ? `${total} missions` : `${shown} of ${total}`}</span>
@@ -331,7 +370,73 @@
   .chips {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 6px;
+  }
+  .sep {
+    width: 1px;
+    height: 18px;
+    margin: 0 4px;
+    background: var(--border);
+  }
+  .rankpick {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding-right: 10px;
+    margin-right: 2px;
+    border-right: 1px solid var(--border);
+    font-size: var(--text-small);
+  }
+  .rp-l {
+    color: var(--text-faint);
+  }
+  .rp-cells {
+    display: inline-flex;
+    gap: 2px;
+  }
+  .rp-cells button {
+    all: unset;
+    box-sizing: border-box;
+    cursor: pointer;
+    width: 18px;
+    height: 24px;
+    border-radius: 3px;
+    background: var(--bg-sunk);
+    border: 1px solid var(--border);
+  }
+  .rp-cells button:hover {
+    border-color: var(--accent-border);
+  }
+  .rp-cells button.on {
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
+    border-color: var(--accent);
+  }
+  .rp-cells button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .rp-v {
+    min-width: 92px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .rp-v.set {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .rp-x {
+    all: unset;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    color: var(--text-dim);
+  }
+  .rp-x:hover {
+    color: var(--text-strong);
   }
   .chip {
     all: unset;

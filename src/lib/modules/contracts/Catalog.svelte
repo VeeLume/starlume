@@ -48,10 +48,13 @@
     blueprintCell,
     blueprintChance,
     blueprintName,
+    commonLadder,
+    hasNewBlueprint,
     ladderOf,
     missionTitle,
     needsNote,
     oddsText,
+    opensAt,
     ownRequirement,
     paysCell,
     rangeText,
@@ -75,6 +78,11 @@
     region: { kind: "one", default: "" },
     category: { kind: "one", default: "" },
     gives: { kind: "one", default: "" },
+    system: { kind: "one", default: "" },
+    legal: { kind: "one", default: "" },
+    share: { kind: "one", default: "" },
+    repeat: { kind: "one", default: "" },
+    rank: { kind: "one", default: "" },
     bp: { kind: "one", default: "", narrows: false },
     sort: { kind: "one", default: "pays", narrows: false },
   });
@@ -109,6 +117,22 @@
     return [...counts.entries()].sort((x, y) => y[1] - x[1]).map(([v]) => v);
   }
   const regionKey = (system: string, name: string) => (name ? `${name}, ${system}` : system);
+
+  /**
+   * The rank picker's ladder: the picked faction's when one is picked (ranks
+   * are named per faction), else the ladder most missions use.
+   */
+  const ladders = $derived(
+    missions.map((m) => {
+      const r = ownRequirement(m);
+      return { faction: m.faction?.name ?? "", ladder: r ? ladderOf(r) : null };
+    }),
+  );
+  const rankNames = $derived.by(() => {
+    const f = browse.values.faction as string;
+    return commonLadder(ladders.filter((x) => !f || x.faction === f).map((x) => x.ladder));
+  });
+  const ownedKnown = $derived(blueprintsStore.fetchedAt != null);
 
   const facets = $derived<FacetDef<MissionRow>[]>([
     {
@@ -157,8 +181,61 @@
       options: [
         { value: "", label: "Anything" },
         { value: "bp", label: "Gives a blueprint", test: (r) => r.blueprint_rewards.length > 0 },
+        // Only once the owned set was read: unread, every pool looks new.
+        ...(ownedKnown
+          ? [{ value: "new", label: "New blueprints for you", test: (r: MissionRow) => hasNewBlueprint(r, blueprintsStore.owns) }]
+          : []),
         { value: "event", label: "Gives event points", test: (r) => r.event_rewards.length > 0 },
+      ],
+    },
+    {
+      id: "system",
+      label: "System",
+      mode: "one",
+      options: [
+        { value: "", label: "Every system" },
+        ...byFrequency((m) => m.locations.map((l) => l.system)).map((sys) => ({
+          value: sys,
+          label: sys,
+          test: (r: MissionRow) => r.locations.some((l) => l.system === sys),
+        })),
+      ],
+    },
+    {
+      id: "legal",
+      label: "Legality",
+      mode: "one",
+      options: [
+        { value: "", label: "Legal and illegal" },
+        { value: "legal", label: "Legal", test: (r) => !r.illegal },
+        { value: "illegal", label: "Illegal", test: (r) => r.illegal },
+      ],
+    },
+    {
+      id: "share",
+      label: "Sharing",
+      mode: "one",
+      options: [
+        { value: "", label: "Any" },
+        { value: "yes", label: "Shareable", test: (r) => r.shareable },
+      ],
+    },
+    {
+      id: "repeat",
+      label: "Repeat",
+      mode: "one",
+      options: [
+        { value: "", label: "Any" },
         { value: "once", label: "Once only", test: (r) => r.once_only },
+      ],
+    },
+    {
+      id: "rank",
+      label: "Open at rank",
+      mode: "one",
+      options: [
+        { value: "", label: "Any rank" },
+        ...rankNames.map((name) => ({ value: name, label: name, test: (r: MissionRow) => opensAt(r.ladder, name) })),
       ],
     },
   ]);
@@ -177,6 +254,7 @@
       }),
     searchIn: (r: MissionRow) => [
       r.title,
+      r.description ?? "",
       r.debug_name,
       r.faction?.name ?? "",
       ...r.locations.map((l) => l.name),
@@ -319,7 +397,7 @@
     <Surface.Root {descriptor} {browse} class="min-h-0 flex-1">
       <Surface.List {status}>
         {#snippet header()}
-          <CatalogBar {browse} {blueprints} total={missions.length} />
+          <CatalogBar {browse} {blueprints} {rankNames} total={missions.length} />
         {/snippet}
         {#snippet row(r: MissionRow)}
           {@const cat = categoryOf(r)}

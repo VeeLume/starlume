@@ -3,9 +3,12 @@ import type { MissionEntryView, RepRequirementView } from "$lib/bindings";
 import {
   blueprintCell,
   blueprintChance,
+  commonLadder,
+  hasNewBlueprint,
   ladderOf,
   needsNote,
   oddsText,
+  opensAt,
   ownRequirement,
   paysCell,
   runsFor,
@@ -150,5 +153,23 @@ describe("odds for one blueprint", () => {
   it("a blueprint not in the pools has no odds", () => {
     expect(blueprintChance(simpleHit(), "nope")).toBe(0);
     expect(runsFor(0)).toBeNull();
+  });
+});
+
+describe("the rank filter", () => {
+  const l = ladderOf(req("Headhunters", "Jr. Contractor", "Elite Contractor"))!;
+  it("is open inside the window, by rank name", () => {
+    expect(opensAt(l, "Jr. Contractor")).toBe(true);
+    expect(opensAt(l, "Neutral")).toBe(false);
+    expect(opensAt(l, "Junior")).toBe(false);
+    expect(opensAt(null, "Neutral")).toBe(true);
+  });
+  it("offers the ladder most missions use", () => {
+    const other = { ranks: ["Rookie", "Junior"], reps: [0, 10], lo: 0, hi: 1 };
+    expect(commonLadder([l, l, other, null])).toEqual(HH.map((r) => r.name));
+  });
+  it("finds pools with blueprints you lack", () => {
+    expect(hasNewBlueprint(simpleHit(), (g) => g !== "bp4")).toBe(true);
+    expect(hasNewBlueprint(simpleHit(), () => true)).toBe(false);
   });
 });

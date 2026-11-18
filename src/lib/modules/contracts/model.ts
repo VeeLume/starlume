@@ -182,3 +182,32 @@ export function blueprintName(ms: MissionEntryView[], guid: string): string | nu
       for (const b of p.blueprints) if (b.blueprint_record_guid === guid) return b.name ?? null;
   return null;
 }
+
+/**
+ * Whether a mission is open at a rank, by the rank's name on the mission's
+ * own ladder. No rank requirement means open at any rank; a ladder without
+ * that rank name (another faction's naming) is not open there.
+ */
+export function opensAt(ladder: Ladder | null, rank: string): boolean {
+  if (!ladder) return true;
+  const i = ladder.ranks.indexOf(rank);
+  return i >= 0 && i >= ladder.lo && i <= ladder.hi;
+}
+
+/** The most common ladder's rank names, for the rank picker. */
+export function commonLadder(ladders: (Ladder | null)[]): string[] {
+  const counts = new Map<string, { ranks: string[]; n: number }>();
+  for (const l of ladders) {
+    if (!l) continue;
+    const key = l.ranks.join("\u0000");
+    const e = counts.get(key) ?? { ranks: l.ranks, n: 0 };
+    e.n += 1;
+    counts.set(key, e);
+  }
+  return [...counts.values()].sort((a, b) => b.n - a.n)[0]?.ranks ?? [];
+}
+
+/** Whether any pool holds a blueprint you do not own yet. */
+export function hasNewBlueprint(m: MissionEntryView, owns: (guid: string) => boolean): boolean {
+  return m.blueprint_rewards.some((p) => p.blueprints.some((b) => !owns(b.blueprint_record_guid)));
+}
