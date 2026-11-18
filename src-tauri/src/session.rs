@@ -34,6 +34,10 @@
 //!   history file, so the list never loads every timeline and finishing a
 //!   session rewrites one small file, not all of them.
 //! - `index.json`: a [`SessionSummary`] per kept session, newest first.
+//! - `runs.json`: every kept session's mission runs ([`Session::runs`]),
+//!   by session id: what Plans measures your own mission times from,
+//!   without opening every session file. Built from the files the first
+//!   time it is missing, then kept beside the index.
 //! - `current.json`: the live session, written at most every
 //!   [`CHECKPOINT_EVERY`] and on exit. The log can rebuild its own half
 //!   after a restart; the telemetry half (the wallet) exists nowhere else.
@@ -41,12 +45,14 @@
 //! **Retention:** the newest [`HISTORY_CAP`] sessions; older files are
 //! deleted when a session is filed.
 
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use mod_session::{
-    Millis, Outcome, Reducer, Session, SessionSummary, TelemetryEvent, TelemetrySample, Vehicle,
+    ContractRun, Millis, Outcome, Reducer, Session, SessionSummary, TelemetryEvent,
+    TelemetrySample, Vehicle,
 };
 use svc_log::{LogEvent, WatchSignal};
 use tauri::{AppHandle, Emitter, Manager};
@@ -101,6 +107,44 @@ impl Store {
         self.dir.join("index.json")
     }
 
+    fn runs_path(&self) -> PathBuf {
+        self.dir.join("runs.json")
+    }
+
+    /// The kept sessions' mission runs, by session id; built from their
+    /// files when the record is missing.
+    fn runs(&self) -> BTreeMap<String, Vec<ContractRun>> {
+        let path = self.runs_path();
+        if path.exists() {
+            return app_kit::load_json(&path);
+        }
+        let built: BTreeMap<String, Vec<ContractRun>> = self
+            .index()
+            .iter()
+            .filter_map(|s| Some((s.id.clone(), self.get(&s.id)?.runs())))
+            .collect();
+        if !built.is_empty()
+            && let Err(e) = write_compact(&path, &built)
+        {
+            tracing::warn!("could not keep the mission runs: {e}");
+        }
+        built
+    }
+
+    /// Your average minutes per contract record name, over the kept
+    /// sessions.
+    fn run_minutes(&self) -> HashMap<String, f32> {
+        let mut sums: HashMap<String, (f64, u32)> = HashMap::new();
+        for run in self.runs().into_values().flatten() {
+            let e = sums.entry(run.contract).or_default();
+            e.0 += run.seconds;
+            e.1 += 1;
+        }
+        sums.into_iter()
+            .map(|(c, (secs, n))| (c, (secs / f64::from(n) / 60.0) as f32))
+            .collect()
+    }
+
     fn checkpoint_path(&self) -> PathBuf {
         self.dir.join("current.json")
     }
@@ -142,7 +186,11 @@ impl Store {
                 let _ = std::fs::remove_file(old);
             }
         }
-        write_compact(&self.index_path(), &index)
+        write_compact(&self.index_path(), &index)?;
+        let mut runs = self.runs();
+        runs.insert(session.id.clone(), session.runs());
+        runs.retain(|id, _| index.iter().any(|s| &s.id == id));
+        write_compact(&self.runs_path(), &runs)
     }
 
     /// File `session` unless there is nothing in it. Returns whether the
@@ -585,6 +633,16 @@ pub(crate) async fn session_state(app: AppHandle) -> SessionStateView {
     }
 }
 
+/// Your average minutes per mission contract (its record name), measured
+/// from the sessions the module filed: the first source of a mission's
+/// time in Plans. Empty while the module is off (module rule 2).
+pub(crate) fn your_run_minutes(app: &AppHandle) -> HashMap<String, f32> {
+    if !gates(app).module {
+        return HashMap::new();
+    }
+    Store::at_data_root().run_minutes()
+}
+
 /// The finished sessions, newest first (at most [`HISTORY_CAP`]). One small
 /// file read, after the queue has drained (so a session being filed is in
 /// it); empty while the module is off.
@@ -735,7 +793,12 @@ mod tests {
         );
         assert_eq!(store.get(&template.id), None, "the oldest file is gone");
         let files = std::fs::read_dir(&store.dir).unwrap().count();
-        assert_eq!(files, HISTORY_CAP + 1, "the sessions and the index");
+        assert_eq!(
+            files,
+            HISTORY_CAP + 2,
+            "the sessions, the index and the runs"
+        );
+        assert_eq!(store.runs().len(), HISTORY_CAP, "the runs of the kept ones");
     }
 
     fn live_host() -> Host {

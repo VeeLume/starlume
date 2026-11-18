@@ -7,21 +7,39 @@
 //! completed contracts are the wallet's contract tokens. Only reads the
 //! cache: no network call here, the read itself is gated in `dossier.rs`.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use mod_plans::contracts::{
     ContractInputs, MissionFacts, RankFacts, RankWindow, RepLadder, RepSource, ladder_key,
 };
-use mod_plans::steps::PlanPlace;
+use mod_plans::steps::{PlanPlace, RunTime};
 use mod_plans::{Goal, PlansState};
 use svc_data::missions::{MissionEntry, MissionRegion, RepRequirement};
 use svc_dossier::PlayerStanding;
+
+/// A mission's time from its best source: your average over the runs of
+/// its contracts the Session Log measured (`yours`, by contract record
+/// name), then the community's (none yet: it comes with the server), then
+/// CIG's `time_to_complete`.
+pub(crate) fn time_of(m: &MissionEntry, yours: &HashMap<String, f32>) -> Option<RunTime> {
+    best_time(&m.contracts, m.payout.time_to_complete, yours)
+}
+
+fn best_time(contracts: &[String], cig: f32, yours: &HashMap<String, f32>) -> Option<RunTime> {
+    let mine: Vec<f32> = contracts
+        .iter()
+        .filter_map(|c| yours.get(c).copied())
+        .collect();
+    let mine = (!mine.is_empty()).then(|| mine.iter().sum::<f32>() / mine.len() as f32);
+    RunTime::best(mine, None, Some(cig))
+}
 
 /// Rank and mission plans' inputs; empty when none is planned.
 pub(crate) fn gather(
     state: &PlansState,
     missions: &[MissionEntry],
     standing: Option<&PlayerStanding>,
+    yours: &HashMap<String, f32>,
     place: &dyn Fn(&MissionRegion) -> PlanPlace,
 ) -> ContractInputs {
     let empty = BTreeSet::new();
@@ -79,7 +97,7 @@ pub(crate) fn gather(
                             )
                         })
                         .collect(),
-                    minutes: Some(m.payout.time_to_complete).filter(|t| *t > 0.0),
+                    time: time_of(m, yours),
                     at: m.locations.iter().map(place).collect(),
                     pay: m.payout.fixed.or(m.payout.estimate).map(f64::from),
                     rep: own_rep(m),
@@ -162,7 +180,7 @@ pub(crate) fn gather(
                     lo,
                     hi,
                     rep,
-                    minutes: Some(m.payout.time_to_complete).filter(|t| *t > 0.0),
+                    time: time_of(m, yours),
                     at: m.locations.iter().map(place).collect(),
                 })
             })
@@ -259,5 +277,20 @@ mod tests {
         assert_eq!(window_of(&req(Some("Jr."), None)), Some((1, 2)));
         assert_eq!(window_of(&req(None, Some(1))), Some((0, 1)));
         assert_eq!(key_of(&req(None, None)).as_deref(), Some("100|s"));
+    }
+
+    #[test]
+    fn a_mission_takes_your_time_over_cigs() {
+        use mod_plans::steps::TimeSource;
+        let contracts = vec!["Hit_Easy".to_owned(), "Hit_Easy_B".to_owned()];
+        let yours = HashMap::from([
+            ("Hit_Easy".to_owned(), 14.0),
+            ("Hit_Easy_B".to_owned(), 18.0),
+        ]);
+        let t = best_time(&contracts, 30.0, &yours).unwrap();
+        assert_eq!((t.minutes, t.from), (16.0, TimeSource::Yours));
+        let t = best_time(&contracts, 30.0, &HashMap::new()).unwrap();
+        assert_eq!((t.minutes, t.from), (30.0, TimeSource::Game));
+        assert_eq!(best_time(&contracts, 0.0, &HashMap::new()), None);
     }
 }

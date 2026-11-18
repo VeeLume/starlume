@@ -477,6 +477,7 @@ mod tests {
                 site: Some(s.into()),
             }),
             seconds: None,
+            seconds_from: None,
             cost: None,
             odds: None,
             sources: 1,

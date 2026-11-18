@@ -3795,6 +3795,10 @@ plans: string[]; blocked: boolean; at: PlanPlace | null;
  */
 seconds: number | null; 
 /**
+ * Where `seconds` comes from; `None` without seconds.
+ */
+secondsFrom: TimeSource | null; 
+/**
  * aUEC.
  */
 cost: number | null; 
@@ -4944,6 +4948,25 @@ export type ThrusterView = {
  * `Main`, `Retro`, `VTOL` or `Maneuvering`.
  */
 kind: string; place: string; hp: number }
+/**
+ * Where a time comes from, best first (Valerie, 2026-11-18): your own
+ * runs, the community's, the game data's estimate.
+ */
+export type TimeSource = 
+/**
+ * Your average over the runs the Session Log measured.
+ */
+"yours" | 
+/**
+ * The community's average. Nothing gives it yet: it comes with the
+ * server.
+ */
+"community" | 
+/**
+ * The game data's own figure (a mission's `time_to_complete`, a
+ * recipe's craft time).
+ */
+"game"
 /**
  * One moment of the plan for everyone.
  */

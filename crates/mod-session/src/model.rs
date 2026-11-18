@@ -138,6 +138,16 @@ pub enum Source {
     Unknown,
 }
 
+/// One mission run, accept to completion ([`Session::runs`]).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContractRun {
+    /// The contract's record name, as the marker line gave it: what the
+    /// mission catalog's `contracts` list holds.
+    pub contract: String,
+    pub seconds: f64,
+}
+
 /// One thing that happened.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -433,6 +443,44 @@ impl Session {
         self.timeline.iter().rev().find(|e| e.seq == seq)
     }
 
+    /// The missions you ran start to finish here: accepted and completed
+    /// in this session, and tied to their contract by a marker line. What
+    /// your own time for a contract is measured from (Plans). A mission
+    /// accepted before the session began, or ended any other way, is no
+    /// run.
+    pub fn runs(&self) -> Vec<ContractRun> {
+        let mut accepted: std::collections::HashMap<&str, Millis> =
+            std::collections::HashMap::new();
+        let mut out = Vec::new();
+        for e in &self.timeline {
+            match &e.kind {
+                EntryKind::MissionAccepted {
+                    mission_id: Some(id),
+                    ..
+                } => {
+                    accepted.entry(id.as_str()).or_insert(e.at);
+                }
+                EntryKind::MissionEnded {
+                    mission_id: Some(id),
+                    contract: Some(contract),
+                    outcome: MissionOutcome::Completed,
+                    ..
+                } => {
+                    if let Some(start) = accepted.remove(id.as_str())
+                        && e.at > start
+                    {
+                        out.push(ContractRun {
+                            contract: contract.clone(),
+                            seconds: (e.at - start) as f64 / 1000.0,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
     pub fn summary(&self) -> SessionSummary {
         let missions_completed = self
             .timeline
@@ -468,6 +516,69 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_is_a_mission_accepted_and_completed_here_with_its_contract() {
+        let accepted = |seq, at, id: &str| Entry {
+            seq,
+            at,
+            kind: EntryKind::MissionAccepted {
+                mission_id: Some(id.into()),
+                title: "t".into(),
+            },
+            ..Entry::default()
+        };
+        let ended = |seq, at, id: &str, contract: Option<&str>, outcome| Entry {
+            seq,
+            at,
+            kind: EntryKind::MissionEnded {
+                mission_id: Some(id.into()),
+                title: None,
+                contract: contract.map(Into::into),
+                outcome,
+            },
+            ..Entry::default()
+        };
+        let session = Session {
+            timeline: vec![
+                accepted(1, 1_000, "a"),
+                accepted(2, 2_000, "b"),
+                accepted(3, 3_000, "c"),
+                ended(
+                    4,
+                    601_000,
+                    "a",
+                    Some("Covalex_Small"),
+                    MissionOutcome::Completed,
+                ),
+                // Abandoned, and one never tied to its contract: no runs.
+                ended(
+                    5,
+                    9_000,
+                    "b",
+                    Some("Covalex_Small"),
+                    MissionOutcome::Abandoned,
+                ),
+                ended(6, 9_000, "c", None, MissionOutcome::Completed),
+                // Accepted before the session began.
+                ended(
+                    7,
+                    9_000,
+                    "d",
+                    Some("Covalex_Small"),
+                    MissionOutcome::Completed,
+                ),
+            ],
+            ..Session::default()
+        };
+        assert_eq!(
+            session.runs(),
+            vec![ContractRun {
+                contract: "Covalex_Small".into(),
+                seconds: 600.0
+            }]
+        );
+    }
 
     #[test]
     fn a_file_from_an_older_version_loads() {

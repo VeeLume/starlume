@@ -40,8 +40,9 @@ pub mod time;
 pub mod wallet;
 
 pub use model::{
-    BalanceSample, Cause, Entry, EntryKind, MAX_TIMELINE, MAX_WALLET_CHANGES, MissionOutcome,
-    RequestOutcome, Session, SessionSummary, ShardStay, Source, Sources, Wallet, WalletChange,
+    BalanceSample, Cause, ContractRun, Entry, EntryKind, MAX_TIMELINE, MAX_WALLET_CHANGES,
+    MissionOutcome, RequestOutcome, Session, SessionSummary, ShardStay, Source, Sources, Wallet,
+    WalletChange,
 };
 pub use reducer::{Outcome, Reducer, TelemetryEvent, TelemetrySample, Vehicle};
 pub use time::{Millis, is_session_id, parse_ts, session_id};

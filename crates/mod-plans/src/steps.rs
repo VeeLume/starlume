@@ -206,9 +206,9 @@ pub struct QualityBand {
 pub struct Grant {
     pub title: String,
     pub at: Vec<PlanPlace>,
-    /// CIG's duration for the mission, the one its payout assumes
-    /// (`time_to_complete`), in minutes; `None` when it has none.
-    pub minutes: Option<f32>,
+    /// The mission's time from its best source (your runs before CIG's
+    /// `time_to_complete`); `None` when none has one.
+    pub time: Option<RunTime>,
 }
 
 /// Where an ore can be ship-mined at a quality.
@@ -270,6 +270,46 @@ pub enum StepKind {
     Run,
 }
 
+/// Where a time comes from, best first (Valerie, 2026-11-18): your own
+/// runs, the community's, the game data's estimate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum TimeSource {
+    /// Your average over the runs the Session Log measured.
+    Yours,
+    /// The community's average. Nothing gives it yet: it comes with the
+    /// server.
+    Community,
+    /// The game data's own figure (a mission's `time_to_complete`, a
+    /// recipe's craft time).
+    Game,
+}
+
+/// A mission's time from its best source.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RunTime {
+    pub minutes: f32,
+    pub from: TimeSource,
+}
+
+impl RunTime {
+    /// The first source that has a time, in [`TimeSource`]'s order.
+    pub fn best(yours: Option<f32>, community: Option<f32>, game: Option<f32>) -> Option<Self> {
+        [
+            (yours, TimeSource::Yours),
+            (community, TimeSource::Community),
+            (game, TimeSource::Game),
+        ]
+        .into_iter()
+        .find_map(|(m, from)| m.filter(|m| *m > 0.0).map(|minutes| Self { minutes, from }))
+    }
+
+    pub fn seconds(self) -> f64 {
+        f64::from(self.minutes) * 60.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -288,6 +328,8 @@ pub struct PlanStep {
     /// craft time; for an earn step, CIG's estimate for the shortest
     /// mission that grants the blueprint.
     pub seconds: Option<f64>,
+    /// Where `seconds` comes from; `None` without seconds.
+    pub seconds_from: Option<TimeSource>,
     /// aUEC.
     pub cost: Option<f64>,
     /// Mining: the share of the rocks at the place that hold the ore at the
@@ -812,6 +854,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                         blocked: no_ship,
                         at: Some(at.clone()),
                         seconds: None,
+                        seconds_from: None,
                         cost: None,
                         odds: None,
                         sources: 1,
@@ -840,6 +883,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             blocked: false,
                             at: Some(offer.at.clone()),
                             seconds: None,
+                            seconds_from: None,
                             cost: Some(0.0),
                             odds: None,
                             sources: u32::MAX,
@@ -879,6 +923,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             blocked: false,
                             at: None,
                             seconds: None,
+                            seconds_from: None,
                             cost: Some(0.0),
                             odds: None,
                             sources: 0,
@@ -918,6 +963,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                             blocked: false,
                             at: Some(offer.at.clone()),
                             seconds: None,
+                            seconds_from: None,
                             cost: None,
                             odds: Some(offer.chance as f32),
                             sources: offer.places,
@@ -939,6 +985,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     blocked: false,
                     at: None,
                     seconds: None,
+                    seconds_from: None,
                     cost: None,
                     odds: None,
                     sources: 0,
@@ -1021,6 +1068,10 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             continue;
         }
         let grants = &craft.recipe.grants;
+        let shortest = grants
+            .iter()
+            .filter_map(|g| g.time)
+            .min_by(|a, b| a.minutes.total_cmp(&b.minutes));
         earns.push(PlanStep {
             id,
             kind: StepKind::Earn,
@@ -1038,12 +1089,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 .find(|w| w.site.is_some())
                 .or_else(|| grants.iter().flat_map(|g| &g.at).next())
                 .cloned(),
-            // The shortest granting mission, by CIG's own estimate.
-            seconds: grants
-                .iter()
-                .filter_map(|g| g.minutes)
-                .min_by(f32::total_cmp)
-                .map(|m| f64::from(m) * 60.0),
+            // The shortest granting mission, each by its best time.
+            seconds: shortest.map(RunTime::seconds),
+            seconds_from: shortest.map(|t| t.from),
             cost: None,
             odds: None,
             sources: grants.len() as u32,
@@ -1109,6 +1157,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             blocked: false,
             at: None,
             seconds: None,
+            seconds_from: None,
             cost: None,
             odds: None,
             sources: found.sites.len() as u32,
@@ -1227,6 +1276,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     .recipe
                     .craft_seconds
                     .map(|s| f64::from(s) * f64::from(can)),
+                seconds_from: craft.recipe.craft_seconds.map(|_| TimeSource::Game),
                 cost: None,
                 odds: None,
                 sources: 0,
@@ -1260,6 +1310,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     .recipe
                     .craft_seconds
                     .map(|s| f64::from(s) * f64::from(rest)),
+                seconds_from: craft.recipe.craft_seconds.map(|_| TimeSource::Game),
                 cost: None,
                 odds: None,
                 sources: 0,
@@ -2025,6 +2076,7 @@ fn refine_steps(ores: &[ToRefine], hold: Option<&OreHold>) -> Vec<PlanStep> {
                 blocked: false,
                 at: None,
                 seconds: None,
+                seconds_from: None,
                 cost: None,
                 odds: None,
                 sources: load[0].refineries,
@@ -2623,12 +2675,12 @@ pub(crate) mod tests {
             Grant {
                 title: "Run One".into(),
                 at: vec![at("Planet One")],
-                minutes: Some(45.0),
+                time: RunTime::best(Some(15.0), None, Some(45.0)),
             },
             Grant {
                 title: "Run Two".into(),
                 at: vec![],
-                minutes: Some(20.0),
+                time: RunTime::best(None, None, Some(20.0)),
             },
         ];
         inputs.recipes.insert("bp-1".into(), widget);
@@ -2653,7 +2705,12 @@ pub(crate) mod tests {
         assert_eq!(earn.title, "Earn the Widget blueprint");
         assert_eq!(earn.detail, "2 missions grant it");
         assert_eq!(earn.at, Some(at("Planet One")));
-        assert_eq!(earn.seconds, Some(20.0 * 60.0), "the shortest mission");
+        assert_eq!(
+            earn.seconds,
+            Some(15.0 * 60.0),
+            "the shortest mission, your time first"
+        );
+        assert_eq!(earn.seconds_from, Some(TimeSource::Yours));
 
         // The plan's Q700 lifts both slots: Ore B at Q100 no longer counts.
         let mine = by_kind(StepKind::Mine);

@@ -13,8 +13,8 @@ use std::collections::HashMap;
 
 use crate::model::{MissionGoal, Plan, RankGoal};
 use crate::steps::{
-    PlanBoard, PlanKind, PlanPlace, PlanStage, PlanStep, StageState, StepKind, auec_figure,
-    missing, percent, tile,
+    PlanBoard, PlanKind, PlanPlace, PlanStage, PlanStep, RunTime, StageState, StepKind,
+    auec_figure, missing, percent, tile,
 };
 
 /// Everything rank and mission plans read, gathered by the shell; empty when
@@ -63,8 +63,8 @@ pub struct RepSource {
     pub hi: usize,
     /// Rep one run gives.
     pub rep: i64,
-    /// CIG's time for it, in minutes.
-    pub minutes: Option<f32>,
+    /// Its time from the best source.
+    pub time: Option<RunTime>,
     pub at: Vec<PlanPlace>,
 }
 
@@ -90,7 +90,8 @@ pub struct MissionFacts {
     pub closed_at: Vec<RankWindow>,
     /// The missions before it, by title, and whether you did each.
     pub chain: Vec<(String, bool)>,
-    pub minutes: Option<f32>,
+    /// Its time from the best source.
+    pub time: Option<RunTime>,
     pub at: Vec<PlanPlace>,
     /// aUEC a run pays.
     pub pay: Option<f64>,
@@ -173,7 +174,7 @@ fn rep_legs(key: &str, ladder: &RepLadder, to: usize, plan: &str) -> Vec<PlanSte
         let best = open.iter().copied().max_by(|a, b| {
             a.rep.cmp(&b.rep).then_with(|| {
                 // The shorter run wins a tie.
-                let t = |s: &RepSource| s.minutes.unwrap_or(f32::MAX);
+                let t = |s: &RepSource| s.time.map_or(f32::MAX, |t| t.minutes);
                 t(b).total_cmp(&t(a))
             })
         });
@@ -198,9 +199,10 @@ fn rep_legs(key: &str, ladder: &RepLadder, to: usize, plan: &str) -> Vec<PlanSte
             blocked: best.is_none(),
             at: best.and_then(|b| first_place(&b.at)),
             seconds: best
-                .and_then(|b| b.minutes)
+                .and_then(|b| b.time)
                 .zip(runs)
-                .map(|(m, n)| f64::from(m) * 60.0 * n as f64),
+                .map(|(t, n)| t.seconds() * n as f64),
+            seconds_from: best.and_then(|b| b.time).map(|t| t.from),
             sources: open.len() as u32,
             after: out.last().map(|p| vec![p.id.clone()]).unwrap_or_default(),
             ..step(id, StepKind::Rep, plan)
@@ -292,7 +294,8 @@ fn mission_steps(goal: &MissionGoal, inputs: &ContractInputs, plan: &str) -> Vec
         },
         blocked: !before.is_empty(),
         at: first_place(&m.at),
-        seconds: m.minutes.map(|t| f64::from(t) * 60.0),
+        seconds: m.time.map(RunTime::seconds),
+        seconds_from: m.time.map(|t| t.from),
         sources: 1,
         after: before,
         ..step(format!("run:{}", goal.mission), StepKind::Run, plan)
@@ -310,6 +313,7 @@ fn step(id: String, kind: StepKind, plan: &str) -> PlanStep {
         blocked: false,
         at: None,
         seconds: None,
+        seconds_from: None,
         cost: None,
         odds: None,
         sources: 0,
@@ -417,6 +421,7 @@ pub fn mission_board(goal: &MissionGoal, inputs: &ContractInputs) -> PlanBoard {
 mod tests {
     use super::*;
     use crate::model::{Goal, PlansState};
+    use crate::steps::TimeSource;
 
     const KEY: &str = "100|scope";
 
@@ -445,7 +450,8 @@ mod tests {
                     lo: 0,
                     hi: 3,
                     rep: 100,
-                    minutes: Some(10.0),
+                    // Your runs take 12 minutes; CIG says 10.
+                    time: RunTime::best(Some(12.0), None, Some(10.0)),
                     at: Vec::new(),
                 },
                 RepSource {
@@ -453,7 +459,7 @@ mod tests {
                     lo: 1,
                     hi: 3,
                     rep: 400,
-                    minutes: Some(20.0),
+                    time: RunTime::best(None, None, Some(20.0)),
                     at: Vec::new(),
                 },
             ],
@@ -489,7 +495,8 @@ mod tests {
         // Neutral: only Small Hit is open, 300 rep to go.
         assert_eq!(steps[0].title, "Reach Jr. with Headhunters");
         assert_eq!(steps[0].detail, "300 rep: 3 runs of Small Hit, +100 each");
-        assert_eq!(steps[0].seconds, Some(1800.0));
+        assert_eq!(steps[0].seconds, Some(3.0 * 12.0 * 60.0), "your time first");
+        assert_eq!(steps[0].seconds_from, Some(TimeSource::Yours));
         assert!(!steps[0].blocked);
         // Jr.: Big Hit opens, from the rank's start.
         assert_eq!(

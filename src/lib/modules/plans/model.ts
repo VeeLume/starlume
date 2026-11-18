@@ -1,7 +1,7 @@
 // How the Plans page words and draws what the board holds. Pure: no store,
 // no IPC. Every figure here is one the board carries; nothing is estimated.
 
-import type { LedgerRow, PlanStep, Rocks, StepKind, Track, TrackKind, Trip, TripStop } from "$lib/bindings";
+import type { LedgerRow, PlanStep, Rocks, StepKind, TimeSource, Track, TrackKind, Trip, TripStop } from "$lib/bindings";
 
 /** The tracks of the next-session card, one per kind of work, in the order
  *  the board picks the next one (decision 'Plans show parallel tracks by
@@ -92,10 +92,21 @@ export function gm(value: number): string {
 /** What the step's right-hand figure says: its craft time, CIG's minutes
  *  for the shortest mission that grants a blueprint, or its price. Empty
  *  when the data gives none. */
-export function stepFigure(step: Pick<PlanStep, "seconds" | "cost"> & { kind?: StepKind; rocks?: Rocks | null }): string {
+/** Who a mission time is from, as a figure names it. */
+export const TIME_FROM: Record<TimeSource, string> = { yours: "yours", community: "community", game: "CIG" };
+
+/** The steps that are missions to run; their time is sourced. */
+const MISSION_KINDS = new Set<StepKind>(["earn", "rep", "run"]);
+
+export function stepFigure(
+  step: Pick<PlanStep, "seconds" | "cost"> & { kind?: StepKind; rocks?: Rocks | null; secondsFrom?: TimeSource | null },
+): string {
   // Mining: rocks to break out of the rocks to scan for them.
   if (step.rocks) return `${step.rocks.toBreak} of ~${step.rocks.toScan} rocks`;
-  if (step.seconds != null && (step.kind === "earn" || step.kind === "rep" || step.kind === "run")) return `≈${Math.round(step.seconds / 60)} min CIG`;
+  // A mission's time names its source: your runs, the community's, CIG's.
+  if (step.seconds != null && step.kind && MISSION_KINDS.has(step.kind)) {
+    return `≈${span(step.seconds)} ${TIME_FROM[step.secondsFrom ?? "game"]}`;
+  }
   if (step.seconds != null) return clock(step.seconds);
   if (step.cost != null) return `${Math.round(step.cost).toLocaleString("en-US")} aUEC`;
   return "";
@@ -280,6 +291,16 @@ export function legsText(l: Legs): string {
   return parts.join(", ");
 }
 
+/** The missions tile's label: whose times it adds up. */
+function missionsLabel(timed: PlanStep[]): string {
+  const from = new Set(timed.map((s) => s.secondsFrom ?? "game"));
+  if (from.size === 1) {
+    const only = [...from][0];
+    return only === "yours" ? "missions, your times" : only === "community" ? "missions, community times" : "missions, CIG's estimate";
+  }
+  return from.has("yours") ? "missions, yours and estimates" : "missions, estimates";
+}
+
 /** The focus's session: the card's figures and the runs. `tracks` are the
  *  board's for an activity, the plan's own for a plan. */
 /** `origin`: where the session starts (the board's last known place). */
@@ -331,7 +352,13 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus, origin
     if (left.length === 0) continue;
     const ids = new Set(left.map((f) => f.step.id));
     const crafting = left.reduce((n, f) => n + (f.step.seconds ?? 0), 0);
-    const figure = kind === "crafting" ? (crafting > 0 ? `${clock(crafting)} crafting` : "") : legsText(legs(tripOf(kind), ids, origin));
+    let figure = kind === "crafting" ? (crafting > 0 ? `${clock(crafting)} crafting` : "") : legsText(legs(tripOf(kind), ids, origin));
+    if (kind === "missions") {
+      // The missions' own time beside the flying to them.
+      const timed = left.filter((f) => MISSION_KINDS.has(f.step.kind) && f.step.seconds != null);
+      const total = timed.reduce((n, f) => n + (f.step.seconds ?? 0), 0);
+      if (total > 0) figure = [figure, `≈${span(total)} on missions`].filter(Boolean).join(", ");
+    }
     runs.push({ key: kind, title: label, figure, steps: left });
     left.forEach((f) => placed.add(f.step.id));
   }
@@ -354,12 +381,13 @@ export function focusView(all: PlanStep[], tracks: Track[], focus: Focus, origin
 
   const steps = runs.flatMap((r) => r.steps.map((f) => f.step));
   const crafting = steps.filter((s) => s.kind === "craft").reduce((n, s) => n + (s.seconds ?? 0), 0);
-  // CIG's duration for each blueprint's shortest granting mission.
-  const missions = steps.filter((s) => s.kind === "earn").reduce((n, s) => n + (s.seconds ?? 0), 0);
+  // The missions' time, each from its best source.
+  const timed = steps.filter((s) => MISSION_KINDS.has(s.kind) && s.seconds != null);
+  const missions = timed.reduce((n, s) => n + (s.seconds ?? 0), 0);
   const tiles: FocusTile[] = [];
   if (total.stops.length && total.flying != null && total.flying > 0) tiles.push({ value: `~${span(total.flying)}`, label: "flying" });
   if (crafting > 0) tiles.push({ value: clock(crafting), label: "crafting" });
-  if (missions > 0) tiles.push({ value: `≈${span(missions)}`, label: "missions, CIG's estimate" });
+  if (missions > 0) tiles.push({ value: `≈${span(missions)}`, label: missionsLabel(timed) });
   // Mining has no time the data gives: the rocks it takes stand in for it.
   const mines = steps.filter((s) => s.kind === "mine");
   if (mines.length) {

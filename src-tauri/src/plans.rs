@@ -427,9 +427,11 @@ pub(crate) async fn plans_board(
         .unwrap_or_default();
     let uex = state.uex.clone();
     let plans = load_state();
+    let app_for_runs = app.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
         let gathered = Gathered {
+            your_minutes: crate::session::your_run_minutes(&app_for_runs),
             cooked: &cooked,
             blueprints: blueprints.as_deref(),
             loot: loot.as_deref(),
@@ -598,6 +600,9 @@ struct Gathered<'a> {
     inventory: Option<&'a svc_dossier::inventory::Inventory>,
     /// The cached standing read: rank and mission plans' ranks.
     standing: Option<&'a svc_dossier::PlayerStanding>,
+    /// Your average minutes per contract record name (Session Log): a
+    /// mission's time before CIG's.
+    your_minutes: HashMap<String, f32>,
     owned_blueprints: HashSet<String>,
     hand_owned: HashSet<String>,
     prices: svc_uex::Snapshot,
@@ -821,17 +826,20 @@ impl Gathered<'_> {
             }
             targets.push(target);
         }
-        inputs.contracts =
-            crate::plans_contracts::gather(state, &cooked.missions, self.standing, &|region| {
-                PlanPlace {
-                    name: if region.name.is_empty() {
-                        region.system.clone()
-                    } else {
-                        region.name.clone()
-                    },
-                    site: sites.of_names([region.name.as_str()]),
-                }
-            });
+        inputs.contracts = crate::plans_contracts::gather(
+            state,
+            &cooked.missions,
+            self.standing,
+            &self.your_minutes,
+            &|region| PlanPlace {
+                name: if region.name.is_empty() {
+                    region.system.clone()
+                } else {
+                    region.name.clone()
+                },
+                site: sites.of_names([region.name.as_str()]),
+            },
+        );
 
         let start = self.last_place.as_deref().and_then(|internal| {
             let place = cooked.place_names().get(internal)?;
@@ -1057,9 +1065,8 @@ impl Gathered<'_> {
                     .find(|m| m.mission_id == g.mission_id);
                 Grant {
                     title: g.title.clone(),
-                    minutes: mission
-                        .map(|m| m.payout.time_to_complete)
-                        .filter(|m| *m > 0.0),
+                    time: mission
+                        .and_then(|m| crate::plans_contracts::time_of(m, &self.your_minutes)),
                     at: mission
                         .map(|m| {
                             m.locations
