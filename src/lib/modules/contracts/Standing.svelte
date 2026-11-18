@@ -87,7 +87,7 @@
                 <small>{f.score != null ? `${fmt(f.score)} rep` : "no row"}</small>
               </span>
               <span class="c2 lad">
-                {#if f.ladder}<RankLadder ladder={f.ladder} you={f.you} window={false} label="{f.name} ranks" />{/if}
+                {#if f.ladder}<RankLadder ladder={f.ladder} you={f.you} score={f.score} window={false} label="{f.name} ranks" />{/if}
               </span>
               <span class="c2 r">
                 <span>{f.next != null ? fmt(f.next) : "—"}</span>
@@ -102,7 +102,7 @@
           {#if f.ladder}
             <div class="opened">
               <div class="full">
-                <RankLadder ladder={f.ladder} you={f.you} window={false} named label="{f.name} ranks" />
+                <RankLadder ladder={f.ladder} you={f.you} score={f.score} window={false} named label="{f.name} ranks" />
               </div>
               <div>
                 <p class="cap">Missions by the rank they need <span class="key"><i></i>give a blueprint</span></p>
@@ -231,13 +231,16 @@
     border-radius: 2px;
     background: color-mix(in srgb, var(--hue-rose) 45%, transparent);
   }
+  /* Drawn at its own size (430 x 150): stretched to the column, the text
+     scaled with it and the charts outgrew the row. */
   .chart {
     display: block;
     width: 100%;
+    max-width: 430px;
     height: auto;
   }
   .chart text {
-    font-size: 10px;
+    font-size: 11px;
     fill: var(--text-faint);
   }
   .chart text.v {
