@@ -68,7 +68,12 @@ pub enum LogEventKind {
     /// The numeric CIG account id of the current character. A handle rename
     /// keeps it; CIG rotated it once (Oct–Dec 2024), so it is a strong hint,
     /// not an absolute key.
-    SessionAccountId { account_id: String },
+    SessionAccountId {
+        account_id: String,
+        /// The character's GEID: what mission pushes name the player by
+        /// ([`LogEventKind::MissionLeft`]).
+        geid: Option<String>,
+    },
     /// The player joined the persistent universe on a shard.
     ShardJoined { shard: String },
     /// The game is quitting (the player quit, or the client shut down).
@@ -177,6 +182,14 @@ pub enum LogEventKind {
         contract: String,
         contract_definition_id: String,
         objective_id: String,
+    },
+    /// A player left a mission: the server's push when you abandon one.
+    /// Usually beside an `Abandon` [`LogEventKind::MissionEnded`], but
+    /// sometimes the only line that says the mission is over. `player_id`
+    /// is a character GEID: in a shared mission it may be someone else.
+    MissionLeft {
+        mission_id: String,
+        player_id: String,
     },
     /// A mission ended for the player.
     MissionEnded {

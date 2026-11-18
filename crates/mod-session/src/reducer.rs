@@ -116,6 +116,9 @@ impl Outcome {
 struct Mission {
     title: Option<String>,
     contract: Option<String>,
+    /// Its accept is on the timeline: the HUD says "Contract Accepted"
+    /// again for a mission you hold after a respawn.
+    accepted: bool,
     /// The `seq` of its `MissionEnded` entry.
     ended: Option<u32>,
 }
@@ -163,6 +166,9 @@ pub struct Reducer {
     announced: Option<Option<String>>,
     ledger: Ledger,
     missions: HashMap<String, Mission>,
+    /// Your character's GEID, from the login line: tells your leaving a
+    /// mission from a party member's. Not stored in the session.
+    character: Option<String>,
     /// The `seq` of the request the next shop answer belongs to.
     last_request: Option<u32>,
     last_location: Option<String>,
@@ -379,6 +385,7 @@ impl Reducer {
         self.await_stream_end = false;
         self.ledger = Ledger::default();
         self.missions.clear();
+        self.character = None;
         self.last_request = None;
         self.last_location = None;
         self.last_jurisdiction = None;
@@ -418,9 +425,14 @@ impl Reducer {
             push(session, at, Source::Log, locale, kind)
         };
         match event {
-            // The handle and the account id are not kept: nothing here
-            // needs them, and a session file is easier to share without.
-            E::SessionStarted | E::SessionHandle { .. } | E::SessionAccountId { .. } => {
+            // The handle and the account id are not kept in the session:
+            // a session file is easier to share without. The character's
+            // GEID stays in the reducer only (`MissionLeft`).
+            E::SessionAccountId { geid, .. } => {
+                self.character = geid.clone();
+                return false;
+            }
+            E::SessionStarted | E::SessionHandle { .. } => {
                 return false;
             }
             E::Branch { name } => session.branch = Some(name.clone()),
@@ -486,7 +498,14 @@ impl Reducer {
                 ContractChange::Available | ContractChange::Shared => return false,
                 ContractChange::Accepted => {
                     if let Some(id) = mission_id {
-                        self.mission(id).title = Some(title.clone());
+                        let m = self.mission(id);
+                        m.title = Some(title.clone());
+                        // Said again for a mission you still hold (after a
+                        // respawn): one accept on the timeline.
+                        if m.accepted && m.ended.is_none() {
+                            return false;
+                        }
+                        m.accepted = true;
                     }
                     log(
                         session,
@@ -554,6 +573,24 @@ impl Reducer {
             } => {
                 self.mission(mission_id).contract = Some(contract.clone());
                 return false;
+            }
+            // You left: the mission is over for you, abandoned. A party
+            // member leaving a shared mission is not your end.
+            E::MissionLeft {
+                mission_id,
+                player_id,
+            } => {
+                if self.character.as_ref().is_some_and(|c| c != player_id) {
+                    return false;
+                }
+                return self.mission_ended(
+                    session,
+                    at,
+                    Some(mission_id),
+                    None,
+                    MissionOutcome::Abandoned,
+                    false,
+                );
             }
             E::MissionEnded {
                 mission_id,
@@ -1078,6 +1115,7 @@ mod tests {
                 "2026-11-13T16:11:31.000Z",
                 LogEventKind::SessionAccountId {
                     account_id: "0000001".into(),
+                    geid: Some(ME.into()),
                 },
             ),
         ]
@@ -1327,6 +1365,61 @@ mod tests {
             "the engine line said it too"
         );
         assert_eq!(s.summary().missions_completed, 1);
+    }
+
+    const ME: &str = "200000000001";
+
+    fn left(ts: &str, player: &str) -> LogEvent {
+        ev(
+            ts,
+            LogEventKind::MissionLeft {
+                mission_id: MISSION.into(),
+                player_id: player.into(),
+            },
+        )
+    }
+
+    #[test]
+    fn leaving_a_mission_ends_it_for_you_not_for_a_party_member() {
+        let mut events = header();
+        events.extend([
+            contract("2026-11-13T16:30:05.000Z", ContractChange::Accepted),
+            // A party member leaves the shared mission: still yours.
+            left("2026-11-13T16:31:00.000Z", "200000000002"),
+            // You leave, and no other line says it is over.
+            left("2026-11-13T16:33:00.000Z", ME),
+        ]);
+        let r = started(&events, false);
+        let s = r.current().unwrap();
+        let ends: Vec<_> = kinds(s)
+            .into_iter()
+            .filter(|k| matches!(k, EntryKind::MissionEnded { .. }))
+            .collect();
+        assert_eq!(
+            ends,
+            [&EntryKind::MissionEnded {
+                mission_id: Some(MISSION.into()),
+                title: Some("Covalex Local Delivery".into()),
+                contract: None,
+                outcome: MissionOutcome::Abandoned,
+            }]
+        );
+        assert_eq!(s.timeline.last().unwrap().at - s.timeline[0].at, 175_000);
+    }
+
+    #[test]
+    fn an_accept_said_again_after_a_respawn_is_one_accept() {
+        let mut events = header();
+        events.extend([
+            contract("2026-11-13T16:30:05.000Z", ContractChange::Accepted),
+            contract("2026-11-13T16:52:19.000Z", ContractChange::Accepted),
+        ]);
+        let r = started(&events, false);
+        let accepts = kinds(r.current().unwrap())
+            .into_iter()
+            .filter(|k| matches!(k, EntryKind::MissionAccepted { .. }))
+            .count();
+        assert_eq!(accepts, 1);
     }
 
     #[test]
@@ -2060,7 +2153,12 @@ mod tests {
         let events = svc_log::read_log(std::path::Path::new(&path)).unwrap();
         let r = started(&events, true);
         let s = r.current().unwrap();
-        println!("{} events, {} entries", events.len(), s.timeline.len());
+        println!(
+            "{} events, {} entries, {} runs",
+            events.len(),
+            s.timeline.len(),
+            s.runs().len()
+        );
         for e in &s.timeline {
             let clock = |at: Millis| {
                 let secs = at / 1000 % 86_400;
@@ -2078,6 +2176,12 @@ mod tests {
                     arrived_at.map(clock),
                     arrived_at.map(|a| (a - e.at) / 1000),
                 ),
+                EntryKind::MissionAccepted { title, .. } => {
+                    println!("{} accepted: {title}", clock(e.at))
+                }
+                EntryKind::MissionEnded {
+                    contract, outcome, ..
+                } => println!("{} ended: {outcome:?} {contract:?}", clock(e.at)),
                 EntryKind::Attachments { weapon, items, .. } => println!(
                     "{} attachments on {weapon:?}: {:?}",
                     clock(e.at),

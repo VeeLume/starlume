@@ -62,6 +62,7 @@ fn parse_body(rest: &str) -> Option<LogEventKind> {
             "ObjectiveUpserted" => objective_upserted(body),
             "CLocalMissionPhaseMarker::CreateMarker" => mission_marker(body),
             "EndMission" => mission_ended(body),
+            "PlayerLeft" => mission_left(body),
             "Join PU" => shard_joined(body),
             "CEntityComponentCommodityUIProvider::SendCommodityBuyRequest" => {
                 commodity_trade(body, TradeSide::Buy)
@@ -172,8 +173,16 @@ fn session_account_id(body: &str) -> Option<LogEventKind> {
     let end = rest
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(rest.len());
+    let geid = body.find("geid ").and_then(|i| {
+        let rest = &body[i + "geid ".len()..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        owned(&rest[..end])
+    });
     Some(LogEventKind::SessionAccountId {
         account_id: owned(&rest[..end])?,
+        geid,
     })
 }
 
@@ -513,6 +522,20 @@ fn mission_ended(body: &str) -> Option<LogEventKind> {
     })
 }
 
+/// ```text
+/// <2026-11-17T22:09:47.665Z> [Notice] <PlayerLeft> Received PlayerLeft push message for: mission_id de74…-6dfee9d92d6c - player_id 204717100112 [Team_GameServices][Missions]
+/// ```
+fn mission_left(body: &str) -> Option<LogEventKind> {
+    let after = |key: &str| {
+        let rest = &body[body.find(key)? + key.len()..];
+        owned(rest.split_whitespace().next()?)
+    };
+    Some(LogEventKind::MissionLeft {
+        mission_id: after("mission_id ")?,
+        player_id: after("player_id ")?,
+    })
+}
+
 // ── Economy ─────────────────────────────────────────────────────────────
 
 /// ```text
@@ -661,7 +684,20 @@ mod tests {
         assert_eq!(
             kind(character),
             Some(LogEventKind::SessionAccountId {
-                account_id: "1234567".into()
+                account_id: "1234567".into(),
+                geid: Some("200000000001".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_player_leaving_a_mission() {
+        let line = r#"<2026-11-17T22:09:47.665Z> [Notice] <PlayerLeft> Received PlayerLeft push message for: mission_id de7491a1-121d-4b5e-a26d-6dfee9d92d6c - player_id 204717100112 [Team_GameServices][Missions]"#;
+        assert_eq!(
+            kind(line),
+            Some(LogEventKind::MissionLeft {
+                mission_id: "de7491a1-121d-4b5e-a26d-6dfee9d92d6c".into(),
+                player_id: "204717100112".into(),
             })
         );
     }
