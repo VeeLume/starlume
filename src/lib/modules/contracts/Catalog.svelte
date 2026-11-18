@@ -35,12 +35,12 @@
     Truck,
     Wrench,
     Zap,
-    X,
   } from "lucide-svelte";
   import type { NavIcon } from "@veelume/ui";
   import type { MissionEncounterView, MissionEntryView, SpawnSlotView } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import RichText from "$lib/components/catalog/RichText.svelte";
+  import CatalogBar from "./CatalogBar.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { getMissions } from "$lib/state/catalog.svelte";
   import { blueprintsStore, loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
@@ -156,8 +156,8 @@
       mode: "one",
       options: [
         { value: "", label: "Anything" },
-        { value: "bp", label: "A blueprint", test: (r) => r.blueprint_rewards.length > 0 },
-        { value: "event", label: "Event points", test: (r) => r.event_rewards.length > 0 },
+        { value: "bp", label: "Gives a blueprint", test: (r) => r.blueprint_rewards.length > 0 },
+        { value: "event", label: "Gives event points", test: (r) => r.event_rewards.length > 0 },
         { value: "once", label: "Once only", test: (r) => r.once_only },
       ],
     },
@@ -227,6 +227,15 @@
     scoped[0]?.blueprint_rewards.find((p) => p.blueprints.some((b) => b.blueprint_record_guid === scope)),
   );
 
+  /** Every blueprint a mission can grant, for the field's offers. */
+  const blueprints = $derived.by(() => {
+    const seen = new Map<string, string>();
+    for (const m of missions)
+      for (const p of m.blueprint_rewards)
+        for (const b of p.blueprints) if (b.name && !seen.has(b.blueprint_record_guid)) seen.set(b.blueprint_record_guid, b.name);
+    return [...seen].map(([guid, name]) => ({ guid, name })).sort((a, b) => a.name.localeCompare(b.name));
+  });
+
   // ── The opened row ────────────────────────────────────────────────────
   const SHIPS_SHOWN = 10;
   let shipsAll = $state<Record<string, boolean>>({});
@@ -275,9 +284,6 @@
       <div>
         <h2 class="scope-h">
           <span>{scopeName}</span>
-          <button type="button" class="scope-x" onclick={() => browse.set("bp", "")} aria-label="Show every mission">
-            <X size={14} />
-          </button>
         </h2>
         <div class="stat-tiles">
           <div class="stat-tile"><b>{oddsText(bestChance)}</b><span>per run at best</span></div>
@@ -312,6 +318,9 @@
   <div class="flex h-full min-h-0 flex-col">
     <Surface.Root {descriptor} {browse} class="min-h-0 flex-1">
       <Surface.List {status}>
+        {#snippet header()}
+          <CatalogBar {browse} {blueprints} total={missions.length} />
+        {/snippet}
         {#snippet row(r: MissionRow)}
           {@const cat = categoryOf(r)}
           {@const note = needsNote(r)}
@@ -620,20 +629,6 @@
     font-size: 1.05rem;
     font-weight: 600;
     color: var(--text-strong);
-  }
-  .scope-x {
-    all: unset;
-    cursor: pointer;
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    border-radius: var(--radius-chip);
-    color: var(--text-dim);
-  }
-  .scope-x:hover {
-    color: var(--text-strong);
-    background: var(--accent-fill-faint);
   }
   .scope-pool {
     margin: 10px 0 0;
