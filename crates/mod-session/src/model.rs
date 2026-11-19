@@ -265,6 +265,10 @@ pub enum EntryKind {
         /// named by its entity, which says nothing).
         by: Option<String>,
     },
+    /// A visit to the vehicle terminal (ASOP): it fetched your ships, once
+    /// or several times close together. Shown only when it explains a
+    /// spend ([`Cause::Entry`]): the log does not say what was paid there.
+    VehicleTerminal,
     Died,
     Downed,
     Respawned,

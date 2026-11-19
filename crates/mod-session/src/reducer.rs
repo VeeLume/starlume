@@ -37,7 +37,7 @@ use crate::model::{
     ShardStay, Source,
 };
 use crate::time::{Millis, parse_ts, session_id};
-use crate::wallet::Ledger;
+use crate::wallet::{Ledger, TERMINAL_REACH};
 
 /// With telemetry alone, a session interrupted by an app restart carries on
 /// when the stream is back within this long of its last recorded moment.
@@ -172,6 +172,8 @@ pub struct Reducer {
     /// Vehicles already recorded as destroyed: a ship disabled, then
     /// blown up, logs twice.
     destroyed: HashSet<String>,
+    /// The open vehicle terminal visit: its entry and its last fetch.
+    terminal: Option<(u32, Millis)>,
     /// The `seq` of the request the next shop answer belongs to.
     last_request: Option<u32>,
     last_location: Option<String>,
@@ -390,6 +392,7 @@ impl Reducer {
         self.missions.clear();
         self.character = None;
         self.destroyed.clear();
+        self.terminal = None;
         self.last_request = None;
         self.last_location = None;
         self.last_jurisdiction = None;
@@ -874,6 +877,20 @@ impl Reducer {
                     return false;
                 }
                 log(session, false, kind);
+            }
+            // Fetches closer together than a terminal's reach are one
+            // visit; each one keeps its window open.
+            E::VehicleListFetched => {
+                let seq = match self.terminal {
+                    Some((seq, last))
+                        if at - last <= TERMINAL_REACH && session.entry(seq).is_some() =>
+                    {
+                        seq
+                    }
+                    _ => log(session, false, EntryKind::VehicleTerminal),
+                };
+                self.terminal = Some((seq, at));
+                self.ledger.explain_spends(&mut session.wallet, at, seq);
             }
             E::BlueprintReceived { name } => {
                 log(
@@ -1488,6 +1505,44 @@ mod tests {
                 killer_id: killer_id.into(),
             },
         )
+    }
+
+    #[test]
+    fn a_terminal_visit_explains_the_services_paid_there() {
+        let mut r = started(&header(), false);
+        r.telemetry(&sample("2026-11-17T22:56:00.000Z", 7_564_991));
+        let fetch = || ev("2026-11-17T22:57:02.640Z", LogEventKind::VehicleListFetched);
+        r.log_events(&[fetch()], false);
+        r.telemetry(&sample("2026-11-17T22:57:06.226Z", 7_563_583));
+        r.telemetry(&sample("2026-11-17T22:57:10.483Z", 7_563_298));
+        // A refresh of the same visit.
+        r.log_events(
+            &[ev(
+                "2026-11-17T22:57:18.297Z",
+                LogEventKind::VehicleListFetched,
+            )],
+            false,
+        );
+        // Long after the terminal: nothing explains it.
+        r.telemetry(&sample("2026-11-17T23:10:00.000Z", 7_563_000));
+
+        let s = r.current().unwrap();
+        let visits: Vec<u32> = s
+            .timeline
+            .iter()
+            .filter(|e| e.kind == EntryKind::VehicleTerminal)
+            .map(|e| e.seq)
+            .collect();
+        assert_eq!(visits.len(), 1);
+        let causes: Vec<Cause> = s.wallet.changes.iter().map(|c| c.cause).collect();
+        assert_eq!(
+            causes,
+            [
+                Cause::Entry { seq: visits[0] },
+                Cause::Entry { seq: visits[0] },
+                Cause::Untracked
+            ]
+        );
     }
 
     #[test]

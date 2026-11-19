@@ -589,6 +589,24 @@ describe("readSession", () => {
     expect(texts(r)).toEqual(["in combat", "by Rival"]);
   });
 
+  it("shows a terminal visit only when it took money", () => {
+    const visit = entry(0, T0 + MIN, { type: "vehicle_terminal" });
+    const look = entry(1, T0 + 9 * MIN, { type: "vehicle_terminal" });
+    const reading = readSession(
+      session(
+        [visit, look],
+        [change(T0 + MIN + 4_000, 125_000, 123_592, 0), change(T0 + MIN + 8_000, 123_592, 123_307, 0)],
+      ),
+      names,
+      T0 + 10 * MIN,
+    );
+    const services = reading.rows.filter((r) => r.title === "Ship services");
+    expect(services).toHaveLength(1);
+    expect(services[0].amount).toBe(-1_693);
+    expect(texts(services[0])).toEqual(["2 charges"]);
+    expect(services[0].facts.map((f) => f.value)).toEqual([signedAuec(-1_408), signedAuec(-285)]);
+  });
+
   it("counts ships by name, most first", () => {
     expect(tally(["Mantis", "Razor LX", "Razor LX"])).toBe("2 × Razor LX, Mantis");
   });

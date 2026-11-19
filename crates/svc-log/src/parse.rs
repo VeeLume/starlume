@@ -84,6 +84,10 @@ fn parse_body(rest: &str) -> Option<LogEventKind> {
             "AttachmentReceived" => held_item_received(body),
             "EquipItem" => attachment_requested(body),
             "Vehicle Destroyed" => vehicle_destroyed(body),
+            // Its other lines (`Querying … inventory`) are the same request.
+            "OnRequestFetchVehicles" => body
+                .contains("> Fetching player vehicle list")
+                .then_some(LogEventKind::VehicleListFetched),
             _ => None,
         };
     }
@@ -735,6 +739,14 @@ mod tests {
                 player_id: "204717100112".into(),
             })
         );
+    }
+
+    #[test]
+    fn the_vehicle_terminal_fetches_your_ships() {
+        let line = r#"<2026-11-17T22:57:02.640Z> [Notice] <OnRequestFetchVehicles> Fetching player vehicle list [Team_GameServices][ASOP][Entitlement][Insurance]"#;
+        assert_eq!(kind(line), Some(LogEventKind::VehicleListFetched));
+        let line = r#"<2026-11-17T22:57:02.877Z> [Notice] <OnRequestFetchVehicles> Querying location inventory for player [204717100112] at location [848868938] [Team_GameServices][ASOP][Entitlement][Insurance]"#;
+        assert_eq!(kind(line), None);
     }
 
     #[test]

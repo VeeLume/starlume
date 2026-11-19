@@ -285,6 +285,13 @@ pub enum LogEventKind {
         /// The killer's GEID or entity id.
         killer_id: String,
     },
+
+    // ── Vehicle terminal ────────────────────────────────────────────────
+    /// The vehicle terminal (ASOP) asked for your ships: it was opened or
+    /// refreshed (also once while the character loads). The log has no
+    /// line for what is paid there (repair, refuel, restock, claim), so
+    /// this is the only trace of it. Seen in 4.10.
+    VehicleListFetched,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

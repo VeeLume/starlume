@@ -40,11 +40,16 @@
 //! 3. **An unknown amount**: a completed mission, which the log never
 //!    prices. It gets only a *gain* that the first two passes left over,
 //!    and only one seen no earlier than [`UNKNOWN_LEAD`] before it: a
-//!    reward does not arrive before its mission ends.
+//!    reward does not arrive before its mission ends. In the same pass, a
+//!    vehicle terminal visit takes *every* spend left over from
+//!    [`UNKNOWN_LEAD`] before it to [`TERMINAL_REACH`] after: what is paid
+//!    there (repair, refuel, restock, claim) has no log line at all, and
+//!    one visit often pays for several.
 //!
 //! Everything else is [`Cause::Untracked`]. Pass 3 is a guess by nature: a
 //! mission that paid nothing can still be given an unrelated gain that
-//! follows it within the window, if nothing with an amount explains it.
+//! follows it within the window, and a terminal left open an unrelated
+//! spend, if nothing with an amount explains it.
 
 use std::collections::VecDeque;
 
@@ -58,36 +63,60 @@ pub const NEAR_PERCENT: i64 = 5;
 /// How long before an event of unknown amount its gain may have been seen
 /// (slack between the stream's arrival time and the log line's own).
 pub const UNKNOWN_LEAD: Millis = 5_000;
+/// How long after the vehicle terminal fetched your ships a spend may
+/// still be paid there: the menu stays open while you pick services.
+pub const TERMINAL_REACH: Millis = 120_000;
 /// Most open explanations kept.
 const MAX_EXPLANATIONS: usize = 64;
 /// The attribution passes (see the module docs).
 const PASSES: u8 = 3;
+
+/// What a log event says about the money it moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Amount {
+    /// Signed aUEC.
+    Exact(i64),
+    /// One gain of unknown size (a completed mission).
+    Gain,
+    /// Any number of spends of unknown size (a vehicle terminal visit).
+    Spends,
+}
 
 /// A log event that moves money.
 #[derive(Debug, Clone, Copy)]
 struct Explanation {
     at: Millis,
     seq: u32,
-    /// Signed aUEC; `None` = a gain of unknown size.
-    amount: Option<i64>,
+    amount: Amount,
+}
+
+impl Explanation {
+    /// How long after it a change may still be its.
+    fn reach(&self) -> Millis {
+        match self.amount {
+            Amount::Spends => TERMINAL_REACH,
+            _ => ATTRIBUTION_WINDOW,
+        }
+    }
 }
 
 /// The pass in which `e` may explain `change`; `None` = never.
 fn pass_of(e: &Explanation, change: &WalletChange) -> Option<u8> {
     let after = change.at - e.at;
-    if after.abs() > ATTRIBUTION_WINDOW {
+    if after > e.reach() || after < -ATTRIBUTION_WINDOW {
         return None;
     }
     let delta = change.delta;
     match e.amount {
-        Some(a) if a == delta => Some(0),
-        Some(a)
+        Amount::Exact(a) if a == delta => Some(0),
+        Amount::Exact(a)
             if a.signum() == delta.signum()
                 && (a - delta).abs() * 100 <= a.abs() * NEAR_PERCENT =>
         {
             Some(1)
         }
-        None if delta > 0 && after >= -UNKNOWN_LEAD => Some(2),
+        Amount::Gain if delta > 0 && after >= -UNKNOWN_LEAD => Some(2),
+        Amount::Spends if delta < 0 && after >= -UNKNOWN_LEAD => Some(2),
         _ => None,
     }
 }
@@ -145,10 +174,10 @@ impl Ledger {
             pairs.sort_unstable();
             for (_, ei, ci) in pairs {
                 if !used[ei] && open[ci].cause == Cause::Untracked {
-                    open[ci].cause = Cause::Entry {
-                        seq: self.explanations[ei].seq,
-                    };
-                    used[ei] = true;
+                    let e = &self.explanations[ei];
+                    open[ci].cause = Cause::Entry { seq: e.seq };
+                    // A terminal visit pays for any number of services.
+                    used[ei] = e.amount != Amount::Spends;
                 }
             }
         }
@@ -159,7 +188,7 @@ impl Ledger {
     /// no change yet.
     fn spends_all(&self, wallet: &Wallet, at: Millis, balance: i64) -> bool {
         self.explanations.iter().any(|e| {
-            e.amount == Some(-balance)
+            e.amount == Amount::Exact(-balance)
                 && (e.at - at).abs() <= ATTRIBUTION_WINDOW
                 && !wallet
                     .changes
@@ -177,12 +206,24 @@ impl Ledger {
         seq: u32,
         amount: Option<i64>,
     ) -> bool {
-        // An event two windows older than this one can reach no change that
-        // is still to come: the stream is never behind the log.
+        let amount = amount.map_or(Amount::Gain, Amount::Exact);
+        self.open(wallet, at, seq, amount)
+    }
+
+    /// The vehicle terminal fetched your ships (opened or refreshed):
+    /// entry `seq` may explain the spends that follow. Returns whether the
+    /// wallet changed.
+    pub(crate) fn explain_spends(&mut self, wallet: &mut Wallet, at: Millis, seq: u32) -> bool {
+        self.open(wallet, at, seq, Amount::Spends)
+    }
+
+    fn open(&mut self, wallet: &mut Wallet, at: Millis, seq: u32, amount: Amount) -> bool {
+        // An event a window past its reach can explain no change that is
+        // still to come: the stream is never behind the log.
         while self
             .explanations
             .front()
-            .is_some_and(|e| e.at < at - 2 * ATTRIBUTION_WINDOW)
+            .is_some_and(|e| e.at + e.reach() + ATTRIBUTION_WINDOW < at)
             || self.explanations.len() >= MAX_EXPLANATIONS
         {
             self.explanations.pop_front();
@@ -192,7 +233,7 @@ impl Ledger {
         // A held-back 0 that this event accounts for in full.
         let mut changed = false;
         if let (Some(zero_at), Some(latest)) = (wallet.zero_since, wallet.latest)
-            && amount == Some(-latest.balance)
+            && amount == Amount::Exact(-latest.balance)
             && (zero_at - at).abs() <= ATTRIBUTION_WINDOW
         {
             wallet.record(zero_at, 0);
@@ -526,12 +567,15 @@ mod tests {
             seq: 0,
             amount,
         };
-        assert_eq!(pass_of(&event(Some(-500)), &change(500)), None);
-        assert_eq!(pass_of(&event(None), &change(-500)), None);
-        assert_eq!(pass_of(&event(Some(1_000)), &change(1_051)), None);
-        assert_eq!(pass_of(&event(Some(1_000)), &change(1_050)), Some(1));
-        assert_eq!(pass_of(&event(Some(-19_175)), &change(-19_175)), Some(0));
-        assert_eq!(pass_of(&event(None), &change(500)), Some(2));
+        use Amount::{Exact, Gain, Spends};
+        assert_eq!(pass_of(&event(Exact(-500)), &change(500)), None);
+        assert_eq!(pass_of(&event(Gain), &change(-500)), None);
+        assert_eq!(pass_of(&event(Exact(1_000)), &change(1_051)), None);
+        assert_eq!(pass_of(&event(Exact(1_000)), &change(1_050)), Some(1));
+        assert_eq!(pass_of(&event(Exact(-19_175)), &change(-19_175)), Some(0));
+        assert_eq!(pass_of(&event(Gain), &change(500)), Some(2));
+        assert_eq!(pass_of(&event(Spends), &change(-500)), Some(2));
+        assert_eq!(pass_of(&event(Spends), &change(500)), None);
     }
 
     #[test]

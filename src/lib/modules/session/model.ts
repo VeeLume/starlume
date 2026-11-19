@@ -442,6 +442,8 @@ export function readSession(session: Session, names: Names, now: number): Sessio
   const end = session.ended_at ?? (session.live ? now : session.last_activity_at);
   const open = session.live;
   const byEntry = new Map<number, WalletChange>();
+  // A terminal visit may explain several charges; every other entry one.
+  const allByEntry = new Map<number, WalletChange[]>();
   const onTimeline = new Set(session.timeline.map((e) => e.seq));
   const rows: LogRow[] = [];
   let explained = 0;
@@ -449,6 +451,7 @@ export function readSession(session: Session, names: Names, now: number): Sessio
   for (const change of session.wallet.changes) {
     if (change.cause.type === "entry" && onTimeline.has(change.cause.seq)) {
       byEntry.set(change.cause.seq, change);
+      allByEntry.set(change.cause.seq, [...(allByEntry.get(change.cause.seq) ?? []), change]);
       explained++;
       continue;
     }
@@ -678,6 +681,25 @@ export function readSession(session: Session, names: Names, now: number): Sessio
             value: `${clockSeconds(change.at)}, from the telemetry balance`,
           });
         }
+        rows.push(r);
+        break;
+      }
+      case "vehicle_terminal": {
+        // A visit that paid for nothing is just a look at the fleet.
+        const charges = allByEntry.get(entry.seq);
+        if (!charges) break;
+        const r = row(`e${entry.seq}`, entry.at, "buy", "Ship services");
+        if (charges.length > 1) r.meta.push({ text: count(charges.length, "charge") });
+        if (place) r.meta.push({ text: place.name.name });
+        r.amount = charges.reduce((sum, c) => sum + c.delta, 0);
+        r.facets = ["money"];
+        r.facts = charges.map((c) => ({ label: clockSeconds(c.at), value: signedAuec(c.delta), mono: true }));
+        const where = whereFact();
+        if (where) r.facts.push(where);
+        r.sources = [
+          { label: "Terminal", value: saidBy(entry) },
+          { label: "Charged", value: `${clockSeconds(charges[0].at)}, from the telemetry balance` },
+        ];
         rows.push(r);
         break;
       }

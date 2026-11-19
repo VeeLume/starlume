@@ -2471,7 +2471,13 @@ export type EntryKind =
 /**
  * A ship of yours was destroyed. Once per ship.
  */
-{ type: "ship_lost"; class_name: string; reason: string; by: string | null } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" } | 
+{ type: "ship_lost"; class_name: string; reason: string; by: string | null } | 
+/**
+ * A visit to the vehicle terminal (ASOP): it fetched your ships, once
+ * or several times close together. Shown only when it explains a
+ * spend ([`Cause::Entry`]): the log does not say what was paid there.
+ */
+{ type: "vehicle_terminal" } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" } | 
 /**
  * One quantum trip: a destination was set on the star map (the
  * entry's time) and, if `arrived_at` says so, the drive got there. The
@@ -3160,7 +3166,14 @@ export type LogEventKind =
  * (`level [0] -> [2]`; a ship disabled first may log a second line for
  * the same `vehicle_id`). Seen in 4.10.
  */
-{ type: "VehicleDestroyed"; vehicle_id: string; class: string; owner: string | null; reason: string; level: number; killer: string; killer_id: string }
+{ type: "VehicleDestroyed"; vehicle_id: string; class: string; owner: string | null; reason: string; level: number; killer: string; killer_id: string } | 
+/**
+ * The vehicle terminal (ASOP) asked for your ships: it was opened or
+ * refreshed (also once while the character loads). The log has no
+ * line for what is paid there (repair, refuel, restock, claim), so
+ * this is the only trace of it. Seen in 4.10.
+ */
+{ type: "VehicleListFetched" }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
 /**
  * UEX's marketplace average for an item, one side, one quality tier.
