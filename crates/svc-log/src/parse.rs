@@ -28,7 +28,7 @@
 //!   (`<EM4>[BP]</EM4>`); [`clean_title`] removes them.
 
 use crate::event::{
-    BodyPart, ContractChange, LogEvent, LogEventKind, MoneyChange, ObjectiveChange, TradeSide,
+    BodyPart, ContractChange, LogEvent, LogEventKind, MoneyChange, ObjectiveChange, TradeSide, Zone,
 };
 
 /// Recognise one record. `None` for the ~99.9% that carry nothing tracked.
@@ -428,6 +428,17 @@ fn notification(body: &str) -> Option<LogEventKind> {
         }
     }
 
+    const ZONES: [(&str, Zone, bool); 4] = [
+        ("Entering Armistice Zone", Zone::Armistice, true),
+        ("Leaving Armistice Zone", Zone::Armistice, false),
+        ("Entering Private Property", Zone::PrivateProperty, true),
+        ("Leaving Private Property", Zone::PrivateProperty, false),
+    ];
+    for (prefix, zone, entered) in ZONES {
+        if text.starts_with(prefix) {
+            return Some(LogEventKind::ZoneChanged { zone, entered });
+        }
+    }
     if let Some(injury) = injury(text) {
         return Some(injury);
     }
@@ -801,6 +812,19 @@ mod tests {
                 player_id: "204717100112".into(),
             })
         );
+    }
+
+    #[test]
+    fn zones_entered_and_left() {
+        let armistice = r#"<2026-11-18T19:18:51.317Z> [Notice] <SHUDEvent_OnNotification> Added notification "Entering Armistice Zone - Combat Prohibited: " [0] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        let left = r#"<2026-11-18T19:22:54.389Z> [Notice] <SHUDEvent_OnNotification> Added notification "Leaving Armistice Zone - Caution Advised: " [3] to queue. New queue size: 2, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        let private = r#"<2026-11-18T19:25:41.666Z> [Notice] <SHUDEvent_OnNotification> Added notification "Entering Private Property: " [12] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        let private_left = r#"<2026-11-18T19:25:54.010Z> [Notice] <SHUDEvent_OnNotification> Added notification "Leaving Private Property: " [13] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        let zone = |zone, entered| Some(LogEventKind::ZoneChanged { zone, entered });
+        assert_eq!(kind(armistice), zone(Zone::Armistice, true));
+        assert_eq!(kind(left), zone(Zone::Armistice, false));
+        assert_eq!(kind(private), zone(Zone::PrivateProperty, true));
+        assert_eq!(kind(private_left), zone(Zone::PrivateProperty, false));
     }
 
     #[test]

@@ -19,7 +19,7 @@
 //! JavaScript number: neither comes near 2^53.
 
 use serde::{Deserialize, Deserializer, Serialize};
-use svc_log::{BodyPart, MoneyChange, ObjectiveChange, TradeSide};
+use svc_log::{BodyPart, MoneyChange, ObjectiveChange, TradeSide, Zone};
 
 use crate::time::Millis;
 
@@ -264,6 +264,12 @@ pub enum EntryKind {
         /// The player who destroyed it, when the killer was one (an NPC is
         /// named by its entity, which says nothing).
         by: Option<String>,
+    },
+    /// Entered or left an armistice zone or private property. Only a
+    /// change is kept: the HUD can repeat itself.
+    Zone {
+        zone: Zone,
+        entered: bool,
     },
     /// One of your body parts was injured. `tier` is the med bed it needs:
     /// 3 minor, 2 moderate, 1 severe.

@@ -304,6 +304,8 @@ export interface StatusNow {
     /** The outermost place it lies in (the system). */
     system: string | null;
     jurisdictions: string[];
+    /** Inside an armistice zone, as the HUD last said. */
+    armistice: boolean;
     arrivedAt: number;
   } | null;
   ship: {
@@ -453,6 +455,15 @@ interface FightState {
   last: number;
 }
 
+/** A stay on private property; one left and entered again within
+ *  [`PROPERTY_GAP`] goes on. */
+interface PropertyState {
+  row: LogRow;
+  leftAt: number | null;
+}
+
+const PROPERTY_GAP = 3 * 60_000;
+
 /** Kills further apart than this are two fights. */
 const FIGHT_GAP = 10 * 60_000;
 
@@ -501,6 +512,8 @@ export function readSession(session: Session, names: Names, now: number): Sessio
   let place: PlaceState | null = null;
   const places: PlaceState[] = [];
   let stay: StayState | null = null;
+  let armistice = false;
+  const properties: PropertyState[] = [];
   // Untreated injuries, the worst (lowest) tier per part.
   const injuries = new Map<BodyPart, number>();
   let stays = 0;
@@ -794,6 +807,29 @@ export function readSession(session: Session, names: Names, now: number): Sessio
         rows.push(r);
         break;
       }
+      case "zone": {
+        if (kind.zone === "Armistice") {
+          armistice = kind.entered;
+          break;
+        }
+        const last = properties.at(-1);
+        if (!kind.entered) {
+          if (last && last.leftAt == null) last.leftAt = entry.at;
+          break;
+        }
+        if (last && (last.leftAt == null || entry.at - last.leftAt <= PROPERTY_GAP)) {
+          last.leftAt = null;
+          break;
+        }
+        const r = row(`e${entry.seq}`, entry.at, "place", "Private property");
+        if (stay) r.meta.push({ text: `in ${stay.name}` });
+        if (place) r.meta.push({ text: `near ${place.name.name}` });
+        r.facets = ["travel"];
+        r.sources = [{ label: "Entered", value: saidBy(entry) }];
+        properties.push({ row: r, leftAt: null });
+        rows.push(r);
+        break;
+      }
       case "injured": {
         const part = PART[kind.part];
         const r = row(`e${entry.seq}`, entry.at, "life", `${severity(kind.tier)} injury`);
@@ -942,6 +978,21 @@ export function readSession(session: Session, names: Names, now: number): Sessio
 
   for (const m of missions) finishMission(m, open, now);
 
+  for (const p of properties) {
+    const r = p.row;
+    r.facts = [{ label: "Entered", value: clockSeconds(r.at), mono: true }];
+    if (p.leftAt != null) {
+      r.took = p.leftAt - r.at;
+      r.facts.push(
+        { label: "Left", value: clockSeconds(p.leftAt), mono: true },
+        { label: "Stayed", value: duration(p.leftAt - r.at), mono: true },
+      );
+      r.sources.push({ label: "Left", value: `${clockSeconds(p.leftAt)}, from Game.log` });
+    } else {
+      r.meta.push({ text: open ? "inside" : "no leaving seen" });
+    }
+  }
+
   for (const f of fights) {
     const r = f.row;
     r.title = f.ships.length === 1 ? `Destroyed ${f.ships[0]}` : `Destroyed ${f.ships.length} ships`;
@@ -986,6 +1037,7 @@ export function readSession(session: Session, names: Names, now: number): Sessio
             name: place.name.name,
             system: place.name.parents.at(-1) ?? null,
             jurisdictions: place.jurisdictions,
+            armistice,
             arrivedAt: place.arrivedAt,
           }
         : null,

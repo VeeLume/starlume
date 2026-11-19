@@ -286,6 +286,13 @@ pub enum LogEventKind {
         killer_id: String,
     },
 
+    // ── Zones ───────────────────────────────────────────────────────────
+    /// "Entering Armistice Zone - Combat Prohibited", "Leaving Armistice
+    /// Zone - Caution Advised", "Entering Private Property", "Leaving
+    /// Private Property" on the HUD. **Locale-dependent.** Seen in 4.0 to
+    /// 4.10.
+    ZoneChanged { zone: Zone, entered: bool },
+
     // ── Health ──────────────────────────────────────────────────────────
     /// "Minor Injury Detected - Left arm - Tier 3 Treatment Required" on
     /// the HUD. The tier is the med bed it needs: 3 minor, 2 moderate,
@@ -331,6 +338,16 @@ pub enum ObjectiveChange {
     New,
     Completed,
     Withdrawn,
+}
+
+/// A zone the HUD announces entering and leaving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum Zone {
+    /// Combat prohibited (stations, cities, landing zones).
+    Armistice,
+    /// Trespassing there is a crime.
+    PrivateProperty,
 }
 
 /// A body part, as injuries and med beds name them.

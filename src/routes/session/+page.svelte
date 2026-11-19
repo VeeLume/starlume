@@ -217,6 +217,7 @@
         <div class="ss-bottom">
           <span class="ss-sm">
             {#each st.where.jurisdictions as j (j)}<span>{j}</span>{/each}
+            {#if st.where.armistice}<span>armistice</span>{/if}
           </span>
           <span class="ss-sm f">
             <span>arrived {clock(st.where.arrivedAt)}</span>

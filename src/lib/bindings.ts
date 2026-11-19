@@ -2477,6 +2477,11 @@ export type EntryKind =
  */
 { type: "ship_lost"; class_name: string; reason: string; by: string | null } | 
 /**
+ * Entered or left an armistice zone or private property. Only a
+ * change is kept: the HUD can repeat itself.
+ */
+{ type: "zone"; zone: Zone; entered: boolean } | 
+/**
  * One of your body parts was injured. `tier` is the med bed it needs:
  * 3 minor, 2 moderate, 1 severe.
  */
@@ -3180,6 +3185,13 @@ export type LogEventKind =
  * the same `vehicle_id`). Seen in 4.10.
  */
 { type: "VehicleDestroyed"; vehicle_id: string; class: string; owner: string | null; reason: string; level: number; killer: string; killer_id: string } | 
+/**
+ * "Entering Armistice Zone - Combat Prohibited", "Leaving Armistice
+ * Zone - Caution Advised", "Entering Private Property", "Leaving
+ * Private Property" on the HUD. **Locale-dependent.** Seen in 4.0 to
+ * 4.10.
+ */
+{ type: "ZoneChanged"; zone: Zone; entered: boolean } | 
 /**
  * "Minor Injury Detected - Left arm - Tier 3 Treatment Required" on
  * the HUD. The tier is the med bed it needs: 3 minor, 2 moderate,
@@ -5243,6 +5255,18 @@ operators: OperatorView[];
  * The wave for everyone at the plan's moments.
  */
 total: TotalRowView[]; scannerResistancePct: number; scannerInstability: number; guide: GuideView }
+/**
+ * A zone the HUD announces entering and leaving.
+ */
+export type Zone = 
+/**
+ * Combat prohibited (stations, cities, landing zones).
+ */
+"Armistice" | 
+/**
+ * Trespassing there is a crime.
+ */
+"PrivateProperty"
 
 /** tauri-specta globals **/
 

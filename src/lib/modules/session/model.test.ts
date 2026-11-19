@@ -290,6 +290,7 @@ describe("readSession", () => {
       name: "Tarnhold",
       system: "Vega",
       jurisdictions: ["Brell Mining"],
+      armistice: false,
       arrivedAt: T0 + 10 * MIN,
     });
   });
@@ -605,6 +606,27 @@ describe("readSession", () => {
     expect(services[0].amount).toBe(-1_693);
     expect(texts(services[0])).toEqual(["2 charges"]);
     expect(services[0].facts.map((f) => f.value)).toEqual([signedAuec(-1_408), signedAuec(-285)]);
+  });
+
+  it("rows private property stays, merging a quick return", () => {
+    const zone = (seq: number, at: number, entered: boolean, z: "Armistice" | "PrivateProperty" = "PrivateProperty") =>
+      entry(seq, at, { type: "zone", zone: z, entered });
+    const reading = readSession(
+      session([
+        zone(0, T0 + MIN, true, "Armistice"),
+        zone(1, T0 + 10 * MIN, true),
+        zone(2, T0 + 10 * MIN + 11_000, false),
+        zone(3, T0 + 12 * MIN, true),
+        zone(4, T0 + 14 * MIN, false),
+        zone(5, T0 + 30 * MIN, true),
+      ]),
+      names,
+      T0 + 31 * MIN,
+    );
+    const stays = reading.rows.filter((r) => r.title === "Private property");
+    expect(stays).toHaveLength(2);
+    expect(stays[0].took).toBe(4 * MIN);
+    expect(texts(stays[1])).toEqual(["inside"]);
   });
 
   it("rows an injury and the surgery that treats it", () => {

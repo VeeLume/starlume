@@ -175,6 +175,8 @@ pub struct Reducer {
     /// The character's handle, from the login line: tells your surgery
     /// from another player's. Not stored in the session.
     handle: Option<String>,
+    /// Zones the HUD last said you are in.
+    zones: HashSet<svc_log::Zone>,
     /// The open vehicle terminal visit: its entry and its last fetch.
     terminal: Option<(u32, Millis)>,
     /// The `seq` of the request the next shop answer belongs to.
@@ -396,6 +398,7 @@ impl Reducer {
         self.character = None;
         self.destroyed.clear();
         self.terminal = None;
+        self.zones.clear();
         self.handle = None;
         self.last_request = None;
         self.last_location = None;
@@ -883,6 +886,26 @@ impl Reducer {
                     return false;
                 }
                 log(session, false, kind);
+            }
+            E::ZoneChanged { zone, entered } => {
+                let changed = if *entered {
+                    self.zones.insert(*zone)
+                } else {
+                    self.zones.remove(zone)
+                };
+                // A leave with no enter seen (the session began inside) is
+                // still news; a repeated enter is not.
+                if !changed && *entered {
+                    return false;
+                }
+                log(
+                    session,
+                    true,
+                    EntryKind::Zone {
+                        zone: *zone,
+                        entered: *entered,
+                    },
+                );
             }
             E::Injured { part, tier } => {
                 log(
@@ -1541,6 +1564,35 @@ mod tests {
                 killer_id: killer_id.into(),
             },
         )
+    }
+
+    #[test]
+    fn a_zone_is_kept_when_it_changes() {
+        use svc_log::Zone;
+        let zone = |ts, entered| {
+            ev(
+                ts,
+                LogEventKind::ZoneChanged {
+                    zone: Zone::PrivateProperty,
+                    entered,
+                },
+            )
+        };
+        let mut events = header();
+        events.extend([
+            zone("2026-11-13T16:40:00.000Z", true),
+            zone("2026-11-13T16:40:01.000Z", true),
+            zone("2026-11-13T16:41:00.000Z", false),
+        ]);
+        let r = started(&events, false);
+        let zones: Vec<_> = kinds(r.current().unwrap())
+            .into_iter()
+            .filter_map(|k| match k {
+                EntryKind::Zone { entered, .. } => Some(*entered),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(zones, [true, false]);
     }
 
     #[test]
