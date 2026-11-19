@@ -89,6 +89,15 @@ export async function openSession(id: string): Promise<void> {
   _error = "";
 }
 
+/** Read a past session's Game.log again and file what this version finds
+ *  in it. `session:changed` then reloads the history and the open session.
+ *  Returns what to tell the user, `""` when it worked. */
+export async function rereadSession(id: string): Promise<string> {
+  const result = await commands.sessionReread(id);
+  if (result.status !== "ok") return result.error.message;
+  return result.data ? "" : "Its Game.log is gone: the game keeps only so many old logs.";
+}
+
 const _asking = new Set<string>();
 
 /** Ask Rust for the display names a session holds and the store lacks

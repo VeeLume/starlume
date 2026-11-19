@@ -1430,6 +1430,20 @@ async sessionGet(id: string) : Promise<Result<Session | null, AppError>> {
 }
 },
 /**
+ * Read a past session's Game.log again: what this version reads in it
+ * that the one that filed it did not. Returns the session as filed again;
+ * `None` when it is not kept or its log is gone. Needs the Game.log
+ * opt-in. Runs on the feed queue, so it never races a session being filed.
+ */
+async sessionReread(id: string) : Promise<Result<SessionSummary | null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("session_reread", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Display names for a session's internal names. Never fails: without game
  * data (not loaded, no install for the channel) every name is the cleaned
  * internal one and `data_loaded` says so.

@@ -310,6 +310,28 @@ impl Reducer {
         session
     }
 
+    /// Build a filed session again from its log, read whole from its first
+    /// line: what a newer reader finds in an old log. The telemetry half
+    /// (the wallet, the stream's entries) exists nowhere else and is kept;
+    /// the log's half is replaced. `None` when the log is not this
+    /// session's (its start line names another) or `kept` was never read
+    /// from a log.
+    pub fn reread(kept: Session, events: &[LogEvent]) -> Option<Session> {
+        if !kept.sources.log {
+            return None;
+        }
+        let id = kept.id.clone();
+        let channel = kept.channel.clone();
+        let ended = kept.ended_at.unwrap_or(kept.last_activity_at);
+        let mut reducer = Reducer::default();
+        // The same path as an app restart: the log's replay adopts it.
+        reducer.restore(kept);
+        reducer.log_session_started(channel);
+        reducer.log_events(events, true);
+        let done = reducer.log_session_ended(ended).finished?;
+        (done.id == id).then_some(done)
+    }
+
     /// Forget everything: both sources are off, or the module is. Nothing
     /// stays in memory; what was finished is already filed.
     pub fn clear(&mut self) {
@@ -1567,6 +1589,48 @@ mod tests {
     }
 
     #[test]
+    fn a_filed_session_read_again_gains_what_its_log_holds() {
+        use svc_log::BodyPart;
+        let mut r = started(&header(), false);
+        r.telemetry(&sample("2026-11-13T16:14:00.000Z", 125_000));
+        r.telemetry(&sample("2026-11-13T16:20:00.000Z", 124_000));
+        let kept = r
+            .log_session_ended(ms("2026-11-13T17:00:00.000Z"))
+            .finished
+            .unwrap();
+
+        // The same log, with a line an older reader skipped.
+        let mut log = header();
+        log.push(ev(
+            "2026-11-13T16:30:00.000Z",
+            LogEventKind::Injured {
+                part: BodyPart::Head,
+                tier: 3,
+            },
+        ));
+        let again = Reducer::reread(kept.clone(), &log).unwrap();
+        assert_eq!(again.id, kept.id);
+        assert!(!again.live);
+        assert!(kinds(&again).contains(&&EntryKind::Injured {
+            part: BodyPart::Head,
+            tier: 3
+        }));
+        assert_eq!(again.wallet.changes.len(), 1);
+        assert_eq!(again.wallet.net, -1_000);
+        assert!(again.sources.telemetry);
+
+        // Another game run's log is not this session's.
+        let other: Vec<LogEvent> = header()
+            .into_iter()
+            .map(|mut e| {
+                e.ts = e.ts.replace("2026-11-13", "2026-11-14");
+                e
+            })
+            .collect();
+        assert!(Reducer::reread(kept, &other).is_none());
+    }
+
+    #[test]
     fn a_zone_is_kept_when_it_changes() {
         use svc_log::Zone;
         let zone = |ts, entered| {
@@ -2524,6 +2588,47 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    /// A filed session rebuilt from its own log, without writing anything:
+    /// `STARLUME_REAL_SESSION=<sessions/…json> STARLUME_REAL_GAME_LOG=<log>
+    /// cargo test -p mod-session real_session -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads a real session file and its Game.log"]
+    fn real_session_reread() {
+        let file = std::env::var("STARLUME_REAL_SESSION").unwrap();
+        let log = std::env::var("STARLUME_REAL_GAME_LOG").unwrap();
+        let kept: Session = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+        let events = svc_log::read_log(std::path::Path::new(&log)).unwrap();
+        let again = Reducer::reread(kept.clone(), &events).expect("the log is this session's");
+        let tally = |s: &Session| {
+            let mut kinds = std::collections::BTreeMap::<String, usize>::new();
+            for e in &s.timeline {
+                let json = serde_json::to_value(&e.kind).unwrap();
+                *kinds
+                    .entry(json["type"].as_str().unwrap().to_owned())
+                    .or_default() += 1;
+            }
+            kinds
+        };
+        println!("before: {:?}", tally(&kept));
+        println!("after:  {:?}", tally(&again));
+        let untracked = |s: &Session| {
+            s.wallet
+                .changes
+                .iter()
+                .filter(|c| c.cause == Cause::Untracked)
+                .count()
+        };
+        println!(
+            "wallet: {} changes, {} untracked before, {} after; net {} -> {}",
+            again.wallet.changes.len(),
+            untracked(&kept),
+            untracked(&again),
+            kept.wallet.net,
+            again.wallet.net
+        );
+        assert_eq!(again.wallet.net, kept.wallet.net);
     }
 
     const SHIP: &str = "VEGA_Courier_Mk2";

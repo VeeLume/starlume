@@ -145,6 +145,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         session::session_state,
         session::session_history,
         session::session_get,
+        session::session_reread,
         session_names::session_names,
         auth::auth_status,
         auth::login_start,

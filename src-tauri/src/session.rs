@@ -44,6 +44,12 @@
 //!
 //! **Retention:** the newest [`HISTORY_CAP`] sessions; older files are
 //! deleted when a session is filed.
+//!
+//! **Reading a past session again** ([`session_reread`]): a newer reader
+//! finds more in an old log. The session's log is found by its first lines
+//! (the game keeps old ones in `logbackups/`), read whole, and the session
+//! is rebuilt and filed again under its id; its telemetry half is kept.
+//! Only on request, and only with the Game.log opt-in on.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -673,10 +679,166 @@ pub(crate) async fn session_get(app: AppHandle, id: String) -> Result<Option<Ses
         .map_err(|e| AppError::Internal(format!("session read failed: {e}")))
 }
 
+// ── Reading a past session again ────────────────────────────────────────────
+
+/// The install folders (where `Game.log` and `logbackups/` are).
+fn game_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    app.state::<AppState>()
+        .installs
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|install| install.p4k_path.parent().map(Path::to_path_buf))
+        .collect()
+}
+
+/// The log a filed session was read from: the install's `Game.log` until
+/// the game starts again, then its copy in `logbackups/`. Matched by the
+/// start time in its first lines, which names the session. Only files
+/// written since the session began are opened, and only their head is read.
+fn log_of(game_dirs: &[PathBuf], session: &Session) -> Option<PathBuf> {
+    let since =
+        std::time::UNIX_EPOCH + Duration::from_millis(u64::try_from(session.started_at).ok()?);
+    // The session's own install first.
+    let mut dirs: Vec<&PathBuf> = game_dirs.iter().collect();
+    dirs.sort_by_key(|dir| channel_of(&dir.join("Game.log")) != session.channel);
+    for dir in dirs {
+        let mut candidates = vec![svc_log::game_log_path(dir)];
+        if let Ok(backups) = std::fs::read_dir(dir.join("logbackups")) {
+            candidates.extend(
+                backups
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().is_some_and(|x| x == "log")),
+            );
+        }
+        let found = candidates.into_iter().find(|path| {
+            let written = std::fs::metadata(path).and_then(|m| m.modified());
+            written.is_ok_and(|at| at >= since) && starts_at(path, session.started_at)
+        });
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// Does the log begin at `at`? Its first lines (the backup name, "Log
+/// started on") carry the time the session is named after.
+fn starts_at(log: &Path, at: Millis) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 512];
+    let Ok(n) = std::fs::File::open(log).and_then(|mut f| f.read(&mut head)) else {
+        return false;
+    };
+    String::from_utf8_lossy(&head[..n])
+        .lines()
+        .take(3)
+        .filter_map(|line| line.strip_prefix('<')?.split_once('>'))
+        .any(|(ts, _)| mod_session::parse_ts(ts) == Some(at))
+}
+
+/// Rebuild filed session `id` from its log and file it again. `None` when
+/// it is not kept, is the live one, or its log is gone.
+fn reread(store: &Store, dirs: &[PathBuf], id: &str) -> Result<Option<SessionSummary>, AppError> {
+    let Some(kept) = store.get(id) else {
+        return Ok(None);
+    };
+    // The live session is the watcher's to read.
+    let live = HOST
+        .lock()
+        .unwrap()
+        .reducer
+        .current()
+        .is_some_and(|s| s.live && s.id == id);
+    if live {
+        return Ok(None);
+    }
+    let Some(log) = log_of(dirs, &kept) else {
+        return Ok(None);
+    };
+    let events = svc_log::read_log(&log)
+        .map_err(|e| AppError::Internal(format!("could not read {}: {e}", log.display())))?;
+    let Some(again) = Reducer::reread(kept, &events) else {
+        return Ok(None);
+    };
+    store.file(&again)?;
+    Ok(Some(again.summary()))
+}
+
+/// Read a past session's Game.log again: what this version reads in it
+/// that the one that filed it did not. Returns the session as filed again;
+/// `None` when it is not kept or its log is gone. Needs the Game.log
+/// opt-in. Runs on the feed queue, so it never races a session being filed.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn session_reread(
+    app: AppHandle,
+    id: String,
+) -> Result<Option<SessionSummary>, AppError> {
+    let gates = gates(&app);
+    if !gates.module {
+        return Ok(None);
+    }
+    if !gates.log {
+        return Err(AppError::Config(
+            "Reading Game.log is off. Turn it on in Settings, Game data.".into(),
+        ));
+    }
+    let dirs = game_dirs(&app);
+    let (tx, rx) = oneshot::channel();
+    let job: Job = Box::new(move || {
+        let _ = tx.send(reread(&Store::at_data_root(), &dirs, &id));
+    });
+    QUEUE
+        .send(job)
+        .map_err(|_| AppError::Internal("the session queue is gone".into()))?;
+    let filed = rx
+        .await
+        .map_err(|_| AppError::Internal("reading the log again failed".into()))??;
+    if filed.is_some() {
+        let _ = app.emit(SESSION_CHANGED_EVENT, SessionChange { history: true });
+    }
+    Ok(filed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use svc_log::LogEventKind;
+
+    #[test]
+    fn a_session_finds_its_log_by_its_first_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("LIVE");
+        std::fs::create_dir_all(live.join("logbackups")).unwrap();
+        let head = |ts: &str| {
+            format!(
+                "<{ts}> BackupNameAttachment=\" Build(13165946) 17 Nov 26 (22 54 44)\"  -- used by backup system\n<{ts}> Log started on Tue Nov 17 21:54:55 2026\n"
+            )
+        };
+        std::fs::write(live.join("Game.log"), head("2026-11-18T19:17:17.168Z")).unwrap();
+        let backup = live
+            .join("logbackups")
+            .join("Game Build(13165946) 17 Nov 26 (22 54 44).log");
+        std::fs::write(&backup, head("2026-11-17T21:54:55.111Z")).unwrap();
+
+        let session = |ts: &str| Session {
+            started_at: mod_session::parse_ts(ts).unwrap(),
+            channel: Some("LIVE".into()),
+            ..Session::default()
+        };
+        let dirs = [live.clone()];
+        assert_eq!(
+            log_of(&dirs, &session("2026-11-17T21:54:55.111Z")),
+            Some(backup)
+        );
+        assert_eq!(
+            log_of(&dirs, &session("2026-11-18T19:17:17.168Z")),
+            Some(live.join("Game.log"))
+        );
+        assert_eq!(log_of(&dirs, &session("2026-11-16T10:00:00.000Z")), None);
+    }
 
     const ALL_ON: Gates = Gates {
         module: true,
