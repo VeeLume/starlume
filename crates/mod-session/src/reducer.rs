@@ -172,6 +172,9 @@ pub struct Reducer {
     /// Vehicles already recorded as destroyed: a ship disabled, then
     /// blown up, logs twice.
     destroyed: HashSet<String>,
+    /// The character's handle, from the login line: tells your surgery
+    /// from another player's. Not stored in the session.
+    handle: Option<String>,
     /// The open vehicle terminal visit: its entry and its last fetch.
     terminal: Option<(u32, Millis)>,
     /// The `seq` of the request the next shop answer belongs to.
@@ -393,6 +396,7 @@ impl Reducer {
         self.character = None;
         self.destroyed.clear();
         self.terminal = None;
+        self.handle = None;
         self.last_request = None;
         self.last_location = None;
         self.last_jurisdiction = None;
@@ -439,9 +443,11 @@ impl Reducer {
                 self.character = geid.clone();
                 return false;
             }
-            E::SessionStarted | E::SessionHandle { .. } => {
+            E::SessionHandle { handle } => {
+                self.handle = Some(handle.clone());
                 return false;
             }
+            E::SessionStarted => return false,
             E::Branch { name } => session.branch = Some(name.clone()),
             E::Changelist { number } => session.build = Some(number.clone()),
             E::SessionPlatform { env_tag } => session.env_tag = Some(env_tag.clone()),
@@ -877,6 +883,36 @@ impl Reducer {
                     return false;
                 }
                 log(session, false, kind);
+            }
+            E::Injured { part, tier } => {
+                log(
+                    session,
+                    true,
+                    EntryKind::Injured {
+                        part: *part,
+                        tier: *tier,
+                    },
+                );
+            }
+            // Yours only; without the login line there is no telling. Only
+            // `Success` has been seen.
+            E::MedBedSurgery {
+                actor,
+                outcome,
+                vehicle,
+                parts,
+            } => {
+                if self.handle.as_ref() != Some(actor) || outcome != "Success" {
+                    return false;
+                }
+                log(
+                    session,
+                    false,
+                    EntryKind::Treated {
+                        parts: parts.clone(),
+                        vehicle: vehicle.clone(),
+                    },
+                );
             }
             // Fetches closer together than a terminal's reach are one
             // visit; each one keeps its window open.
@@ -1505,6 +1541,53 @@ mod tests {
                 killer_id: killer_id.into(),
             },
         )
+    }
+
+    #[test]
+    fn injuries_and_your_own_surgery() {
+        use svc_log::BodyPart;
+        let surgery = |ts, actor: &str| {
+            ev(
+                ts,
+                LogEventKind::MedBedSurgery {
+                    actor: actor.into(),
+                    outcome: "Success".into(),
+                    vehicle: None,
+                    parts: vec![BodyPart::LeftArm],
+                },
+            )
+        };
+        let mut events = header();
+        events.extend([
+            ev(
+                "2026-11-13T16:40:00.000Z",
+                LogEventKind::Injured {
+                    part: BodyPart::LeftArm,
+                    tier: 2,
+                },
+            ),
+            // Another player's, seen by this client.
+            surgery("2026-11-13T16:45:00.000Z", "Friend"),
+            surgery("2026-11-13T16:50:00.000Z", "TestPilot"),
+        ]);
+        let r = started(&events, false);
+        let health: Vec<_> = kinds(r.current().unwrap())
+            .into_iter()
+            .filter(|k| matches!(k, EntryKind::Injured { .. } | EntryKind::Treated { .. }))
+            .collect();
+        assert_eq!(
+            health,
+            [
+                &EntryKind::Injured {
+                    part: BodyPart::LeftArm,
+                    tier: 2
+                },
+                &EntryKind::Treated {
+                    parts: vec![BodyPart::LeftArm],
+                    vehicle: None
+                },
+            ]
+        );
     }
 
     #[test]

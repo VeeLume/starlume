@@ -13,6 +13,7 @@
 // has not arrived yet reads as `PENDING`, never as the internal one.
 
 import type {
+  BodyPart,
   DisplayName,
   Entry,
   Session,
@@ -160,6 +161,9 @@ export function nameQuery(session: Session): SessionNameQuery {
       case "ship_destroyed":
       case "ship_lost":
         vehicles.add(kind.class_name);
+        break;
+      case "treated":
+        if (kind.vehicle) vehicles.add(kind.vehicle);
         break;
       case "mission_ended":
         if (kind.contract) contracts.add(kind.contract);
@@ -354,6 +358,22 @@ function destroyedBy(reason: string): string {
   return DESTROYED_BY[reason] ?? reason.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
 }
 
+const PART: Record<BodyPart, string> = {
+  Head: "Head",
+  Torso: "Torso",
+  LeftArm: "Left arm",
+  RightArm: "Right arm",
+  LeftLeg: "Left leg",
+  RightLeg: "Right leg",
+};
+
+/** An injury's tier is the med bed it needs. */
+const SEVERITY: Record<number, string> = { 1: "Severe", 2: "Moderate", 3: "Minor" };
+
+function severity(tier: number): string {
+  return SEVERITY[tier] ?? `Tier ${tier}`;
+}
+
 /** Ships by name, most first: "2 × Razor LX, Mantis". */
 export function tally(ships: string[]): string {
   const counts = new Map<string, number>();
@@ -481,6 +501,8 @@ export function readSession(session: Session, names: Names, now: number): Sessio
   let place: PlaceState | null = null;
   const places: PlaceState[] = [];
   let stay: StayState | null = null;
+  // Untreated injuries, the worst (lowest) tier per part.
+  const injuries = new Map<BodyPart, number>();
   let stays = 0;
   let lastStay: StatusNow["ship"]["last"] = null;
   let jurisdiction: string | null = null;
@@ -772,10 +794,49 @@ export function readSession(session: Session, names: Names, now: number): Sessio
         rows.push(r);
         break;
       }
+      case "injured": {
+        const part = PART[kind.part];
+        const r = row(`e${entry.seq}`, entry.at, "life", `${severity(kind.tier)} injury`);
+        r.meta = [{ text: part }, { text: `tier ${kind.tier}` }];
+        if (place) r.meta.push({ text: place.name.name });
+        r.facts = [
+          { label: "Part", value: part },
+          { label: "Needs", value: `a tier ${kind.tier} med bed or better` },
+        ];
+        const where = whereFact();
+        if (where) r.facts.push(where);
+        r.sources = [{ label: "Reported", value: saidBy(entry) }];
+        rows.push(r);
+        injuries.set(kind.part, Math.min(kind.tier, injuries.get(kind.part) ?? kind.tier));
+        break;
+      }
+      case "treated": {
+        const ship = kind.vehicle ? names.vehicle(kind.vehicle).name : null;
+        const r = row(`e${entry.seq}`, entry.at, "life", "Treated at a med bed");
+        const parts = kind.parts.map((p) => PART[p]);
+        if (parts.length > 0) {
+          r.meta.push({ text: [parts[0], ...parts.slice(1).map((p) => p.toLowerCase())].join(", ") });
+        }
+        if (ship) r.meta.push({ text: `in ${ship}` });
+        else if (place) r.meta.push({ text: place.name.name });
+        r.facts = kind.parts.map((p) => {
+          const tier = injuries.get(p);
+          injuries.delete(p);
+          return { label: PART[p], value: tier != null ? `${severity(tier)}, tier ${tier}` : "operated on" };
+        });
+        if (ship) r.facts.push({ label: "Ship", value: ship });
+        const where = whereFact();
+        if (where) r.facts.push(where);
+        r.sources = [{ label: "Surgery", value: saidBy(entry) }];
+        rows.push(r);
+        break;
+      }
       case "died":
       case "downed":
       case "respawned":
       case "spawned": {
+        // A new body has none of the old one's injuries.
+        if (kind.type === "died") injuries.clear();
         const title = { died: "Died", downed: "Downed", respawned: "Respawned", spawned: "Spawned" };
         const r = row(`e${entry.seq}`, entry.at, "life", title[kind.type]);
         if (place) r.meta = [{ text: place.name.name }];

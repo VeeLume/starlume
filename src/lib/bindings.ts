@@ -1951,6 +1951,10 @@ export type BlueprintSlotView = { name: string | null; material: MaterialView; m
 bands: QualityBandView[] }
 export type BlueprintStatView = { group: string | null; label: string; property: string | null; unit: string; higherIsBetter: boolean | null; base: number | null }
 /**
+ * A body part, as injuries and med beds name them.
+ */
+export type BodyPart = "Head" | "Torso" | "LeftArm" | "RightArm" | "LeftLeg" | "RightLeg"
+/**
  * The boost capacitor at one assignment level.
  */
 export type BoostView = { regenS: number; depleteS: number | null; 
@@ -2472,6 +2476,15 @@ export type EntryKind =
  * A ship of yours was destroyed. Once per ship.
  */
 { type: "ship_lost"; class_name: string; reason: string; by: string | null } | 
+/**
+ * One of your body parts was injured. `tier` is the med bed it needs:
+ * 3 minor, 2 moderate, 1 severe.
+ */
+{ type: "injured"; part: BodyPart; tier: number } | 
+/**
+ * A med bed operated on you.
+ */
+{ type: "treated"; parts: BodyPart[]; vehicle: string | null } | 
 /**
  * A visit to the vehicle terminal (ASOP): it fetched your ships, once
  * or several times close together. Shown only when it explains a
@@ -3167,6 +3180,18 @@ export type LogEventKind =
  * the same `vehicle_id`). Seen in 4.10.
  */
 { type: "VehicleDestroyed"; vehicle_id: string; class: string; owner: string | null; reason: string; level: number; killer: string; killer_id: string } | 
+/**
+ * "Minor Injury Detected - Left arm - Tier 3 Treatment Required" on
+ * the HUD. The tier is the med bed it needs: 3 minor, 2 moderate,
+ * 1 severe. **Locale-dependent.** Seen in 4.0 to 4.10.
+ */
+{ type: "Injured"; part: BodyPart; tier: number } | 
+/**
+ * A med bed operated (`<MED BED HEAL>`). The client logs other
+ * players' surgery too, so `actor` says whose. Only `Success` seen in
+ * 4.0 to 4.10.
+ */
+{ type: "MedBedSurgery"; actor: string; outcome: string; vehicle: string | null; parts: BodyPart[] } | 
 /**
  * The vehicle terminal (ASOP) asked for your ships: it was opened or
  * refreshed (also once while the character loads). The log has no

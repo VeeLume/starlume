@@ -607,6 +607,26 @@ describe("readSession", () => {
     expect(services[0].facts.map((f) => f.value)).toEqual([signedAuec(-1_408), signedAuec(-285)]);
   });
 
+  it("rows an injury and the surgery that treats it", () => {
+    const reading = readSession(
+      session([
+        entry(0, T0 + MIN, { type: "injured", part: "LeftArm", tier: 3 }),
+        entry(1, T0 + 2 * MIN, { type: "injured", part: "LeftArm", tier: 2 }),
+        entry(2, T0 + 9 * MIN, { type: "treated", parts: ["Head", "LeftArm"], vehicle: null }),
+      ]),
+      names,
+      T0 + 10 * MIN,
+    );
+    const life = reading.rows.filter((r) => r.kind === "life");
+    expect(titles(life)).toEqual(["Minor injury", "Moderate injury", "Treated at a med bed"]);
+    expect(texts(life[1])).toEqual(["Left arm", "tier 2"]);
+    expect(texts(life[2])).toEqual(["Head, left arm"]);
+    expect(life[2].facts.map((f) => [f.label, f.value])).toEqual([
+      ["Head", "operated on"],
+      ["Left arm", "Moderate, tier 2"],
+    ]);
+  });
+
   it("counts ships by name, most first", () => {
     expect(tally(["Mantis", "Razor LX", "Razor LX"])).toBe("2 × Razor LX, Mantis");
   });

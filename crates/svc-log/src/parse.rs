@@ -28,7 +28,7 @@
 //!   (`<EM4>[BP]</EM4>`); [`clean_title`] removes them.
 
 use crate::event::{
-    ContractChange, LogEvent, LogEventKind, MoneyChange, ObjectiveChange, TradeSide,
+    BodyPart, ContractChange, LogEvent, LogEventKind, MoneyChange, ObjectiveChange, TradeSide,
 };
 
 /// Recognise one record. `None` for the ~99.9% that carry nothing tracked.
@@ -84,6 +84,7 @@ fn parse_body(rest: &str) -> Option<LogEventKind> {
             "AttachmentReceived" => held_item_received(body),
             "EquipItem" => attachment_requested(body),
             "Vehicle Destroyed" => vehicle_destroyed(body),
+            "MED BED HEAL" => med_bed_surgery(body),
             // Its other lines (`Querying … inventory`) are the same request.
             "OnRequestFetchVehicles" => body
                 .contains("> Fetching player vehicle list")
@@ -427,6 +428,9 @@ fn notification(body: &str) -> Option<LogEventKind> {
         }
     }
 
+    if let Some(injury) = injury(text) {
+        return Some(injury);
+    }
     if let Some(name) = text.strip_prefix("Received Blueprint: ") {
         return Some(LogEventKind::BlueprintReceived { name: owned(name)? });
     }
@@ -444,6 +448,64 @@ fn notification(body: &str) -> Option<LogEventKind> {
         });
     }
     money(text)
+}
+
+/// `Minor Injury Detected - Left arm - Tier 3 Treatment Required`.
+fn injury(text: &str) -> Option<LogEventKind> {
+    let (_, rest) = text.split_once(" Injury Detected - ")?;
+    let (part, rest) = rest.split_once(" - ")?;
+    let part = match part {
+        "Head" => BodyPart::Head,
+        "Torso" => BodyPart::Torso,
+        "Left arm" => BodyPart::LeftArm,
+        "Right arm" => BodyPart::RightArm,
+        "Left leg" => BodyPart::LeftLeg,
+        "Right leg" => BodyPart::RightLeg,
+        _ => return None,
+    };
+    let tier = rest
+        .strip_prefix("Tier ")?
+        .split(' ')
+        .next()?
+        .parse()
+        .ok()?;
+    Some(LogEventKind::Injured { part, tier })
+}
+
+/// `Actor: VeeLume (…) | […] | -> Perform surgery event Success, med bed
+/// name: …, vehicle name: none, head: true torso: false leftArm: true …`.
+fn med_bed_surgery(body: &str) -> Option<LogEventKind> {
+    let actor = body.split_once("Actor: ")?.1;
+    let actor = owned(&actor[..actor.find(" (").or_else(|| actor.find(" |"))?])?;
+    let outcome = body.split_once("surgery event ")?.1;
+    let outcome = owned(outcome.split([',', ' ']).next()?)?;
+    let vehicle = body.split_once("vehicle name: ")?.1;
+    let vehicle = vehicle.split(',').next()?.trim();
+    // A ship's bed names it by its display-name key: `@vehicle_NameRSI_Polaris`.
+    const KEY: &str = "@vehicle_name";
+    let vehicle = match vehicle.get(..KEY.len()) {
+        Some(prefix) if prefix.eq_ignore_ascii_case(KEY) => owned(&vehicle[KEY.len()..]),
+        _ => None,
+    };
+    const PARTS: [(&str, BodyPart); 6] = [
+        (" head: true", BodyPart::Head),
+        (" torso: true", BodyPart::Torso),
+        (" leftArm: true", BodyPart::LeftArm),
+        (" rightArm: true", BodyPart::RightArm),
+        (" leftLeg: true", BodyPart::LeftLeg),
+        (" rightLeg: true", BodyPart::RightLeg),
+    ];
+    let parts = PARTS
+        .iter()
+        .filter(|(key, _)| body.contains(key))
+        .map(|(_, part)| *part)
+        .collect();
+    Some(LogEventKind::MedBedSurgery {
+        actor,
+        outcome,
+        vehicle,
+        parts,
+    })
 }
 
 /// `Awarded 500 aUEC` / `Fined 72000 UEC` (the game prints both units).
@@ -737,6 +799,42 @@ mod tests {
             Some(LogEventKind::MissionLeft {
                 mission_id: "de7491a1-121d-4b5e-a26d-6dfee9d92d6c".into(),
                 player_id: "204717100112".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn an_injury_on_the_hud() {
+        let line = r#"<2026-11-18T20:38:33.983Z> [Notice] <SHUDEvent_OnNotification> Added notification "Moderate Injury Detected - Left arm - Tier 2 Treatment Required : " [76] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        assert_eq!(
+            kind(line),
+            Some(LogEventKind::Injured {
+                part: BodyPart::LeftArm,
+                tier: 2
+            })
+        );
+    }
+
+    #[test]
+    fn surgery_in_a_hospital_and_in_a_ship() {
+        let hospital = r#"<2026-11-18T21:02:36.564Z> [Notice] <MED BED HEAL> Actor: VeeLume (Non-Authoritative CLIENT: VeeLume) | [CEntityComponentMedBed::HandleComponentEvent:1101] | -> Perform surgery event Success, med bed name: bed_hospital_2_a-005, vehicle name: none, head: true torso: false leftArm: true rightArm: false leftLeg: false rightLeg: false [Team_ActorFeatures][Actor]"#;
+        assert_eq!(
+            kind(hospital),
+            Some(LogEventKind::MedBedSurgery {
+                actor: "VeeLume".into(),
+                outcome: "Success".into(),
+                vehicle: None,
+                parts: vec![BodyPart::Head, BodyPart::LeftArm],
+            })
+        );
+        let ship = r#"<2024-12-02T22:07:59.522Z> [Notice] <MED BED HEAL> Actor: VeeLume (Non-Authoritative CLIENT: VeeLume) | [CEntityComponentMedBed::HandleComponentEvent:817] | -> Perform surgery event Success, med bed name: Bed_Single_Medical_Carrack-001, vehicle name: @vehicle_nameANVL_Carrack, head: false torso: true leftArm: false rightArm: false leftLeg: false rightLeg: false [Team_ActorFeatures][Actor]"#;
+        assert_eq!(
+            kind(ship),
+            Some(LogEventKind::MedBedSurgery {
+                actor: "VeeLume".into(),
+                outcome: "Success".into(),
+                vehicle: Some("ANVL_Carrack".into()),
+                parts: vec![BodyPart::Torso],
             })
         );
     }

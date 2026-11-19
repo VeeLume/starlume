@@ -19,7 +19,7 @@
 //! JavaScript number: neither comes near 2^53.
 
 use serde::{Deserialize, Deserializer, Serialize};
-use svc_log::{MoneyChange, ObjectiveChange, TradeSide};
+use svc_log::{BodyPart, MoneyChange, ObjectiveChange, TradeSide};
 
 use crate::time::Millis;
 
@@ -264,6 +264,19 @@ pub enum EntryKind {
         /// The player who destroyed it, when the killer was one (an NPC is
         /// named by its entity, which says nothing).
         by: Option<String>,
+    },
+    /// One of your body parts was injured. `tier` is the med bed it needs:
+    /// 3 minor, 2 moderate, 1 severe.
+    Injured {
+        part: BodyPart,
+        tier: u8,
+    },
+    /// A med bed operated on you.
+    Treated {
+        parts: Vec<BodyPart>,
+        /// The ship the bed is in, as its class; `None` for a station or
+        /// hospital bed.
+        vehicle: Option<String>,
     },
     /// A visit to the vehicle terminal (ASOP): it fetched your ships, once
     /// or several times close together. Shown only when it explains a

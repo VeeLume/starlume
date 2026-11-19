@@ -286,6 +286,26 @@ pub enum LogEventKind {
         killer_id: String,
     },
 
+    // ── Health ──────────────────────────────────────────────────────────
+    /// "Minor Injury Detected - Left arm - Tier 3 Treatment Required" on
+    /// the HUD. The tier is the med bed it needs: 3 minor, 2 moderate,
+    /// 1 severe. **Locale-dependent.** Seen in 4.0 to 4.10.
+    Injured { part: BodyPart, tier: u8 },
+    /// A med bed operated (`<MED BED HEAL>`). The client logs other
+    /// players' surgery too, so `actor` says whose. Only `Success` seen in
+    /// 4.0 to 4.10.
+    MedBedSurgery {
+        /// The patient's handle.
+        actor: String,
+        /// `Success`.
+        outcome: String,
+        /// The ship the bed is in, as its class (`RSI_Polaris`); `None` for
+        /// a bed in a station or hospital.
+        vehicle: Option<String>,
+        /// The parts operated on.
+        parts: Vec<BodyPart>,
+    },
+
     // ── Vehicle terminal ────────────────────────────────────────────────
     /// The vehicle terminal (ASOP) asked for your ships: it was opened or
     /// refreshed (also once while the character loads). The log has no
@@ -311,6 +331,18 @@ pub enum ObjectiveChange {
     New,
     Completed,
     Withdrawn,
+}
+
+/// A body part, as injuries and med beds name them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum BodyPart {
+    Head,
+    Torso,
+    LeftArm,
+    RightArm,
+    LeftLeg,
+    RightLeg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
