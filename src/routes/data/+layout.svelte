@@ -1,6 +1,7 @@
 <script lang="ts">
   // Catalogs frame — the tab nav shared by the catalog pages (items /
-  // resources / missions / manufacturers) plus the browse-channel picker.
+  // resources / manufacturers) plus the browse-channel picker. Missions
+  // moved to Contracts, Catalog.
   // These catalogs are app-framework reference surfaces over svc-data, not
   // a module (see CONTRIBUTING module rules). Install and cache management lives
   // in Settings → Game data.
@@ -13,7 +14,6 @@
   const tabs = [
     { href: "/data/items", label: "Items" },
     { href: "/data/resources", label: "Resources" },
-    { href: "/data/missions", label: "Missions" },
     { href: "/data/manufacturers", label: "Manufacturers" },
   ];
 
