@@ -83,10 +83,10 @@ pub use legality::{JurisdictionRef, LegalityEntry, LegalityKind};
 pub use loot::{LootDrop, LootIndex, LootPlace};
 pub use mining::{ElementEntry, GadgetEntry, LaserEntry, MiningIndex, ModuleEntry, RulesetEntry};
 pub use missions::{
-    BpPoolEntry, BpPoolReward, CargoLeg, CrimestatRisk, EncounterKind, EventLadder, EventReward,
-    ItemReward, MissionCategory, MissionDifficulty, MissionEncounter, MissionEntry, MissionFaction,
-    MissionPayout, MissionPlace, MissionPoolFacts, MissionRef, MissionRegion, MissionWave, RepRank,
-    RepRequirement, RepReward, ScripReward, ShipSlot, SpawnSlot,
+    BpPoolEntry, BpPoolReward, CargoLeg, ChainGate, CrimestatRisk, EncounterKind, EventLadder,
+    EventReward, ItemReward, MissionCategory, MissionDifficulty, MissionEncounter, MissionEntry,
+    MissionFaction, MissionPayout, MissionPlace, MissionPoolFacts, MissionRef, MissionRegion,
+    MissionWave, RepRank, RepRequirement, RepReward, ScripReward, ShipSlot, SpawnSlot,
 };
 pub use refining::RefiningIndex;
 pub use ships::{ShipsIndex, VehicleEntry};
@@ -1003,6 +1003,7 @@ mod tests {
             event_rewards: Vec::new(),
             rep_required: Vec::new(),
             chain_required: Vec::new(),
+            chain_gates: Vec::new(),
             locations: Vec::new(),
             encounters: Vec::new(),
             cargo: Vec::new(),

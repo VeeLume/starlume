@@ -10,12 +10,12 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use mod_plans::contracts::{
-    ChainStep, ContractInputs, MissionFacts, RankFacts, RankWindow, RepLadder, RepSource,
-    ladder_key,
+    ChainGate, ChainStep, ContractInputs, MissionFacts, RankFacts, RankWindow, RepLadder,
+    RepSource, ladder_key,
 };
 use mod_plans::steps::{PlanPlace, PoolDraw, RunTime};
 use mod_plans::{Goal, PlansState};
-use svc_data::missions::{MissionEntry, MissionRegion, RepRequirement};
+use svc_data::missions::{self, MissionEntry, MissionRegion, RepRequirement};
 use svc_dossier::PlayerStanding;
 
 /// A mission's time from its best source: your average over the runs of
@@ -49,6 +49,19 @@ pub(crate) fn gather(
     let empty = BTreeSet::new();
     let completed = standing.map_or(&empty, |s| &s.completed_contracts);
     let did = |contracts: &[String]| contracts.iter().any(|c| completed.contains(c));
+    let no_tags = Default::default();
+    let tags = standing.map_or(&no_tags, |s| &s.tag_counts);
+    // Points toward a gate: the wallet's counters for its tags, or the ways
+    // you completed where it keeps none.
+    let gate_done = |g: &missions::ChainGate| -> u32 {
+        let counted: i32 = g
+            .tags
+            .iter()
+            .filter_map(|t| tags.get(&t.to_ascii_lowercase()))
+            .sum();
+        let ways = g.missions.iter().filter(|c| did(&c.contracts)).count() as u32;
+        u32::try_from(counted).unwrap_or(0).max(ways)
+    };
     let mut out = ContractInputs::default();
     let mut ladders: HashSet<String> = HashSet::new();
 
@@ -102,23 +115,31 @@ pub(crate) fn gather(
                 .filter_map(window)
                 .collect(),
             chain: m
-                .chain_required
+                .chain_gates
                 .iter()
-                .map(|c| {
-                    let own = missions.iter().find(|e| e.mission_id == c.mission_id);
-                    ChainStep {
-                        id: c.mission_id.clone(),
-                        title: c
-                            .title
-                            .as_deref()
-                            .and_then(real_title)
-                            .map_or_else(|| c.mission_id.clone(), str::to_owned),
-                        done: did(&c.contracts),
-                        time: own.and_then(|e| time_of(e, yours)),
-                        at: own
-                            .map(|e| e.locations.iter().map(place).collect())
-                            .unwrap_or_default(),
-                    }
+                .map(|g| ChainGate {
+                    runs: g.need,
+                    done: gate_done(g),
+                    ways: g
+                        .missions
+                        .iter()
+                        .map(|c| {
+                            let own = missions.iter().find(|e| e.mission_id == c.mission_id);
+                            ChainStep {
+                                id: c.mission_id.clone(),
+                                title: c
+                                    .title
+                                    .as_deref()
+                                    .and_then(real_title)
+                                    .map_or_else(|| c.mission_id.clone(), str::to_owned),
+                                done: did(&c.contracts),
+                                time: own.and_then(|e| time_of(e, yours)),
+                                at: own
+                                    .map(|e| e.locations.iter().map(place).collect())
+                                    .unwrap_or_default(),
+                            }
+                        })
+                        .collect(),
                 })
                 .collect(),
             time: time_of(m, yours),
@@ -170,11 +191,9 @@ pub(crate) fn gather(
             // its internal name tells you nothing to look for.
             .filter(|m| m.title.as_deref().and_then(real_title).is_some())
             .filter(|m| m.faction.as_ref().and_then(|f| f.geid.as_deref()) == Some(geid.as_str()))
-            // A mission behind a chain is not a source until one of its
-            // missions is done (any one opens it).
-            .filter(|m| {
-                m.chain_required.is_empty() || m.chain_required.iter().any(|c| did(&c.contracts))
-            })
+            // A mission behind a chain is not a source until every gate
+            // has its runs.
+            .filter(|m| m.chain_gates.iter().all(|g| gate_done(g) >= g.need))
             .filter_map(|m| {
                 let rep = own_rep(m).filter(|r| *r > 0)?;
                 let own: Vec<&RepRequirement> = m

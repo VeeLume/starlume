@@ -227,6 +227,9 @@ pub struct MissionEntryView {
     pub event_rewards: Vec<EventRewardView>,
     pub rep_required: Vec<RepRequirementView>,
     pub chain_required: Vec<MissionRefView>,
+    /// The chain gates: every one must be met, each by `need` tag points
+    /// from any of its missions.
+    pub chain_gates: Vec<ChainGateView>,
     pub locations: Vec<MissionRegionView>,
     pub encounters: Vec<MissionEncounterView>,
     pub cargo: Vec<CargoLegView>,
@@ -375,6 +378,27 @@ pub struct MissionRefView {
     pub once_only: bool,
     /// Contract record names that clear this step when completed.
     pub contracts: Vec<String>,
+}
+
+impl From<svc_data::MissionRef> for MissionRefView {
+    fn from(c: svc_data::MissionRef) -> Self {
+        Self {
+            mission_id: c.mission_id,
+            title: c.title,
+            once_only: c.once_only,
+            contracts: c.contracts,
+        }
+    }
+}
+
+/// One chain gate (`svc_data::ChainGate`).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ChainGateView {
+    /// Tag points it asks for, at least 1.
+    pub need: u32,
+    /// Completion-tag GUIDs whose counters measure your progress.
+    pub tags: Vec<String>,
+    pub missions: Vec<MissionRefView>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -561,14 +585,14 @@ impl From<svc_data::MissionEntry> for MissionEntryView {
                         .collect(),
                 })
                 .collect(),
-            chain_required: m
-                .chain_required
+            chain_required: m.chain_required.into_iter().map(Into::into).collect(),
+            chain_gates: m
+                .chain_gates
                 .into_iter()
-                .map(|c| MissionRefView {
-                    mission_id: c.mission_id,
-                    title: c.title,
-                    once_only: c.once_only,
-                    contracts: c.contracts,
+                .map(|g| ChainGateView {
+                    need: g.need,
+                    tags: g.tags,
+                    missions: g.missions.into_iter().map(Into::into).collect(),
                 })
                 .collect(),
             locations: m

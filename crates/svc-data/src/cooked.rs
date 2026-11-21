@@ -76,7 +76,9 @@ use serde::{Deserialize, Serialize};
 /// names, to join the player's standing and completed contracts.
 /// rev 32: no aUEC estimate for event (Priority) missions, whose time
 /// budget is an event window.
-pub const STARLUME_COOK_REV: u32 = 32;
+/// rev 33: chain gates with their run counts and tags
+/// ([`crate::missions::ChainGate`]).
+pub const STARLUME_COOK_REV: u32 = 33;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

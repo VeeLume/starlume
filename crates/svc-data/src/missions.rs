@@ -80,8 +80,13 @@ pub struct MissionEntry {
     pub event_rewards: Vec<EventReward>,
     /// Reputation required to accept (faction + standing-tier window).
     pub rep_required: Vec<RepRequirement>,
-    /// Missions that must be completed first (the chain gate).
+    /// Missions that must be completed first (the chain gate), every gate's
+    /// missions in one list. [`Self::chain_gates`] keeps them apart.
     pub chain_required: Vec<MissionRef>,
+    /// The chain gates, one per `CompletedContractTags` prerequisite: every
+    /// gate must be met, each by `need` tag points from any of its missions.
+    #[serde(default)]
+    pub chain_gates: Vec<ChainGate>,
     /// Where the mission is offered, grouped by star system.
     pub locations: Vec<MissionRegion>,
     /// Structured ship encounters (waves → slots → candidates).
@@ -306,6 +311,20 @@ pub struct MissionRef {
     pub contracts: Vec<String>,
 }
 
+/// One `CompletedContractTags` prerequisite: `need` points on the counters
+/// of `tags` open it. A completion adds its contract's grant to the counter
+/// (1 for the Foxwell ladders; Alliance Aid asks for 150 to 5000).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChainGate {
+    /// The tag points the gate asks for (`requiredCountValue`, at least 1).
+    pub need: u32,
+    /// The completion-tag GUIDs that count toward it; a mission-token tag
+    /// counter for one of them is the player's progress.
+    pub tags: Vec<String>,
+    /// The missions that grant those tags.
+    pub missions: Vec<MissionRef>,
+}
+
 /// One locality's worth of accept-locations — the "available in" card
 /// (*Stanton — Hurston*, *Pyro — Region A*).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -425,6 +444,7 @@ pub(crate) fn build_missions(
     // just means estimates come back `None`.
     let curve = UecCurve::build(datacore);
     let pools = &missions.blueprints;
+    let grantors = grantors_by_tag(&missions);
 
     // Collapse raw expansions into displayed missions. The key is the
     // player-meaningful identity: title + description + reward identity
@@ -602,6 +622,7 @@ pub(crate) fn build_missions(
             event_rewards,
             rep_required: build_rep_required(rep, &missions, locale),
             chain_required: build_chain(rep, &missions, locale),
+            chain_gates: build_gates(rep, &missions, &grantors, locale),
             locations: build_locations(members, &missions, locale),
             encounters,
             cargo,
@@ -872,9 +893,63 @@ fn build_rep_required(m: &Mission, missions: &Missions, locale: &LocaleMap) -> V
 
 /// Resolve the chain gate — prerequisite missions, deduped by title.
 fn build_chain(m: &Mission, missions: &Missions, locale: &LocaleMap) -> Vec<MissionRef> {
+    chain_refs(missions.prerequisite_missions(m), missions, locale)
+}
+
+/// Completion tag → the missions that grant it, built once per cook.
+fn grantors_by_tag(missions: &Missions) -> HashMap<Guid, Vec<Guid>> {
+    let mut out: HashMap<Guid, Vec<Guid>> = HashMap::new();
+    for (_, m) in missions.iter() {
+        for tag in &m.grants_completion_tags {
+            out.entry(*tag).or_default().push(m.id);
+        }
+    }
+    out
+}
+
+/// One [`ChainGate`] per `CompletedContractTags` prerequisite that some
+/// known mission can meet.
+fn build_gates(
+    m: &Mission,
+    missions: &Missions,
+    grantors: &HashMap<Guid, Vec<Guid>>,
+    locale: &LocaleMap,
+) -> Vec<ChainGate> {
+    let mut out = Vec::new();
+    for p in &m.prerequisites {
+        let PrereqView::CompletedContractTags {
+            required_tags,
+            required_count,
+            ..
+        } = p
+        else {
+            continue;
+        };
+        let mut seen = HashSet::new();
+        let ids: Vec<Guid> = required_tags
+            .iter()
+            .flat_map(|t| grantors.get(t).map(Vec::as_slice).unwrap_or(&[]))
+            .copied()
+            .filter(|g| *g != m.id && seen.insert(*g))
+            .collect();
+        let refs = chain_refs(ids, missions, locale);
+        if refs.is_empty() {
+            continue;
+        }
+        out.push(ChainGate {
+            need: (*required_count).max(1) as u32,
+            tags: required_tags.iter().map(Guid::to_string).collect(),
+            missions: refs,
+        });
+    }
+    out
+}
+
+/// The granting missions as steps, deduped by title.
+fn chain_refs(ids: Vec<Guid>, missions: &Missions, locale: &LocaleMap) -> Vec<MissionRef> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
-    for id in missions.prerequisite_missions(m) {
+    for id in ids {
         let Some(grantor) = missions.get(&id) else {
             continue;
         };

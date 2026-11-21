@@ -12,7 +12,7 @@
 //! assumed Neutral (the 2026-08-27 probe: 68 of 500 live contracts gated on
 //! an org with no row). Consumers must show such missions, not hide them.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +42,11 @@ pub struct PlayerStanding {
     /// for. Not a full history: plain repeatables leave no token; intros,
     /// once-only contracts and chain steps do.
     pub completed_contracts: BTreeSet<String>,
+    /// Completion-tag counters, `Tag` record GUID -> running total: how many
+    /// completions of contracts granting that tag the wallet has counted.
+    /// What a chain gate asking for several runs is measured against.
+    #[serde(default)]
+    pub tag_counts: BTreeMap<String, i32>,
     /// When fetched, Unix seconds; `0` = never.
     pub fetched_at: i64,
 }
@@ -64,16 +69,24 @@ impl PlayerStanding {
                 standing_min: r.standing.as_ref().map(|s| s.min),
             })
             .collect();
-        let completed_contracts = tokens
-            .into_iter()
-            .filter_map(|t| match t.kind {
-                sc_dossier::TokenKind::Contract { name } => Some(name),
-                _ => None,
-            })
-            .collect();
+        let mut completed_contracts = BTreeSet::new();
+        let mut tag_counts: BTreeMap<String, i32> = BTreeMap::new();
+        for t in tokens {
+            match t.kind {
+                sc_dossier::TokenKind::Contract { name } => {
+                    completed_contracts.insert(name);
+                }
+                sc_dossier::TokenKind::Tag { tag_id, .. } => {
+                    let n = tag_counts.entry(tag_id.to_ascii_lowercase()).or_default();
+                    *n = (*n).max(t.count);
+                }
+                sc_dossier::TokenKind::Other => {}
+            }
+        }
         Self {
             reputations,
             completed_contracts,
+            tag_counts,
             fetched_at,
         }
     }
@@ -115,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn maps_rows_and_keeps_only_contract_tokens() {
+    fn maps_rows_contract_tokens_and_tag_counters() {
         let s = PlayerStanding::from_reads(
             vec![
                 rep(Some(199_998_949_491), 1000, Some("rank1")),
@@ -136,6 +149,7 @@ mod tests {
             s.completed_contracts.iter().collect::<Vec<_>>(),
             vec!["HeadHunters_ShipAmbush_Pyro_Intro_0"]
         );
+        assert_eq!(s.tag_counts.get("0000"), Some(&1));
         assert_eq!(s.fetched_at, 42);
     }
 }

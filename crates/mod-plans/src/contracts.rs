@@ -89,6 +89,24 @@ pub struct ChainStep {
     pub at: Vec<PlanPlace>,
 }
 
+/// One gate before a mission: `runs` completions of any of `ways` open it
+/// (every way grants the completion tag the gate counts).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ChainGate {
+    /// Completions it asks for, at least 1.
+    pub runs: u32,
+    /// Completions you have toward it: the wallet's tag counter, or the
+    /// ways you completed where the wallet keeps no counter.
+    pub done: u32,
+    pub ways: Vec<ChainStep>,
+}
+
+impl ChainGate {
+    pub fn left(&self) -> u32 {
+        self.runs.saturating_sub(self.done)
+    }
+}
+
 /// A mission as a plan reads it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MissionFacts {
@@ -101,8 +119,8 @@ pub struct MissionFacts {
     pub needs: Vec<RankWindow>,
     /// The ranks that close it.
     pub closed_at: Vec<RankWindow>,
-    /// The missions before it, by title, and whether you did each.
-    pub chain: Vec<ChainStep>,
+    /// The gates before it: every one must be open.
+    pub chain: Vec<ChainGate>,
     /// Its time from the best source.
     pub time: Option<RunTime>,
     pub at: Vec<PlanPlace>,
@@ -402,32 +420,51 @@ fn path(
             _ => out.extend(rep_legs(&w.ladder, ladder, w.lo, plan)),
         }
     }
-    // Any one mission of the chain opens it (each grants the completion tag
-    // it asks for): one step, the quickest of them first.
-    if !m.chain.is_empty() && !m.chain.iter().any(|c| c.done) {
-        let mut ways: Vec<&ChainStep> = m.chain.iter().collect();
+    // A gate opens after its runs of any of its missions (each grants the
+    // completion tag it counts): one step a gate, the quickest mission first,
+    // its time the runs left.
+    for (n, gate) in m.chain.iter().enumerate() {
+        let left = gate.left();
+        if left == 0 || gate.ways.is_empty() {
+            continue;
+        }
+        let mut ways: Vec<&ChainStep> = gate.ways.iter().collect();
         ways.sort_by(|a, b| {
             let t = |c: &ChainStep| c.time.map_or(f32::MAX, |t| t.minutes);
             t(a).total_cmp(&t(b))
         });
         let first = ways[0];
+        let which = match ways.as_slice() {
+            [one] => one.title.clone(),
+            [a, b] => format!("{} or {}", a.title, b.title),
+            [a, rest @ ..] => format!("{} or one of {} others", a.title, rest.len()),
+            [] => unreachable!("the gate has ways"),
+        };
         out.push(PlanStep {
             mission: Some(StepMission {
                 id: first.id.clone(),
                 title: first.title.clone(),
             }),
             title: format!("Unlock {}", m.title),
-            detail: match ways.as_slice() {
-                [one] => format!("Run {} first", one.title),
-                [a, b] => format!("Run {} or {}", a.title, b.title),
-                [a, rest @ ..] => format!("Run {} or one of {} others", a.title, rest.len()),
-                [] => unreachable!("the chain is not empty"),
+            detail: match (gate.runs, gate.done) {
+                (1, _) if ways.len() == 1 => format!("Run {which} first"),
+                (1, _) => format!("Run {which}"),
+                (_, 0) => format!("{which}, {left} runs"),
+                (_, _) => format!("{which}, {left} more runs"),
             },
             at: first_place(&first.at),
-            seconds: first.time.map(RunTime::seconds),
+            seconds: first.time.map(|t| t.seconds() * f64::from(left)),
             seconds_from: first.time.map(|t| t.from),
             sources: ways.len() as u32,
-            ..step(format!("chain:{id}"), StepKind::Run, plan)
+            ..step(
+                if n == 0 {
+                    format!("chain:{id}")
+                } else {
+                    format!("chain:{id}:{n}")
+                },
+                StepKind::Run,
+                plan,
+            )
         });
     }
     Ok(out)
@@ -708,21 +745,25 @@ mod tests {
                     lo: 1,
                     hi: 3,
                 }],
-                chain: vec![
-                    ChainStep {
-                        id: "Setting a Trap".into(),
-                        title: "Setting a Trap".into(),
-                        done: false,
-                        time: RunTime::best(None, None, Some(15.0)),
-                        ..ChainStep::default()
-                    },
-                    ChainStep {
-                        id: "Done Before".into(),
-                        title: "Done Before".into(),
-                        done: true,
-                        ..ChainStep::default()
-                    },
-                ],
+                chain: vec![ChainGate {
+                    runs: 1,
+                    done: 1,
+                    ways: vec![
+                        ChainStep {
+                            id: "Setting a Trap".into(),
+                            title: "Setting a Trap".into(),
+                            done: false,
+                            time: RunTime::best(None, None, Some(15.0)),
+                            ..ChainStep::default()
+                        },
+                        ChainStep {
+                            id: "Done Before".into(),
+                            title: "Done Before".into(),
+                            done: true,
+                            ..ChainStep::default()
+                        },
+                    ],
+                }],
                 pay: Some(80_000.0),
                 rep: Some(500),
                 blueprint: Some(0.25),
@@ -747,8 +788,9 @@ mod tests {
 
         // Neither done: one step names both, the quicker first, with its time.
         let m1 = ins.missions.get_mut("m1").unwrap();
-        m1.chain[1].done = false;
-        m1.chain[1].time = RunTime::best(None, None, Some(10.0));
+        m1.chain[0].done = 0;
+        m1.chain[0].ways[1].done = false;
+        m1.chain[0].ways[1].time = RunTime::best(None, None, Some(10.0));
         let s = steps(&state.plans, &ins, Vec::new());
         let unlock = s.iter().find(|x| x.id == "chain:m1").unwrap();
         assert_eq!(unlock.title, "Unlock Kill the Boss");
@@ -756,6 +798,38 @@ mod tests {
         assert_eq!(unlock.seconds, Some(10.0 * 60.0));
         assert_eq!(unlock.mission.as_ref().unwrap().title, "Done Before");
         assert_eq!(s.last().unwrap().after.len(), 2);
+
+        // A gate asking for five runs, two done: three more, three times over.
+        let m1 = ins.missions.get_mut("m1").unwrap();
+        m1.chain[0].runs = 5;
+        m1.chain[0].done = 2;
+        let s = steps(&state.plans, &ins, Vec::new());
+        let unlock = s.iter().find(|x| x.id == "chain:m1").unwrap();
+        assert_eq!(unlock.detail, "Done Before or Setting a Trap, 3 more runs");
+        assert_eq!(unlock.seconds, Some(3.0 * 10.0 * 60.0));
+
+        // A second gate is a second step; the run waits on both.
+        let m1 = ins.missions.get_mut("m1").unwrap();
+        m1.chain[0].done = 0;
+        m1.chain.push(ChainGate {
+            runs: 1,
+            done: 0,
+            ways: vec![ChainStep {
+                id: "Intro".into(),
+                title: "Intro".into(),
+                ..ChainStep::default()
+            }],
+        });
+        let s = steps(&state.plans, &ins, Vec::new());
+        assert_eq!(
+            s.iter().find(|x| x.id == "chain:m1").unwrap().detail,
+            "Done Before or Setting a Trap, 5 runs"
+        );
+        assert_eq!(
+            s.iter().find(|x| x.id == "chain:m1:1").unwrap().detail,
+            "Run Intro first"
+        );
+        assert_eq!(s.last().unwrap().after.len(), 3);
     }
 
     #[test]

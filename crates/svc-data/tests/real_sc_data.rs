@@ -132,6 +132,51 @@ fn cook_from_real_install() {
     );
     assert!(!minutes.is_empty(), "granting missions carry CIG's minutes");
 
+    // ── Chain gates (Contracts' "N runs of any of these") ──────────────
+    let gated: Vec<_> = cooked
+        .missions
+        .iter()
+        .filter(|m| !m.chain_gates.is_empty())
+        .collect();
+    let mut counts: std::collections::BTreeMap<u32, usize> = Default::default();
+    for m in &gated {
+        for g in &m.chain_gates {
+            *counts.entry(g.need).or_default() += 1;
+        }
+    }
+    eprintln!(
+        "chain gates: {} gated missions, gates by need: {counts:?}",
+        gated.len()
+    );
+    for m in gated.iter().filter(|m| {
+        m.chain_gates.iter().any(|g| g.need > 1)
+            || m.contracts.iter().any(|c| c.contains("Foxwell"))
+    }) {
+        for g in &m.chain_gates {
+            eprintln!(
+                "  {:?} ({}): {} points from [{}] tags {:?}",
+                m.title,
+                m.contracts.first().map_or("", String::as_str),
+                g.need,
+                g.missions
+                    .iter()
+                    .map(|r| r.title.clone().unwrap_or_else(|| r.mission_id.clone()))
+                    .collect::<Vec<_>>()
+                    .join(" | "),
+                g.tags
+            );
+        }
+    }
+    assert!(
+        gated.iter().all(|m| m.chain_required.len()
+            >= m.chain_gates
+                .iter()
+                .map(|g| g.missions.len())
+                .max()
+                .unwrap_or(0)),
+        "every gate's missions are in the flat chain list"
+    );
+
     // ── Travel graph (Plans' trips, sc-travel) ─────────────────────────
     let travel = &cooked.ships.travel;
     eprintln!(

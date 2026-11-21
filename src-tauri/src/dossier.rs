@@ -154,6 +154,9 @@ pub struct PlayerStandingView {
     pub reputations: Vec<RepRowView>,
     /// Contract record names with a completion token.
     pub completed_contracts: Vec<String>,
+    /// Completion-tag counters, tag GUID -> running total (chain gates that
+    /// ask for several runs).
+    pub tag_counts: std::collections::BTreeMap<String, i32>,
     /// When fetched, epoch seconds; `null` when never.
     pub fetched_at: Option<f64>,
 }
@@ -174,6 +177,7 @@ impl From<svc_dossier::PlayerStanding> for PlayerStandingView {
                 })
                 .collect(),
             completed_contracts: s.completed_contracts.into_iter().collect(),
+            tag_counts: s.tag_counts,
             fetched_at: Some(s.fetched_at as f64),
         }
     }
@@ -189,6 +193,7 @@ pub(crate) fn standing_cached(state: tauri::State<'_, AppState>) -> PlayerStandi
         None => PlayerStandingView {
             reputations: Vec::new(),
             completed_contracts: Vec::new(),
+            tag_counts: Default::default(),
             fetched_at: None,
         },
     }

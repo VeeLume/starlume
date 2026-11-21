@@ -13,6 +13,7 @@ import { commands, type PlayerStandingView, type RepRowView } from "$lib/binding
 
 let _rows = $state<RepRowView[]>([]);
 let _completed = $state<Set<string>>(new Set());
+let _tags = $state<Map<string, number>>(new Map());
 let _fetchedAt = $state<number | null>(null);
 let _refreshing = $state(false);
 let _error = $state("");
@@ -21,6 +22,7 @@ let _unlisten: Promise<UnlistenFn> | null = null;
 function apply(s: PlayerStandingView) {
   _rows = s.reputations;
   _completed = new Set(s.completed_contracts);
+  _tags = new Map(Object.entries(s.tag_counts).map(([k, n]) => [k.toLowerCase(), n ?? 0]));
   _fetchedAt = s.fetched_at;
 }
 
@@ -32,6 +34,11 @@ export const standingStore = {
   /** Contract record names you hold a completion token for. */
   get completed() {
     return _completed;
+  },
+  /** Completion-tag counters, tag GUID (lower case) -> points: what a chain
+   * gate asking for several runs is measured against. */
+  get tags() {
+    return _tags;
   },
   /** Epoch seconds of the last read, or null when never read. */
   get fetchedAt() {

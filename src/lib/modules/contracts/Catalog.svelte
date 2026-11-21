@@ -56,6 +56,7 @@
     blueprintChance,
     blueprintName,
     commonLadder,
+    gateProgress,
     hasNewBlueprint,
     ladderOf,
     missionTitle,
@@ -316,7 +317,7 @@
           title: missionTitle(m),
           ladder,
           you: ladder && row ? rankIndex(ladder, row) : -1,
-          standing: standingStore.known ? standingOf(m, standingStore.rows, standingStore.completed) : null,
+          standing: standingStore.known ? standingOf(m, standingStore.rows, standingStore.completed, standingStore.tags) : null,
         };
       }),
     // Once your standing is read, the list falls into what each mission is
@@ -534,7 +535,7 @@
         {/snippet}
         {#snippet row(r: MissionRow)}
           {@const cat = categoryOf(r)}
-          {@const note = needsNote(r, standingStore.rows, standingStore.completed)}
+          {@const note = needsNote(r, standingStore.rows, standingStore.completed, standingStore.tags)}
           {@const where = whereCell(r)}
           {@const bp = blueprintCell(r, blueprintsStore.owns, blueprintsStore.fetchedAt != null)}
           {@const pay = paysCell(r)}
@@ -613,11 +614,16 @@
         {:else}
           <p class="u-need">Any rank<small>no rank in the data</small></p>
         {/if}
-        {#if m.chain_required.length}
-          <!-- Any one of them opens it: each grants the completion tag it asks for. -->
-          <p class="chain-h">{m.chain_required.length > 1 ? "Any one of these first" : "Mission first"}</p>
+        <!-- Every gate must open; any of a gate's missions counts toward it
+             (each grants the completion tag it counts). -->
+        {#each m.chain_gates as g, gi (gi)}
+          {@const p = gateProgress(g, standingStore.completed, standingStore.tags)}
+          <p class="chain-h" class:open={p.left === 0}>
+            {g.need > 1 ? `${g.need} runs of ${g.missions.length > 1 ? "any of these" : "this"}` : g.missions.length > 1 ? "Any one of these first" : "Mission first"}
+            {#if g.need > 1 && standingStore.known}<b>{Math.min(p.have, g.need)} of {g.need}</b>{/if}
+          </p>
           <ul class="chain">
-            {#each m.chain_required as c (c.mission_id)}
+            {#each g.missions as c (c.mission_id)}
               {@const done = c.contracts.some((x) => standingStore.completed.has(x))}
               <li class:done>
                 <button type="button" class="link" title="Find {c.title ?? 'it'} in the catalog" onclick={() => openMission(c)}>↳ {c.title ?? "?"}</button>
@@ -625,9 +631,9 @@
               </li>
             {/each}
           </ul>
-        {/if}
+        {/each}
         <dl class="kv" style="margin-top:14px">
-          {#if !m.chain_required.length}<dt>Missions first</dt><dd>none</dd>{/if}
+          {#if !m.chain_gates.length}<dt>Missions first</dt><dd>none</dd>{/if}
           <dt>Other standing</dt>
           <dd>{others.length ? others.map((o) => `${o.faction ?? "?"} ${rangeText(o)}`).join(", ") : "none"}</dd>
           {#each closedTo as c, i (i)}
@@ -924,9 +930,21 @@
     grid-column: span 2;
   }
   .chain-h {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
     margin: 14px 0 6px;
     font-size: var(--text-small);
     color: var(--text-faint);
+  }
+  .chain-h b {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--text);
+  }
+  .chain-h.open b {
+    color: var(--good);
   }
   .chain {
     list-style: none;

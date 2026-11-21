@@ -85,7 +85,12 @@ export function rangeText(r: RepRequirementView): string {
  * What the mission needs beyond its own faction's rank, shown after the
  * category: another faction's rank, or missions to finish first.
  */
-export function needsNote(m: MissionEntryView, rows: RepRowView[] = [], completed: Set<string> = new Set()): string | null {
+export function needsNote(
+  m: MissionEntryView,
+  rows: RepRowView[] = [],
+  completed: Set<string> = new Set(),
+  tags: Map<string, number> = new Map(),
+): string | null {
   const own = ownRequirement(m);
   // With your standing read, a requirement you already meet says nothing.
   const met = (r: RepRequirementView) => {
@@ -102,10 +107,14 @@ export function needsNote(m: MissionEntryView, rows: RepRowView[] = [], complete
   // No row for that faction is not a rank: the note stays until a row says it does not apply.
   const closed = m.rep_required.find((r) => r.exclude && (!rowFor(r, rows) || met(r)));
   if (closed) return `closed at ${closed.faction ?? "a faction"} ${rangeText(closed)}`;
-  const [first, ...rest] = stepsLeft(m, completed);
-  if (first) {
-    const name = first.title ?? "an earlier mission";
-    return rest.length ? `after ${name} or ${rest.length === 1 ? "1 other" : `${rest.length} others`}` : `after ${name}`;
+  const [gate] = gatesLeft(m, completed, tags);
+  if (gate) {
+    const [first, ...rest] = gate.gate.missions;
+    const name = first?.title ?? "an earlier mission";
+    const runs = gate.gate.need === 1 ? "" : `${gate.left} ${gate.have > 0 ? "more " : ""}runs of `;
+    return rest.length
+      ? `after ${runs}${name} or ${rest.length === 1 ? "1 other" : `${rest.length} others`}`
+      : `after ${runs}${name}`;
   }
   return null;
 }
@@ -279,7 +288,12 @@ export function rankIndex(l: Ladder, row: RepRowView): number {
  */
 export type Standing = "open" | "step" | "higher" | "unknown" | "closed" | "outgrown" | "done";
 
-export function standingOf(m: MissionEntryView, rows: RepRowView[], completed: Set<string>): Standing {
+export function standingOf(
+  m: MissionEntryView,
+  rows: RepRowView[],
+  completed: Set<string>,
+  tags: Map<string, number> = new Map(),
+): Standing {
   if (m.once_only && m.contracts.some((c) => completed.has(c))) return "done";
   const inWindow = (r: RepRequirementView): boolean | null => {
     const l = ladderOf(r);
@@ -302,16 +316,26 @@ export function standingOf(m: MissionEntryView, rows: RepRowView[], completed: S
   }
   const others = m.rep_required.filter((r) => !r.exclude && r.faction !== own?.faction);
   if (others.some((r) => inWindow(r) !== true)) return "step";
-  if (stepsLeft(m, completed).length > 0) return "step";
+  if (gatesLeft(m, completed, tags).length > 0) return "step";
   return "open";
 }
 
-/** The chain's missions while none is done, by their contract names: any
- * one of them opens the mission (each grants the completion tag it asks
- * for), so one done leaves nothing. */
-export function stepsLeft(m: MissionEntryView, completed: Set<string>) {
-  const done = (c: MissionEntryView["chain_required"][number]) => c.contracts.some((n) => completed.has(n));
-  return m.chain_required.some(done) ? [] : m.chain_required;
+type Gate = MissionEntryView["chain_gates"][number];
+
+/** Where you are on one chain gate: the points you have toward it (the
+ * wallet's counters for its tags, or the missions you completed where it
+ * keeps none) and what is left. */
+export function gateProgress(g: Gate, completed: Set<string>, tags: Map<string, number> = new Map()) {
+  const counted = g.tags.reduce((n, t) => n + (tags.get(t.toLowerCase()) ?? 0), 0);
+  const ways = g.missions.filter((c) => c.contracts.some((n) => completed.has(n))).length;
+  const have = Math.max(counted, ways);
+  return { gate: g, have, left: Math.max(0, g.need - have) };
+}
+
+/** The chain gates still shut, in order. Every gate must open, each by its
+ * points from any of its missions (each grants the tag it counts). */
+export function gatesLeft(m: MissionEntryView, completed: Set<string>, tags: Map<string, number> = new Map()) {
+  return m.chain_gates.map((g) => gateProgress(g, completed, tags)).filter((p) => p.left > 0);
 }
 
 /** Group order and headings in the catalog. */

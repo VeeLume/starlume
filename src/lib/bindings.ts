@@ -2049,6 +2049,18 @@ export type Cause =
  * does not know).
  */
 { type: "untracked" }
+/**
+ * One chain gate (`svc_data::ChainGate`).
+ */
+export type ChainGateView = { 
+/**
+ * Tag points it asks for, at least 1.
+ */
+need: number; 
+/**
+ * Completion-tag GUIDs whose counters measure your progress.
+ */
+tags: string[]; missions: MissionRefView[] }
 export type ChoiceView = { value: string; label: string }
 export type ClassSharesView = { easy: number; manageable: number; hard: number; tooMuchPower: number; impossible: number }
 export type ClimbStepView = { untilCharge: number; throttle: number }
@@ -3362,7 +3374,12 @@ export type MissionEncounterView = { label: string; difficulty: string | null; w
  * `waves[].ships`, the others `waves[].spawns`.
  */
 kind: string }
-export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; abandon_cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; event_rewards: EventRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView; 
+export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; abandon_cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; event_rewards: EventRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; 
+/**
+ * The chain gates: every one must be met, each by `need` tag points
+ * from any of its missions.
+ */
+chain_gates: ChainGateView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView; 
 /**
  * Every member's contract record name: how a completed contract finds
  * its entry.
@@ -4005,6 +4022,11 @@ export type PlayerStandingView = { reputations: RepRowView[];
  * Contract record names with a completion token.
  */
 completed_contracts: string[]; 
+/**
+ * Completion-tag counters, tag GUID -> running total (chain gates that
+ * ask for several runs).
+ */
+tag_counts: Partial<{ [key in string]: number }>; 
 /**
  * When fetched, epoch seconds; `null` when never.
  */

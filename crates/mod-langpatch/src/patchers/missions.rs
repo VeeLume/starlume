@@ -2043,6 +2043,7 @@ mod tests {
             event_rewards: Vec::new(),
             rep_required: Vec::new(),
             chain_required: Vec::new(),
+            chain_gates: Vec::new(),
             locations: Vec::new(),
             encounters: Vec::new(),
             cargo: Vec::new(),

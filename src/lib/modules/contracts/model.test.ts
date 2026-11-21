@@ -18,7 +18,7 @@ import {
   poolDraw,
   runsAll,
   standingOf,
-  stepsLeft,
+  gatesLeft,
   timeCell,
   whereCell,
   windowText,
@@ -48,6 +48,11 @@ const req = (faction: string, min: string | null, max: string | null, minIdx: nu
 });
 
 // Simple Hit in Bloom, as cooked (trimmed to what the row reads).
+/** A mission behind one chain gate of `need` points on tag "t". */
+function chained(missions: MissionEntryView["chain_required"], need = 1): MissionEntryView {
+  return simpleHit({ chain_required: missions, chain_gates: [{ need, tags: ["t"], missions }] });
+}
+
 function simpleHit(over: Partial<MissionEntryView> = {}): MissionEntryView {
   return {
     mission_id: "m1",
@@ -80,6 +85,7 @@ function simpleHit(over: Partial<MissionEntryView> = {}): MissionEntryView {
     event_rewards: [],
     rep_required: [req("Headhunters", "Jr. Contractor", "Elite Contractor", 1)],
     chain_required: [],
+    chain_gates: [],
     locations: [{ system: "Pyro", name: "Bloom", places: Array.from({ length: 21 }, (_, i) => ({ name: `P${i}`, record_name: `p${i}`, kind: null })) }],
     encounters: [],
     cargo: [],
@@ -118,10 +124,17 @@ describe("what a mission needs first", () => {
   });
   it("names the mission to finish first", () => {
     const chain = [{ mission_id: "a", title: "Setting a Trap", once_only: false, contracts: ["Trap_1"] }];
-    expect(needsNote(simpleHit({ chain_required: chain }))).toBe("after Setting a Trap");
-    expect(needsNote(simpleHit({ chain_required: [...chain, { mission_id: "b", title: "X", once_only: false, contracts: ["X_1"] }] }))).toBe(
+    expect(needsNote(chained(chain))).toBe("after Setting a Trap");
+    expect(needsNote(chained([...chain, { mission_id: "b", title: "X", once_only: false, contracts: ["X_1"] }]))).toBe(
       "after Setting a Trap or 1 other",
     );
+  });
+  it("says the runs a gate asks for, and the runs left", () => {
+    const chain = [{ mission_id: "a", title: "Ambush An Amateur", once_only: false, contracts: ["Ambush_1"] }];
+    const m = chained(chain, 5);
+    expect(needsNote(m)).toBe("after 5 runs of Ambush An Amateur");
+    expect(needsNote(m, [], new Set(), new Map([["t", 2]]))).toBe("after 3 more runs of Ambush An Amateur");
+    expect(needsNote(m, [], new Set(), new Map([["t", 5]]))).toBeNull();
   });
   it("names a faction rank that closes the mission", () => {
     // Hit a CFP Ship: closed to anyone CFP likes, from Neutral to Exalted.
@@ -225,14 +238,18 @@ describe("your standing", () => {
   });
   it("chain steps and once-only contracts follow your completed contracts", () => {
     const chain = [{ mission_id: "a", title: "Setting a Trap", once_only: false, contracts: ["Trap_1", "Trap_2"] }];
-    const m = simpleHit({ chain_required: chain });
+    const m = chained(chain);
     expect(standingOf(m, [row(1000, "hh1")], none)).toBe("step");
-    expect(stepsLeft(m, new Set(["Trap_2"]))).toEqual([]);
-    // Any one mission of the chain opens it.
-    const either = simpleHit({ chain_required: [...chain, { mission_id: "b", title: "X", once_only: false, contracts: ["X_1"] }] });
-    expect(stepsLeft(either, new Set(["X_1"]))).toEqual([]);
-    expect(stepsLeft(either, none)).toHaveLength(2);
+    expect(gatesLeft(m, new Set(["Trap_2"]))).toEqual([]);
+    // Any one mission of a gate opens it.
+    const either = chained([...chain, { mission_id: "b", title: "X", once_only: false, contracts: ["X_1"] }]);
+    expect(gatesLeft(either, new Set(["X_1"]))).toEqual([]);
+    expect(gatesLeft(either, none)).toHaveLength(1);
     expect(standingOf(m, [row(1000, "hh1")], new Set(["Trap_2"]))).toBe("open");
+    // Every gate must open: a second one keeps it a step.
+    const two = { ...m, chain_gates: [...m.chain_gates, { need: 1, tags: ["u"], missions: [{ mission_id: "c", title: "Intro", once_only: true, contracts: ["Intro_1"] }] }] };
+    expect(standingOf(two, [row(1000, "hh1")], new Set(["Trap_2"]))).toBe("step");
+    expect(standingOf(two, [row(1000, "hh1")], new Set(["Trap_2", "Intro_1"]))).toBe("open");
     expect(standingOf(simpleHit({ once_only: true }), [row(1000, "hh1")], new Set(["HH_Pyro_RegionB_LRT_Criminals_KillShip"]))).toBe("done");
   });
   it("every status has a group", () => {
