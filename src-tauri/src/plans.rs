@@ -1074,7 +1074,9 @@ impl Gathered<'_> {
                 Grant {
                     mission: g.mission_id.clone(),
                     chance: mission.and_then(|m| crate::plans_contracts::chance_of(m, blueprint)),
-                    title: g.title.clone(),
+                    title: mission
+                        .map(crate::plans_contracts::title_of)
+                        .unwrap_or_else(|| g.title.clone()),
                     time: mission
                         .and_then(|m| crate::plans_contracts::time_of(m, &self.your_minutes)),
                     at: mission

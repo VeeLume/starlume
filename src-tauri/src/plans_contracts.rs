@@ -80,7 +80,7 @@ pub(crate) fn gather(
             })
         };
         let facts = MissionFacts {
-            title: m.title.clone().unwrap_or_else(|| m.debug_name.clone()),
+            title: title_of(m),
             faction: m
                 .faction
                 .as_ref()
@@ -105,7 +105,10 @@ pub(crate) fn gather(
                 .iter()
                 .map(|c| {
                     (
-                        c.title.clone().unwrap_or_else(|| c.mission_id.clone()),
+                        c.title
+                            .as_deref()
+                            .and_then(real_title)
+                            .map_or_else(|| c.mission_id.clone(), str::to_owned),
                         did(&c.contracts),
                     )
                 })
@@ -186,7 +189,7 @@ pub(crate) fn gather(
                     (lo, hi)
                 };
                 Some(RepSource {
-                    title: m.title.clone().unwrap_or_else(|| m.debug_name.clone()),
+                    title: title_of(m),
                     lo,
                     hi,
                     rep,
@@ -206,6 +209,21 @@ pub(crate) fn gather(
         );
     }
     out
+}
+
+/// A mission's title, else its internal name: some ship a placeholder
+/// (`<= UNINITIALIZED =>`) as their title.
+pub(crate) fn title_of(m: &MissionEntry) -> String {
+    m.title
+        .as_deref()
+        .and_then(real_title)
+        .map_or_else(|| m.debug_name.clone(), str::to_owned)
+}
+
+/// A title the locale really has: not empty, not a placeholder text.
+pub(crate) fn real_title(title: &str) -> Option<&str> {
+    let t = title.trim();
+    (!t.is_empty() && !t.contains("PLACEHOLDER") && !t.contains("UNINITIALIZED")).then_some(t)
 }
 
 fn key_of(r: &RepRequirement) -> Option<String> {

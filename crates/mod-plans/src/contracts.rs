@@ -159,6 +159,10 @@ pub struct EarnRoute {
     /// closed to you, outgrown or done once and for all.
     pub grant: Option<usize>,
     pub before: Vec<PlanStep>,
+    /// The other granting missions open to you now, and those a rank or a
+    /// mission before them still keeps closed (the chosen one not counted).
+    pub open: usize,
+    pub later: usize,
 }
 
 /// The nearest granting mission: the one with the fewest steps before it,
@@ -173,7 +177,7 @@ pub fn earn_route(grants: &[Grant], inputs: &ContractInputs, plan: &str) -> Opti
     if known.is_empty() {
         return None;
     }
-    let best = known
+    let reachable: Vec<(usize, &Grant, Vec<PlanStep>)> = known
         .into_iter()
         .filter(|(_, _, m)| !(m.once_only && m.done))
         .filter_map(|(i, g, m)| {
@@ -181,18 +185,30 @@ pub fn earn_route(grants: &[Grant], inputs: &ContractInputs, plan: &str) -> Opti
                 .ok()
                 .map(|before| (i, g, before))
         })
-        .min_by(|(_, a, pa), (_, b, pb)| {
-            let minutes = |g: &Grant| g.time.map_or(f32::MAX, |t| t.minutes);
-            pa.len()
-                .cmp(&pb.len())
-                .then_with(|| b.chance.unwrap_or(0.0).total_cmp(&a.chance.unwrap_or(0.0)))
-                .then_with(|| minutes(a).total_cmp(&minutes(b)))
-        });
+        .collect();
+    let open_now = reachable.iter().filter(|(.., b)| b.is_empty()).count();
+    let later_on = reachable.len() - open_now;
+    let best = reachable.into_iter().min_by(|(_, a, pa), (_, b, pb)| {
+        let minutes = |g: &Grant| g.time.map_or(f32::MAX, |t| t.minutes);
+        pa.len()
+            .cmp(&pb.len())
+            .then_with(|| b.chance.unwrap_or(0.0).total_cmp(&a.chance.unwrap_or(0.0)))
+            .then_with(|| minutes(a).total_cmp(&minutes(b)))
+    });
     Some(match best {
-        Some((i, _, before)) => EarnRoute {
-            grant: Some(i),
-            before,
-        },
+        Some((i, _, before)) => {
+            let (open, later) = if before.is_empty() {
+                (open_now - 1, later_on)
+            } else {
+                (open_now, later_on - 1)
+            };
+            EarnRoute {
+                grant: Some(i),
+                before,
+                open,
+                later,
+            }
+        }
         None => EarnRoute::default(),
     })
 }

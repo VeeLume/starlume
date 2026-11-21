@@ -15,7 +15,10 @@ export interface Cell {
 const fmt = (n: number) => n.toLocaleString("en-US");
 
 /** The display name, falling back to the record's debug name. */
-export const missionTitle = (m: MissionEntryView) => m.title ?? m.debug_name;
+/** A title the locale really has: some missions ship a placeholder
+ *  (`<= UNINITIALIZED =>`) as their title. */
+const realTitle = (t: string | null) => (t && t.trim() && !/PLACEHOLDER|UNINITIALIZED/.test(t) ? t : null);
+export const missionTitle = (m: MissionEntryView) => realTitle(m.title) ?? m.debug_name;
 
 /**
  * The rank requirement on the mission's own faction (the one the row's ladder

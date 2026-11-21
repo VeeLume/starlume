@@ -1981,7 +1981,7 @@ fn earn_step(
         );
     };
     let runs = g.chance.and_then(runs_for);
-    let detail = match (g.chance, runs) {
+    let mut detail = match (g.chance, runs) {
         (Some(c), Some((1, _))) if c >= 1.0 => format!("Every run of {} gives it", g.title),
         (Some(c), Some((avg, ninety))) => format!(
             "{} a run of {}: {avg} runs on average, {ninety} for 90%",
@@ -1990,6 +1990,27 @@ fn earn_step(
         ),
         _ => format!("Run {}", g.title),
     };
+    // The rest of the missions that give it, as counts: the Missions link
+    // lists them.
+    let more = |n: usize| match n {
+        1 => ("1 more mission".to_owned(), "gives"),
+        n => (format!("{n} more missions"), "give"),
+    };
+    match (route.open, route.later) {
+        (0, 0) => {}
+        (o, 0) => {
+            let (m, v) = more(o);
+            detail += &format!(", {m} open to you {v} it");
+        }
+        (0, l) => {
+            let (m, v) = more(l);
+            detail += &format!(", {m} {v} it later");
+        }
+        (o, l) => {
+            let (m, v) = more(o);
+            detail += &format!(", {m} open to you {v} it, {l} later");
+        }
+    }
     let after: Vec<String> = route.before.iter().map(|s| s.id.clone()).collect();
     let step = PlanStep {
         detail,
@@ -3450,7 +3471,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(
             earn.detail,
-            "20% a run of Small Job: 5 runs on average, 11 for 90%"
+            "20% a run of Small Job: 5 runs on average, 11 for 90%, 1 more mission gives it later"
         );
         assert_eq!(earn.seconds, Some(5.0 * 10.0 * 60.0));
         assert_eq!(earn.at, Some(at("Planet One")));
