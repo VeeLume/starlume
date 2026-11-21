@@ -74,7 +74,9 @@ use serde::{Deserialize, Serialize};
 /// ([`crate::missions::RepRequirement::ladder`]) for the Contracts catalog.
 /// rev 31: faction GEIDs, rank standing ids, chain-step and member contract
 /// names, to join the player's standing and completed contracts.
-pub const STARLUME_COOK_REV: u32 = 31;
+/// rev 32: no aUEC estimate for event (Priority) missions, whose time
+/// budget is an event window.
+pub const STARLUME_COOK_REV: u32 = 32;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

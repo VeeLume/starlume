@@ -469,7 +469,15 @@ pub(crate) fn build_missions(
                 RewardAmount::Fixed(n) => Some(n),
                 _ => None,
             },
-            estimate: curve.as_ref().and_then(|c| rep.estimate_uec(c)),
+            // Event missions (category Priority: the resupply donation
+            // drives, Fleet Week hunts) run on an event window as their time
+            // budget, up to 2,000 minutes, and the curve scales with it:
+            // LIVE 4.10.3 gave 30 million aUEC for a Large Resupply. No
+            // estimate for them; the UI shows "calculated".
+            estimate: curve
+                .as_ref()
+                .filter(|_| !is_event(rep, &missions, locale))
+                .and_then(|c| rep.estimate_uec(c)),
             buy_in: rep.buy_in,
             time_to_complete: rep.time_to_complete,
         };
@@ -761,6 +769,15 @@ fn payout_signature(m: &Mission) -> String {
         RewardAmount::Fixed(n) => format!("f{n}"),
         _ => format!("{d}|b{}|t{}", m.buy_in, m.time_to_complete),
     }
+}
+
+/// An event mission: its category (`MissionType`) is Priority, by the
+/// game's own English name (the cook reads the shipped `global.ini`).
+fn is_event(m: &Mission, missions: &Missions, locale: &LocaleMap) -> bool {
+    build_category(m, missions, locale)
+        .and_then(|c| c.name)
+        .as_deref()
+        == Some("Priority")
 }
 
 /// Resolve the mission category (`MissionType`) name + icon.
