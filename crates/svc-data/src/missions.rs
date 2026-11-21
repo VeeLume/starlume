@@ -936,11 +936,16 @@ fn build_gates(
         if refs.is_empty() {
             continue;
         }
-        out.push(ChainGate {
+        let gate = ChainGate {
             need: (*required_count).max(1) as u32,
             tags: required_tags.iter().map(Guid::to_string).collect(),
             missions: refs,
-        });
+        };
+        // The handler and contract layers can both carry a gate (Foxwell's
+        // *_Super lists its ladder twice): under AND a repeat adds nothing.
+        if !out.contains(&gate) {
+            out.push(gate);
+        }
     }
     out
 }
