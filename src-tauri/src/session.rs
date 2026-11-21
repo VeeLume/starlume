@@ -649,6 +649,17 @@ pub(crate) fn your_run_minutes(app: &AppHandle) -> HashMap<String, f32> {
     Store::at_data_root().run_minutes()
 }
 
+/// Your average minutes per mission contract (its record name), for the
+/// Contracts catalog's time column: the same figures Plans reads. One small
+/// file read; empty while the module is off.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn session_run_minutes(app: AppHandle) -> HashMap<String, f32> {
+    tokio::task::spawn_blocking(move || your_run_minutes(&app))
+        .await
+        .unwrap_or_default()
+}
+
 /// The finished sessions, newest first (at most [`HISTORY_CAP`]). One small
 /// file read, after the queue has drained (so a session being filed is in
 /// it); empty while the module is off.

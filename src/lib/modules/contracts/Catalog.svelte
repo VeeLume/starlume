@@ -48,6 +48,7 @@
   import { getMissions } from "$lib/state/catalog.svelte";
   import { blueprintsStore, loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
   import { loadStanding, standingStore } from "$lib/state/standing.svelte";
+  import { loadRunMinutes, sessionStore } from "$lib/state/session.svelte";
   import {
     blueprintCell,
     blueprintChance,
@@ -274,6 +275,11 @@
   ]);
 
   const pays = (m: MissionEntryView) => m.payout.fixed ?? m.payout.estimate ?? 0;
+  /** The time the row shows, for the Shortest sort: yours, else the game's. */
+  const minutesOf = (m: MissionEntryView) => {
+    const v = parseFloat(timeCell(m, sessionStore.runMinutes).value);
+    return Number.isFinite(v) ? v : 1e9;
+  };
   const scope = $derived(browse.values.bp as string);
 
   const descriptor = $derived({
@@ -325,7 +331,7 @@
         value: "time",
         label: "Shortest",
         compare: (a: MissionRow, b: MissionRow) =>
-          (a.payout.time_to_complete || 1e9) - (b.payout.time_to_complete || 1e9),
+          minutesOf(a) - minutesOf(b),
       },
       { value: "name", label: "Name", compare: (a: MissionRow, b: MissionRow) => a.title.localeCompare(b.title) },
     ],
@@ -415,6 +421,7 @@
   onMount(() => {
     void loadOwnedBlueprints();
     void loadStanding();
+    void loadRunMinutes();
     void (async () => {
       const channel = await ensureChannel();
       ready = true;
@@ -481,7 +488,7 @@
           {@const where = whereCell(r)}
           {@const bp = blueprintCell(r, blueprintsStore.owns, blueprintsStore.fetchedAt != null)}
           {@const pay = paysCell(r)}
-          {@const time = timeCell(r)}
+          {@const time = timeCell(r, sessionStore.runMinutes)}
           <Expand.Row title={r.title} open={expanded.has(r.key)} ontoggle={() => toggleRow(r.key)}>
             {#snippet gutter()}
               <span class="tile" style:--hue={cat.hue} title={r.category?.name ?? "Mission"}>
@@ -508,7 +515,7 @@
                 </span>
                 <span class="c2"><span class={bp.value === "none" ? "none" : "bpv"}>{bp.value}</span><small>{bp.sub}</small></span>
                 <span class="c2 r"><span class="v">{pay.value}{#if pay.value !== "—" && pay.value !== "calculated"}<i>aUEC</i>{/if}</span><small>{pay.sub}</small></span>
-                <span class="c2 r"><span class={time.sub === "game estimate" ? "est" : "none"}>{time.value}</span><small>{time.sub}</small></span>
+                <span class="c2 r"><span class={time.sub === "your time" ? "v" : time.sub === "game estimate" ? "est" : "none"}>{time.value}</span><small>{time.sub}</small></span>
               </span>
             {/snippet}
 
@@ -584,6 +591,9 @@
       <section>
         <h4>Time and place</h4>
         <dl class="kv">
+          {#each [timeCell(m, sessionStore.runMinutes)].filter((t) => t.sub === "your time") as yours (yours.value)}
+            <dt>Your time</dt><dd class="mono">{yours.value}</dd>
+          {/each}
           <dt>Game estimate</dt><dd class="mono">{m.payout.time_to_complete > 0 ? `${Math.round(m.payout.time_to_complete)} min` : "—"}</dd>
           {#if m.cooldown_seconds}<dt>Cooldown</dt><dd class="mono">{Math.round(m.cooldown_seconds / 60)} min</dd>{/if}
           {#each m.locations as l, i (i)}

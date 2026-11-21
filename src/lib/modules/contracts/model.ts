@@ -131,8 +131,15 @@ export function paysCell(m: MissionEntryView): Cell {
   return { value, sub };
 }
 
-/** The game's time budget. Your own times join in a later slice. */
-export function timeCell(m: MissionEntryView): Cell {
+/** Your average over the runs the Session Log measured (`yours`, minutes by
+ *  contract record name), else the game's time budget; the caption names
+ *  which (Plans' time order: yours before CIG's). */
+export function timeCell(m: MissionEntryView, yours?: Partial<Record<string, number>> | null): Cell {
+  const mine = m.contracts.map((c) => yours?.[c]).filter((x): x is number => x != null && x > 0);
+  if (mine.length > 0) {
+    const avg = mine.reduce((a, b) => a + b, 0) / mine.length;
+    return { value: `${Math.max(1, Math.round(avg))} min`, sub: "your time" };
+  }
   const t = m.payout.time_to_complete;
   if (!(t > 0)) return { value: "—", sub: "no estimate" };
   return { value: `${Math.round(t)} min`, sub: "game estimate" };

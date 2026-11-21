@@ -144,6 +144,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         plans::plans_loadout_choices,
         session::session_state,
         session::session_history,
+        session::session_run_minutes,
         session::session_get,
         session::session_reread,
         session_names::session_names,

@@ -140,6 +140,11 @@ describe("the row's cells", () => {
     expect(paysCell(simpleHit())).toEqual({ value: "58,000", sub: "+75 rep" });
     expect(timeCell(simpleHit())).toEqual({ value: "14 min", sub: "game estimate" });
   });
+  it("time: your measured runs before the game's estimate", () => {
+    const yours = { HH_Pyro_RegionB_LRT_Criminals_KillShip: 3.2, Other: 40 };
+    expect(timeCell(simpleHit(), yours)).toEqual({ value: "3 min", sub: "your time" });
+    expect(timeCell(simpleHit(), { Other: 40 })).toEqual({ value: "14 min", sub: "game estimate" });
+  });
   it("blueprints: new to you once the owned set is known", () => {
     const owned = new Set(["bp2", "bp3"]);
     expect(blueprintCell(simpleHit(), (g) => owned.has(g), true)).toEqual({ value: "5 in pool", sub: "3 new to you" });

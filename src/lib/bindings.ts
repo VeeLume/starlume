@@ -1418,6 +1418,14 @@ async sessionHistory() : Promise<Result<SessionSummary[], AppError>> {
 }
 },
 /**
+ * Your average minutes per mission contract (its record name), for the
+ * Contracts catalog's time column: the same figures Plans reads. One small
+ * file read; empty while the module is off.
+ */
+async sessionRunMinutes() : Promise<Partial<{ [key in string]: number }>> {
+    return await TAURI_INVOKE("session_run_minutes");
+},
+/**
  * One finished session with its timeline; `None` when it is not kept (any
  * more).
  */
@@ -3877,8 +3885,9 @@ detail: string;
 plans: string[]; blocked: boolean; at: PlanPlace | null; 
 /**
  * Time the step itself takes, where the data gives one: a recipe's
- * craft time; for an earn step, CIG's estimate for the shortest
- * mission that grants the blueprint.
+ * craft time; for an earn step, the runs it takes on average of the
+ * nearest mission that grants the blueprint (the shortest one when no
+ * route is known), each by its best time.
  */
 seconds: number | null; 
 /**
