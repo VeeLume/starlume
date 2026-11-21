@@ -19,7 +19,9 @@
 //! # Posture
 //!
 //! Reads are **manual or startup-only, never polled** (the dossier posture).
-//! `refresh_*` mints a fresh launcher session, does one query, and drops the
+//! `refresh_*` mints a fresh launcher session (always on the live servers,
+//! `Env::Live`, whichever channel the launcher was last on: account data
+//! lives there), does one query, and drops the
 //! connection — no long-lived channel, because the ledger changes rarely and
 //! the cheapest ToS-grey footprint is the fewest calls.
 
@@ -90,7 +92,8 @@ impl DossierService {
     /// "sign in to the RSI launcher" hint; a launcher too old for the mint API
     /// as [`sc_dossier::Error::LauncherOutdated`].
     pub async fn refresh_blueprints(&self, user_agent: &str) -> anyhow::Result<OwnedBlueprints> {
-        let dossier = sc_dossier::Dossier::from_launcher(user_agent).await?;
+        let dossier =
+            sc_dossier::Dossier::from_launcher(user_agent, sc_dossier::auth::Env::Live).await?;
         let blueprints = dossier.owned_blueprints().await?;
         let owned = OwnedBlueprints {
             blueprint_ids: blueprints.into_iter().map(|b| b.blueprint_id).collect(),
@@ -121,7 +124,8 @@ impl DossierService {
     /// **Gated:** the caller must have passed `require_unofficial("standing")`
     /// first (see the module contract).
     pub async fn refresh_standing(&self, user_agent: &str) -> anyhow::Result<PlayerStanding> {
-        let dossier = sc_dossier::Dossier::from_launcher(user_agent).await?;
+        let dossier =
+            sc_dossier::Dossier::from_launcher(user_agent, sc_dossier::auth::Env::Live).await?;
         let reputations = dossier.reputations().await?;
         let tokens = dossier.mission_tokens().await?;
         let standing =
@@ -242,7 +246,8 @@ impl DossierService {
         with_loadouts: bool,
         build: Option<inventory::BuildTag>,
     ) -> anyhow::Result<Inventory> {
-        let dossier = sc_dossier::Dossier::from_launcher(user_agent).await?;
+        let dossier =
+            sc_dossier::Dossier::from_launcher(user_agent, sc_dossier::auth::Env::Live).await?;
         let stashes = dossier.stashes().await?;
         let entitlements = dossier.entitlements().await?;
         let loadouts = if with_loadouts {

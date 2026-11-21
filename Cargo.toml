@@ -56,7 +56,7 @@ sc-holotable = { git = "https://github.com/VeeLume/sc-holotable.git", tag = "sc-
 # comm-links. ONE
 # pin for every service that uses it. `telemetry` adds the game's local
 # stream (loopback only) for svc-telemetry.
-sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.15.0", features = ["telemetry"] }
+sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.16.0", features = ["telemetry"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
