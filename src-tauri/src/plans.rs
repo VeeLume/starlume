@@ -1073,7 +1073,11 @@ impl Gathered<'_> {
                     .find(|m| m.mission_id == g.mission_id);
                 Grant {
                     mission: g.mission_id.clone(),
-                    chance: mission.and_then(|m| crate::plans_contracts::chance_of(m, blueprint)),
+                    draw: mission.and_then(|m| {
+                        crate::plans_contracts::draw_of(m, blueprint, &|g| {
+                            self.owned_blueprints.contains(g) || self.hand_owned.contains(g)
+                        })
+                    }),
                     title: mission
                         .map(crate::plans_contracts::title_of)
                         .unwrap_or_else(|| g.title.clone()),

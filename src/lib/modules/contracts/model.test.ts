@@ -15,7 +15,8 @@ import {
   paysCell,
   rankIndex,
   rowFor,
-  runsFor,
+  poolDraw,
+  runsAll,
   standingOf,
   stepsLeft,
   timeCell,
@@ -154,18 +155,21 @@ describe("the row's cells", () => {
 });
 
 describe("odds for one blueprint", () => {
-  it("one in five per run, 11 runs for 90%", () => {
-    const p = blueprintChance(simpleHit(), "bp0");
-    expect(p).toBeCloseTo(0.2);
-    expect(oddsText(p)).toBe("1 in 5");
-    expect(runsFor(p)).toEqual({ average: 5, ninety: 11 });
-  });
-  it("the NightFall pool: 1 in 8, 18 runs for 90%", () => {
-    expect(runsFor(1 / 8)).toEqual({ average: 8, ninety: 18 });
+  it("a run gives one of the pool's blueprints you lack", () => {
+    expect(blueprintChance(simpleHit(), "bp0")).toBeCloseTo(0.2);
+    expect(oddsText(blueprintChance(simpleHit(), "bp0"))).toBe("1 in 5");
+    expect(runsAll(poolDraw(simpleHit(), "bp0"))).toBe(5);
+    // Two of the five owned: three left, the wanted one among them.
+    const owned = new Set(["bp1", "bp2"]);
+    const d = poolDraw(simpleHit(), "bp0", (g) => owned.has(g));
+    expect(d).toEqual({ chance: 1, left: 3 });
+    expect(runsAll(d)).toBe(3);
+    expect(blueprintChance(simpleHit(), "bp0", (g) => owned.has(g))).toBeCloseTo(1 / 3);
   });
   it("a blueprint not in the pools has no odds", () => {
     expect(blueprintChance(simpleHit(), "nope")).toBe(0);
-    expect(runsFor(0)).toBeNull();
+    expect(poolDraw(simpleHit(), "nope")).toBeNull();
+    expect(runsAll(null)).toBeNull();
   });
 });
 

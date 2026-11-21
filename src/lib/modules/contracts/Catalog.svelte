@@ -70,7 +70,8 @@
     standingOf,
     STANDING_GROUPS,
     type Standing,
-    runsFor,
+    poolDraw,
+    runsAll,
     timeCell,
     whereCell,
     windowText,
@@ -365,8 +366,27 @@
   // ── The blueprint scope's figures ─────────────────────────────────────
   const scoped = $derived(scope ? missions.filter((m) => blueprintChance(m, scope) > 0) : []);
   const scopeName = $derived(scope ? (blueprintName(missions, scope) ?? "this blueprint") : "");
-  const bestChance = $derived(scoped.reduce((p, m) => Math.max(p, blueprintChance(m, scope)), 0));
-  const runs = $derived(runsFor(bestChance));
+  /** What you own counts once it was read: a run gives one you lack. */
+  const ownsFn = $derived(ownedKnown ? (g: string) => blueprintsStore.owns(g) : () => false);
+  const bestChance = $derived(scoped.reduce((p, m) => Math.max(p, blueprintChance(m, scope, ownsFn)), 0));
+  /** Runs until a pool holding it has given all it holds for you: missions
+   *  on one pool give the same, so the soonest. */
+  const runs = $derived(
+    scoped.reduce<number | null>((best, m) => {
+      const n = runsAll(poolDraw(m, scope, ownsFn));
+      return n != null && (best == null || n < best) ? n : best;
+    }, null),
+  );
+  /** The quickest way to have it: those runs, each by the row's time. */
+  const fastest = $derived(
+    scoped.reduce<number | null>((best, m) => {
+      const n = runsAll(poolDraw(m, scope, ownsFn));
+      const min = minutesOf(m);
+      if (n == null || min >= 1e9) return best;
+      return best == null || n * min < best ? n * min : best;
+    }, null),
+  );
+  const span = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} h ${Math.round(min % 60)} min` : `${Math.round(min)} min`);
   /** Missions per rank of the scope's main faction, on its ladder. */
   const scopeLadder = $derived.by(() => {
     const reqs = scoped.map(ownRequirement).filter((r) => r != null);
@@ -479,8 +499,8 @@
         <div class="stat-tiles">
           <div class="stat-tile"><b>{oddsText(bestChance)}</b><span>per run at best</span></div>
           <div class="stat-tile"><b>{scoped.length}</b><span>{scoped.length === 1 ? "mission" : "missions"}</span></div>
-          <div class="stat-tile"><b>{runs ? runs.average : "—"}</b><span>runs on average</span></div>
-          <div class="stat-tile"><b>{runs ? runs.ninety : "—"}</b><span>runs for 90%</span></div>
+          <div class="stat-tile"><b>{runs ?? "—"}</b><span>runs to have it</span></div>
+          <div class="stat-tile"><b>{fastest != null ? span(fastest) : "—"}</b><span>at the quickest</span></div>
         </div>
         {#if scopePool}
           <p class="scope-pool">
@@ -658,13 +678,13 @@
           {/each}
         </dl>
         {#each m.blueprint_rewards as p (p.pool_name)}
-          {@const total = p.blueprints.reduce((n, b) => n + b.weight, 0)}
+          {@const lack = p.blueprints.filter((b) => !blueprintsStore.owns(b.blueprint_record_guid)).length}
           <ul class="pool" aria-label="Blueprint pool">
             {#each p.blueprints as b (b.blueprint_record_guid)}
               {@const owned = blueprintsStore.owns(b.blueprint_record_guid)}
               <li class:own={owned} class:want={b.blueprint_record_guid === scope}>
                 <span class="nm">{b.name ?? "?"}</span>
-                <span class="od">{owned ? "yours" : `${Math.round((p.chance * b.weight * 1000) / (total || 1)) / 10}%`}</span>
+                <span class="od">{owned ? "yours" : `${Math.round((p.chance * 1000) / (lack || 1)) / 10}%`}</span>
               </li>
             {/each}
           </ul>

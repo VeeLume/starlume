@@ -13,7 +13,7 @@ use mod_plans::contracts::{
     ChainStep, ContractInputs, MissionFacts, RankFacts, RankWindow, RepLadder, RepSource,
     ladder_key,
 };
-use mod_plans::steps::{PlanPlace, RunTime};
+use mod_plans::steps::{PlanPlace, PoolDraw, RunTime};
 use mod_plans::{Goal, PlansState};
 use svc_data::missions::{MissionEntry, MissionRegion, RepRequirement};
 use svc_dossier::PlayerStanding;
@@ -267,24 +267,27 @@ fn own_rep(m: &MissionEntry) -> Option<i64> {
         .map(i64::from)
 }
 
-/// The chance a run gives blueprint `guid`, over its pools (the Contracts
-/// page's `blueprintChance`); `None` when no pool holds it.
-pub(crate) fn chance_of(m: &MissionEntry, guid: &str) -> Option<f64> {
-    let mut miss = 1.0;
-    let mut found = false;
-    for p in &m.blueprint_rewards {
-        let total: f64 = p.blueprints.iter().map(|b| f64::from(b.weight)).sum();
-        if let Some(e) = p
-            .blueprints
-            .iter()
-            .find(|b| b.blueprint_record_guid == guid)
-            && total > 0.0
-        {
-            found = true;
-            miss *= 1.0 - f64::from(p.chance).clamp(0.0, 1.0) * (f64::from(e.weight) / total);
-        }
-    }
-    found.then_some(1.0 - miss)
+/// The draw from the pool of `m` that holds blueprint `guid`: its chance
+/// and the blueprints in it you do not own (`owns`), `guid` among them. A
+/// run that draws gives one you lack. Of several pools holding it, the one
+/// used up soonest; `None` when no pool holds it.
+pub(crate) fn draw_of(
+    m: &MissionEntry,
+    guid: &str,
+    owns: &dyn Fn(&str) -> bool,
+) -> Option<PoolDraw> {
+    m.blueprint_rewards
+        .iter()
+        .filter(|p| p.blueprints.iter().any(|b| b.blueprint_record_guid == guid))
+        .map(|p| PoolDraw {
+            chance: f64::from(p.chance).clamp(0.0, 1.0),
+            left: p
+                .blueprints
+                .iter()
+                .filter(|b| b.blueprint_record_guid == guid || !owns(&b.blueprint_record_guid))
+                .count() as u32,
+        })
+        .min_by_key(|d| d.runs_all().unwrap_or(u32::MAX))
 }
 
 /// The chance a run gives at least one blueprint, over its pools.

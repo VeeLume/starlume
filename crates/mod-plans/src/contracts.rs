@@ -187,26 +187,35 @@ pub fn earn_route(grants: &[Grant], inputs: &ContractInputs, plan: &str) -> Opti
     if known.is_empty() {
         return None;
     }
-    let reachable: Vec<(usize, &Grant, Vec<PlanStep>)> = known
+    let reachable: Vec<(usize, &Grant, bool, Vec<PlanStep>)> = known
         .into_iter()
         .filter(|(_, _, m)| !(m.once_only && m.done))
         .filter_map(|(i, g, m)| {
             path(&g.mission, m, inputs, plan)
                 .ok()
-                .map(|before| (i, g, before))
+                .map(|before| (i, g, m.once_only, before))
         })
         .collect();
     let open_now = reachable.iter().filter(|(.., b)| b.is_empty()).count();
     let later_on = reachable.len() - open_now;
-    let best = reachable.into_iter().min_by(|(_, a, pa), (_, b, pb)| {
-        let minutes = |g: &Grant| g.time.map_or(f32::MAX, |t| t.minutes);
-        pa.len()
-            .cmp(&pb.len())
-            .then_with(|| b.chance.unwrap_or(0.0).total_cmp(&a.chance.unwrap_or(0.0)))
-            .then_with(|| minutes(a).total_cmp(&minutes(b)))
-    });
+    // Missions on the same pool give the same, so time decides: the
+    // minutes until its pool has given all it holds for you. A once-only
+    // mission cannot be run again, so a repeatable one goes first.
+    let until_all = |g: &Grant| match (g.time, g.draw.and_then(|d| d.runs_all())) {
+        (Some(t), Some(n)) => t.minutes * n as f32,
+        (Some(t), None) => t.minutes,
+        _ => f32::MAX,
+    };
+    let best = reachable
+        .into_iter()
+        .min_by(|(_, a, oa, pa), (_, b, ob, pb)| {
+            pa.len()
+                .cmp(&pb.len())
+                .then_with(|| oa.cmp(ob))
+                .then_with(|| until_all(a).total_cmp(&until_all(b)))
+        });
     Some(match best {
-        Some((i, _, before)) => {
+        Some((i, _, _, before)) => {
             let (open, later) = if before.is_empty() {
                 (open_now - 1, later_on)
             } else {

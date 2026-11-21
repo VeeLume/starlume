@@ -171,24 +171,37 @@ export function blueprintCell(m: MissionEntryView, owns: (guid: string) => boole
   return { value, sub: p.chance >= 1 ? "1 per run" : `${Math.round(p.chance * 100)}% per run` };
 }
 
-/** The chance one run grants a given blueprint, across all of a mission's pools. */
-export function blueprintChance(m: MissionEntryView, guid: string): number {
-  let miss = 1;
+/** A pool's draw as the game runs it: a run that draws (at `chance`) gives
+ *  one blueprint of the pool you do not own yet, so the pool is used up in
+ *  `left` drawing runs, and every mission on the same pool gives the same. */
+export type PoolDraw = { chance: number; left: number };
+
+/** The draw from the mission's pool that holds blueprint `guid`: the
+ *  blueprints in it you lack (`owns`; `guid` always counts). Of several
+ *  pools holding it, the one used up soonest; null when none holds it. */
+export function poolDraw(m: MissionEntryView, guid: string, owns: (g: string) => boolean = () => false): PoolDraw | null {
+  let best: PoolDraw | null = null;
   for (const p of m.blueprint_rewards) {
-    const total = p.blueprints.reduce((n, b) => n + b.weight, 0);
-    const entry = p.blueprints.find((b) => b.blueprint_record_guid === guid);
-    if (entry && total > 0) miss *= 1 - p.chance * (entry.weight / total);
+    if (!p.blueprints.some((b) => b.blueprint_record_guid === guid)) continue;
+    const left = p.blueprints.filter((b) => b.blueprint_record_guid === guid || !owns(b.blueprint_record_guid)).length;
+    const d = { chance: Math.min(Math.max(p.chance, 0), 1), left };
+    if (!best || (runsAll(d) ?? Infinity) < (runsAll(best) ?? Infinity)) best = d;
   }
-  return 1 - miss;
+  return best;
 }
 
-/** Runs on average, and runs until the chance of at least one drop passes 90%. */
-export function runsFor(chance: number): { average: number; ninety: number } | null {
-  if (!(chance > 0)) return null;
-  if (chance >= 1) return { average: 1, ninety: 1 };
-  // The epsilon keeps float noise (1 - 0.8 = 0.19999…) from adding a run.
-  const up = (x: number) => Math.ceil(x - 1e-9);
-  return { average: up(1 / chance), ninety: up(Math.log(0.1) / Math.log(1 - chance)) };
+/** Runs until the pool has given all it holds for you (on average when a
+ *  run may not draw); null when it never draws. */
+export function runsAll(d: PoolDraw | null): number | null {
+  if (!d || !(d.chance > 0) || d.left <= 0) return null;
+  return Math.ceil(d.left / d.chance - 1e-9);
+}
+
+/** The chance one run gives blueprint `guid`: one of the pool's blueprints
+ *  you lack, evenly. 0 when no pool holds it. */
+export function blueprintChance(m: MissionEntryView, guid: string, owns?: (g: string) => boolean): number {
+  const d = poolDraw(m, guid, owns);
+  return d && d.left > 0 ? d.chance / d.left : 0;
 }
 
 /** "1 in 8" for a chance, rounded to the nearest whole "in". */

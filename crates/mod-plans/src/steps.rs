@@ -201,6 +201,36 @@ pub struct QualityBand {
     pub value: u32,
 }
 
+/// A blueprint pool's draw as the game runs it: a run that draws (at
+/// `chance`) gives one blueprint of the pool you do not own yet, so the
+/// pool is used up in `left` drawing runs and every mission on the same
+/// pool gives the same.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PoolDraw {
+    /// The chance a run draws, 0..=1.
+    pub chance: f64,
+    /// Blueprints of the pool you do not own, the wanted one among them.
+    pub left: u32,
+}
+
+impl PoolDraw {
+    /// Runs until the pool has given all it holds for you (on average when
+    /// a run may not draw); `None` when it never draws.
+    pub fn runs_all(&self) -> Option<u32> {
+        (self.chance > 0.0 && self.left > 0)
+            .then(|| (f64::from(self.left) / self.chance.min(1.0) - 1e-9).ceil() as u32)
+    }
+
+    /// The chance one run gives the wanted blueprint (pools draw evenly).
+    pub fn per_run(&self) -> f64 {
+        if self.left == 0 {
+            0.0
+        } else {
+            self.chance.min(1.0) / f64::from(self.left)
+        }
+    }
+}
+
 /// A mission that grants a blueprint.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Grant {
@@ -208,9 +238,9 @@ pub struct Grant {
     /// [`crate::contracts::ContractInputs::missions`] under it.
     pub mission: String,
     pub title: String,
-    /// The chance one run gives this blueprint, 0..=1; `None` when the
-    /// mission's pools do not say.
-    pub chance: Option<f64>,
+    /// The draw from the mission's blueprint pool that holds this one;
+    /// `None` when its pools do not say.
+    pub draw: Option<PoolDraw>,
     pub at: Vec<PlanPlace>,
     /// The mission's time from its best source (your runs before CIG's
     /// `time_to_complete`); `None` when none has one.
@@ -1964,20 +1994,6 @@ pub(crate) fn percent(chance: f64) -> String {
     }
 }
 
-/// Runs on average, and runs until the chance of at least one drop passes
-/// 90% (the Contracts page's `runsFor`). `None` without a chance.
-pub(crate) fn runs_for(chance: f64) -> Option<(u32, u32)> {
-    if chance.is_nan() || chance <= 0.0 {
-        return None;
-    }
-    if chance >= 1.0 {
-        return Some((1, 1));
-    }
-    // The epsilon keeps float noise (1 - 0.8 = 0.19999…) from adding a run.
-    let up = |x: f64| (x - 1e-9).ceil().max(1.0) as u32;
-    Some((up(1.0 / chance), up(0.1f64.ln() / (1.0 - chance).ln())))
-}
-
 /// The earn step on its route: the odds a run of the nearest granting
 /// mission gives the blueprint and the runs that takes, after the steps
 /// that open the mission (returned beside it).
@@ -2022,13 +2038,23 @@ fn earn_step(
             Vec::new(),
         );
     };
-    let runs = g.chance.and_then(runs_for);
-    let mut detail = match (g.chance, runs) {
-        (Some(c), Some((1, _))) if c >= 1.0 => format!("Every run of {} gives it", g.title),
-        (Some(c), Some((avg, ninety))) => format!(
-            "{} a run of {}: {avg} runs on average, {ninety} for 90%",
-            percent(c),
-            g.title
+    let runs = g.draw.and_then(|d| d.runs_all());
+    let mut detail = match (g.draw, runs) {
+        (Some(d), Some(_)) if d.chance >= 1.0 && d.left == 1 => {
+            format!(
+                "{}: the last blueprint its pool holds for you, next run",
+                g.title
+            )
+        }
+        (Some(d), Some(n)) if d.chance >= 1.0 => format!(
+            "{}: one of {} pool blueprints you lack each run, all within {n} runs",
+            g.title, d.left
+        ),
+        (Some(d), Some(n)) => format!(
+            "{}: one of {} pool blueprints you lack in {} of runs, all in about {n} runs",
+            g.title,
+            d.left,
+            percent(d.chance)
         ),
         _ => format!("Run {}", g.title),
     };
@@ -2067,12 +2093,11 @@ fn earn_step(
             .find(|p| p.site.is_some())
             .or_else(|| g.at.first())
             .cloned(),
-        // The runs it takes on average, each by the mission's best time.
-        seconds: g
-            .time
-            .map(|t| t.seconds() * f64::from(runs.map_or(1, |r| r.0))),
+        // Until the pool has given all it holds for you, this one among
+        // them: the runs, each by the mission's best time.
+        seconds: g.time.map(|t| t.seconds() * f64::from(runs.unwrap_or(1))),
         seconds_from: g.time.map(|t| t.from),
-        odds: g.chance.map(|c| c as f32),
+        odds: g.draw.map(|d| d.per_run() as f32),
         after,
         ..base
     };
@@ -2848,14 +2873,14 @@ pub(crate) mod tests {
         widget.grants = vec![
             Grant {
                 mission: "m-one".into(),
-                chance: None,
+                draw: None,
                 title: "Run One".into(),
                 at: vec![at("Planet One")],
                 time: RunTime::best(Some(15.0), None, Some(45.0)),
             },
             Grant {
                 mission: "m-two".into(),
-                chance: None,
+                draw: None,
                 title: "Run Two".into(),
                 at: vec![],
                 time: RunTime::best(None, None, Some(20.0)),
@@ -3441,6 +3466,29 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_pool_gives_one_you_lack_a_drawing_run() {
+        let always = PoolDraw {
+            chance: 1.0,
+            left: 8,
+        };
+        assert_eq!(always.runs_all(), Some(8));
+        assert_eq!(always.per_run(), 0.125);
+        let half = PoolDraw {
+            chance: 0.5,
+            left: 3,
+        };
+        assert_eq!(half.runs_all(), Some(6), "on average");
+        assert_eq!(
+            PoolDraw {
+                chance: 0.0,
+                left: 3
+            }
+            .runs_all(),
+            None
+        );
+    }
+
+    #[test]
     fn a_blueprint_is_earned_from_the_nearest_granting_mission_after_its_path() {
         use crate::contracts::{MissionFacts, RankFacts, RankWindow, RepLadder, RepSource};
         let mut inputs = Inputs::default();
@@ -3450,14 +3498,20 @@ pub(crate) mod tests {
             Grant {
                 mission: "far".into(),
                 title: "Big Job".into(),
-                chance: Some(0.5),
+                draw: Some(PoolDraw {
+                    chance: 1.0,
+                    left: 2,
+                }),
                 ..Grant::default()
             },
             // One rank away, then a chain step.
             Grant {
                 mission: "near".into(),
                 title: "Small Job".into(),
-                chance: Some(0.2),
+                draw: Some(PoolDraw {
+                    chance: 1.0,
+                    left: 5,
+                }),
                 time: RunTime::best(None, None, Some(10.0)),
                 at: vec![at("Planet One")],
             },
@@ -3523,7 +3577,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(
             earn.detail,
-            "20% a run of Small Job: 5 runs on average, 11 for 90%, 1 more mission gives it later"
+            "Small Job: one of 5 pool blueprints you lack each run, all within 5 runs, 1 more mission gives it later"
         );
         assert_eq!(earn.seconds, Some(5.0 * 10.0 * 60.0));
         assert_eq!(earn.at, Some(at("Planet One")));
