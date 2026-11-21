@@ -244,13 +244,24 @@ fn rep_legs(key: &str, ladder: &RepLadder, to: usize, plan: &str) -> Vec<PlanSte
             .iter()
             .filter(|s| s.lo <= r && r <= s.hi && s.rep > 0)
             .collect();
-        let best = open.iter().copied().max_by(|a, b| {
-            a.rep.cmp(&b.rep).then_with(|| {
-                // The shorter run wins a tie.
-                let t = |s: &RepSource| s.time.map_or(f32::MAX, |t| t.minutes);
-                t(b).total_cmp(&t(a))
+        // The fastest way to the rank: the most rep per minute, by each
+        // mission's best time (yours before CIG's). Without any time, the
+        // most rep a run, and the step has no time figure.
+        let per_minute = |s: &RepSource| {
+            s.time
+                .filter(|t| t.minutes > 0.0)
+                .map(|t| s.rep as f32 / t.minutes)
+        };
+        let best = open
+            .iter()
+            .copied()
+            .filter(|s| per_minute(s).is_some())
+            .max_by(|a, b| {
+                per_minute(a)
+                    .unwrap_or(0.0)
+                    .total_cmp(&per_minute(b).unwrap_or(0.0))
             })
-        });
+            .or_else(|| open.iter().copied().max_by_key(|s| s.rep));
         let runs = best.map(|b| (need + b.rep - 1) / b.rep);
         let id = format!("rep:{key}:{}", r + 1);
         // No one mission: the user picks from the catalog, filtered to the
@@ -273,7 +284,7 @@ fn rep_legs(key: &str, ladder: &RepLadder, to: usize, plan: &str) -> Vec<PlanSte
                 rank: (r > you).then(|| ladder.ranks[r].name.clone()),
             }),
             // The fastest known way, as a figure: the runs it takes of the
-            // repeatable mission open at this rank that gives the most rep.
+            // repeatable mission open at this rank with the most rep a minute.
             seconds: best
                 .and_then(|b| b.time)
                 .zip(runs)
@@ -628,6 +639,28 @@ mod tests {
         );
         assert!(steps[1].blocked);
         assert_eq!(steps[1].after, vec![steps[0].id.clone()]);
+    }
+
+    #[test]
+    fn the_time_to_a_rank_takes_the_most_rep_a_minute_not_a_run() {
+        let mut ins = inputs(Some(800));
+        // Less rep a run than Big Hit (400 in 20 min), more a minute.
+        ins.ladders.get_mut(KEY).unwrap().sources.push(RepSource {
+            id: "Quick Job".into(),
+            title: "Quick Job".to_owned(),
+            lo: 1,
+            hi: 3,
+            rep: 300,
+            time: RunTime::best(Some(5.0), None, Some(15.0)),
+            at: Vec::new(),
+        });
+        let mut state = PlansState::default();
+        rank_plan(&mut state, "r2");
+        let s = steps(&state.plans, &ins, Vec::new());
+        assert_eq!(s.len(), 1);
+        // 1,400 rep: 5 runs of Quick Job at your 5 minutes.
+        assert_eq!(s[0].seconds, Some(5.0 * 5.0 * 60.0));
+        assert_eq!(s[0].seconds_from, Some(TimeSource::Yours));
     }
 
     #[test]

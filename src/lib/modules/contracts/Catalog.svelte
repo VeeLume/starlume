@@ -278,6 +278,13 @@
   ]);
 
   const pays = (m: MissionEntryView) => m.payout.fixed ?? m.payout.estimate ?? 0;
+  /** Own-faction rep a minute, by the row's time (yours, else the game's);
+   *  -1 without rep or a time, so those sort last. */
+  const repPerMinute = (m: MissionEntryView) => {
+    const rep = ownRep(m);
+    const min = minutesOf(m);
+    return rep != null && rep > 0 && min < 1e9 ? rep / min : -1;
+  };
   /** The time the row shows, for the Shortest sort: yours, else the game's. */
   const minutesOf = (m: MissionEntryView) => {
     const v = parseFloat(timeCell(m, sessionStore.runMinutes).value);
@@ -336,7 +343,8 @@
         compare: (a: MissionRow, b: MissionRow) =>
           minutesOf(a) - minutesOf(b),
       },
-      // Grinding rep: Plans' rep steps link here with this sort.
+      // Grinding rep: Plans' rep steps link here with Rep per minute.
+      { value: "repmin", label: "Rep per minute", compare: (a: MissionRow, b: MissionRow) => repPerMinute(b) - repPerMinute(a) || pays(b) - pays(a) },
       { value: "rep", label: "Most rep", compare: (a: MissionRow, b: MissionRow) => (ownRep(b) ?? -1e9) - (ownRep(a) ?? -1e9) || pays(b) - pays(a) },
       { value: "name", label: "Name", compare: (a: MissionRow, b: MissionRow) => a.title.localeCompare(b.title) },
     ],

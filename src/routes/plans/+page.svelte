@@ -175,9 +175,9 @@
   }
 
   /** A rep step's missions in Contracts: its faction, open to you now (or
-   *  opening at the step's rank), sorted by the rep a run gives. */
+   *  opening at the step's rank), sorted by rep per minute. */
   function repLink(f: RepFilter): string {
-    const q = new URLSearchParams({ faction: f.faction, sort: "rep" });
+    const q = new URLSearchParams({ faction: f.faction, sort: "repmin" });
     if (f.rank) q.set("rank", f.rank);
     else q.set("status", "open");
     return `/contracts?${q}`;
@@ -470,7 +470,7 @@
                           <a class="earn-lk" href="/contracts?bp={encodeURIComponent(s.id.slice(5))}">Missions</a>
                         {/if}
                         {#if s.rep && on("contracts")}
-                          <!-- The faction's missions open now (or at the rank), most rep first. -->
+                          <!-- The faction's missions open now (or at the rank), most rep a minute first. -->
                           <a class="earn-lk" href={repLink(s.rep)}>Missions</a>
                         {/if}
                         {#if s.kind !== "earn" && s.mission && on("contracts")}
