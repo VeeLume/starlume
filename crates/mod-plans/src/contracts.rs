@@ -78,12 +78,15 @@ pub struct RankWindow {
     pub hi: usize,
 }
 
-/// A mission before another: its id, title and whether you did it.
+/// A mission before another: its id, title, whether you did it, and its
+/// own time and places.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ChainStep {
     pub id: String,
     pub title: String,
     pub done: bool,
+    pub time: Option<RunTime>,
+    pub at: Vec<PlanPlace>,
 }
 
 /// A mission as a plan reads it.
@@ -169,10 +172,6 @@ pub struct EarnRoute {
     /// closed to you, outgrown or done once and for all.
     pub grant: Option<usize>,
     pub before: Vec<PlanStep>,
-    /// The other granting missions open to you now, and those a rank or a
-    /// mission before them still keeps closed (the chosen one not counted).
-    pub open: usize,
-    pub later: usize,
 }
 
 /// The nearest granting mission: the one with the fewest steps before it,
@@ -196,8 +195,6 @@ pub fn earn_route(grants: &[Grant], inputs: &ContractInputs, plan: &str) -> Opti
                 .map(|before| (i, g, m.once_only, before))
         })
         .collect();
-    let open_now = reachable.iter().filter(|(.., b)| b.is_empty()).count();
-    let later_on = reachable.len() - open_now;
     // Missions on the same pool give the same, so time decides: the
     // minutes until its pool has given all it holds for you. A once-only
     // mission cannot be run again, so a repeatable one goes first.
@@ -215,19 +212,10 @@ pub fn earn_route(grants: &[Grant], inputs: &ContractInputs, plan: &str) -> Opti
                 .then_with(|| until_all(a).total_cmp(&until_all(b)))
         });
     Some(match best {
-        Some((i, _, _, before)) => {
-            let (open, later) = if before.is_empty() {
-                (open_now - 1, later_on)
-            } else {
-                (open_now, later_on - 1)
-            };
-            EarnRoute {
-                grant: Some(i),
-                before,
-                open,
-                later,
-            }
-        }
+        Some((i, _, _, before)) => EarnRoute {
+            grant: Some(i),
+            before,
+        },
         None => EarnRoute::default(),
     })
 }
@@ -425,6 +413,10 @@ fn path(
             }),
             title: format!("Run {} first", c.title),
             detail: format!("{} follows it", m.title),
+            at: first_place(&c.at),
+            seconds: c.time.map(RunTime::seconds),
+            seconds_from: c.time.map(|t| t.from),
+            sources: 1,
             ..step(format!("chain:{id}:{i}"), StepKind::Run, plan)
         });
     }
@@ -711,11 +703,14 @@ mod tests {
                         id: "Setting a Trap".into(),
                         title: "Setting a Trap".into(),
                         done: false,
+                        time: RunTime::best(None, None, Some(15.0)),
+                        ..ChainStep::default()
                     },
                     ChainStep {
                         id: "Done Before".into(),
                         title: "Done Before".into(),
                         done: true,
+                        ..ChainStep::default()
                     },
                 ],
                 pay: Some(80_000.0),
@@ -741,6 +736,11 @@ mod tests {
                 "Run Setting a Trap first",
                 "Run Kill the Boss"
             ]
+        );
+        assert_eq!(
+            s[1].seconds,
+            Some(15.0 * 60.0),
+            "a chain step has its own time"
         );
         let run = s.last().unwrap();
         assert!(run.blocked);

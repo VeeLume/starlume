@@ -104,14 +104,21 @@ pub(crate) fn gather(
             chain: m
                 .chain_required
                 .iter()
-                .map(|c| ChainStep {
-                    id: c.mission_id.clone(),
-                    title: c
-                        .title
-                        .as_deref()
-                        .and_then(real_title)
-                        .map_or_else(|| c.mission_id.clone(), str::to_owned),
-                    done: did(&c.contracts),
+                .map(|c| {
+                    let own = missions.iter().find(|e| e.mission_id == c.mission_id);
+                    ChainStep {
+                        id: c.mission_id.clone(),
+                        title: c
+                            .title
+                            .as_deref()
+                            .and_then(real_title)
+                            .map_or_else(|| c.mission_id.clone(), str::to_owned),
+                        done: did(&c.contracts),
+                        time: own.and_then(|e| time_of(e, yours)),
+                        at: own
+                            .map(|e| e.locations.iter().map(place).collect())
+                            .unwrap_or_default(),
+                    }
                 })
                 .collect(),
             time: time_of(m, yours),

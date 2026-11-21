@@ -2038,47 +2038,15 @@ fn earn_step(
             Vec::new(),
         );
     };
+    // The mission and the runs until its pool has given this one: the pool
+    // and the other missions that give it are behind the Missions link.
     let runs = g.draw.and_then(|d| d.runs_all());
-    let mut detail = match (g.draw, runs) {
-        (Some(d), Some(_)) if d.chance >= 1.0 && d.left == 1 => {
-            format!(
-                "{}: the last blueprint its pool holds for you, next run",
-                g.title
-            )
-        }
-        (Some(d), Some(n)) if d.chance >= 1.0 => format!(
-            "{}: one of {} pool blueprints you lack each run, all within {n} runs",
-            g.title, d.left
-        ),
-        (Some(d), Some(n)) => format!(
-            "{}: one of {} pool blueprints you lack in {} of runs, all in about {n} runs",
-            g.title,
-            d.left,
-            percent(d.chance)
-        ),
-        _ => format!("Run {}", g.title),
+    let detail = match (g.draw, runs) {
+        (Some(d), Some(1)) if d.chance >= 1.0 => format!("{}, next run", g.title),
+        (Some(d), Some(n)) if d.chance >= 1.0 => format!("{}, {n} runs", g.title),
+        (Some(_), Some(n)) => format!("{}, about {n} runs", g.title),
+        _ => g.title.clone(),
     };
-    // The rest of the missions that give it, as counts: the Missions link
-    // lists them.
-    let more = |n: usize| match n {
-        1 => ("1 more mission".to_owned(), "gives"),
-        n => (format!("{n} more missions"), "give"),
-    };
-    match (route.open, route.later) {
-        (0, 0) => {}
-        (o, 0) => {
-            let (m, v) = more(o);
-            detail += &format!(", {m} open to you {v} it");
-        }
-        (0, l) => {
-            let (m, v) = more(l);
-            detail += &format!(", {m} {v} it later");
-        }
-        (o, l) => {
-            let (m, v) = more(o);
-            detail += &format!(", {m} open to you {v} it, {l} later");
-        }
-    }
     let after: Vec<String> = route.before.iter().map(|s| s.id.clone()).collect();
     let step = PlanStep {
         mission: Some(StepMission {
@@ -3565,6 +3533,7 @@ pub(crate) mod tests {
                     id: "warm".into(),
                     title: "Warm Up".into(),
                     done: true,
+                    ..Default::default()
                 }],
                 ..MissionFacts::default()
             },
@@ -3575,10 +3544,7 @@ pub(crate) mod tests {
             .iter()
             .find(|s| s.kind == StepKind::Earn)
             .unwrap();
-        assert_eq!(
-            earn.detail,
-            "Small Job: one of 5 pool blueprints you lack each run, all within 5 runs, 1 more mission gives it later"
-        );
+        assert_eq!(earn.detail, "Small Job, 5 runs");
         assert_eq!(earn.seconds, Some(5.0 * 10.0 * 60.0));
         assert_eq!(earn.at, Some(at("Planet One")));
         assert!(earn.blocked, "it waits on the rank");

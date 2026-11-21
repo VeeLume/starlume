@@ -466,8 +466,9 @@
                         <span class="hue-chip" class:wait={s.blocked}>{s.blocked ? "waits" : KIND_TEXT[s.kind]}</span>
                         <span>{s.detail}</span>
                         {#if s.kind === "earn" && s.id.startsWith("earn:") && on("contracts")}
-                          <!-- The step's id carries the blueprint; Contracts scopes its catalog to it. -->
-                          <a class="earn-lk" href="/contracts?bp={encodeURIComponent(s.id.slice(5))}">Missions</a>
+                          <!-- The step's id carries the blueprint; Contracts scopes its catalog to it.
+                               The label counts every mission that gives it. -->
+                          <a class="earn-lk" href="/contracts?bp={encodeURIComponent(s.id.slice(5))}">{s.sources === 1 ? "1 mission" : `${s.sources} missions`}</a>
                         {/if}
                         {#if s.rep && on("contracts")}
                           <!-- The faction's missions open now (or at the rank), most rep a minute first. -->
