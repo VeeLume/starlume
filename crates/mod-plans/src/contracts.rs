@@ -85,25 +85,33 @@ pub struct ChainStep {
     pub id: String,
     pub title: String,
     pub done: bool,
+    /// The gate's points one run adds (0 = unknown, read as 1).
+    pub adds: u32,
     pub time: Option<RunTime>,
     pub at: Vec<PlanPlace>,
 }
 
-/// One gate before a mission: `runs` completions of any of `ways` open it
-/// (every way grants the completion tag the gate counts).
+/// One gate before a mission: `need` tag points from any of `ways` open it
+/// (every way grants the completion tag the gate counts, its `adds` a run).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ChainGate {
-    /// Completions it asks for, at least 1.
-    pub runs: u32,
-    /// Completions you have toward it: the wallet's tag counter, or the
-    /// ways you completed where the wallet keeps no counter.
-    pub done: u32,
+    /// Points it asks for, at least 1.
+    pub need: u32,
+    /// Points you have toward it: the wallet's tag counter, or the ways you
+    /// completed where the wallet keeps no counter.
+    pub have: u32,
     pub ways: Vec<ChainStep>,
 }
 
 impl ChainGate {
+    /// Points still missing.
     pub fn left(&self) -> u32 {
-        self.runs.saturating_sub(self.done)
+        self.need.saturating_sub(self.have)
+    }
+
+    /// The runs of `way` that cover what is left.
+    pub fn runs_of(&self, way: &ChainStep) -> u32 {
+        self.left().div_ceil(way.adds.max(1))
     }
 }
 
@@ -420,40 +428,59 @@ fn path(
             _ => out.extend(rep_legs(&w.ladder, ladder, w.lo, plan)),
         }
     }
-    // A gate opens after its runs of any of its missions (each grants the
-    // completion tag it counts): one step a gate, the quickest mission first,
-    // its time the runs left.
+    // A gate opens on its points from any of its missions (each grants the
+    // completion tag it counts): one step a gate, the way that takes the
+    // least time first (fewest runs where no time is known), its time the
+    // runs that way takes.
     for (n, gate) in m.chain.iter().enumerate() {
-        let left = gate.left();
-        if left == 0 || gate.ways.is_empty() {
+        if gate.left() == 0 || gate.ways.is_empty() {
             continue;
         }
+        let total = |c: &ChainStep| {
+            let runs = f64::from(gate.runs_of(c));
+            c.time.map_or(f64::MAX, |t| t.seconds() * runs)
+        };
         let mut ways: Vec<&ChainStep> = gate.ways.iter().collect();
         ways.sort_by(|a, b| {
-            let t = |c: &ChainStep| c.time.map_or(f32::MAX, |t| t.minutes);
-            t(a).total_cmp(&t(b))
+            total(a)
+                .total_cmp(&total(b))
+                .then(gate.runs_of(a).cmp(&gate.runs_of(b)))
         });
         let first = ways[0];
+        let runs = gate.runs_of(first);
         let which = match ways.as_slice() {
             [one] => one.title.clone(),
             [a, b] => format!("{} or {}", a.title, b.title),
             [a, rest @ ..] => format!("{} or one of {} others", a.title, rest.len()),
             [] => unreachable!("the gate has ways"),
         };
+        // The runs are the first way's; another way may add other points.
+        let same = ways.iter().all(|w| gate.runs_of(w) == runs);
+        let more = if gate.have > 0 { "more " } else { "" };
         out.push(PlanStep {
             mission: Some(StepMission {
                 id: first.id.clone(),
                 title: first.title.clone(),
             }),
             title: format!("Unlock {}", m.title),
-            detail: match (gate.runs, gate.done) {
-                (1, _) if ways.len() == 1 => format!("Run {which} first"),
+            detail: match (gate.need, ways.len()) {
+                (1, 1) => format!("Run {which} first"),
                 (1, _) => format!("Run {which}"),
-                (_, 0) => format!("{which}, {left} runs"),
-                (_, _) => format!("{which}, {left} more runs"),
+                _ if same => format!("{which}, {runs} {more}runs"),
+                (_, 2) => format!(
+                    "{}, {runs} {more}runs, or {}, {} {more}runs",
+                    first.title,
+                    ways[1].title,
+                    gate.runs_of(ways[1])
+                ),
+                (_, ways) => format!(
+                    "{}, {runs} {more}runs, or one of {} others",
+                    first.title,
+                    ways - 1
+                ),
             },
             at: first_place(&first.at),
-            seconds: first.time.map(|t| t.seconds() * f64::from(left)),
+            seconds: first.time.map(|t| t.seconds() * f64::from(runs)),
             seconds_from: first.time.map(|t| t.from),
             sources: ways.len() as u32,
             ..step(
@@ -746,8 +773,8 @@ mod tests {
                     hi: 3,
                 }],
                 chain: vec![ChainGate {
-                    runs: 1,
-                    done: 1,
+                    need: 1,
+                    have: 1,
                     ways: vec![
                         ChainStep {
                             id: "Setting a Trap".into(),
@@ -788,7 +815,7 @@ mod tests {
 
         // Neither done: one step names both, the quicker first, with its time.
         let m1 = ins.missions.get_mut("m1").unwrap();
-        m1.chain[0].done = 0;
+        m1.chain[0].have = 0;
         m1.chain[0].ways[1].done = false;
         m1.chain[0].ways[1].time = RunTime::best(None, None, Some(10.0));
         let s = steps(&state.plans, &ins, Vec::new());
@@ -801,8 +828,8 @@ mod tests {
 
         // A gate asking for five runs, two done: three more, three times over.
         let m1 = ins.missions.get_mut("m1").unwrap();
-        m1.chain[0].runs = 5;
-        m1.chain[0].done = 2;
+        m1.chain[0].need = 5;
+        m1.chain[0].have = 2;
         let s = steps(&state.plans, &ins, Vec::new());
         let unlock = s.iter().find(|x| x.id == "chain:m1").unwrap();
         assert_eq!(unlock.detail, "Done Before or Setting a Trap, 3 more runs");
@@ -810,10 +837,10 @@ mod tests {
 
         // A second gate is a second step; the run waits on both.
         let m1 = ins.missions.get_mut("m1").unwrap();
-        m1.chain[0].done = 0;
+        m1.chain[0].have = 0;
         m1.chain.push(ChainGate {
-            runs: 1,
-            done: 0,
+            need: 1,
+            have: 0,
             ways: vec![ChainStep {
                 id: "Intro".into(),
                 title: "Intro".into(),
@@ -830,6 +857,20 @@ mod tests {
             "Run Intro first"
         );
         assert_eq!(s.last().unwrap().after.len(), 3);
+
+        // Points, not runs: the way that adds more a run can be the quicker.
+        let m1 = ins.missions.get_mut("m1").unwrap();
+        m1.chain.truncate(1);
+        m1.chain[0].need = 300;
+        m1.chain[0].ways[0].adds = 150; // Setting a Trap, 15 min: 2 runs
+        m1.chain[0].ways[1].adds = 10; // Done Before, 10 min: 30 runs
+        let s = steps(&state.plans, &ins, Vec::new());
+        let unlock = s.iter().find(|x| x.id == "chain:m1").unwrap();
+        assert_eq!(
+            unlock.detail,
+            "Setting a Trap, 2 runs, or Done Before, 30 runs"
+        );
+        assert_eq!(unlock.seconds, Some(2.0 * 15.0 * 60.0));
     }
 
     #[test]

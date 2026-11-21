@@ -309,11 +309,17 @@ pub struct MissionRef {
     /// it); a completed-contract token for any of them clears the step.
     #[serde(default)]
     pub contracts: Vec<String>,
+    /// In a [`ChainGate`]: the tag points one run adds toward it (1 for the
+    /// Foxwell ladders, 150 to 675 for Alliance Aid). 0 in the flat
+    /// [`MissionEntry::chain_required`] list, which has no gate to count.
+    #[serde(default)]
+    pub adds: u32,
 }
 
 /// One `CompletedContractTags` prerequisite: `need` points on the counters
 /// of `tags` open it. A completion adds its contract's grant to the counter
-/// (1 for the Foxwell ladders; Alliance Aid asks for 150 to 5000).
+/// (1 for the Foxwell ladders; Alliance Aid asks for 150 to 5000), each
+/// mission's in [`MissionRef::adds`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChainGate {
     /// The tag points the gate asks for (`requiredCountValue`, at least 1).
@@ -893,15 +899,22 @@ fn build_rep_required(m: &Mission, missions: &Missions, locale: &LocaleMap) -> V
 
 /// Resolve the chain gate — prerequisite missions, deduped by title.
 fn build_chain(m: &Mission, missions: &Missions, locale: &LocaleMap) -> Vec<MissionRef> {
-    chain_refs(missions.prerequisite_missions(m), missions, locale)
+    let ids = missions
+        .prerequisite_missions(m)
+        .into_iter()
+        .map(|id| (id, 0))
+        .collect();
+    chain_refs(ids, missions, locale)
 }
 
-/// Completion tag → the missions that grant it, built once per cook.
-fn grantors_by_tag(missions: &Missions) -> HashMap<Guid, Vec<Guid>> {
-    let mut out: HashMap<Guid, Vec<Guid>> = HashMap::new();
+/// Completion tag → the missions that grant it, with the points a run adds,
+/// built once per cook.
+fn grantors_by_tag(missions: &Missions) -> HashMap<Guid, Vec<(Guid, u32)>> {
+    let mut out: HashMap<Guid, Vec<(Guid, u32)>> = HashMap::new();
     for (_, m) in missions.iter() {
-        for tag in &m.grants_completion_tags {
-            out.entry(*tag).or_default().push(m.id);
+        for grant in &m.grants_completion_tags {
+            let adds = u32::try_from(grant.count).unwrap_or(0);
+            out.entry(grant.tag).or_default().push((m.id, adds));
         }
     }
     out
@@ -912,7 +925,7 @@ fn grantors_by_tag(missions: &Missions) -> HashMap<Guid, Vec<Guid>> {
 fn build_gates(
     m: &Mission,
     missions: &Missions,
-    grantors: &HashMap<Guid, Vec<Guid>>,
+    grantors: &HashMap<Guid, Vec<(Guid, u32)>>,
     locale: &LocaleMap,
 ) -> Vec<ChainGate> {
     let mut out = Vec::new();
@@ -925,13 +938,18 @@ fn build_gates(
         else {
             continue;
         };
-        let mut seen = HashSet::new();
-        let ids: Vec<Guid> = required_tags
+        // A mission granting several of the gate's tags adds to each counter.
+        let mut ids: Vec<(Guid, u32)> = Vec::new();
+        for (g, adds) in required_tags
             .iter()
             .flat_map(|t| grantors.get(t).map(Vec::as_slice).unwrap_or(&[]))
-            .copied()
-            .filter(|g| *g != m.id && seen.insert(*g))
-            .collect();
+            .filter(|(g, _)| *g != m.id)
+        {
+            match ids.iter_mut().find(|(seen, _)| seen == g) {
+                Some((_, n)) => *n += adds,
+                None => ids.push((*g, *adds)),
+            }
+        }
         let refs = chain_refs(ids, missions, locale);
         if refs.is_empty() {
             continue;
@@ -950,11 +968,13 @@ fn build_gates(
     out
 }
 
-/// The granting missions as steps, deduped by title.
-fn chain_refs(ids: Vec<Guid>, missions: &Missions, locale: &LocaleMap) -> Vec<MissionRef> {
+/// The granting missions as steps, deduped by title. Contracts behind one
+/// title that add different points keep the smallest, so the runs a step
+/// says are never too few.
+fn chain_refs(ids: Vec<(Guid, u32)>, missions: &Missions, locale: &LocaleMap) -> Vec<MissionRef> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
-    for id in ids {
+    for (id, adds) in ids {
         let Some(grantor) = missions.get(&id) else {
             continue;
         };
@@ -966,6 +986,7 @@ fn chain_refs(ids: Vec<Guid>, missions: &Missions, locale: &LocaleMap) -> Vec<Mi
                 title,
                 once_only: grantor.availability.once_only,
                 contracts: vec![grantor.debug_name.clone()],
+                adds,
             });
         } else if let Some(step) = out
             .iter_mut()
@@ -973,6 +994,9 @@ fn chain_refs(ids: Vec<Guid>, missions: &Missions, locale: &LocaleMap) -> Vec<Mi
             && !step.contracts.contains(&grantor.debug_name)
         {
             step.contracts.push(grantor.debug_name.clone());
+            if adds > 0 && (step.adds == 0 || adds < step.adds) {
+                step.adds = adds;
+            }
         }
     }
     out

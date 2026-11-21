@@ -3530,8 +3530,8 @@ pub(crate) mod tests {
                 title: "Small Job".into(),
                 needs: needs(1),
                 chain: vec![crate::contracts::ChainGate {
-                    runs: 1,
-                    done: 1,
+                    need: 1,
+                    have: 1,
                     ways: vec![crate::contracts::ChainStep {
                         id: "warm".into(),
                         title: "Warm Up".into(),

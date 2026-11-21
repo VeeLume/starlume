@@ -3437,7 +3437,12 @@ export type MissionRefView = { mission_id: string; title: string | null; once_on
 /**
  * Contract record names that clear this step when completed.
  */
-contracts: string[] }
+contracts: string[]; 
+/**
+ * In a gate: the tag points one run adds toward it; 0 in the flat
+ * `chain_required` list.
+ */
+adds: number }
 export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
 export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[]; spawns: SpawnSlotView[] }
 export type ModeView = "scm" | "nav"

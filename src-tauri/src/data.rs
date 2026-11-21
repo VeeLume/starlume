@@ -378,6 +378,9 @@ pub struct MissionRefView {
     pub once_only: bool,
     /// Contract record names that clear this step when completed.
     pub contracts: Vec<String>,
+    /// In a gate: the tag points one run adds toward it; 0 in the flat
+    /// `chain_required` list.
+    pub adds: u32,
 }
 
 impl From<svc_data::MissionRef> for MissionRefView {
@@ -387,6 +390,7 @@ impl From<svc_data::MissionRef> for MissionRefView {
             title: c.title,
             once_only: c.once_only,
             contracts: c.contracts,
+            adds: c.adds,
         }
     }
 }

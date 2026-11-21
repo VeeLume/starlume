@@ -56,7 +56,9 @@
     blueprintChance,
     blueprintName,
     commonLadder,
+    countsPoints,
     gateProgress,
+    runsOf,
     hasNewBlueprint,
     ladderOf,
     missionTitle,
@@ -618,8 +620,13 @@
              (each grants the completion tag it counts). -->
         {#each m.chain_gates as g, gi (gi)}
           {@const p = gateProgress(g, standingStore.completed, standingStore.tags)}
+          {@const points = countsPoints(g)}
           <p class="chain-h" class:open={p.left === 0}>
-            {g.need > 1 ? `${g.need} runs of ${g.missions.length > 1 ? "any of these" : "this"}` : g.missions.length > 1 ? "Any one of these first" : "Mission first"}
+            {g.need === 1
+              ? g.missions.length > 1
+                ? "Any one of these first"
+                : "Mission first"
+              : `${g.need} ${points ? "points" : "runs"} of ${g.missions.length > 1 ? "any of these" : "this"}`}
             {#if g.need > 1 && standingStore.known}<b>{Math.min(p.have, g.need)} of {g.need}</b>{/if}
           </p>
           <ul class="chain">
@@ -627,6 +634,7 @@
               {@const done = c.contracts.some((x) => standingStore.completed.has(x))}
               <li class:done>
                 <button type="button" class="link" title="Find {c.title ?? 'it'} in the catalog" onclick={() => openMission(c)}>↳ {c.title ?? "?"}</button>
+                {#if points && p.left > 0}<span class="runs">{runsOf(p.left, c)} runs</span>{/if}
                 {#if done}<small>done</small>{/if}
               </li>
             {/each}
@@ -974,6 +982,14 @@
   .chain small {
     margin-left: auto;
     color: var(--good);
+  }
+  .chain .runs {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+  }
+  .chain .runs + small {
+    margin-left: 0;
   }
   .chain .done .link {
     color: var(--text-dim);

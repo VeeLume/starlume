@@ -118,8 +118,8 @@ pub(crate) fn gather(
                 .chain_gates
                 .iter()
                 .map(|g| ChainGate {
-                    runs: g.need,
-                    done: gate_done(g),
+                    need: g.need,
+                    have: gate_done(g),
                     ways: g
                         .missions
                         .iter()
@@ -133,6 +133,7 @@ pub(crate) fn gather(
                                     .and_then(real_title)
                                     .map_or_else(|| c.mission_id.clone(), str::to_owned),
                                 done: did(&c.contracts),
+                                adds: c.adds,
                                 time: own.and_then(|e| time_of(e, yours)),
                                 at: own
                                     .map(|e| e.locations.iter().map(place).collect())

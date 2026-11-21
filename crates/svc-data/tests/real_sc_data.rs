@@ -160,13 +160,25 @@ fn cook_from_real_install() {
                 g.need,
                 g.missions
                     .iter()
-                    .map(|r| r.title.clone().unwrap_or_else(|| r.mission_id.clone()))
+                    .map(|r| format!(
+                        "{} +{}",
+                        r.title.clone().unwrap_or_else(|| r.mission_id.clone()),
+                        r.adds
+                    ))
                     .collect::<Vec<_>>()
                     .join(" | "),
                 g.tags
             );
         }
     }
+    assert!(
+        gated
+            .iter()
+            .flat_map(|m| &m.chain_gates)
+            .flat_map(|g| &g.missions)
+            .all(|r| r.adds > 0),
+        "every gate's mission adds points (sc-holotable v0.58.2 grant counts)"
+    );
     assert!(
         gated.iter().all(|m| m.chain_required.len()
             >= m.chain_gates

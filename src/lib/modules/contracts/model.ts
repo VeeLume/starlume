@@ -109,9 +109,11 @@ export function needsNote(
   if (closed) return `closed at ${closed.faction ?? "a faction"} ${rangeText(closed)}`;
   const [gate] = gatesLeft(m, completed, tags);
   if (gate) {
-    const [first, ...rest] = gate.gate.missions;
+    // The mission that takes the fewest runs leads.
+    const [first, ...rest] = [...gate.gate.missions].sort((a, b) => runsOf(gate.left, a) - runsOf(gate.left, b));
     const name = first?.title ?? "an earlier mission";
-    const runs = gate.gate.need === 1 ? "" : `${gate.left} ${gate.have > 0 ? "more " : ""}runs of `;
+    const n = first ? runsOf(gate.left, first) : gate.left;
+    const runs = gate.gate.need === 1 ? "" : `${n} ${gate.have > 0 ? "more " : ""}run${n === 1 ? "" : "s"} of `;
     return rest.length
       ? `after ${runs}${name} or ${rest.length === 1 ? "1 other" : `${rest.length} others`}`
       : `after ${runs}${name}`;
@@ -330,6 +332,18 @@ export function gateProgress(g: Gate, completed: Set<string>, tags: Map<string, 
   const ways = g.missions.filter((c) => c.contracts.some((n) => completed.has(n))).length;
   const have = Math.max(counted, ways);
   return { gate: g, have, left: Math.max(0, g.need - have) };
+}
+
+/** The runs of one of a gate's missions that cover `left` points (a mission
+ * with no known grant counts 1 a run). */
+export function runsOf(left: number, way: { adds: number }): number {
+  return Math.ceil(left / Math.max(1, way.adds));
+}
+
+/** Whether a gate counts tag points rather than runs: one of its missions
+ * adds more than 1 a run (Alliance Aid), so each says its own runs. */
+export function countsPoints(g: Gate): boolean {
+  return g.missions.some((c) => c.adds > 1);
 }
 
 /** The chain gates still shut, in order. Every gate must open, each by its

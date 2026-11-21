@@ -78,7 +78,9 @@ use serde::{Deserialize, Serialize};
 /// budget is an event window.
 /// rev 33: chain gates with their run counts and tags
 /// ([`crate::missions::ChainGate`]).
-pub const STARLUME_COOK_REV: u32 = 33;
+/// rev 34: sc-holotable v0.58.2: the points a gate's mission adds a run
+/// ([`crate::missions::MissionRef::adds`]); a doubled gate once.
+pub const STARLUME_COOK_REV: u32 = 34;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.
