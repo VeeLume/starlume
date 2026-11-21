@@ -34,9 +34,12 @@ fn best_time(contracts: &[String], cig: f32, yours: &HashMap<String, f32>) -> Op
     RunTime::best(mine, None, Some(cig))
 }
 
-/// Rank and mission plans' inputs; empty when none is planned.
+/// Rank and mission plans' inputs, and the facts of the missions in
+/// `granting` (those that grant a blueprint still to earn); empty when none
+/// is planned.
 pub(crate) fn gather(
     state: &PlansState,
+    granting: &[String],
     missions: &[MissionEntry],
     standing: Option<&PlayerStanding>,
     yours: &HashMap<String, f32>,
@@ -48,68 +51,75 @@ pub(crate) fn gather(
     let mut out = ContractInputs::default();
     let mut ladders: HashSet<String> = HashSet::new();
 
+    let mut wanted: Vec<&str> = Vec::new();
     for plan in &state.plans {
         match &plan.goal {
             Goal::Rank(goal) => {
                 ladders.insert(ladder_key(&goal.geid, &goal.scope));
             }
-            Goal::Mission(goal) => {
-                let Some(m) = missions.iter().find(|m| m.mission_id == goal.mission) else {
-                    continue;
-                };
-                let window = |r: &RepRequirement| {
-                    let key = key_of(r)?;
-                    let (lo, hi) = window_of(r)?;
-                    Some(RankWindow {
-                        ladder: key,
-                        lo,
-                        hi,
-                    })
-                };
-                let facts = MissionFacts {
-                    title: m.title.clone().unwrap_or_else(|| m.debug_name.clone()),
-                    faction: m
-                        .faction
-                        .as_ref()
-                        .and_then(|f| f.name.clone())
-                        .unwrap_or_default(),
-                    once_only: m.once_only,
-                    done: did(&m.contracts),
-                    needs: m
-                        .rep_required
-                        .iter()
-                        .filter(|r| !r.exclude)
-                        .filter_map(window)
-                        .collect(),
-                    closed_at: m
-                        .rep_required
-                        .iter()
-                        .filter(|r| r.exclude)
-                        .filter_map(window)
-                        .collect(),
-                    chain: m
-                        .chain_required
-                        .iter()
-                        .map(|c| {
-                            (
-                                c.title.clone().unwrap_or_else(|| c.mission_id.clone()),
-                                did(&c.contracts),
-                            )
-                        })
-                        .collect(),
-                    time: time_of(m, yours),
-                    at: m.locations.iter().map(place).collect(),
-                    pay: m.payout.fixed.or(m.payout.estimate).map(f64::from),
-                    rep: own_rep(m),
-                    blueprint: blueprint_chance(m),
-                };
-                for w in facts.needs.iter().chain(&facts.closed_at) {
-                    ladders.insert(w.ladder.clone());
-                }
-                out.missions.insert(goal.mission.clone(), facts);
-            }
+            Goal::Mission(goal) => wanted.push(&goal.mission),
             _ => {}
         }
+    }
+    wanted.extend(granting.iter().map(String::as_str));
+
+    for id in wanted {
+        if out.missions.contains_key(id) {
+            continue;
+        }
+        let Some(m) = missions.iter().find(|m| m.mission_id == id) else {
+            continue;
+        };
+        let window = |r: &RepRequirement| {
+            let key = key_of(r)?;
+            let (lo, hi) = window_of(r)?;
+            Some(RankWindow {
+                ladder: key,
+                lo,
+                hi,
+            })
+        };
+        let facts = MissionFacts {
+            title: m.title.clone().unwrap_or_else(|| m.debug_name.clone()),
+            faction: m
+                .faction
+                .as_ref()
+                .and_then(|f| f.name.clone())
+                .unwrap_or_default(),
+            once_only: m.once_only,
+            done: did(&m.contracts),
+            needs: m
+                .rep_required
+                .iter()
+                .filter(|r| !r.exclude)
+                .filter_map(window)
+                .collect(),
+            closed_at: m
+                .rep_required
+                .iter()
+                .filter(|r| r.exclude)
+                .filter_map(window)
+                .collect(),
+            chain: m
+                .chain_required
+                .iter()
+                .map(|c| {
+                    (
+                        c.title.clone().unwrap_or_else(|| c.mission_id.clone()),
+                        did(&c.contracts),
+                    )
+                })
+                .collect(),
+            time: time_of(m, yours),
+            at: m.locations.iter().map(place).collect(),
+            pay: m.payout.fixed.or(m.payout.estimate).map(f64::from),
+            rep: own_rep(m),
+            blueprint: blueprint_chance(m),
+        };
+        for w in facts.needs.iter().chain(&facts.closed_at) {
+            ladders.insert(w.ladder.clone());
+        }
+        out.missions.insert(id.to_owned(), facts);
     }
 
     for key in ladders {
@@ -232,6 +242,26 @@ fn own_rep(m: &MissionEntry) -> Option<i64> {
         .find(|r| r.faction_guid.as_deref() == Some(own.guid.as_str()))
         .and_then(|r| r.amount)
         .map(i64::from)
+}
+
+/// The chance a run gives blueprint `guid`, over its pools (the Contracts
+/// page's `blueprintChance`); `None` when no pool holds it.
+pub(crate) fn chance_of(m: &MissionEntry, guid: &str) -> Option<f64> {
+    let mut miss = 1.0;
+    let mut found = false;
+    for p in &m.blueprint_rewards {
+        let total: f64 = p.blueprints.iter().map(|b| f64::from(b.weight)).sum();
+        if let Some(e) = p
+            .blueprints
+            .iter()
+            .find(|b| b.blueprint_record_guid == guid)
+            && total > 0.0
+        {
+            found = true;
+            miss *= 1.0 - f64::from(p.chance).clamp(0.0, 1.0) * (f64::from(e.weight) / total);
+        }
+    }
+    found.then_some(1.0 - miss)
 }
 
 /// The chance a run gives at least one blueprint, over its pools.

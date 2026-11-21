@@ -826,8 +826,16 @@ impl Gathered<'_> {
             }
             targets.push(target);
         }
+        // The missions that grant a blueprint still to earn: their paths.
+        let granting: Vec<String> = inputs
+            .recipes
+            .values()
+            .filter(|r| !r.owned)
+            .flat_map(|r| r.grants.iter().map(|g| g.mission.clone()))
+            .collect();
         inputs.contracts = crate::plans_contracts::gather(
             state,
+            &granting,
             &cooked.missions,
             self.standing,
             &self.your_minutes,
@@ -1064,6 +1072,8 @@ impl Gathered<'_> {
                     .iter()
                     .find(|m| m.mission_id == g.mission_id);
                 Grant {
+                    mission: g.mission_id.clone(),
+                    chance: mission.and_then(|m| crate::plans_contracts::chance_of(m, blueprint)),
                     title: g.title.clone(),
                     time: mission
                         .and_then(|m| crate::plans_contracts::time_of(m, &self.your_minutes)),

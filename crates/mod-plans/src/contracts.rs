@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use crate::model::{MissionGoal, Plan, RankGoal};
 use crate::steps::{
-    PlanBoard, PlanKind, PlanPlace, PlanStage, PlanStep, RunTime, StageState, StepKind,
+    Grant, PlanBoard, PlanKind, PlanPlace, PlanStage, PlanStep, RunTime, StageState, StepKind,
     auec_figure, missing, percent, tile,
 };
 
@@ -113,9 +113,10 @@ impl RepLadder {
     }
 }
 
-/// The steps of every rank and mission plan not parked, in plan order. A
-/// step two plans share (the same rank on the way) is one step for both.
-pub fn steps(plans: &[Plan], inputs: &ContractInputs) -> Vec<PlanStep> {
+/// The steps of every rank and mission plan not parked, in plan order, then
+/// `extra` (the paths to missions that grant a planned blueprint). A step
+/// two plans share (the same rank on the way) is one step for both.
+pub fn steps(plans: &[Plan], inputs: &ContractInputs, extra: Vec<PlanStep>) -> Vec<PlanStep> {
     let mut out: Vec<PlanStep> = Vec::new();
     let mut add = |step: PlanStep| match out.iter_mut().find(|s| s.id == step.id) {
         Some(have) => {
@@ -147,7 +148,53 @@ pub fn steps(plans: &[Plan], inputs: &ContractInputs) -> Vec<PlanStep> {
             _ => {}
         }
     }
+    extra.into_iter().for_each(&mut add);
     out
+}
+
+/// The granting mission a blueprint is earned from, and the steps before it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EarnRoute {
+    /// Its index in the grants; `None` when every granting mission is
+    /// closed to you, outgrown or done once and for all.
+    pub grant: Option<usize>,
+    pub before: Vec<PlanStep>,
+}
+
+/// The nearest granting mission: the one with the fewest steps before it,
+/// then the best odds, then the shorter run. `None` when no grant's mission
+/// is known (the earn step then says only who grants it).
+pub fn earn_route(grants: &[Grant], inputs: &ContractInputs, plan: &str) -> Option<EarnRoute> {
+    let known: Vec<(usize, &Grant, &MissionFacts)> = grants
+        .iter()
+        .enumerate()
+        .filter_map(|(i, g)| inputs.missions.get(&g.mission).map(|m| (i, g, m)))
+        .collect();
+    if known.is_empty() {
+        return None;
+    }
+    let best = known
+        .into_iter()
+        .filter(|(_, _, m)| !(m.once_only && m.done))
+        .filter_map(|(i, g, m)| {
+            path(&g.mission, m, inputs, plan)
+                .ok()
+                .map(|before| (i, g, before))
+        })
+        .min_by(|(_, a, pa), (_, b, pb)| {
+            let minutes = |g: &Grant| g.time.map_or(f32::MAX, |t| t.minutes);
+            pa.len()
+                .cmp(&pb.len())
+                .then_with(|| b.chance.unwrap_or(0.0).total_cmp(&a.chance.unwrap_or(0.0)))
+                .then_with(|| minutes(a).total_cmp(&minutes(b)))
+        });
+    Some(match best {
+        Some((i, _, before)) => EarnRoute {
+            grant: Some(i),
+            before,
+        },
+        None => EarnRoute::default(),
+    })
 }
 
 /// The legs from your rank up to rank `to`: one step a rank, each after the
@@ -226,54 +273,10 @@ fn mission_steps(goal: &MissionGoal, inputs: &ContractInputs, plan: &str) -> Vec
     if m.once_only && m.done {
         return Vec::new();
     }
-    for w in &m.closed_at {
-        if let Some(ladder) = inputs.ladders.get(&w.ladder)
-            && let Some(you) = ladder.you()
-            && w.lo <= you
-            && you <= w.hi
-        {
-            return vec![PlanStep {
-                title: format!("{} is closed to you", m.title),
-                detail: format!(
-                    "Waits: {} with {} closes it",
-                    ladder.ranks[you].name, ladder.faction
-                ),
-                blocked: true,
-                ..step(format!("closed:{}", goal.mission), StepKind::Run, plan)
-            }];
-        }
-    }
-    let mut out: Vec<PlanStep> = Vec::new();
-    for w in &m.needs {
-        let Some(ladder) = inputs.ladders.get(&w.ladder) else {
-            continue;
-        };
-        match ladder.you() {
-            Some(you) if you > w.hi => {
-                return vec![PlanStep {
-                    title: format!("You outgrew {}", m.title),
-                    detail: format!(
-                        "Waits: it is for {} up to {} with {}",
-                        ladder.ranks[w.lo].name, ladder.ranks[w.hi].name, ladder.faction
-                    ),
-                    blocked: true,
-                    ..step(format!("outgrown:{}", goal.mission), StepKind::Run, plan)
-                }];
-            }
-            Some(you) if you >= w.lo => {}
-            _ => out.extend(rep_legs(&w.ladder, ladder, w.lo, plan)),
-        }
-    }
-    for (i, (title, done)) in m.chain.iter().enumerate() {
-        if *done {
-            continue;
-        }
-        out.push(PlanStep {
-            title: format!("Run {title} first"),
-            detail: format!("{} follows it", m.title),
-            ..step(format!("chain:{}:{i}", goal.mission), StepKind::Run, plan)
-        });
-    }
+    let mut out = match path(&goal.mission, m, inputs, plan) {
+        Ok(before) => before,
+        Err(stop) => return vec![*stop],
+    };
     let mut figures: Vec<String> = Vec::new();
     if let Some(pay) = m.pay {
         figures.push(format!("{} aUEC", auec_figure(pay)));
@@ -301,6 +304,66 @@ fn mission_steps(goal: &MissionGoal, inputs: &ContractInputs, plan: &str) -> Vec
         ..step(format!("run:{}", goal.mission), StepKind::Run, plan)
     });
     out
+}
+
+/// What opens mission `id`: the ranks it needs and the missions before it,
+/// as steps (none when it is open to you now). `Err` is the one step that
+/// says your rank closes it or you outgrew it.
+fn path(
+    id: &str,
+    m: &MissionFacts,
+    inputs: &ContractInputs,
+    plan: &str,
+) -> Result<Vec<PlanStep>, Box<PlanStep>> {
+    for w in &m.closed_at {
+        if let Some(ladder) = inputs.ladders.get(&w.ladder)
+            && let Some(you) = ladder.you()
+            && w.lo <= you
+            && you <= w.hi
+        {
+            return Err(Box::new(PlanStep {
+                title: format!("{} is closed to you", m.title),
+                detail: format!(
+                    "Waits: {} with {} closes it",
+                    ladder.ranks[you].name, ladder.faction
+                ),
+                blocked: true,
+                ..step(format!("closed:{id}"), StepKind::Run, plan)
+            }));
+        }
+    }
+    let mut out: Vec<PlanStep> = Vec::new();
+    for w in &m.needs {
+        let Some(ladder) = inputs.ladders.get(&w.ladder) else {
+            continue;
+        };
+        match ladder.you() {
+            Some(you) if you > w.hi => {
+                return Err(Box::new(PlanStep {
+                    title: format!("You outgrew {}", m.title),
+                    detail: format!(
+                        "Waits: it is for {} up to {} with {}",
+                        ladder.ranks[w.lo].name, ladder.ranks[w.hi].name, ladder.faction
+                    ),
+                    blocked: true,
+                    ..step(format!("outgrown:{id}"), StepKind::Run, plan)
+                }));
+            }
+            Some(you) if you >= w.lo => {}
+            _ => out.extend(rep_legs(&w.ladder, ladder, w.lo, plan)),
+        }
+    }
+    for (i, (title, done)) in m.chain.iter().enumerate() {
+        if *done {
+            continue;
+        }
+        out.push(PlanStep {
+            title: format!("Run {title} first"),
+            detail: format!("{} follows it", m.title),
+            ..step(format!("chain:{id}:{i}"), StepKind::Run, plan)
+        });
+    }
+    Ok(out)
 }
 
 fn step(id: String, kind: StepKind, plan: &str) -> PlanStep {
@@ -490,7 +553,7 @@ mod tests {
     fn a_rank_is_reached_rank_by_rank_with_the_best_rep_open_at_each() {
         let mut state = PlansState::default();
         rank_plan(&mut state, "r2");
-        let steps = steps(&state.plans, &inputs(Some(500)));
+        let steps = steps(&state.plans, &inputs(Some(500)), Vec::new());
         assert_eq!(steps.len(), 2);
         // Neutral: only Small Hit is open, 300 rep to go.
         assert_eq!(steps[0].title, "Reach Jr. with Headhunters");
@@ -511,11 +574,11 @@ mod tests {
     fn no_row_waits_on_the_read_and_a_reached_rank_is_done() {
         let mut state = PlansState::default();
         rank_plan(&mut state, "r2");
-        let unread = steps(&state.plans, &inputs(None));
+        let unread = steps(&state.plans, &inputs(None), Vec::new());
         assert_eq!(unread.len(), 1);
         assert!(unread[0].blocked);
         assert_eq!(unread[0].title, "Read your rank with Headhunters");
-        assert!(steps(&state.plans, &inputs(Some(3000))).is_empty());
+        assert!(steps(&state.plans, &inputs(Some(3000)), Vec::new()).is_empty());
         let board = rank_board(
             match &state.plans[0].goal {
                 Goal::Rank(g) => g,
@@ -559,7 +622,7 @@ mod tests {
                 title: "Kill the Boss".into(),
             }),
         );
-        let s = steps(&state.plans, &ins);
+        let s = steps(&state.plans, &ins, Vec::new());
         let titles: Vec<&str> = s.iter().map(|x| x.title.as_str()).collect();
         assert_eq!(
             titles,
@@ -598,11 +661,11 @@ mod tests {
                 title: "Rookie Job".into(),
             }),
         );
-        let s = steps(&state.plans, &ins);
+        let s = steps(&state.plans, &ins, Vec::new());
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].title, "You outgrew Rookie Job");
         assert!(s[0].blocked);
         state.set_parked(&id, true);
-        assert!(steps(&state.plans, &ins).is_empty());
+        assert!(steps(&state.plans, &ins, Vec::new()).is_empty());
     }
 }

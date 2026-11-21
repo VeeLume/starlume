@@ -204,7 +204,13 @@ pub struct QualityBand {
 /// A mission that grants a blueprint.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Grant {
+    /// The mission id: its path (ranks, missions before it) is in
+    /// [`crate::contracts::ContractInputs::missions`] under it.
+    pub mission: String,
     pub title: String,
+    /// The chance one run gives this blueprint, 0..=1; `None` when the
+    /// mission's pools do not say.
+    pub chance: Option<f64>,
     pub at: Vec<PlanPlace>,
     /// The mission's time from its best source (your runs before CIG's
     /// `time_to_complete`); `None` when none has one.
@@ -325,8 +331,9 @@ pub struct PlanStep {
     pub blocked: bool,
     pub at: Option<PlanPlace>,
     /// Time the step itself takes, where the data gives one: a recipe's
-    /// craft time; for an earn step, CIG's estimate for the shortest
-    /// mission that grants the blueprint.
+    /// craft time; for an earn step, the runs it takes on average of the
+    /// nearest mission that grants the blueprint (the shortest one when no
+    /// route is known), each by its best time.
     pub seconds: Option<f64>,
     /// Where `seconds` comes from; `None` without seconds.
     pub seconds_from: Option<TimeSource>,
@@ -1056,6 +1063,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
 
     // Blueprints to earn: one step a blueprint, whichever plans want it.
     let mut earns: Vec<PlanStep> = Vec::new();
+    let mut earn_paths: Vec<PlanStep> = Vec::new();
     for craft in crafts
         .iter()
         .filter(|c| c.left > 0 && !c.parked && !c.recipe.owned)
@@ -1068,6 +1076,14 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             continue;
         }
         let grants = &craft.recipe.grants;
+        // The path to the granting mission that is nearest: the ranks and
+        // missions before it, as steps the earn step follows.
+        if let Some(route) = crate::contracts::earn_route(grants, &inputs.contracts, craft.plan) {
+            let (step, before) = earn_step(id, &craft.recipe.name, craft.plan, grants, route);
+            earn_paths.extend(before);
+            earns.push(step);
+            continue;
+        }
         let shortest = grants
             .iter()
             .filter_map(|g| g.time)
@@ -1103,8 +1119,9 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     }
     earns.into_iter().for_each(&mut push);
 
-    // Ranks and missions: the path to each.
-    crate::contracts::steps(&state.plans, &inputs.contracts)
+    // Ranks and missions: the path to each, and to the missions that grant
+    // a blueprint; a rank two of them pass is one step.
+    crate::contracts::steps(&state.plans, &inputs.contracts, earn_paths)
         .into_iter()
         .for_each(&mut push);
 
@@ -1907,6 +1924,94 @@ pub(crate) fn percent(chance: f64) -> String {
     }
 }
 
+/// Runs on average, and runs until the chance of at least one drop passes
+/// 90% (the Contracts page's `runsFor`). `None` without a chance.
+pub(crate) fn runs_for(chance: f64) -> Option<(u32, u32)> {
+    if chance.is_nan() || chance <= 0.0 {
+        return None;
+    }
+    if chance >= 1.0 {
+        return Some((1, 1));
+    }
+    // The epsilon keeps float noise (1 - 0.8 = 0.19999…) from adding a run.
+    let up = |x: f64| (x - 1e-9).ceil().max(1.0) as u32;
+    Some((up(1.0 / chance), up(0.1f64.ln() / (1.0 - chance).ln())))
+}
+
+/// The earn step on its route: the odds a run of the nearest granting
+/// mission gives the blueprint and the runs that takes, after the steps
+/// that open the mission (returned beside it).
+fn earn_step(
+    id: String,
+    name: &str,
+    plan: &str,
+    grants: &[Grant],
+    route: crate::contracts::EarnRoute,
+) -> (PlanStep, Vec<PlanStep>) {
+    let base = PlanStep {
+        id,
+        kind: StepKind::Earn,
+        title: format!("Earn the {name} blueprint"),
+        detail: String::new(),
+        plans: vec![plan.to_owned()],
+        blocked: false,
+        at: None,
+        seconds: None,
+        seconds_from: None,
+        cost: None,
+        odds: None,
+        sources: grants.len() as u32,
+        after: Vec::new(),
+        parts: 0,
+        rocks: None,
+        scu: 0.0,
+    };
+    let Some(g) = route.grant.map(|i| &grants[i]) else {
+        let detail = match grants.len() {
+            1 => "The one mission that grants it is closed to you".to_owned(),
+            n => format!("All {n} missions that grant it are closed to you"),
+        };
+        return (
+            PlanStep {
+                detail,
+                blocked: true,
+                ..base
+            },
+            Vec::new(),
+        );
+    };
+    let runs = g.chance.and_then(runs_for);
+    let detail = match (g.chance, runs) {
+        (Some(c), Some((1, _))) if c >= 1.0 => format!("Every run of {} gives it", g.title),
+        (Some(c), Some((avg, ninety))) => format!(
+            "{} a run of {}: {avg} runs on average, {ninety} for 90%",
+            percent(c),
+            g.title
+        ),
+        _ => format!("Run {}", g.title),
+    };
+    let after: Vec<String> = route.before.iter().map(|s| s.id.clone()).collect();
+    let step = PlanStep {
+        detail,
+        blocked: !after.is_empty(),
+        at: g
+            .at
+            .iter()
+            .find(|p| p.site.is_some())
+            .or_else(|| g.at.first())
+            .cloned(),
+        // The runs it takes on average, each by the mission's best time.
+        seconds: g
+            .time
+            .map(|t| t.seconds() * f64::from(runs.map_or(1, |r| r.0))),
+        seconds_from: g.time.map(|t| t.from),
+        odds: g.chance.map(|c| c as f32),
+        after,
+        ..base
+    };
+    (step, route.before)
+}
+
 /// "drops in 3 places, 4.0% at the best".
 fn loot_detail(offer: &LootOffer) -> String {
     let places = match offer.places {
@@ -2673,11 +2778,15 @@ pub(crate) mod tests {
         let mut widget = recipe(false, vec![slot("Ore A", 2.0, 500), slot("Ore B", 1.0, 0)]);
         widget.grants = vec![
             Grant {
+                mission: "m-one".into(),
+                chance: None,
                 title: "Run One".into(),
                 at: vec![at("Planet One")],
                 time: RunTime::best(Some(15.0), None, Some(45.0)),
             },
             Grant {
+                mission: "m-two".into(),
+                chance: None,
                 title: "Run Two".into(),
                 at: vec![],
                 time: RunTime::best(None, None, Some(20.0)),
@@ -3260,6 +3369,99 @@ pub(crate) mod tests {
             board.plans[0].note,
             "Waits: no mission is known to grant it"
         );
+    }
+
+    #[test]
+    fn a_blueprint_is_earned_from_the_nearest_granting_mission_after_its_path() {
+        use crate::contracts::{MissionFacts, RankFacts, RankWindow, RepLadder, RepSource};
+        let mut inputs = Inputs::default();
+        let mut widget = recipe(false, vec![]);
+        widget.grants = vec![
+            // Better odds, but two ranks away.
+            Grant {
+                mission: "far".into(),
+                title: "Big Job".into(),
+                chance: Some(0.5),
+                ..Grant::default()
+            },
+            // One rank away, then a chain step.
+            Grant {
+                mission: "near".into(),
+                title: "Small Job".into(),
+                chance: Some(0.2),
+                time: RunTime::best(None, None, Some(10.0)),
+                at: vec![at("Planet One")],
+            },
+        ];
+        inputs.recipes.insert("bp-1".into(), widget);
+        let ranks = ["Neutral", "Jr.", "Sr."]
+            .iter()
+            .enumerate()
+            .map(|(i, n)| RankFacts {
+                id: format!("r{i}"),
+                name: (*n).into(),
+                min: i as i64 * 1000,
+            })
+            .collect();
+        inputs.contracts.ladders.insert(
+            "L".into(),
+            RepLadder {
+                faction: "Guild".into(),
+                ranks,
+                score: Some(400),
+                sources: vec![RepSource {
+                    title: "Errand".into(),
+                    lo: 0,
+                    hi: 2,
+                    rep: 200,
+                    ..RepSource::default()
+                }],
+            },
+        );
+        let needs = |lo| {
+            vec![RankWindow {
+                ladder: "L".into(),
+                lo,
+                hi: 2,
+            }]
+        };
+        inputs.contracts.missions.insert(
+            "far".into(),
+            MissionFacts {
+                title: "Big Job".into(),
+                needs: needs(2),
+                ..MissionFacts::default()
+            },
+        );
+        inputs.contracts.missions.insert(
+            "near".into(),
+            MissionFacts {
+                title: "Small Job".into(),
+                needs: needs(1),
+                chain: vec![("Warm Up".into(), true)],
+                ..MissionFacts::default()
+            },
+        );
+        let board = derive(&craft_state(1, 0), &inputs, &no_ores);
+        let earn = board
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Earn)
+            .unwrap();
+        assert_eq!(
+            earn.detail,
+            "20% a run of Small Job: 5 runs on average, 11 for 90%"
+        );
+        assert_eq!(earn.seconds, Some(5.0 * 10.0 * 60.0));
+        assert_eq!(earn.at, Some(at("Planet One")));
+        assert!(earn.blocked, "it waits on the rank");
+        let rep = board
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Rep)
+            .unwrap();
+        assert_eq!(earn.after, vec![rep.id.clone()]);
+        assert_eq!(rep.detail, "600 rep: 3 runs of Errand, +200 each");
     }
 
     #[test]
