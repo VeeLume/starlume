@@ -3870,7 +3870,12 @@ moves: string[];
  */
 bands: QualityBand[] }
 export type PlanStage = { name: string; sub: string; state: StageState }
-export type PlanStep = { id: string; kind: StepKind; 
+export type PlanStep = { 
+/**
+ * The mission it runs, waits on or earns rep from; `None` for a step
+ * that is no one mission (an earn step lists its missions by blueprint).
+ */
+mission: StepMission | null; id: string; kind: StepKind; 
 /**
  * The action: "Fit the … you own".
  */
@@ -4892,6 +4897,10 @@ export type StepKind =
  * Run a mission.
  */
 "run"
+/**
+ * The mission a step is about, for its link into the Contracts catalog.
+ */
+export type StepMission = { id: string; title: string }
 /**
  * One stack of a material you hold.
  */

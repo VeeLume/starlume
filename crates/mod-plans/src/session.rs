@@ -466,6 +466,7 @@ mod tests {
 
     fn step(id: &str, kind: StepKind, site: Option<&str>) -> PlanStep {
         PlanStep {
+            mission: None,
             id: id.into(),
             kind,
             title: format!("Do {id}"),

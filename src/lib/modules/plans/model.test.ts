@@ -143,6 +143,7 @@ describe("the ledger", () => {
 
 describe("a plan's steps", () => {
   const step = (id: string, kind: PlanStep["kind"], plans: string[], site: string | null, after: string[] = []): PlanStep => ({
+    mission: null,
     id,
     kind,
     title: id,
@@ -181,6 +182,7 @@ describe("a plan's steps", () => {
 
 describe("a session focus", () => {
   const ps = (id: string, kind: StepKind, plans: string[], site: string | null, more: Partial<PlanStep> = {}): PlanStep => ({
+    mission: null,
     id,
     kind,
     title: id,

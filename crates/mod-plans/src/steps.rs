@@ -316,10 +316,21 @@ impl RunTime {
     }
 }
 
+/// The mission a step is about, for its link into the Contracts catalog.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub struct StepMission {
+    pub id: String,
+    pub title: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PlanStep {
+    /// The mission it runs, waits on or earns rep from; `None` for a step
+    /// that is no one mission (an earn step lists its missions by blueprint).
+    pub mission: Option<StepMission>,
     pub id: String,
     pub kind: StepKind,
     /// The action: "Fit the … you own".
@@ -849,6 +860,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 let no_ship = work.facts.read == ShipRead::NotOwned;
                 fits.push((
                     PlanStep {
+                        mission: None,
                         id,
                         kind: StepKind::Fit,
                         title: facts.name.clone(),
@@ -882,6 +894,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     Some(at) => at,
                     None => {
                         buys.push(PlanStep {
+                            mission: None,
                             id: format!("buy:{}", offer.shop),
                             kind: StepKind::Buy,
                             title: String::new(),
@@ -922,6 +935,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 let (step, lines) = market.get_or_insert_with(|| {
                     (
                         PlanStep {
+                            mission: None,
                             id: "market".to_owned(),
                             kind: StepKind::Buy,
                             title: String::new(),
@@ -962,6 +976,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     }
                     None => loots.push((
                         PlanStep {
+                            mission: None,
                             id,
                             kind: StepKind::Loot,
                             title: facts.name.clone(),
@@ -984,6 +999,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 }
             } else if part.source.is_none() {
                 finds.push(PlanStep {
+                    mission: None,
                     id: format!("find:{}:{}:{n}", work.plan, facts.item),
                     kind: StepKind::Find,
                     title: format!("Find the {}", facts.name),
@@ -1089,6 +1105,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             .filter_map(|g| g.time)
             .min_by(|a, b| a.minutes.total_cmp(&b.minutes));
         earns.push(PlanStep {
+            mission: None,
             id,
             kind: StepKind::Earn,
             title: format!("Earn the {} blueprint", craft.recipe.name),
@@ -1153,6 +1170,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
         let grade = quality_suffix(row.min_quality);
         let id = format!("mine:{}:{}:{}", row.material, row.min_quality, row.bulk);
         let base = PlanStep {
+            mission: None,
             id,
             kind: StepKind::Mine,
             title: String::new(),
@@ -1282,6 +1300,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
         };
         if can > 0 {
             push(PlanStep {
+                mission: None,
                 id: format!("craft:{}:{}", craft.plan, craft.blueprint),
                 kind: StepKind::Craft,
                 title: titled(can),
@@ -1316,6 +1335,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 }
             }
             push(PlanStep {
+                mission: None,
                 id: format!("craft-wait:{}:{}", craft.plan, craft.blueprint),
                 kind: StepKind::Craft,
                 title: titled(rest),
@@ -1949,6 +1969,7 @@ fn earn_step(
     route: crate::contracts::EarnRoute,
 ) -> (PlanStep, Vec<PlanStep>) {
     let base = PlanStep {
+        mission: None,
         id,
         kind: StepKind::Earn,
         title: format!("Earn the {name} blueprint"),
@@ -2013,6 +2034,10 @@ fn earn_step(
     }
     let after: Vec<String> = route.before.iter().map(|s| s.id.clone()).collect();
     let step = PlanStep {
+        mission: Some(StepMission {
+            id: g.mission.clone(),
+            title: g.title.clone(),
+        }),
         detail,
         blocked: !after.is_empty(),
         at: g
@@ -2177,6 +2202,7 @@ fn refine_steps(ores: &[ToRefine], hold: Option<&OreHold>) -> Vec<PlanStep> {
             }
             let materials = and(&load.iter().map(|o| o.material.clone()).collect::<Vec<_>>());
             let mut step = PlanStep {
+                mission: None,
                 id: format!("{REFINE}{}:{n}", system.unwrap_or("?")),
                 kind: StepKind::Refine,
                 title: match load.as_slice() {
@@ -3459,7 +3485,11 @@ pub(crate) mod tests {
             MissionFacts {
                 title: "Small Job".into(),
                 needs: needs(1),
-                chain: vec![("Warm Up".into(), true)],
+                chain: vec![crate::contracts::ChainStep {
+                    id: "warm".into(),
+                    title: "Warm Up".into(),
+                    done: true,
+                }],
                 ..MissionFacts::default()
             },
         );

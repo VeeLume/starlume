@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use crate::model::{MissionGoal, Plan, RankGoal};
 use crate::steps::{
     Grant, PlanBoard, PlanKind, PlanPlace, PlanStage, PlanStep, RunTime, StageState, StepKind,
-    auec_figure, missing, percent, tile,
+    StepMission, auec_figure, missing, percent, tile,
 };
 
 /// Everything rank and mission plans read, gathered by the shell; empty when
@@ -58,6 +58,8 @@ pub struct RankFacts {
 /// rank `hi` (inclusive).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RepSource {
+    /// The mission id.
+    pub id: String,
     pub title: String,
     pub lo: usize,
     pub hi: usize,
@@ -76,6 +78,14 @@ pub struct RankWindow {
     pub hi: usize,
 }
 
+/// A mission before another: its id, title and whether you did it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ChainStep {
+    pub id: String,
+    pub title: String,
+    pub done: bool,
+}
+
 /// A mission as a plan reads it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MissionFacts {
@@ -89,7 +99,7 @@ pub struct MissionFacts {
     /// The ranks that close it.
     pub closed_at: Vec<RankWindow>,
     /// The missions before it, by title, and whether you did each.
-    pub chain: Vec<(String, bool)>,
+    pub chain: Vec<ChainStep>,
     /// Its time from the best source.
     pub time: Option<RunTime>,
     pub at: Vec<PlanPlace>,
@@ -261,6 +271,10 @@ fn rep_legs(key: &str, ladder: &RepLadder, to: usize, plan: &str) -> Vec<PlanSte
             },
             blocked: best.is_none(),
             at: best.and_then(|b| first_place(&b.at)),
+            mission: best.map(|b| StepMission {
+                id: b.id.clone(),
+                title: b.title.clone(),
+            }),
             seconds: best
                 .and_then(|b| b.time)
                 .zip(runs)
@@ -317,6 +331,10 @@ fn mission_steps(goal: &MissionGoal, inputs: &ContractInputs, plan: &str) -> Vec
         seconds_from: m.time.map(|t| t.from),
         sources: 1,
         after: before,
+        mission: Some(StepMission {
+            id: goal.mission.clone(),
+            title: m.title.clone(),
+        }),
         ..step(format!("run:{}", goal.mission), StepKind::Run, plan)
     });
     out
@@ -344,6 +362,10 @@ fn path(
                     ladder.ranks[you].name, ladder.faction
                 ),
                 blocked: true,
+                mission: Some(StepMission {
+                    id: id.to_owned(),
+                    title: m.title.clone(),
+                }),
                 ..step(format!("closed:{id}"), StepKind::Run, plan)
             }));
         }
@@ -362,6 +384,10 @@ fn path(
                         ladder.ranks[w.lo].name, ladder.ranks[w.hi].name, ladder.faction
                     ),
                     blocked: true,
+                    mission: Some(StepMission {
+                        id: id.to_owned(),
+                        title: m.title.clone(),
+                    }),
                     ..step(format!("outgrown:{id}"), StepKind::Run, plan)
                 }));
             }
@@ -369,12 +395,16 @@ fn path(
             _ => out.extend(rep_legs(&w.ladder, ladder, w.lo, plan)),
         }
     }
-    for (i, (title, done)) in m.chain.iter().enumerate() {
-        if *done {
+    for (i, c) in m.chain.iter().enumerate() {
+        if c.done {
             continue;
         }
         out.push(PlanStep {
-            title: format!("Run {title} first"),
+            mission: Some(StepMission {
+                id: c.id.clone(),
+                title: c.title.clone(),
+            }),
+            title: format!("Run {} first", c.title),
             detail: format!("{} follows it", m.title),
             ..step(format!("chain:{id}:{i}"), StepKind::Run, plan)
         });
@@ -384,6 +414,7 @@ fn path(
 
 fn step(id: String, kind: StepKind, plan: &str) -> PlanStep {
     PlanStep {
+        mission: None,
         id,
         kind,
         title: String::new(),
@@ -525,6 +556,7 @@ mod tests {
             score,
             sources: vec![
                 RepSource {
+                    id: "Small Hit".into(),
                     title: "Small Hit".to_owned(),
                     lo: 0,
                     hi: 3,
@@ -534,6 +566,7 @@ mod tests {
                     at: Vec::new(),
                 },
                 RepSource {
+                    id: "Big Hit".into(),
                     title: "Big Hit".to_owned(),
                     lo: 1,
                     hi: 3,
@@ -576,6 +609,11 @@ mod tests {
         assert_eq!(steps[0].detail, "300 rep: 3 runs of Small Hit, +100 each");
         assert_eq!(steps[0].seconds, Some(3.0 * 12.0 * 60.0), "your time first");
         assert_eq!(steps[0].seconds_from, Some(TimeSource::Yours));
+        assert_eq!(
+            steps[0].mission.as_ref().map(|m| m.id.as_str()),
+            Some("Small Hit"),
+            "a rep step links the mission it runs"
+        );
         assert!(!steps[0].blocked);
         // Jr.: Big Hit opens, from the rank's start.
         assert_eq!(
@@ -621,8 +659,16 @@ mod tests {
                     hi: 3,
                 }],
                 chain: vec![
-                    ("Setting a Trap".into(), false),
-                    ("Done Before".into(), true),
+                    ChainStep {
+                        id: "Setting a Trap".into(),
+                        title: "Setting a Trap".into(),
+                        done: false,
+                    },
+                    ChainStep {
+                        id: "Done Before".into(),
+                        title: "Done Before".into(),
+                        done: true,
+                    },
                 ],
                 pay: Some(80_000.0),
                 rep: Some(500),

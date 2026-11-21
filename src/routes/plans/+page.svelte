@@ -460,6 +460,10 @@
                           <!-- The step's id carries the blueprint; Contracts scopes its catalog to it. -->
                           <a class="earn-lk" href="/contracts?bp={encodeURIComponent(s.id.slice(5))}">Missions</a>
                         {/if}
+                        {#if s.kind !== "earn" && s.mission && on("contracts")}
+                          <!-- Contracts finds the mission by its title and opens it. -->
+                          <a class="earn-lk" href="/contracts?q={encodeURIComponent(s.mission.title)}&open={encodeURIComponent(s.mission.id)}">Mission</a>
+                        {/if}
                         {#if shownFocus.kind === "plan" ? other : s.plans.length > 1}
                           {#each s.plans as p (p)}<span class="tag" title={names.get(p) ?? p}>{short(p)}</span>{/each}
                         {/if}

@@ -10,7 +10,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use mod_plans::contracts::{
-    ContractInputs, MissionFacts, RankFacts, RankWindow, RepLadder, RepSource, ladder_key,
+    ChainStep, ContractInputs, MissionFacts, RankFacts, RankWindow, RepLadder, RepSource,
+    ladder_key,
 };
 use mod_plans::steps::{PlanPlace, RunTime};
 use mod_plans::{Goal, PlansState};
@@ -103,14 +104,14 @@ pub(crate) fn gather(
             chain: m
                 .chain_required
                 .iter()
-                .map(|c| {
-                    (
-                        c.title
-                            .as_deref()
-                            .and_then(real_title)
-                            .map_or_else(|| c.mission_id.clone(), str::to_owned),
-                        did(&c.contracts),
-                    )
+                .map(|c| ChainStep {
+                    id: c.mission_id.clone(),
+                    title: c
+                        .title
+                        .as_deref()
+                        .and_then(real_title)
+                        .map_or_else(|| c.mission_id.clone(), str::to_owned),
+                    done: did(&c.contracts),
                 })
                 .collect(),
             time: time_of(m, yours),
@@ -158,6 +159,9 @@ pub(crate) fn gather(
         let sources = missions
             .iter()
             .filter(|m| !m.once_only)
+            // An untitled mission is no contract you can pick from a list:
+            // its internal name tells you nothing to look for.
+            .filter(|m| m.title.as_deref().and_then(real_title).is_some())
             .filter(|m| m.faction.as_ref().and_then(|f| f.geid.as_deref()) == Some(geid.as_str()))
             // A mission behind one not done yet is not a source until then.
             .filter(|m| m.chain_required.iter().all(|c| did(&c.contracts)))
@@ -189,6 +193,7 @@ pub(crate) fn gather(
                     (lo, hi)
                 };
                 Some(RepSource {
+                    id: m.mission_id.clone(),
                     title: title_of(m),
                     lo,
                     hi,

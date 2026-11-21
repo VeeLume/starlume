@@ -12,6 +12,8 @@
   // Your own rank (the standing read) and your own times arrive in later
   // slices; until then the ladder shows the window without a "you".
   import { onMount } from "svelte";
+  import { page } from "$app/state";
+  import { replaceState } from "$app/navigation";
   import {
     Surface,
     Expand,
@@ -422,6 +424,15 @@
     void loadOwnedBlueprints();
     void loadStanding();
     void loadRunMinutes();
+    // A link from Plans names one mission (`?open=<id>&q=<title>`): open
+    // it once, then drop the id, since expansion is page-local (rule 7).
+    const linked = page.url.searchParams.get("open");
+    if (linked) {
+      openMission({ mission_id: linked, title: page.url.searchParams.get("q") });
+      const url = new URL(page.url);
+      url.searchParams.delete("open");
+      replaceState(url, page.state);
+    }
     void (async () => {
       const channel = await ensureChannel();
       ready = true;
