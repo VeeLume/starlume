@@ -14,7 +14,7 @@
   import { goto } from "$app/navigation";
   import { Button, ConfirmDialog, Dialog, Picker } from "@veelume/ui";
   import { ArrowDown, ArrowUp, ArrowUpRight, Plus } from "lucide-svelte";
-  import type { BlueprintRowView, PartChoice, PartSource, PlanBoard, PlanCraft, PlanSlot, StepKind, TrackKind } from "$lib/bindings";
+  import type { BlueprintRowView, PartChoice, PartSource, PlanBoard, PlanCraft, PlanSlot, RepFilter, StepKind, TrackKind } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import NowCard from "$lib/components/NowCard.svelte";
   import PlanGlyph, { type GlyphShape } from "$lib/modules/plans/PlanGlyph.svelte";
@@ -172,6 +172,15 @@
       return cut < 0 ? { value: o.detail, detail: "" } : { value: o.detail.slice(0, cut), detail: o.detail.slice(cut + 4) };
     }
     return { value: "craft", detail: o.detail };
+  }
+
+  /** A rep step's missions in Contracts: its faction, open to you now (or
+   *  opening at the step's rank), sorted by the rep a run gives. */
+  function repLink(f: RepFilter): string {
+    const q = new URLSearchParams({ faction: f.faction, sort: "rep" });
+    if (f.rank) q.set("rank", f.rank);
+    else q.set("status", "open");
+    return `/contracts?${q}`;
   }
 
   /** Picking a plan, in the list or on the card, makes it the focus. */
@@ -459,6 +468,10 @@
                         {#if s.kind === "earn" && s.id.startsWith("earn:") && on("contracts")}
                           <!-- The step's id carries the blueprint; Contracts scopes its catalog to it. -->
                           <a class="earn-lk" href="/contracts?bp={encodeURIComponent(s.id.slice(5))}">Missions</a>
+                        {/if}
+                        {#if s.rep && on("contracts")}
+                          <!-- The faction's missions open now (or at the rank), most rep first. -->
+                          <a class="earn-lk" href={repLink(s.rep)}>Missions</a>
                         {/if}
                         {#if s.kind !== "earn" && s.mission && on("contracts")}
                           <!-- Contracts finds the mission by its title and opens it. -->

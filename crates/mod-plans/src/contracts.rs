@@ -13,8 +13,8 @@ use std::collections::HashMap;
 
 use crate::model::{MissionGoal, Plan, RankGoal};
 use crate::steps::{
-    Grant, PlanBoard, PlanKind, PlanPlace, PlanStage, PlanStep, RunTime, StageState, StepKind,
-    StepMission, auec_figure, missing, percent, tile,
+    Grant, PlanBoard, PlanKind, PlanPlace, PlanStage, PlanStep, RepFilter, RunTime, StageState,
+    StepKind, StepMission, auec_figure, missing, percent, tile,
 };
 
 /// Everything rank and mission plans read, gathered by the shell; empty when
@@ -253,28 +253,27 @@ fn rep_legs(key: &str, ladder: &RepLadder, to: usize, plan: &str) -> Vec<PlanSte
         });
         let runs = best.map(|b| (need + b.rep - 1) / b.rep);
         let id = format!("rep:{key}:{}", r + 1);
+        // No one mission: the user picks from the catalog, filtered to the
+        // faction and what is open at this rank (the step's `rep` link).
         let mut s = PlanStep {
             title: format!("Reach {} with {}", next.name, ladder.faction),
-            detail: match (best, runs) {
-                (Some(b), Some(n)) => format!(
-                    "{} rep: {} {} of {}, +{} each",
-                    auec_figure(need as f64),
-                    n,
-                    if n == 1 { "run" } else { "runs" },
-                    b.title,
-                    auec_figure(b.rep as f64)
-                ),
-                _ => format!(
+            detail: if best.is_some() {
+                format!("{} rep to go", auec_figure(need as f64))
+            } else {
+                format!(
                     "No repeatable mission at {} gives {} rep",
                     ladder.ranks[r].name, ladder.faction
-                ),
+                )
             },
             blocked: best.is_none(),
-            at: best.and_then(|b| first_place(&b.at)),
-            mission: best.map(|b| StepMission {
-                id: b.id.clone(),
-                title: b.title.clone(),
+            rep: Some(RepFilter {
+                faction: ladder.faction.clone(),
+                // The rank you are at now is "open to you"; a later one is
+                // what opens at that rank.
+                rank: (r > you).then(|| ladder.ranks[r].name.clone()),
             }),
+            // The fastest known way, as a figure: the runs it takes of the
+            // repeatable mission open at this rank that gives the most rep.
             seconds: best
                 .and_then(|b| b.time)
                 .zip(runs)
@@ -415,6 +414,7 @@ fn path(
 fn step(id: String, kind: StepKind, plan: &str) -> PlanStep {
     PlanStep {
         mission: None,
+        rep: None,
         id,
         kind,
         title: String::new(),
@@ -606,19 +606,25 @@ mod tests {
         assert_eq!(steps.len(), 2);
         // Neutral: only Small Hit is open, 300 rep to go.
         assert_eq!(steps[0].title, "Reach Jr. with Headhunters");
-        assert_eq!(steps[0].detail, "300 rep: 3 runs of Small Hit, +100 each");
+        assert_eq!(steps[0].detail, "300 rep to go");
+        // The figure is the fastest known way: 3 runs of Small Hit.
         assert_eq!(steps[0].seconds, Some(3.0 * 12.0 * 60.0), "your time first");
         assert_eq!(steps[0].seconds_from, Some(TimeSource::Yours));
+        assert_eq!(steps[0].mission, None, "no one mission: the user picks");
         assert_eq!(
-            steps[0].mission.as_ref().map(|m| m.id.as_str()),
-            Some("Small Hit"),
-            "a rep step links the mission it runs"
+            steps[0].rep,
+            Some(RepFilter {
+                faction: "Headhunters".into(),
+                rank: None,
+            }),
+            "the faction's missions open to you now"
         );
         assert!(!steps[0].blocked);
-        // Jr.: Big Hit opens, from the rank's start.
+        // Jr.: from the rank's start, what opens at Jr.
+        assert_eq!(steps[1].detail, "Waits on Jr.: 1,400 rep to go");
         assert_eq!(
-            steps[1].detail,
-            "Waits on Jr.: 1,400 rep: 4 runs of Big Hit, +400 each"
+            steps[1].rep.as_ref().and_then(|f| f.rank.as_deref()),
+            Some("Jr.")
         );
         assert!(steps[1].blocked);
         assert_eq!(steps[1].after, vec![steps[0].id.clone()]);

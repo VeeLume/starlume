@@ -75,6 +75,7 @@
     whereCell,
     windowText,
     type Ladder,
+    ownRep,
   } from "./model";
 
   type MissionRow = MissionEntryView & {
@@ -335,6 +336,8 @@
         compare: (a: MissionRow, b: MissionRow) =>
           minutesOf(a) - minutesOf(b),
       },
+      // Grinding rep: Plans' rep steps link here with this sort.
+      { value: "rep", label: "Most rep", compare: (a: MissionRow, b: MissionRow) => (ownRep(b) ?? -1e9) - (ownRep(a) ?? -1e9) || pays(b) - pays(a) },
       { value: "name", label: "Name", compare: (a: MissionRow, b: MissionRow) => a.title.localeCompare(b.title) },
     ],
   });

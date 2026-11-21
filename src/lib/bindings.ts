@@ -3872,6 +3872,10 @@ bands: QualityBand[] }
 export type PlanStage = { name: string; sub: string; state: StageState }
 export type PlanStep = { 
 /**
+ * A rep step's missions to pick from, as a Contracts catalog filter.
+ */
+rep: RepFilter | null; 
+/**
  * The mission it runs, waits on or earns rep from; `None` for a step
  * that is no one mission (an earn step lists its missions by blueprint).
  */
@@ -4177,6 +4181,11 @@ highlights: string[]; bug_fixes: number | null; known_issues: number | null;
  * only the newest LIVE release's article has one. `null` = none.
  */
 image: string | null }
+/**
+ * A rep step's catalog filter: the faction's missions, open to you now
+ * (`rank` = `None`) or opening at `rank`, sorted by the rep they give.
+ */
+export type RepFilter = { faction: string; rank: string | null }
 /**
  * One rank of a reputation ladder (`svc_data::RepRank`).
  */
