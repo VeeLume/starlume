@@ -120,7 +120,7 @@ describe("what a mission needs first", () => {
     const chain = [{ mission_id: "a", title: "Setting a Trap", once_only: false, contracts: ["Trap_1"] }];
     expect(needsNote(simpleHit({ chain_required: chain }))).toBe("after Setting a Trap");
     expect(needsNote(simpleHit({ chain_required: [...chain, { mission_id: "b", title: "X", once_only: false, contracts: ["X_1"] }] }))).toBe(
-      "after Setting a Trap and 1 more",
+      "after Setting a Trap or 1 other",
     );
   });
   it("names a faction rank that closes the mission", () => {
@@ -228,6 +228,10 @@ describe("your standing", () => {
     const m = simpleHit({ chain_required: chain });
     expect(standingOf(m, [row(1000, "hh1")], none)).toBe("step");
     expect(stepsLeft(m, new Set(["Trap_2"]))).toEqual([]);
+    // Any one mission of the chain opens it.
+    const either = simpleHit({ chain_required: [...chain, { mission_id: "b", title: "X", once_only: false, contracts: ["X_1"] }] });
+    expect(stepsLeft(either, new Set(["X_1"]))).toEqual([]);
+    expect(stepsLeft(either, none)).toHaveLength(2);
     expect(standingOf(m, [row(1000, "hh1")], new Set(["Trap_2"]))).toBe("open");
     expect(standingOf(simpleHit({ once_only: true }), [row(1000, "hh1")], new Set(["HH_Pyro_RegionB_LRT_Criminals_KillShip"]))).toBe("done");
   });

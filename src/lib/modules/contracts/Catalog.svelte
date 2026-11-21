@@ -614,7 +614,8 @@
           <p class="u-need">Any rank<small>no rank in the data</small></p>
         {/if}
         {#if m.chain_required.length}
-          <p class="chain-h">Missions first</p>
+          <!-- Any one of them opens it: each grants the completion tag it asks for. -->
+          <p class="chain-h">{m.chain_required.length > 1 ? "Any one of these first" : "Mission first"}</p>
           <ul class="chain">
             {#each m.chain_required as c (c.mission_id)}
               {@const done = c.contracts.some((x) => standingStore.completed.has(x))}

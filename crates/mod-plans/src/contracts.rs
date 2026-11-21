@@ -402,22 +402,32 @@ fn path(
             _ => out.extend(rep_legs(&w.ladder, ladder, w.lo, plan)),
         }
     }
-    for (i, c) in m.chain.iter().enumerate() {
-        if c.done {
-            continue;
-        }
+    // Any one mission of the chain opens it (each grants the completion tag
+    // it asks for): one step, the quickest of them first.
+    if !m.chain.is_empty() && !m.chain.iter().any(|c| c.done) {
+        let mut ways: Vec<&ChainStep> = m.chain.iter().collect();
+        ways.sort_by(|a, b| {
+            let t = |c: &ChainStep| c.time.map_or(f32::MAX, |t| t.minutes);
+            t(a).total_cmp(&t(b))
+        });
+        let first = ways[0];
         out.push(PlanStep {
             mission: Some(StepMission {
-                id: c.id.clone(),
-                title: c.title.clone(),
+                id: first.id.clone(),
+                title: first.title.clone(),
             }),
-            title: format!("Run {} first", c.title),
-            detail: format!("{} follows it", m.title),
-            at: first_place(&c.at),
-            seconds: c.time.map(RunTime::seconds),
-            seconds_from: c.time.map(|t| t.from),
-            sources: 1,
-            ..step(format!("chain:{id}:{i}"), StepKind::Run, plan)
+            title: format!("Unlock {}", m.title),
+            detail: match ways.as_slice() {
+                [one] => format!("Run {} first", one.title),
+                [a, b] => format!("Run {} or {}", a.title, b.title),
+                [a, rest @ ..] => format!("Run {} or one of {} others", a.title, rest.len()),
+                [] => unreachable!("the chain is not empty"),
+            },
+            at: first_place(&first.at),
+            seconds: first.time.map(RunTime::seconds),
+            seconds_from: first.time.map(|t| t.from),
+            sources: ways.len() as u32,
+            ..step(format!("chain:{id}"), StepKind::Run, plan)
         });
     }
     Ok(out)
@@ -729,23 +739,23 @@ mod tests {
         );
         let s = steps(&state.plans, &ins, Vec::new());
         let titles: Vec<&str> = s.iter().map(|x| x.title.as_str()).collect();
-        assert_eq!(
-            titles,
-            [
-                "Reach Jr. with Headhunters",
-                "Run Setting a Trap first",
-                "Run Kill the Boss"
-            ]
-        );
-        assert_eq!(
-            s[1].seconds,
-            Some(15.0 * 60.0),
-            "a chain step has its own time"
-        );
+        assert_eq!(titles, ["Reach Jr. with Headhunters", "Run Kill the Boss"]);
         let run = s.last().unwrap();
         assert!(run.blocked);
         assert_eq!(run.detail, "80,000 aUEC, +500 rep, a blueprint 25% of runs");
-        assert_eq!(run.after.len(), 2);
+        assert_eq!(run.after.len(), 1, "Done Before already opened it");
+
+        // Neither done: one step names both, the quicker first, with its time.
+        let m1 = ins.missions.get_mut("m1").unwrap();
+        m1.chain[1].done = false;
+        m1.chain[1].time = RunTime::best(None, None, Some(10.0));
+        let s = steps(&state.plans, &ins, Vec::new());
+        let unlock = s.iter().find(|x| x.id == "chain:m1").unwrap();
+        assert_eq!(unlock.title, "Unlock Kill the Boss");
+        assert_eq!(unlock.detail, "Run Done Before or Setting a Trap");
+        assert_eq!(unlock.seconds, Some(10.0 * 60.0));
+        assert_eq!(unlock.mission.as_ref().unwrap().title, "Done Before");
+        assert_eq!(s.last().unwrap().after.len(), 2);
     }
 
     #[test]

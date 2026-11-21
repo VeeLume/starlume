@@ -170,8 +170,11 @@ pub(crate) fn gather(
             // its internal name tells you nothing to look for.
             .filter(|m| m.title.as_deref().and_then(real_title).is_some())
             .filter(|m| m.faction.as_ref().and_then(|f| f.geid.as_deref()) == Some(geid.as_str()))
-            // A mission behind one not done yet is not a source until then.
-            .filter(|m| m.chain_required.iter().all(|c| did(&c.contracts)))
+            // A mission behind a chain is not a source until one of its
+            // missions is done (any one opens it).
+            .filter(|m| {
+                m.chain_required.is_empty() || m.chain_required.iter().any(|c| did(&c.contracts))
+            })
             .filter_map(|m| {
                 let rep = own_rep(m).filter(|r| *r > 0)?;
                 let own: Vec<&RepRequirement> = m

@@ -105,7 +105,7 @@ export function needsNote(m: MissionEntryView, rows: RepRowView[] = [], complete
   const [first, ...rest] = stepsLeft(m, completed);
   if (first) {
     const name = first.title ?? "an earlier mission";
-    return rest.length ? `after ${name} and ${rest.length} more` : `after ${name}`;
+    return rest.length ? `after ${name} or ${rest.length === 1 ? "1 other" : `${rest.length} others`}` : `after ${name}`;
   }
   return null;
 }
@@ -306,9 +306,12 @@ export function standingOf(m: MissionEntryView, rows: RepRowView[], completed: S
   return "open";
 }
 
-/** Chain steps not yet completed, by their contract names. */
+/** The chain's missions while none is done, by their contract names: any
+ * one of them opens the mission (each grants the completion tag it asks
+ * for), so one done leaves nothing. */
 export function stepsLeft(m: MissionEntryView, completed: Set<string>) {
-  return m.chain_required.filter((c) => !c.contracts.some((n) => completed.has(n)));
+  const done = (c: MissionEntryView["chain_required"][number]) => c.contracts.some((n) => completed.has(n));
+  return m.chain_required.some(done) ? [] : m.chain_required;
 }
 
 /** Group order and headings in the catalog. */
