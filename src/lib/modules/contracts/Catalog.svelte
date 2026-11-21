@@ -278,6 +278,14 @@
   ]);
 
   const pays = (m: MissionEntryView) => m.payout.fixed ?? m.payout.estimate ?? 0;
+  /** An amount a minute by the row's time (yours, else the game's), for
+   *  the opened row; a dash without the amount or a time. */
+  const perMinute = (amount: number | null, m: MissionEntryView) => {
+    const min = minutesOf(m);
+    if (amount == null || !(amount > 0) || min >= 1e9) return "—";
+    const v = amount / min;
+    return v >= 100 ? fmt(Math.round(v)) : v.toFixed(1);
+  };
   /** Own-faction rep a minute, by the row's time (yours, else the game's);
    *  -1 without rep or a time, so those sort last. */
   const repPerMinute = (m: MissionEntryView) => {
@@ -637,9 +645,11 @@
         <h4>Gives</h4>
         <dl class="kv">
           <dt>aUEC</dt><dd class="mono">{paysCell(m).value}</dd>
+          <dt>aUEC / min</dt><dd class="mono">{perMinute(pays(m), m)}</dd>
           {#each m.reputation as r, i (i)}
             <dt>{i === 0 ? "Rep" : ""}</dt><dd class="mono">{r.amount == null ? "calculated" : `+${fmt(r.amount)}`}</dd>
           {/each}
+          {#if m.reputation.length > 0}<dt>Rep / min</dt><dd class="mono">{perMinute(ownRep(m), m)}</dd>{/if}
           {#each m.scrip as s, i (i)}<dt>{s.name ?? "Scrip"}</dt><dd class="mono">{s.amount}</dd>{/each}
           {#each m.item_rewards as it (it.entity_guid)}<dt>{it.name ?? "Item"}</dt><dd class="mono">{it.amount}</dd>{/each}
           {#each m.cargo as leg, i (i)}
