@@ -281,14 +281,16 @@ export function rankIndex(l: Ladder, row: RepRowView): number {
 /**
  * What a mission is to you, given your rows and completed contracts:
  * - open: your rank fits and nothing else stands in the way;
- * - step: another faction's rank or an earlier mission first;
+ * - after: your rank fits, but other missions must be run first (a chain
+ *   gate still shut);
+ * - faction: it also needs a rank with another faction you lack;
  * - higher: your rank is below the window;
  * - unknown: no row for its faction (no row is NOT Neutral: shown, never hidden);
  * - closed: a faction rank you hold shuts it (an exclusion);
  * - outgrown: your rank is above the window;
  * - done: once only and already completed.
  */
-export type Standing = "open" | "step" | "higher" | "unknown" | "closed" | "outgrown" | "done";
+export type Standing = "open" | "after" | "faction" | "higher" | "unknown" | "closed" | "outgrown" | "done";
 
 export function standingOf(
   m: MissionEntryView,
@@ -317,8 +319,8 @@ export function standingOf(
     }
   }
   const others = m.rep_required.filter((r) => !r.exclude && r.faction !== own?.faction);
-  if (others.some((r) => inWindow(r) !== true)) return "step";
-  if (gatesLeft(m, completed, tags).length > 0) return "step";
+  if (others.some((r) => inWindow(r) !== true)) return "faction";
+  if (gatesLeft(m, completed, tags).length > 0) return "after";
   return "open";
 }
 
@@ -355,7 +357,8 @@ export function gatesLeft(m: MissionEntryView, completed: Set<string>, tags: Map
 /** Group order and headings in the catalog. */
 export const STANDING_GROUPS: { id: Standing; label: string }[] = [
   { id: "open", label: "In your rank" },
-  { id: "step", label: "A step first" },
+  { id: "after", label: "After other missions" },
+  { id: "faction", label: "Needs another faction" },
   { id: "higher", label: "Higher rank" },
   { id: "unknown", label: "Not in your standing" },
   { id: "closed", label: "Closed to you" },

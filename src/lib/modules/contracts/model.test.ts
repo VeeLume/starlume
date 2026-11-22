@@ -252,7 +252,7 @@ describe("your standing", () => {
   it("chain steps and once-only contracts follow your completed contracts", () => {
     const chain = [{ mission_id: "a", title: "Setting a Trap", once_only: false, contracts: ["Trap_1", "Trap_2"], adds: 1 }];
     const m = chained(chain);
-    expect(standingOf(m, [row(1000, "hh1")], none)).toBe("step");
+    expect(standingOf(m, [row(1000, "hh1")], none)).toBe("after");
     expect(gatesLeft(m, new Set(["Trap_2"]))).toEqual([]);
     // Any one mission of a gate opens it.
     const either = chained([...chain, { mission_id: "b", title: "X", once_only: false, contracts: ["X_1"], adds: 1 }]);
@@ -261,12 +261,12 @@ describe("your standing", () => {
     expect(standingOf(m, [row(1000, "hh1")], new Set(["Trap_2"]))).toBe("open");
     // Every gate must open: a second one keeps it a step.
     const two = { ...m, chain_gates: [...m.chain_gates, { need: 1, tags: ["u"], missions: [{ mission_id: "c", title: "Intro", once_only: true, contracts: ["Intro_1"], adds: 1 }] }] };
-    expect(standingOf(two, [row(1000, "hh1")], new Set(["Trap_2"]))).toBe("step");
+    expect(standingOf(two, [row(1000, "hh1")], new Set(["Trap_2"]))).toBe("after");
     expect(standingOf(two, [row(1000, "hh1")], new Set(["Trap_2", "Intro_1"]))).toBe("open");
     expect(standingOf(simpleHit({ once_only: true }), [row(1000, "hh1")], new Set(["HH_Pyro_RegionB_LRT_Criminals_KillShip"]))).toBe("done");
   });
   it("every status has a group", () => {
-    expect(STANDING_GROUPS.map((g) => g.id).sort()).toEqual(["closed", "done", "higher", "open", "outgrown", "step", "unknown"]);
+    expect(STANDING_GROUPS.map((g) => g.id).sort()).toEqual(["after", "closed", "done", "faction", "higher", "open", "outgrown", "unknown"]);
   });
 });
 

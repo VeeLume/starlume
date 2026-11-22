@@ -462,6 +462,26 @@
   const SHIPS_SHOWN = 10;
   let shipsAll = $state<Record<string, boolean>>({});
   let placesAll = $state(false);
+  /** A gate's "N missions": the catalog scoped to what counts toward it. */
+  function showGate(m: MissionEntryView, gate: number) {
+    browse.setMany({
+      q: "",
+      faction: "",
+      region: "",
+      category: "",
+      gives: "",
+      system: "",
+      legal: "",
+      share: "",
+      repeat: "",
+      rank: "",
+      status: "",
+      bp: "",
+      unlock: `${m.mission_id}.${gate}`,
+    });
+    expanded.clear();
+  }
+
   /** A chain link: find the mission before this one and open it. The
    *  filters are cleared so nothing hides it; the sort stays. */
   function openMission(ref: { mission_id: string; title: string | null }) {
@@ -688,6 +708,11 @@
                 ? "Any one of these first"
                 : "Mission first"
               : `${g.need} ${points ? "points" : "runs"} of ${g.missions.length > 1 ? "any of these" : "this"}`}
+            {#if g.missions.length > 1}
+              <button type="button" class="link" title="Show the missions that count toward it" onclick={() => showGate(m, gi)}
+                >{g.missions.length} missions</button
+              >
+            {/if}
             {#if g.need > 1 && standingStore.known}<b>{Math.min(p.have, g.need)} of {g.need}</b>{/if}
           </p>
           <ul class="chain">
@@ -1005,6 +1030,18 @@
     margin: 14px 0 6px;
     font-size: var(--text-small);
     color: var(--text-faint);
+  }
+  .chain-h .link {
+    all: unset;
+    cursor: pointer;
+    color: var(--accent);
+  }
+  .chain-h .link:hover {
+    text-decoration: underline;
+  }
+  .chain-h .link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .chain-h b {
     margin-left: auto;
