@@ -176,6 +176,13 @@
 
   /** A rep step's missions in Contracts: its faction, open to you now (or
    *  opening at the step's rank), sorted by rep per minute. */
+  /** A chain step's id (`chain:<mission>` or `chain:<mission>:<gate>`) as
+   *  Contracts' `unlock` scope (`<mission>.<gate>`). */
+  function unlockOf(id: string): string {
+    const [, mission, gate = "0"] = id.split(":");
+    return `${mission}.${gate}`;
+  }
+
   function repLink(f: RepFilter): string {
     const q = new URLSearchParams({ faction: f.faction, sort: "repmin" });
     if (f.rank) q.set("rank", f.rank);
@@ -474,7 +481,11 @@
                           <!-- The faction's missions open now (or at the rank), most rep a minute first. -->
                           <a class="earn-lk" href={repLink(s.rep)}>Missions</a>
                         {/if}
-                        {#if s.kind !== "earn" && s.mission && on("contracts")}
+                        {#if s.id.startsWith("chain:") && s.sources > 1 && on("contracts")}
+                          <!-- Every mission that counts toward the gate: Contracts scopes
+                               its catalog to them. The id carries mission and gate. -->
+                          <a class="earn-lk" href="/contracts?unlock={encodeURIComponent(unlockOf(s.id))}">{s.sources} missions</a>
+                        {:else if s.kind !== "earn" && s.mission && on("contracts")}
                           <!-- Contracts finds the mission by its title and opens it. -->
                           <a class="earn-lk" href="/contracts?q={encodeURIComponent(s.mission.title)}&open={encodeURIComponent(s.mission.id)}">Mission</a>
                         {/if}

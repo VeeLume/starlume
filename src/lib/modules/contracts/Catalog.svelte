@@ -7,7 +7,9 @@
   //
   // `?bp=<blueprint guid>` scopes the catalog to the missions that can grant
   // one blueprint (Crafting's recipe sheet and Plans' "Earn" step link here)
-  // and shows its odds above the list.
+  // and shows its odds above the list. `?unlock=<mission id>.<gate>` scopes
+  // it to the missions that count toward one chain gate of a mission (Plans'
+  // Unlock step links here) and shows your progress above the list.
   //
   // Your own rank (the standing read) and your own times arrive in later
   // slices; until then the ladder shows the window without a "you".
@@ -110,6 +112,7 @@
     rank: { kind: "one", default: "" },
     status: { kind: "one", default: "" },
     bp: { kind: "one", default: "", narrows: false },
+    unlock: { kind: "one", default: "", narrows: false },
     sort: { kind: "one", default: "pays", narrows: false },
   });
   const expanded = createExpansion("one");
@@ -303,11 +306,32 @@
     return Number.isFinite(v) ? v : 1e9;
   };
   const scope = $derived(browse.values.bp as string);
+  /** The chain-gate scope: the mission it opens, the gate, your progress and
+   *  the contracts that count toward it (a catalog entry is in when one of
+   *  its contracts is). */
+  const gateScope = $derived.by(() => {
+    const v = browse.values.unlock as string;
+    if (!v) return null;
+    const [id, n] = v.split(".");
+    const target = missions.find((m) => m.mission_id === id);
+    const gate = target?.chain_gates[Number(n ?? 0)];
+    if (!target || !gate) return null;
+    const contracts = new Set(gate.missions.flatMap((c) => c.contracts));
+    return { target, gate, contracts, progress: gateProgress(gate, standingStore.completed, standingStore.tags) };
+  });
+  /** The gate missions behind one catalog entry: what a run of it adds. */
+  const addsOf = (m: MissionEntryView) =>
+    gateScope?.gate.missions.find((c) => c.contracts.some((x) => m.contracts.includes(x))) ?? null;
 
   const descriptor = $derived({
     // The blueprint scope narrows the sources, not a facet: 700 blueprints
     // are no filter list, and the scope arrives as a link.
-    sources: () => (scope ? missions.filter((m) => blueprintChance(m, scope) > 0) : missions),
+    sources: () =>
+      scope
+        ? missions.filter((m) => blueprintChance(m, scope) > 0)
+        : gateScope
+          ? missions.filter((m) => m.contracts.some((c) => gateScope.contracts.has(c)))
+          : missions,
     derive: (ms: MissionEntryView[]): MissionRow[] =>
       ms.map((m) => {
         const req = ownRequirement(m);
@@ -404,6 +428,23 @@
     return { faction: first.faction ?? "", ranks: ladder.ranks, counts };
   });
   const scopeRegions = $derived([...new Set(scoped.flatMap((m) => m.locations.map((l) => l.name || l.system)))]);
+  // ── The chain-gate scope's figures ────────────────────────────────────
+  const gateRows = $derived(gateScope ? missions.filter((m) => m.contracts.some((c) => gateScope.contracts.has(c))) : []);
+  /** Fewest runs to open it, and the quickest way in time. */
+  const gateRuns = $derived.by(() => {
+    if (!gateScope) return { fewest: null as number | null, fastest: null as number | null };
+    let fewest: number | null = null;
+    let fastest: number | null = null;
+    for (const m of gateRows) {
+      const way = addsOf(m);
+      if (!way) continue;
+      const n = runsOf(gateScope.progress.left, way);
+      if (fewest == null || n < fewest) fewest = n;
+      const min = minutesOf(m);
+      if (min < 1e9 && (fastest == null || n * min < fastest)) fastest = n * min;
+    }
+    return { fewest, fastest };
+  });
   const scopePool = $derived(
     scoped[0]?.blueprint_rewards.find((p) => p.blueprints.some((b) => b.blueprint_record_guid === scope)),
   );
@@ -437,6 +478,7 @@
       rank: "",
       status: "",
       bp: "",
+      unlock: "",
     });
     expanded.open(ref.mission_id);
     shipsAll = {};
@@ -493,7 +535,26 @@
 {:else}
   {#if browseError}<p class="error">{browseError}</p>{/if}
 
-  {#if scope}
+  {#if gateScope}
+    {@const g = gateScope.gate}
+    {@const points = countsPoints(g)}
+    <section class="scope" aria-label="Missions that unlock {missionTitle(gateScope.target)}">
+      <div>
+        <h2 class="scope-h">
+          <span>Unlocks {missionTitle(gateScope.target)}</span>
+        </h2>
+        <div class="stat-tiles">
+          <div class="stat-tile">
+            <b>{standingStore.known ? `${Math.min(gateScope.progress.have, g.need)} of ${g.need}` : g.need}</b>
+            <span>{points ? "points" : "runs"}{standingStore.known ? " done" : " it asks for"}</span>
+          </div>
+          <div class="stat-tile"><b>{gateRows.length}</b><span>{gateRows.length === 1 ? "mission" : "missions"} count</span></div>
+          <div class="stat-tile"><b>{gateRuns.fewest ?? "—"}</b><span>runs at the fewest</span></div>
+          <div class="stat-tile"><b>{gateRuns.fastest != null ? span(gateRuns.fastest) : "—"}</b><span>at the quickest</span></div>
+        </div>
+      </div>
+    </section>
+  {:else if scope}
     <section class="scope" aria-label="Missions that grant {scopeName}">
       <div>
         <h2 class="scope-h">
