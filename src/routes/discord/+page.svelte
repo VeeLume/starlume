@@ -1,8 +1,8 @@
 <script lang="ts">
-  // Settings › Discord: Rich Presence (decision 01a2085d, board "Discord
-  // Rich Presence" on the Starlume Design canvas). The switch, what it
-  // shares, and a preview of what Discord gets right now, drawn from the
-  // live session by the Rust worker (presence.rs).
+  // The Discord module's page: Rich Presence (decision 01a2085d, board
+  // "Discord Rich Presence" on the Starlume Design canvas). The switch,
+  // what it shares, and a preview of what Discord gets right now, drawn
+  // from the live session by the Rust worker (presence.rs).
   import { Segmented, Settings, Switch } from "@veelume/ui";
   import type { PlaceLevel, PresenceSettings, PresenceStatus } from "$lib/bindings";
   import { applySettings, loadSettings, settingsStore } from "$lib/state/settings.svelte";
@@ -10,7 +10,7 @@
   import { onMount } from "svelte";
 
   // The art the Discord application holds, by asset key (svc-presence/art).
-  const art = import.meta.glob("../../../../crates/svc-presence/art/*.png", {
+  const art = import.meta.glob("../../../crates/svc-presence/art/*.png", {
     eager: true,
     query: "?url",
     import: "default",
@@ -70,7 +70,11 @@
   ];
 </script>
 
-<Settings.Page title="Discord">
+<div class="dc-page">
+  <header class="dc-head">
+    <h1>Discord</h1>
+    {#if view}<span class="dc-mark" class:on={view.status === "shown"}><i></i>{view.status === "shown" ? "On your profile" : "Not on your profile"}</span>{/if}
+  </header>
   {#if settings && presence}
     <Settings.Section>
       <Settings.Row
@@ -152,9 +156,42 @@
       <p class="text-sm text-destructive">{error}</p>
     {/if}
   {/if}
-</Settings.Page>
+</div>
 
 <style>
+  .dc-page {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 880px;
+  }
+  .dc-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 26px;
+  }
+  .dc-head h1 {
+    margin: 0;
+    line-height: 1;
+    letter-spacing: 0.02em;
+  }
+  .dc-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-small);
+    color: var(--text-dim);
+  }
+  .dc-mark i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-faint);
+  }
+  .dc-mark.on i {
+    background: var(--good);
+  }
   .note {
     margin: 6px 0 0;
     padding: 8px 12px;

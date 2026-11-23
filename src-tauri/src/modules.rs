@@ -173,6 +173,24 @@ impl Module for SessionLog {
     }
 }
 
+/// Discord — Rich Presence: what you are doing in the game on your Discord
+/// profile (`svc-presence`, the worker in `presence.rs`). Reads the Session
+/// Log's live session through the shell; sends only with its own switch and
+/// online features on.
+struct Discord;
+
+impl Module for Discord {
+    fn id(&self) -> &'static str {
+        crate::presence::MODULE_ID
+    }
+    fn name(&self) -> &'static str {
+        "Discord"
+    }
+    fn description(&self) -> &'static str {
+        "Show what you are doing in the game on your Discord profile: your ship, your contract, where you are"
+    }
+}
+
 /// All modules offered by this build, enabled or not. Unreleased modules
 /// (Contracts) exist only in debug builds — the Rust half of the frontend's
 /// `$lib/unreleased` gate (v0.1.0 scope decision; the Dev Tracker shipped in
@@ -189,6 +207,7 @@ pub(crate) fn registry() -> &'static [&'static dyn Module] {
             &Crafting,
             &Contracts,
             &SessionLog,
+            &Discord,
             &Plans,
         ]
     } else {
@@ -200,6 +219,7 @@ pub(crate) fn registry() -> &'static [&'static dyn Module] {
             &Ships,
             &Crafting,
             &SessionLog,
+            &Discord,
             &Plans,
         ]
     }

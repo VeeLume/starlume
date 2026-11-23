@@ -1474,6 +1474,19 @@ async sessionReread(id: string) : Promise<Result<SessionSummary | null, AppError
 }
 },
 /**
+ * Start, step or stop a replay (dev builds): `id` a filed session and
+ * `step` the entries to show (clamped); `id: None` stops it. Announces the
+ * change like a live one, so the page and Rich Presence follow.
+ */
+async sessionReplay(id: string | null, step: number) : Promise<Result<ReplayView | null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("session_replay", { id, step }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Display names for a session's internal names. Never fails: without game
  * data (not loaded, no install for the channel) every name is the cleaned
  * internal one and `data_loaded` says so.
@@ -4415,6 +4428,23 @@ scope_id: string; score: number;
  */
 standing_id: string | null; standing_min: number | null }
 /**
+ * Where a replay stands, for the page's step bar.
+ */
+export type ReplayView = { 
+/**
+ * The past session played back.
+ */
+id: string; 
+/**
+ * Entries shown: 0 is before the first.
+ */
+step: number; total: number; 
+/**
+ * The last entry shown: its kind (`mission_accepted`) and when, in
+ * the session's own time.
+ */
+kind: string | null; at: number | null }
+/**
  * What became of a request the client sent a shop.
  */
 export type RequestOutcome = 
@@ -4767,8 +4797,13 @@ log_enabled: boolean;
 telemetry_enabled: boolean; 
 /**
  * The live session, or the last one seen in this run of the app.
+ * While a replay runs (dev builds), the replayed session.
  */
-current: Session | null }
+current: Session | null; 
+/**
+ * The replay that stands in for the live session, if one runs.
+ */
+replay: ReplayView | null }
 /**
  * A session without its timeline: one row of the history list.
  */

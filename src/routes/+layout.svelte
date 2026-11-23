@@ -54,9 +54,11 @@
   // read on open; the per-session log stays in the panel.
   let centerOpen = $state(false);
 
-  // Three groups, divided: what's going on (Home, News, and module pages
-  // in the `news` section — the dev tracker), the enabled modules' tools
-  // (registry order), then Friends + Catalogs (shell-level). Friends and
+  // Four groups, divided: what's going on (Home, News, and module pages
+  // in the `news` section: the dev tracker, Plans), the game tools
+  // (registry order), what runs alongside the game (the `companion`
+  // section: Session Log, Discord, Text Patching), then Friends + Catalogs
+  // (shell-level). Friends and
   // Catalogs are unreleased. Kit NavItems — the shell owns active-state
   // matching; rows render through the rail's `item` snippet below.
   const moduleNav = $derived(
@@ -71,7 +73,8 @@
         { path: "/news", label: "News", icon: Newspaper },
         ...moduleNav.filter((e) => e.section === "news").map((e) => ({ path: e.href, label: e.label, icon: e.icon })),
       ],
-      moduleNav.filter((e) => e.section !== "news").map((e) => ({ path: e.href, label: e.label, icon: e.icon })),
+      moduleNav.filter((e) => !e.section).map((e) => ({ path: e.href, label: e.label, icon: e.icon })),
+      moduleNav.filter((e) => e.section === "companion").map((e) => ({ path: e.href, label: e.label, icon: e.icon })),
       SHOW_UNRELEASED
         ? [
             { path: "/friends", label: "Friends", icon: Users },

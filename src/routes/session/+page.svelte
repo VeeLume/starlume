@@ -15,6 +15,7 @@
   // sort and the opened session are in the URL (rule 7); expansion is
   // page-local. The folding itself is `readSession` (model.ts, tested).
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
   import {
     Surface,
     Expand,
@@ -29,6 +30,7 @@
   import {
     loadNames,
     openSession,
+    replaySession,
     rereadSession,
     sessionStore,
     watchSession,
@@ -187,6 +189,31 @@
     void pastId;
     rereadNote = "";
   });
+  // Dev builds: play a past session back as the live one, step by step, so
+  // the page and Discord Rich Presence can be checked without playing.
+  const dev = import.meta.env.DEV;
+  const replay = $derived(pastId ? null : (sessionStore.state?.replay ?? null));
+  let replayError = $state("");
+  async function startReplay(id: string) {
+    replayError = (await replaySession(id, 0)) ?? "";
+    if (!replayError) await goto("/session");
+  }
+  async function stepTo(step: number) {
+    if (!replay) return;
+    replayError = (await replaySession(replay.id, Math.max(0, Math.min(replay.total, step)))) ?? "";
+  }
+  async function stopReplay() {
+    replayError = (await replaySession(null, 0)) ?? "";
+  }
+  function replayKeys(e: KeyboardEvent) {
+    if (!replay || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    const by = e.shiftKey ? 10 : 1;
+    if (e.key === "ArrowRight") void stepTo(replay.step + by);
+    else if (e.key === "ArrowLeft") void stepTo(replay.step - by);
+    else return;
+    e.preventDefault();
+  }
+
   async function reread(id: string) {
     rereading = true;
     rereadNote = "";
@@ -197,6 +224,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={replayKeys} />
 
 <div class="ss-page">
   <header class="ss-head">
@@ -237,12 +266,33 @@
           {rereading ? "Reading Game.log…" : "Read Game.log again"}
         </button>
       {/if}
+      {#if dev && pastId && shown && shown.timeline.length > 0}
+        <button class="btn subtle ss-reread" title="Play this session back as the live one, step by step (dev builds)" onclick={() => startReplay(shown.id)}>
+          Replay
+        </button>
+      {/if}
       {#if pastId}
         <a href="/session">Current session</a>
       {/if}
       <a href="/session/history">Past sessions</a>
     </span>
   </header>
+
+  {#if replay}
+    <div class="ss-replay" role="group" aria-label="Replay">
+      <span class="ss-replay-lab">Replay</span>
+      <button class="btn subtle" title="Back 10 (Shift+Left)" disabled={replay.step === 0} onclick={() => stepTo(replay.step - 10)}>«</button>
+      <button class="btn subtle" title="Back one (Left)" disabled={replay.step === 0} onclick={() => stepTo(replay.step - 1)}>‹</button>
+      <span class="ss-replay-at mono">{replay.step} of {replay.total}</span>
+      <button class="btn subtle" title="Forward one (Right)" disabled={replay.step >= replay.total} onclick={() => stepTo(replay.step + 1)}>›</button>
+      <button class="btn subtle" title="Forward 10 (Shift+Right)" disabled={replay.step >= replay.total} onclick={() => stepTo(replay.step + 10)}>»</button>
+      <span class="ss-replay-what">
+        {#if replay.kind}{replay.kind.replaceAll("_", " ")}{#if replay.at != null}<span>at {clock(replay.at)}</span>{/if}{:else}before the first entry{/if}
+      </span>
+      {#if replayError}<span class="ss-note">{replayError}</span>{/if}
+      <button class="btn subtle ss-replay-stop" onclick={stopReplay}>Stop</button>
+    </div>
+  {/if}
 
   <div class="ss-strip">
     <section class="ss-box" aria-label="Where">
@@ -559,6 +609,37 @@
     display: inline-flex;
     align-items: center;
     gap: 14px;
+  }
+  .ss-replay {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px dashed var(--accent-line);
+    border-radius: var(--radius);
+    background: var(--accent-fill-faint);
+    font-size: var(--text-small);
+  }
+  .ss-replay-lab {
+    font-weight: var(--weight-semibold);
+    color: var(--accent);
+    margin-right: 6px;
+  }
+  .ss-replay-at {
+    min-width: 72px;
+    text-align: center;
+  }
+  .ss-replay-what {
+    display: inline-flex;
+    gap: 8px;
+    margin-left: 8px;
+    color: var(--text-strong);
+  }
+  .ss-replay-what span {
+    color: var(--text-dim);
+  }
+  .ss-replay-stop {
+    margin-left: auto;
   }
   .ss-reread {
     font-size: var(--text-small);

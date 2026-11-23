@@ -24,5 +24,5 @@ export const sessionModule: ModuleDescriptor = {
     lead: "What it reads. Both are off until you turn them on.",
     component: Setup,
   },
-  nav: [{ href: "/session", label: "Session Log", icon: History }],
+  nav: [{ href: "/session", label: "Session Log", icon: History, section: "companion" }],
 };

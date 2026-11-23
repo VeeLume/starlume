@@ -15,21 +15,24 @@ import { miningModule } from "./mining/descriptor";
 import { shipsModule } from "./ships/descriptor";
 import { craftingModule } from "./crafting/descriptor";
 import { sessionModule } from "./session/descriptor";
+import { discordModule } from "./discord/descriptor";
 import { plansModule } from "./plans/descriptor";
 import { SHOW_UNRELEASED } from "$lib/unreleased";
 
 export const moduleRegistry: ModuleDescriptor[] = [
-  // Unreleased ones are dev-build only — see $lib/unreleased (mirrors
-  // modules::registry() in Rust, same order).
+  // What's going on (the sidebar's first group: `section: "news"`).
   devtrackerModule,
-  langpatchModule,
-  itemsModule,
-  miningModule,
-  shipsModule,
-  craftingModule,
-  ...(SHOW_UNRELEASED ? [contractsModule] : []),
-  sessionModule,
   plansModule,
+  // The game tools.
+  shipsModule,
+  itemsModule,
+  craftingModule,
+  miningModule,
+  ...(SHOW_UNRELEASED ? [contractsModule] : []),
+  // Alongside the game (`section: "companion"`).
+  sessionModule,
+  discordModule,
+  langpatchModule,
 ];
 
 export function moduleById(id: string): ModuleDescriptor | undefined {

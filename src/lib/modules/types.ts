@@ -47,9 +47,10 @@ export interface NavEntry {
   label: string;
   /** Icon component (lucide-svelte) — the kit NavRail contract. */
   icon: NavIcon;
-  /** `news`: listed with Home and News ("what's going on") instead of
-   *  with the tools. Default: the module group. */
-  section?: "news";
+  /** `news`: listed with Home and News ("what's going on"); `companion`:
+   *  with what runs alongside the game (the Session Log, Discord, Text
+   *  Patching). Default: the game tools. */
+  section?: "news" | "companion";
 }
 
 /** A section a module contributes to the Me page — the unified place for

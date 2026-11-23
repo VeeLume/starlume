@@ -3,8 +3,8 @@
 //! data, and keeps the Discord app's activity in step (decision 01a2085d).
 //!
 //! **Gates.** Discord publishes what it is handed, so this is a network
-//! call: it needs `online_enabled` and its own switch
-//! (`AppSettings::presence`, off by default), and it only runs while a game
+//! call: it needs `online_enabled`, the Discord module, and its own switch
+//! on the module's page (`AppSettings::presence`, off by default), and it only runs while a game
 //! session is live, which needs the Session Log module and one of its
 //! sources (Game.log or telemetry). Any gate closing clears the activity
 //! and closes the pipe.
@@ -34,6 +34,9 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::AppState;
 use crate::session_names::{SessionNameQuery, default_channel, resolve};
+
+/// The Discord module's id: its page and its switch live there.
+pub(crate) const MODULE_ID: &str = "discord";
 
 /// The Discord application Starlume shows as (its name is what "Playing"
 /// says). Not a secret: every Rich Presence client ships its id.
@@ -580,8 +583,14 @@ impl Worker {
     fn tick(&mut self, app: &AppHandle) {
         let (settings, online, sources, module) = {
             let s = app.state::<AppState>().settings.lock().unwrap().clone();
+            let offered = crate::modules::registry()
+                .iter()
+                .any(|m| m.id() == MODULE_ID)
+                && s.enabled_modules.iter().any(|m| m == MODULE_ID);
+            let mut presence = s.presence.clone();
+            presence.enabled &= offered;
             (
-                s.presence.clone(),
+                presence,
                 s.online_enabled,
                 s.gamelog_enabled || s.telemetry_enabled,
                 s.enabled_modules
