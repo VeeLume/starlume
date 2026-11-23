@@ -7,8 +7,11 @@
 //!   only the system, or nothing, and then the contract's progress instead.
 //! - **The large image** is the ship: its store picture by URL, its name on
 //!   hover. No ship: the Starlume mark.
-//! - **The small image** is what you are doing, as an icon; its hover holds
-//!   the contract (title, objective, progress) or the exact place.
+//! - **The small image** is the app's own tile for what you are doing: the
+//!   contract type's (as Contracts' catalog draws it) while a contract
+//!   shows, else the ship's career (as Ships draws it), else none. Its
+//!   hover holds the contract (title, objective, progress), or the exact
+//!   place, or the career.
 //! - **The timer** counts from the contract's start while one shows, else
 //!   from the session's start (Discord shows elapsed time anyway; sending
 //!   the start keeps it right across a Starlume restart).
@@ -24,16 +27,51 @@ use crate::activity::{Activity, Assets, Button, LINE_MAX, Timestamps, cut};
 /// Discord's limit for a hover text.
 const HOVER_MAX: usize = 128;
 
-/// The asset keys uploaded to the Discord application: the mark, and one
-/// icon per thing you can be doing.
+/// The asset keys uploaded to the Discord application (`art/`): the mark,
+/// and the app's tiles. Keep the tables in step with Contracts' `CATEGORY`
+/// (src/lib/modules/contracts/Catalog.svelte), Ships' `LOOKS`
+/// (src/lib/modules/ships/careers.ts) and `art/make.mjs`.
 pub mod asset {
     pub const MARK: &str = "starlume";
-    pub const LOADING: &str = "loading";
-    pub const ON_FOOT: &str = "on_foot";
-    pub const FLYING: &str = "flying";
-    pub const QUANTUM: &str = "quantum";
-    pub const CONTRACT: &str = "contract";
-    pub const MINING: &str = "mining";
+
+    /// The tile of a contract type, by the catalog's name ("Mercenary",
+    /// "Hauling - Stellar"); `contract` when the app has none for it.
+    pub fn contract(kind: Option<&str>) -> &'static str {
+        match kind.map(str::trim) {
+            Some("Mercenary") => "contract_mercenary",
+            Some("Bounty Hunter") => "contract_bounty_hunter",
+            Some("Delivery") => "contract_delivery",
+            Some(k) if k == "Hauling" || k.starts_with("Hauling - ") => "contract_hauling",
+            Some("Refueling") => "contract_refueling",
+            Some("Collection") => "contract_collection",
+            Some("Investigation") => "contract_investigation",
+            Some("Maintenance") => "contract_maintenance",
+            Some("Salvage") => "contract_salvage",
+            Some("Racing") => "contract_racing",
+            Some("Priority") => "contract_priority",
+            Some("Appointment") => "contract_appointment",
+            Some("Service Beacons") => "contract_service_beacons",
+            _ => "contract",
+        }
+    }
+
+    /// The tile of a ship career ("Combat", "Multi-Role"); `career` when
+    /// the app has none for it.
+    pub fn career(career: Option<&str>) -> &'static str {
+        match career.map(str::trim) {
+            Some("Combat" | "Snub Fighter") => "career_combat",
+            Some("Gunship") => "career_gunship",
+            Some("Transporter" | "Transport") => "career_transport",
+            Some("Exploration") => "career_exploration",
+            Some("Industrial") => "career_industrial",
+            Some("Support") => "career_support",
+            Some("Competition") => "career_competition",
+            Some("Multi-Role") => "career_multi_role",
+            Some("Starter") => "career_starter",
+            Some("Ground") => "career_ground",
+            _ => "career",
+        }
+    }
 }
 
 /// Where the "Get Starlume" button goes.
@@ -121,6 +159,8 @@ pub struct Ship {
     pub short: String,
     /// Its ship store picture, an https URL.
     pub picture: Option<String>,
+    /// Its career, as Ships names it: "Combat", "Multi-Role".
+    pub career: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -170,29 +210,29 @@ pub fn compose(moment: &Moment, share: &Share) -> Activity {
         None => (asset::MARK.into(), "Starlume".into()),
     };
 
-    let small_image = match (contract, moment.doing) {
-        (Some(_), _) => asset::CONTRACT,
-        (None, Doing::Loading) => asset::LOADING,
-        (None, Doing::OnFoot) => asset::ON_FOOT,
-        (None, Doing::Flying) => asset::FLYING,
-        (None, Doing::Quantum) => asset::QUANTUM,
-        (None, Doing::Mining) => asset::MINING,
-    };
-    let small_text = match contract {
-        Some(c) => {
+    let exact_place = moment
+        .place
+        .as_ref()
+        .filter(|_| exact)
+        .map(|p| p.exact.clone());
+    let (small_image, small_text) = match (contract, ship) {
+        (Some(c), _) => {
             let objective = c.objective.as_deref().filter(|_| exact);
             let parts: Vec<&str> = [Some(c.title.as_str()), objective, c.progress.as_deref()]
                 .into_iter()
                 .flatten()
                 .filter(|s| !s.trim().is_empty())
                 .collect();
-            Some(parts.join(", "))
+            (
+                Some(asset::contract(c.kind.as_deref())),
+                Some(parts.join(", ")),
+            )
         }
-        None => moment
-            .place
-            .as_ref()
-            .filter(|_| exact)
-            .map(|p| p.exact.clone()),
+        (None, Some(s)) => (
+            Some(asset::career(s.career.as_deref())),
+            exact_place.or_else(|| s.career.clone()),
+        ),
+        (None, None) => (None, None),
     };
 
     let start = contract.and_then(|c| c.started).or(moment.session_start);
@@ -207,7 +247,7 @@ pub fn compose(moment: &Moment, share: &Share) -> Activity {
         assets: Some(Assets {
             large_image: Some(large_image),
             large_text: text(&large_text, HOVER_MAX),
-            small_image: Some(small_image.into()),
+            small_image: small_image.map(Into::into),
             small_text: small_text.and_then(|s| text(&s, HOVER_MAX)),
         }),
         buttons: if share.button {
@@ -277,11 +317,12 @@ mod tests {
         })
     }
 
-    fn ship(name: &str, short: &str, picture: Option<&str>) -> Option<Ship> {
+    fn ship(name: &str, short: &str, picture: Option<&str>, career: &str) -> Option<Ship> {
         Some(Ship {
             name: name.into(),
             short: short.into(),
             picture: picture.map(Into::into),
+            career: Some(career.into()),
         })
     }
 
@@ -292,7 +333,7 @@ mod tests {
         Moment {
             doing: Doing::OnFoot,
             place: place("Onyx Facility, Lyria", "Stanton"),
-            ship: ship("RSI Hermes", "Hermes", None),
+            ship: ship("RSI Hermes", "Hermes", None, "Transport"),
             contract: Some(Contract {
                 kind: Some("Investigation".into()),
                 faction: None,
@@ -310,7 +351,7 @@ mod tests {
         Moment {
             doing: Doing::Quantum,
             place: place("Yela", "Stanton"),
-            ship: ship("RSI Galaxy", "Galaxy", Some(GALAXY)),
+            ship: ship("RSI Galaxy", "Galaxy", Some(GALAXY), "Multi-Role"),
             contract: None,
             session_start: Some(1_795_375_494),
         }
@@ -333,15 +374,15 @@ mod tests {
         assert_eq!(a.state.as_deref(), Some("To Yela"));
         assert_eq!(assets(&a).large_image.as_deref(), Some(GALAXY));
         assert_eq!(assets(&a).large_text.as_deref(), Some("RSI Galaxy"));
-        assert_eq!(assets(&a).small_image.as_deref(), Some(asset::QUANTUM));
+        assert_eq!(assets(&a).small_image.as_deref(), Some("career_multi_role"));
         assert_eq!(assets(&a).small_text.as_deref(), Some("Yela"));
     }
 
     #[test]
-    fn the_system_level_says_only_the_system_and_hovers_nothing() {
+    fn the_system_level_says_only_the_system_and_hovers_the_career() {
         let a = compose(&galaxy(), &Share::default());
         assert_eq!(a.state.as_deref(), Some("Stanton"));
-        assert_eq!(assets(&a).small_text, None);
+        assert_eq!(assets(&a).small_text.as_deref(), Some("Multi-Role"));
     }
 
     #[test]
@@ -350,7 +391,10 @@ mod tests {
         assert_eq!(a.details.as_deref(), Some("Investigation"));
         assert_eq!(a.state.as_deref(), Some("Stanton"));
         assert_eq!(a.timestamps.as_ref().unwrap().start, Some(1_795_389_000));
-        assert_eq!(assets(&a).small_image.as_deref(), Some(asset::CONTRACT));
+        assert_eq!(
+            assets(&a).small_image.as_deref(),
+            Some("contract_investigation")
+        );
         // No objective below the exact level: it names a place.
         assert_eq!(
             assets(&a).small_text.as_deref(),
@@ -409,7 +453,7 @@ mod tests {
         );
         assert_eq!(a.details.as_deref(), Some("Flying a Hermes"));
         assert_eq!(a.timestamps.as_ref().unwrap().start, Some(1_795_375_494));
-        assert_eq!(assets(&a).small_image.as_deref(), Some(asset::FLYING));
+        assert_eq!(assets(&a).small_image.as_deref(), Some("career_transport"));
     }
 
     #[test]
@@ -430,7 +474,7 @@ mod tests {
     fn a_ship_without_a_store_picture_keeps_the_mark_and_its_name() {
         let m = Moment {
             doing: Doing::Flying,
-            ship: ship("Kruger Stingray", "Stingray", None),
+            ship: ship("Kruger Stingray", "Stingray", None, "Combat"),
             ..Moment::default()
         };
         let a = compose(&m, &Share::default());
@@ -464,13 +508,47 @@ mod tests {
     fn an_before_a_vowel() {
         let m = Moment {
             doing: Doing::Flying,
-            ship: ship("Aegis Avenger Titan", "Avenger Titan", None),
+            ship: ship("Aegis Avenger Titan", "Avenger Titan", None, "Starter"),
             ..Moment::default()
         };
         assert_eq!(
             compose(&m, &Share::default()).details.as_deref(),
             Some("Flying an Avenger Titan")
         );
+    }
+
+    #[test]
+    fn the_small_image_is_the_apps_tile_or_its_fallback() {
+        assert_eq!(
+            asset::contract(Some("Hauling - Stellar")),
+            "contract_hauling"
+        );
+        assert_eq!(
+            asset::contract(Some("Bounty Hunter")),
+            "contract_bounty_hunter"
+        );
+        assert_eq!(asset::contract(Some("Something New")), "contract");
+        assert_eq!(asset::contract(None), "contract");
+        assert_eq!(asset::career(Some("Snub Fighter")), "career_combat");
+        assert_eq!(asset::career(None), "career");
+    }
+
+    #[test]
+    fn on_foot_without_a_contract_has_no_small_image() {
+        let m = Moment {
+            doing: Doing::OnFoot,
+            place: place("Levski, Nyx", "Nyx"),
+            ..Moment::default()
+        };
+        let a = compose(
+            &m,
+            &Share {
+                place: PlaceLevel::Exact,
+                ..Share::default()
+            },
+        );
+        assert_eq!(assets(&a).small_image, None);
+        assert_eq!(assets(&a).small_text, None);
     }
 
     #[test]
@@ -488,7 +566,7 @@ mod tests {
         );
         assert_eq!(a.details.as_deref(), Some("Loading in"));
         assert_eq!(a.state, None);
-        assert_eq!(assets(&a).small_image.as_deref(), Some(asset::LOADING));
+        assert_eq!(assets(&a).small_image, None);
         assert_eq!(a.timestamps.unwrap().start, Some(10));
     }
 

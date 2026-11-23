@@ -1,13 +1,19 @@
 [
   {
     "label": "Nov 22, 0:16, before a shard",
-    "moment": { "doing": "loading", "session_start": 1010 }
+    "moment": {
+      "doing": "loading",
+      "session_start": 1010
+    }
   },
   {
     "label": "Nov 22, 0:19, spawned at Levski",
     "moment": {
       "doing": "on_foot",
-      "place": { "exact": "Levski, Nyx", "system": "Nyx" },
+      "place": {
+        "exact": "Levski, Nyx",
+        "system": "Nyx"
+      },
       "session_start": 1146
     }
   },
@@ -15,8 +21,15 @@
     "label": "Nov 22, 0:30, the Stingray to the Castra jump point",
     "moment": {
       "doing": "quantum",
-      "place": { "exact": "Nyx–Castra jump point", "system": "Nyx" },
-      "ship": { "name": "Kruger Stingray", "short": "Stingray" },
+      "place": {
+        "exact": "Nyx–Castra jump point",
+        "system": "Nyx"
+      },
+      "ship": {
+        "name": "Kruger Stingray",
+        "short": "Stingray",
+        "career": "Combat"
+      },
       "session_start": 1830
     }
   },
@@ -24,11 +37,15 @@
     "label": "Nov 22, 1:13, the Galaxy to Yela",
     "moment": {
       "doing": "quantum",
-      "place": { "exact": "Yela", "system": "Stanton" },
+      "place": {
+        "exact": "Yela",
+        "system": "Stanton"
+      },
       "ship": {
         "name": "RSI Galaxy",
         "short": "Galaxy",
-        "picture": "https://media.robertsspaceindustries.com/bb6z60h2ou5a0/slideshow.jpg"
+        "picture": "https://media.robertsspaceindustries.com/bb6z60h2ou5a0/slideshow.jpg",
+        "career": "Multi-Role"
       },
       "session_start": 4399
     }
@@ -37,11 +54,15 @@
     "label": "Nov 22, 3:48, the Jorrit Dossier",
     "moment": {
       "doing": "on_foot",
-      "place": { "exact": "Onyx Facility, Lyria", "system": "Stanton" },
+      "place": {
+        "exact": "Onyx Facility, Lyria",
+        "system": "Stanton"
+      },
       "ship": {
         "name": "RSI Hermes",
         "short": "Hermes",
-        "picture": "https://media.robertsspaceindustries.com/lx84u9f3zauov/slideshow.jpg"
+        "picture": "https://media.robertsspaceindustries.com/lx84u9f3zauov/slideshow.jpg",
+        "career": "Transport"
       },
       "contract": {
         "kind": "Investigation",
@@ -57,11 +78,15 @@
     "label": "Nov 17, 1:15, a bounty run in the Marauder",
     "moment": {
       "doing": "flying",
-      "place": { "exact": "Bloom, Pyro", "system": "Pyro" },
+      "place": {
+        "exact": "Bloom, Pyro",
+        "system": "Pyro"
+      },
       "ship": {
         "name": "Drake Marauder",
         "short": "Marauder",
-        "picture": "https://media.robertsspaceindustries.com/zzdts6fpnwojx/slideshow.jpg"
+        "picture": "https://media.robertsspaceindustries.com/zzdts6fpnwojx/slideshow.jpg",
+        "career": "Combat"
       },
       "contract": {
         "kind": "Mercenary",

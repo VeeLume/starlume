@@ -4,24 +4,26 @@ Upload each PNG to the Discord application (Rich Presence › Art Assets)
 under its file name without `.png`: these are the keys `compose` sends
 (`svc_presence::compose::asset`).
 
-| Key | Shows | Glyph |
-|---|---|---|
-| `starlume` | the large image when there is no ship picture | the app icon (`src-tauri/icons/source/icon.svg`) |
-| `loading` | before a shard | lucide `loader-circle` |
-| `on_foot` | on foot | lucide `footprints` |
-| `flying` | in a ship | lucide `rocket` |
-| `quantum` | in quantum travel | lucide `orbit` (Ships' quantum drives) |
-| `contract` | a contract shows | lucide `scroll-text` (the Contracts module) |
-| `mining` | mining | lucide `pickaxe` (the Mining module) |
+- `starlume`: the large image when there is no ship picture; the app
+  icon (`src-tauri/icons/source/icon.svg`).
+- `contract_*`: the small image while a contract shows, one per contract
+  type, the tile Contracts' catalog draws for it (`CATEGORY` in
+  `src/lib/modules/contracts/Catalog.svelte`). `contract` is the catalog's
+  fallback for a type it has no tile for.
+- `career_*`: the small image in a ship with no contract showing, one per
+  ship career, the tile Ships draws for it (`LOOKS` in
+  `src/lib/modules/ships/careers.ts`). `career` is its fallback.
 
-The icons are drawn the way the app icon draws its planet: the graphite
-surface (#232325 to #121213) with its hairline edge (#38383c), a soft
-accent glow (#a996ff), and the glyph as a holo line (#ddd5ff over a
-blurred accent stroke). The surface is a disc because Discord shows the
-small image as a circle about 20 px wide on the large image's corner.
-`sheet.png` shows them together.
+Nothing else gets a small image: on foot with no contract, the profile
+shows none rather than a generic icon.
 
-Rebuild from the repo root:
+The tiles use the app's `.tile` mixes on the app.css tokens: the hue at 12%
+on `--bg-raised`, its edge at 26% on `--border`, the lucide glyph at 85% on
+`--text`. Discord shows the small image as a circle, so each tile is a
+disc. `sheet.png` shows them all.
+
+Rebuild from the repo root, keeping `make.mjs`'s list in step with the two
+app files and with `compose::asset`:
 
 ```sh
 node crates/svc-presence/art/make.mjs node_modules/.pnpm/lucide-svelte@*/node_modules/lucide-svelte/dist/icons crates/svc-presence/art/source
