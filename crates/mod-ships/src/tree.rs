@@ -98,6 +98,9 @@ pub struct Slot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CraftedMark {
     pub quality: i32,
+    /// A quality per material slot; empty when every slot is at `quality`.
+    #[serde(default)]
+    pub slots: Vec<i32>,
     pub gains: Vec<Gain>,
 }
 
@@ -192,9 +195,17 @@ fn walk(ctx: &Walk, level: &[Mounted], path: &mut Vec<String>) -> Vec<Slot> {
                 .map(|b| b.guid.clone());
             let crafted = ctx.crafted.get(&key).map(|c| CraftedMark {
                 quality: c.quality,
+                slots: c.slots.clone(),
                 gains: m
                     .item
-                    .map(|g| ctx.recipes.gains(&g.to_string(), c.quality))
+                    .map(|g| {
+                        let at = if c.slots.is_empty() {
+                            vec![c.quality]
+                        } else {
+                            c.slots.clone()
+                        };
+                        ctx.recipes.gains_at(&g.to_string(), &at)
+                    })
                     .unwrap_or_default(),
             });
             out.push(Slot {

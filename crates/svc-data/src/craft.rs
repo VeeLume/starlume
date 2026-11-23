@@ -189,12 +189,17 @@ pub struct Gain {
     pub improved: Option<bool>,
 }
 
-/// An item crafted with every material at one quality.
+/// An item crafted at a quality per material slot.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Crafted {
     /// The blueprint (`CraftingBlueprintRecord` GUID): what Plans takes.
     pub blueprint: String,
+    /// The highest of the slots' qualities: the one quality when all are
+    /// alike.
     pub quality: i32,
+    /// Each slot's quality, in the recipe's slot order; empty when every
+    /// slot is at `quality`.
+    pub slots: Vec<i32>,
     pub changes: Vec<PropertyChange>,
 }
 
@@ -243,9 +248,20 @@ impl<'a> Recipes<'a> {
     /// `item` crafted with every material at `quality` (clamped to
     /// 0..=1000); `None` when no blueprint makes it.
     pub fn crafted(&self, item: &str, quality: i32) -> Option<Crafted> {
+        self.crafted_at(item, &[quality])
+    }
+
+    /// `item` crafted at a quality per material slot, in the recipe's slot
+    /// order (each clamped to 0..=1000; a slot past the end takes the
+    /// last); `None` when no blueprint makes it or `qualities` is empty.
+    pub fn crafted_at(&self, item: &str, qualities: &[i32]) -> Option<Crafted> {
         let bp = self.of(item)?;
-        let quality = quality.clamp(0, MAX_QUALITY);
-        let q = [f64::from(quality)];
+        let slots: Vec<i32> = qualities
+            .iter()
+            .map(|q| (*q).clamp(0, MAX_QUALITY))
+            .collect();
+        let quality = *slots.iter().max()?;
+        let q: Vec<f64> = slots.iter().map(|v| f64::from(*v)).collect();
         let mut seen: Vec<&str> = Vec::new();
         for m in bp.slots.iter().flat_map(|s| &s.modifiers) {
             if let Some(p) = m.property.as_deref()
@@ -265,16 +281,33 @@ impl<'a> Recipes<'a> {
         Some(Crafted {
             blueprint: bp.guid.clone(),
             quality,
+            slots: if slots.iter().all(|v| *v == quality) {
+                Vec::new()
+            } else {
+                slots
+            },
             changes,
         })
     }
 
     /// The rows of `item`'s stat sheet that crafting at `quality` changes.
     pub fn gains(&self, item: &str, quality: i32) -> Vec<Gain> {
+        self.gains_at(item, &[quality])
+    }
+
+    /// The rows of `item`'s stat sheet that crafting at a quality per slot
+    /// changes ([`Self::crafted_at`]).
+    pub fn gains_at(&self, item: &str, qualities: &[i32]) -> Vec<Gain> {
         let Some(bp) = self.of(item) else {
             return Vec::new();
         };
-        let q = [f64::from(quality.clamp(0, MAX_QUALITY))];
+        if qualities.is_empty() {
+            return Vec::new();
+        }
+        let q: Vec<f64> = qualities
+            .iter()
+            .map(|v| f64::from((*v).clamp(0, MAX_QUALITY)))
+            .collect();
         bp.stats
             .iter()
             .filter_map(|s| {

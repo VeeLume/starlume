@@ -123,12 +123,14 @@ pub fn candidates(
             }
             let mut with = input.clone();
             with.edits.extend(targets.iter().map(|t| {
+                let mark = (held(t) == Some(g))
+                    .then(|| crafted.get(&t.join("/")))
+                    .flatten();
                 Edit {
                     path: t.clone(),
                     item: Some(g.to_string()),
-                    quality: (held(t) == Some(g))
-                        .then(|| crafted.get(&t.join("/")).map(|c| c.quality))
-                        .flatten(),
+                    quality: mark.map(|c| c.quality),
+                    qualities: mark.map(|c| c.slots.clone()).unwrap_or_default(),
                 }
             }));
             let impact =

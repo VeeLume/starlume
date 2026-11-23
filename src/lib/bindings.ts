@@ -2204,7 +2204,11 @@ power: number; gains: GainView[] }
 /**
  * A part marked crafted: its quality and the figures that change.
  */
-export type CraftedMarkView = { quality: number; gains: GainView[] }
+export type CraftedMarkView = { quality: number; 
+/**
+ * A quality per material slot; empty when all are at `quality`.
+ */
+slots: number[]; gains: GainView[] }
 export type CraftedPropertyView = { 
 /**
  * `CraftingGameplayPropertyDef` CRC.
@@ -2458,7 +2462,12 @@ export type EditView = { path: string[]; item: string | null;
  * What if the part were crafted, every material at this quality
  * (0..=1000); `null`: as the shops sell it.
  */
-quality?: number | null }
+quality?: number | null; 
+/**
+ * A quality per material slot, in the recipe's order, when they
+ * differ (`quality` is their highest); empty: all at `quality`.
+ */
+qualities?: number[] }
 /**
  * What lasers put on the rock: power, and the change to resistance,
  * instability and window as fractions (`-0.3`: 30 % less).

@@ -376,6 +376,7 @@ fn centaurus_stock_slots() {
             path: vec!["hardpoint_quantum_drive".into()],
             item: Some(other.item.clone()),
             quality: None,
+            qualities: Vec::new(),
         }],
     };
     let sv = view(
@@ -1189,6 +1190,7 @@ fn crafted_parts_move_the_figures() {
         path: s.path.clone(),
         item: s.item.clone(),
         quality: Some(q),
+        qualities: Vec::new(),
     };
     let with = |edits: Vec<mod_ships::Edit>| {
         let input = LoadoutInput {

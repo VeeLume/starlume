@@ -272,7 +272,12 @@ function persist(ship: string): void {
 /** What a list of swaps does in the end, per port (a later swap of the
  *  same port replaces an earlier one); a crafted mark is part of it. */
 function finalSwaps(edits: EditView[]): Map<string, string | null> {
-  return new Map(edits.map((e) => [e.path.join("/"), e.quality == null ? e.item : `${e.item}@Q${e.quality}`]));
+  return new Map(
+    edits.map((e) => [
+      e.path.join("/"),
+      e.quality == null ? e.item : `${e.item}@Q${e.qualities?.length ? e.qualities.join(",") : e.quality}`,
+    ]),
+  );
 }
 
 let _owned = $state.raw<Record<string, ShipOwnedView>>({});
@@ -565,11 +570,14 @@ function slotAt(slots: SlotView[], path: string[]): SlotView | null {
   return null;
 }
 
-/** What if the parts on `targets` were crafted, every material at
- *  `quality` (0..=1000); null: as the shops sell them. The mark rides on
- *  the port's own swap (a new one for a part as it came), so swapping the
- *  part takes the mark with it. */
-export function setCrafted(targets: string[][], quality: number | null): void {
+/** What if the parts on `targets` were crafted, at a quality per material
+ *  slot in the recipe's order (0..=1000); null: as the shops sell them.
+ *  The mark rides on the port's own swap (a new one for a part as it
+ *  came), so swapping the part takes the mark with it. */
+export function setCrafted(targets: string[][], slots: number[] | null): void {
+  const quality = slots && slots.length ? Math.max(...slots) : null;
+  // All alike: one quality, as loadouts saved before per-slot ones read.
+  const qualities = slots && slots.some((q) => q !== quality) ? slots : [];
   const ship = shipsUi.ship;
   if (_page?.ship !== ship) return;
   const edits = [...(shipsUi.edits[ship] ?? [])];
@@ -578,8 +586,8 @@ export function setCrafted(targets: string[][], quality: number | null): void {
     if (!item) continue;
     const k = path.join("/");
     const i = edits.findLastIndex((e) => e.path.join("/") === k);
-    if (i >= 0 && edits[i].item === item) edits[i] = { ...edits[i], quality };
-    else if (quality !== null) edits.push({ path, item, quality });
+    if (i >= 0 && edits[i].item === item) edits[i] = { ...edits[i], quality, qualities };
+    else if (quality !== null) edits.push({ path, item, quality, qualities });
   }
   shipsUi.edits[ship] = edits;
   persist(ship);

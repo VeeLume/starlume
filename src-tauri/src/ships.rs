@@ -221,6 +221,8 @@ pub struct SlotView {
 #[serde(rename_all = "camelCase")]
 pub struct CraftedMarkView {
     pub quality: i32,
+    /// A quality per material slot; empty when all are at `quality`.
+    pub slots: Vec<i32>,
     pub gains: Vec<GainView>,
 }
 
@@ -271,6 +273,7 @@ impl From<Slot> for SlotView {
             blueprint: s.blueprint,
             crafted: s.crafted.map(|c| CraftedMarkView {
                 quality: c.quality,
+                slots: c.slots,
                 gains: c.gains.into_iter().map(Into::into).collect(),
             }),
             children: s.children.into_iter().map(Into::into).collect(),
@@ -288,6 +291,10 @@ pub struct EditView {
     /// (0..=1000); `null`: as the shops sell it.
     #[serde(default)]
     pub quality: Option<i32>,
+    /// A quality per material slot, in the recipe's order, when they
+    /// differ (`quality` is their highest); empty: all at `quality`.
+    #[serde(default)]
+    pub qualities: Vec<i32>,
 }
 
 /// A ship and how it differs from stock.
@@ -309,6 +316,7 @@ impl From<ShipLoadoutView> for LoadoutInput {
                     path: e.path,
                     item: e.item,
                     quality: e.quality,
+                    qualities: e.qualities,
                 })
                 .collect(),
         }
@@ -1929,6 +1937,7 @@ impl From<ShipDraftView> for mod_ships::Draft {
                     path: e.path,
                     item: e.item,
                     quality: e.quality,
+                    qualities: e.qualities,
                 })
                 .collect(),
             off: v.off,
@@ -1948,6 +1957,7 @@ fn edit_views(edits: &[Edit]) -> Vec<EditView> {
             path: e.path.clone(),
             item: e.item.clone(),
             quality: e.quality,
+            qualities: e.qualities.clone(),
         })
         .collect()
 }

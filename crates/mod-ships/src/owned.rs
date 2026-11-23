@@ -237,6 +237,7 @@ fn edits(
                 path,
                 item: item.map(|g| g.to_string()),
                 quality: None,
+                qualities: Vec::new(),
             });
         }
     }
