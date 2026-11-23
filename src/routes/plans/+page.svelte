@@ -71,6 +71,19 @@
   let removing = $state<PlanBoard | null>(null);
   /** The right column's panel: where parts come from, or the materials. */
   let sideTab = $state<"parts" | "materials">("parts");
+  /** The focused plan's name is being edited. */
+  let renaming = $state(false);
+
+  /** Keep a typed name; the goal's own name, or nothing, keeps the plan
+   *  named after its goal. */
+  function rename(d: PlanBoard, raw: string) {
+    if (!renaming) return;
+    renaming = false;
+    const next = raw.trim();
+    const own = plansStore.plans?.find((p) => p.id === d.id)?.name ?? "";
+    const value = next === d.name && !own ? "" : next;
+    if (value !== own) void renamePlan(d.id, value);
+  }
   let blueprints = $state<BlueprintRowView[]>([]);
 
   const channel = $derived(dataStore.channel);
@@ -154,8 +167,12 @@
         : null,
   );
   const target = $derived(board?.targets.find((t) => t.plan === detail?.id) ?? null);
-  /** The plan as stored: its own name (the board's is the shown one). */
-  const stored = $derived(plansStore.plans?.find((p) => p.id === detail?.id) ?? null);
+  // Another plan in focus ends the edit; the same plan re-derived does not.
+  const detailId = $derived(detail?.id ?? null);
+  $effect(() => {
+    void detailId;
+    renaming = false;
+  });
   /** A plan's name where room is short (the Focus pills, step tags,
    *  Components rows): your own name for it, else the ship or item
    *  without its maker ("Constellation Mk V Centaurus"). The full name is
@@ -530,18 +547,32 @@
       <span class="glyph lg"><PlanGlyph shape={PLAN_LOOK[d.kind].shape} /></span>
       <div class="band-title">
         <span class="kick">{PLAN_LOOK[d.kind].chip.toLowerCase()} plan{d.parked ? ", bookmarked" : ""}</span>
-        <input
-          class="band-name"
-          value={d.name}
-          placeholder={d.kind === "project" ? "Project" : "Name it"}
-          aria-label="Name of this plan"
-          title="Type to rename it; cleared, it is named after its goal again"
-          onchange={(e) => {
-            // The goal's own name, or nothing, keeps it named after the goal.
-            const next = e.currentTarget.value.trim();
-            void renamePlan(d.id, next === d.name && !stored?.name ? "" : next);
-          }}
-        />
+        <!-- The name is a heading; the pencil turns it into the app's
+             field in the same box (Enter or leaving it keeps the name,
+             Escape drops the change). -->
+        <span class="band-name-row">
+          {#if renaming}
+            <!-- svelte-ignore a11y_autofocus -->
+            <input
+              class="input band-edit"
+              value={d.name}
+              placeholder={d.kind === "project" ? "Project" : "Name it"}
+              aria-label="Name of this plan"
+              autofocus
+              onfocus={(e) => e.currentTarget.select()}
+              onkeydown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                else if (e.key === "Escape") renaming = false;
+              }}
+              onblur={(e) => rename(d, e.currentTarget.value)}
+            />
+          {:else}
+            <h2 class="band-name" title={d.name}>{d.name}</h2>
+            <button type="button" class="tool pen" title="Rename it" aria-label="Rename this plan" onclick={() => (renaming = true)}
+              ><Pencil size={14} /></button
+            >
+          {/if}
+        </span>
         <span class="band-prog"><span class="track"><i style:width="{pct}%"></i></span><span class="mono dim">{pct}%</span></span>
       </div>
       <div class="tools" role="group" aria-label="This plan">
@@ -1769,29 +1800,44 @@
     text-transform: uppercase;
     color: color-mix(in srgb, var(--hue) 80%, var(--text));
   }
-  /* The name is the heading; it edits in place. */
+  /* The name: a heading, and the app's field in the same 34 px box while
+   * it is renamed, so nothing moves. */
+  .band-name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    min-width: 0;
+  }
   .band-name {
-    all: unset;
-    box-sizing: border-box;
-    width: 100%;
-    padding: 0;
-    border-bottom: 1px solid transparent;
+    margin: 0;
+    min-width: 0;
     font-family: var(--font-display);
     font-size: 1.25rem;
     font-weight: var(--weight-bold);
     line-height: 1.3;
     color: var(--text-strong);
+    white-space: nowrap;
+    overflow: hidden;
     text-overflow: ellipsis;
   }
-  .band-name::placeholder {
-    color: var(--text-faint);
+  .pen {
+    flex: none;
+    opacity: 0;
   }
-  /* An underline, not a box: nothing moves or overflows on focus. */
-  .band-name:hover {
-    border-bottom-color: var(--border);
+  .band-name-row:hover .pen,
+  .pen:focus-visible {
+    opacity: 1;
   }
-  .band-name:focus {
-    border-bottom-color: var(--accent-line);
+  .band-edit {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 640px;
+    height: 34px;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: var(--weight-bold);
+    color: var(--text-strong);
   }
   .band-prog {
     display: flex;
