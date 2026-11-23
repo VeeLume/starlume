@@ -17,7 +17,7 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { Button, ConfirmDialog, Dialog, Picker } from "@veelume/ui";
-  import { ArrowUpRight, GripVertical, Plus, Target } from "lucide-svelte";
+  import { ArrowRight, ArrowUpRight, Bookmark, GripVertical, Pencil, Plus, Target, Trash2 } from "lucide-svelte";
   import type { BlueprintRowView, PartChoice, PartSource, PlanBoard, PlanCraft, PlanSlot, RepFilter, StepKind, TrackKind } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import NowCard from "$lib/components/NowCard.svelte";
@@ -69,6 +69,10 @@
   /** The project a craft is being picked for. */
   let addingTo = $state<PlanBoard | null>(null);
   let removing = $state<PlanBoard | null>(null);
+  /** The right column's panel: where parts come from, or the materials. */
+  let sideTab = $state<"parts" | "materials">("parts");
+  /** A minimum being dragged, until the plan takes it: `blueprint:slot`. */
+  let drafts = $state<Record<string, number>>({});
   let blueprints = $state<BlueprintRowView[]>([]);
 
   const channel = $derived(dataStore.channel);
@@ -167,11 +171,6 @@
     const words = p.title.split(" ");
     return words.length > 1 ? words.slice(1).join(" ") : p.title;
   }
-  const focusName = $derived(
-    shownFocus.kind === "plan"
-      ? `to get ${names.get(shownFocus.plan) ?? "the plan"} ready`
-      : `for ${(TRACKS.find((t) => t.id === shownFocus.track)?.label ?? "").toLowerCase()} across your plans`,
-  );
   const FOCUS_HUE: Record<TrackKind, string> = {
     shopping: "var(--hue-sky)",
     mining: "var(--hue-quality)",
@@ -407,11 +406,6 @@
     return count ?? c.count;
   }
 
-  /** One quality for every material of a craft: the shortcut. */
-  function setAll(c: PlanCraft, raw: string) {
-    const quality = typed(raw, 0, 1000);
-    if (detail && quality != null) void updateCraft(detail.id, c.blueprint, c.count, [], quality);
-  }
 
   function setSlot(c: PlanCraft, index: number, quality: number) {
     if (!detail) return;
@@ -536,6 +530,137 @@
   </section>
 {/snippet}
 
+<!-- The plan in focus (pass 9): under the session card on Active, where
+     This plan was on Bookmarks and Done. Its name is the heading (type to
+     rename it), its next step and your note under it, and a craft's count
+     and minimum quality per material in the band itself, so they are seen
+     with the plan, not under the steps. -->
+{#snippet band()}
+  {@const d = detail!}
+  {@const pct = Math.round(d.progress * 100)}
+  <section class="band kind-{d.kind}" aria-label="The plan in focus">
+    <div class="band-top">
+      <span class="glyph lg"><PlanGlyph shape={PLAN_LOOK[d.kind].shape} /></span>
+      <div class="band-title">
+        <span class="kick">{PLAN_LOOK[d.kind].chip.toLowerCase()} plan{d.parked ? ", bookmarked" : ""}</span>
+        <input
+          class="band-name"
+          value={stored?.name ?? ""}
+          placeholder={d.kind === "project" ? "Project" : d.name}
+          aria-label="Name of this plan"
+          title="Type to rename it; empty, it is named after its goal"
+          onchange={(e) => void renamePlan(d.id, e.currentTarget.value)}
+        />
+        <span class="band-prog"><span class="track"><i style:width="{pct}%"></i></span><span class="mono dim">{pct}%</span></span>
+      </div>
+      <div class="tools" role="group" aria-label="This plan">
+        {#if !d.done && !d.missing}
+          <button
+            type="button"
+            class="tool"
+            title={d.parked ? "Plan it: it reserves materials and parts again" : "Move it to your bookmarks: it reserves nothing"}
+            aria-label={d.parked ? "Plan it" : "Move to bookmarks"}
+            onclick={() => void parkPlan(d.id, !d.parked)}
+            >{#if d.parked}<Target size={15} />{:else}<Bookmark size={15} />{/if}</button
+          >
+        {/if}
+        {#if (target?.ship && on("ships")) || (target?.family && on("crafting"))}
+          <button type="button" class="tool" title={target.ship ? "Open the ship" : "Open the recipe"} aria-label={target.ship ? "Open the ship" : "Open the recipe"} onclick={open}
+            ><ArrowUpRight size={15} /></button
+          >
+        {/if}
+        <button type="button" class="tool bad" title="Remove the plan" aria-label="Remove the plan" onclick={() => (removing = d)}><Trash2 size={15} /></button>
+      </div>
+    </div>
+    <div class="band-meta">
+      <span class="next" class:waits={d.waiting}
+        ><ArrowRight size={14} />{d.missing ? `${d.note}. Remove the plan, or bring its goal back.` : d.note}</span
+      >
+      <label class="note-q" title="Your own words about this plan"
+        ><Pencil size={13} /><input value={d.notes} placeholder="Add a note" aria-label="Notes" onchange={(e) => void setPlanNotes(d.id, e.currentTarget.value)} /></label
+      >
+    </div>
+    {#if d.kind === "project" || d.crafts.length > 0}
+      <div class="band-sec">
+        <span class="band-lab">{d.kind === "project" ? "Crafts in this project" : "Minimum quality per material"}</span>
+        <span class="grow"></span>
+        {#if d.kind === "project"}
+          <Button variant="outline" onclick={() => (addingTo = d)}><Plus size={14} /> Add a craft</Button>
+        {/if}
+      </div>
+      {#each d.crafts as c (c.blueprint)}
+        <div class="craft" class:missing={c.missing}>
+          <div class="craft-head">
+            {#if d.kind === "project"}<b>{c.name}</b>{/if}
+            <span class="dim small">{c.crafted} of {c.count} crafted</span>
+            <span class="grow"></span>
+            {#if !c.missing}
+              <span class="count">
+                <span class="dim small">Count</span>
+                <span class="stepper">
+                  <button type="button" aria-label="One less" disabled={c.count <= 1} onclick={() => setCount(c, String(c.count - 1))}>−</button>
+                  <b class="mono">{c.count}</b>
+                  <button type="button" aria-label="One more" onclick={() => setCount(c, String(c.count + 1))}>+</button>
+                </span>
+              </span>
+              {#if d.kind === "project" && c.family && on("crafting")}
+                <Button variant="ghost" href="/crafting?sel={encodeURIComponent(c.family)}">Recipe <ArrowUpRight size={14} /></Button>
+              {/if}
+            {/if}
+            {#if d.kind === "project"}
+              <Button variant="ghost" onclick={() => void removeCraft(d.id, c.blueprint)}>Take out</Button>
+            {/if}
+          </div>
+          <div class="slots">
+            {#each c.slots as s, i (i)}
+              {@const choice = slotChoice(s)}
+              {@const key = `${c.blueprint}:${i}`}
+              {@const q = drafts[key] ?? (choice.stops.length ? choice.now : s.min)}
+              <div class="slot">
+                <span class="slot-head">
+                  <span class="slot-mat"
+                    ><i class:held={s.held} title={s.held ? "Your stock covers it" : "Not covered by your stock"}></i>{s.material}<span
+                      class="dim mono">{slotAmount(s)}</span
+                    ></span
+                  >
+                  <span class="slot-q">{q <= 1 && s.floor <= 1 ? "any" : `Q${q}+`}</span>
+                </span>
+                {#if choice.stops.length > 1}
+                  <!-- One stop per quality the material comes in. -->
+                  <input
+                    type="range"
+                    min="0"
+                    max={choice.stops.length - 1}
+                    step="1"
+                    value={Math.max(0, choice.stops.indexOf(q))}
+                    aria-label="Minimum quality of {s.material}"
+                    aria-valuetext={stopLabel(s, q, choice.stops.indexOf(q) === 0)}
+                    oninput={(e) => (drafts[key] = choice.stops[e.currentTarget.valueAsNumber])}
+                    onchange={(e) => setSlot(c, i, choice.stops[e.currentTarget.valueAsNumber])}
+                  />
+                {:else if choice.stops.length === 0}
+                  <!-- No bands in the game data for this material. -->
+                  <input
+                    type="range"
+                    min={s.floor}
+                    max="1000"
+                    step="10"
+                    value={q}
+                    aria-label="Minimum quality of {s.material}"
+                    oninput={(e) => (drafts[key] = e.currentTarget.valueAsNumber)}
+                    onchange={(e) => setSlot(c, i, e.currentTarget.valueAsNumber)}
+                  />
+                {/if}
+                <span class="slot-moves">{s.moves.length ? `moves ${s.moves.join(", ")}` : "moves no stat"}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/each}
+    {/if}
+  </section>
+{/snippet}
+
 <div class="plans">
   <!-- Active and Done are the page's views: the tab row Ships uses (a
        Segmented is an input, not navigation; Valerie, 2026-11-17). -->
@@ -638,7 +763,8 @@
           </NowCard>
           </div>
 
-          <h2 class="sec-h steps-h">Next steps<span class="for">{focusName}</span></h2>
+          {#if detail}{@render band()}{/if}
+
           {#if view.groups.length === 0}
             {@const focused = shownFocus.kind === "plan" ? board.plans.find((p) => p.id === shownFocus.plan) : null}
             <p class="dim none">
@@ -703,89 +829,6 @@
             {@render planList()}
           {/if}
 
-          {#if detail && (detail.kind === "project" || detail.crafts.length > 0)}
-            <!-- What the detail crafts, each with the minimum quality of
-                 every material. All of it is always shown: nothing here
-                 opens or closes. -->
-            <h2 class="sec-h crafts-h">
-              {detail.kind === "project" ? "Crafts in this project" : "Minimum quality per material"}
-              <span class="grow"></span>
-              {#if detail.kind === "project"}
-                <Button variant="outline" onclick={() => (addingTo = detail)}><Plus size={14} /> Add a craft</Button>
-              {/if}
-            </h2>
-            {#each detail.crafts as c (c.blueprint)}
-              <div class="craft" class:missing={c.missing}>
-                <div class="craft-head">
-                  <b>{c.name}</b>
-                  <span class="dim small">{c.crafted} of {c.count} crafted</span>
-                  <span class="grow"></span>
-                  {#if !c.missing}
-                    <label class="field"
-                      >Count
-                      <input
-                        class="input"
-                        type="number"
-                        min="1"
-                        value={c.count}
-                        onchange={(e) => (e.currentTarget.value = String(setCount(c, e.currentTarget.value)))}
-                      /></label
-                    >
-                    <label class="field" title="One minimum for every material; each can then be set on its own below"
-                      >All at least
-                      <input
-                        class="input"
-                        type="number"
-                        min="0"
-                        max="1000"
-                        step="50"
-                        value={c.quality ?? ""}
-                        placeholder="mixed"
-                        onchange={(e) => setAll(c, e.currentTarget.value)}
-                      /></label
-                    >
-                    {#if c.family && on("crafting")}
-                      <Button variant="ghost" href="/crafting?sel={encodeURIComponent(c.family)}">Recipe <ArrowUpRight size={14} /></Button>
-                    {/if}
-                  {/if}
-                  {#if detail.kind === "project"}
-                    <Button variant="ghost" onclick={() => void removeCraft(detail.id, c.blueprint)}>Take out</Button>
-                  {/if}
-                </div>
-                <div class="slots">
-                  {#each c.slots as s, i (i)}
-                    {@const choice = slotChoice(s)}
-                    <label class="slot">
-                      <span class="slot-name">{s.name ?? "Material"}</span>
-                      <span class="slot-mat"
-                        ><i class:held={s.held} title={s.held ? "Your stock covers it" : "Not covered by your stock"}></i>{s.material}<span
-                          class="dim mono">{slotAmount(s)}</span
-                        ></span
-                      >
-                      <span class="slot-moves">{s.moves.length ? `moves ${s.moves.join(", ")}` : "moves no stat"}</span>
-                      {#if choice.stops.length}
-                        <select class="select" value={choice.now} onchange={(e) => setSlot(c, i, Number(e.currentTarget.value))}>
-                          {#each choice.stops as v, n (v)}
-                            <option value={v}>{stopLabel(s, v, n === 0)}</option>
-                          {/each}
-                        </select>
-                      {:else}
-                        <!-- No bands in the game data for this material. -->
-                        <input
-                          class="input"
-                          type="number"
-                          min={s.floor}
-                          max="1000"
-                          value={s.min}
-                          onchange={(e) => setSlot(c, i, typed(e.currentTarget.value, s.floor, 1000) ?? s.min)}
-                        />
-                      {/if}
-                    </label>
-                  {/each}
-                </div>
-              </div>
-            {/each}
-          {/if}
         </section>
 
         <aside class="sheet" aria-label="Your plans">
@@ -806,8 +849,11 @@
                     <span class="glyph"><PlanGlyph shape={PLAN_LOOK[p.kind].shape} /></span>
                     <span class="plan-text">
                       <span class="plan-head"><b>{p.name}</b><span class="mono dim">{Math.round(p.progress * 100)}%</span></span>
-                      <span class="track"><i style:width="{Math.round(p.progress * 100)}%"></i></span>
-                      <span class="plan-note" class:waits={p.waiting}>{p.note}</span>
+                      <span class="plan-sub"
+                        ><span class="track"><i style:width="{Math.round(p.progress * 100)}%"></i></span><span class="plan-note" class:waits={p.waiting}
+                          >{p.note}</span
+                        ></span
+                      >
                     </span>
                   </button>
                   <!-- The order is who gets the stock first. -->
@@ -818,58 +864,25 @@
           </section>
           {/if}
 
-          {#if detail}
-            <!-- The plan in focus: rename, note, park, remove, open its goal. -->
-            <section class="panel" aria-label="This plan">
-              <h2 class="sec-h">This plan<span class="grow"></span><span class="for">{PLAN_LOOK[detail.kind].chip.toLowerCase()}{detail.parked ? ", bookmarked" : ""}</span></h2>
-              {#if detail.missing}
-                <p class="dim">{detail.note}. Remove the plan, or bring its goal back.</p>
-              {/if}
-              <label class="this-field"
-                >Name
-                <input
-                  class="input"
-                  value={stored?.name ?? ""}
-                  placeholder={detail.kind === "project" ? "Project" : `${detail.title}, ${detail.subtitle}`}
-                  onchange={(e) => void renamePlan(detail.id, e.currentTarget.value)}
-                /></label
-              >
-              <label class="this-field"
-                >Notes
-                <input
-                  class="input"
-                  value={detail.notes}
-                  placeholder="What it is for"
-                  onchange={(e) => void setPlanNotes(detail.id, e.currentTarget.value)}
-                /></label
-              >
-              <div class="this-actions">
-                <Button variant="ghost" onclick={() => (removing = detail)}>Remove</Button>
-                {#if !detail.done && !detail.missing}
-                  <Button
-                    variant="ghost"
-                    title={detail.parked
-                      ? "It reserves materials and parts again, at its place in the order"
-                      : "It waits under Bookmarks and reserves nothing, so the plans behind it get the stock"}
-                    onclick={() => void parkPlan(detail.id, !detail.parked)}>{detail.parked ? "Plan it" : "Move to bookmarks"}</Button
-                  >
-                {/if}
-                <span class="grow"></span>
-                {#if (target?.ship && on("ships")) || (target?.family && on("crafting"))}
-                  <Button variant="outline" onclick={open}>
-                    {target.ship ? "Open ship" : "Open recipe"} <ArrowUpRight size={14} />
-                  </Button>
-                {/if}
-              </div>
-            </section>
-          {/if}
 
-          {#if tab === "active" && board.parts.length}
-            <!-- Where each part the plans still need comes from: one choice
-                 for all, and each part's own over it (decision 'one source
-                 per need with a switch'). A source a part lacks is off. -->
+          {#if tab === "active"}
+            <!-- What the plans need, across them all: one panel, two views
+                 (pass 9), so the column fits one screen. Components: where
+                 each part comes from (decision 'one source per need with a
+                 switch'). Materials: the ledger. -->
             <section class="panel">
-              <h2 class="sec-h">Components across plans</h2>
+              <div class="side-tabs" role="tablist" aria-label="Across your plans">
+                <button type="button" role="tab" class="side-tab" class:active={sideTab === "parts"} aria-selected={sideTab === "parts"} onclick={() => (sideTab = "parts")}
+                  >Components<span class="n">{board.parts.length}</span></button
+                >
+                <button type="button" role="tab" class="side-tab" class:active={sideTab === "materials"} aria-selected={sideTab === "materials"} onclick={() => (sideTab = "materials")}
+                  >Materials<span class="n">{board.ledger.length}</span></button
+                >
+              </div>
+              {#if sideTab === "parts"}
+                {#if board.parts.length === 0}
+                  <p class="dim none">No open plan needs a part.</p>
+                {:else}
               <div class="src-pref" role="radiogroup" aria-label="Prefer">
                 <span class="pick-label">Prefer</span>
                 {#each SOURCES as [id, label] (id)}
@@ -906,12 +919,8 @@
                   {/if}
                 </div>
               {/each}
-            </section>
-          {/if}
-
-          {#if tab === "active"}
-          <section class="panel">
-            <h2 class="sec-h">Materials across plans</h2>
+                {/if}
+              {:else}
             {#if board.ledger.length === 0}
               <p class="dim none">No open plan needs materials.</p>
             {/if}
@@ -922,8 +931,12 @@
                 <span class="mat-figure mono"><span class={bars[i].state}>{amount(m, m.held)}</span><span class="unit">/ {amount(m, m.need)} {m.bulk ? "SCU" : "pcs"}</span></span>
               </div>
             {/each}
-          </section>
+              {/if}
+            </section>
           {/if}
+
+          <!-- Bookmarks and Done: the picked plan, where This plan was. -->
+          {#if tab !== "active" && detail}{@render band()}{/if}
         </aside>
       </div>
     {/if}
@@ -1056,9 +1069,6 @@
   .session :global(.now .main) {
     min-height: 250px;
   }
-  .steps-h {
-    margin-top: 22px;
-  }
   /* A row's thumbnail: the glyph on a tile in its hue. */
   .glyph {
     display: grid;
@@ -1075,38 +1085,9 @@
     height: 30px;
     opacity: 0.9;
   }
-  /* The plan in focus, in the side column under Your plans. */
-  .this-field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: var(--text-small);
-    color: var(--text-dim);
-  }
-  .this-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-  }
 
   .stat-tiles {
     max-width: 680px;
-  }
-  .field {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--text-small);
-    color: var(--text-dim);
-  }
-  .field .input {
-    width: 76px;
-  }
-  .crafts-h {
-    align-items: center;
-    min-height: 32px;
-    margin-top: 22px;
   }
   .craft {
     display: flex;
@@ -1180,12 +1161,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .slot .select,
-  .slot .input {
-    width: 100%;
-    max-width: none;
-    margin-top: 3px;
   }
 
   /* The tab row's other pieces sit on its middle, like the ship picker on
@@ -1400,13 +1375,6 @@
     letter-spacing: var(--label-tracking);
     color: var(--text-faint);
   }
-  .sec-h .for {
-    font-family: var(--font-sans);
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--text-faint);
-  }
   .none {
     margin: 0;
     padding: 9px 6px;
@@ -1510,10 +1478,10 @@
     all: unset;
     box-sizing: border-box;
     display: grid;
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: 12px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 10px;
     align-items: center;
-    padding: 8px 6px;
+    padding: 5px 6px;
     border-radius: var(--radius);
     cursor: pointer;
   }
@@ -1634,8 +1602,32 @@
   .plan-text {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 3px;
     min-width: 0;
+  }
+  /* Two lines a plan (pass 9): name and percent, then a short bar beside
+   * the next step. */
+  .plan-sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .plan-sub .track {
+    flex: 0 0 64px;
+    height: 3px;
+  }
+  .plan-sub .plan-note {
+    flex: 1;
+    min-width: 0;
+  }
+  .plan-pick .glyph {
+    width: 28px;
+    height: 28px;
+  }
+  .plan-pick .glyph :global(svg) {
+    width: 20px;
+    height: 20px;
   }
   .plan-head {
     display: flex;
@@ -1767,5 +1759,266 @@
     gap: 8px;
     padding: 12px 16px 16px;
     border-top: 1px solid var(--border);
+  }
+  /* The plan in focus (pass 9). */
+  .band {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 14px 16px;
+    border: 1px solid color-mix(in srgb, var(--hue) 30%, var(--border));
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--hue) 70%, transparent);
+  }
+  .sheet .band {
+    margin-top: 0;
+  }
+  .band-top {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+  }
+  .glyph.lg {
+    width: 48px;
+    height: 48px;
+  }
+  .glyph.lg :global(svg) {
+    width: 36px;
+    height: 36px;
+  }
+  .band-title {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .kick {
+    font-family: var(--font-mono);
+    font-size: var(--text-badge);
+    letter-spacing: var(--label-tracking);
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--hue) 80%, var(--text));
+  }
+  /* The name is the heading; it edits in place. */
+  .band-name {
+    all: unset;
+    box-sizing: border-box;
+    width: 100%;
+    margin-left: -4px;
+    padding: 0 4px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-chip);
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: var(--weight-bold);
+    line-height: 1.3;
+    color: var(--text-strong);
+    text-overflow: ellipsis;
+  }
+  .band-name::placeholder {
+    color: var(--text-strong);
+    opacity: 1;
+  }
+  .band-name:hover {
+    border-color: var(--border);
+  }
+  .band-name:focus {
+    border-color: var(--accent-line);
+    background: var(--bg);
+  }
+  .band-prog {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 420px;
+  }
+  .band-prog .track {
+    flex: 1;
+  }
+  .band-prog .mono {
+    font-size: var(--text-small);
+  }
+  .tools {
+    align-self: start;
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-sunk);
+  }
+  .tool {
+    all: unset;
+    box-sizing: border-box;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-chip);
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .tool:hover {
+    color: var(--text-strong);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+  .tool.bad:hover {
+    color: var(--bad);
+  }
+  .tool:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .band-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    font-size: var(--text-control);
+  }
+  .next {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--text);
+  }
+  .next :global(svg) {
+    flex: none;
+    color: color-mix(in srgb, var(--hue) 80%, var(--text));
+  }
+  .next.waits {
+    color: var(--warn);
+  }
+  .note-q {
+    flex: 1 1 160px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+    color: var(--text-faint);
+  }
+  .note-q input {
+    all: unset;
+    min-width: 0;
+    width: 100%;
+    max-width: 320px;
+    text-align: right;
+    color: var(--text-dim);
+    font-size: var(--text-control);
+  }
+  .note-q input::placeholder {
+    color: var(--text-faint);
+  }
+  .note-q input:focus {
+    text-align: left;
+    color: var(--text);
+    border-bottom: 1px solid var(--accent-line);
+  }
+  .band-sec {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 28px;
+  }
+  .band-lab {
+    font-family: var(--font-mono);
+    font-size: var(--text-badge);
+    letter-spacing: var(--label-tracking);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .count {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .stepper {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+  .stepper button {
+    all: unset;
+    width: 22px;
+    text-align: center;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .stepper button:hover:not(:disabled) {
+    color: var(--text-strong);
+  }
+  .stepper button:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+  .stepper b {
+    min-width: 2.5ch;
+    text-align: center;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+  .slot-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .slot-head .slot-mat {
+    flex: 1;
+    min-width: 0;
+  }
+  .slot-q {
+    font-family: var(--font-mono);
+    font-weight: var(--weight-bold);
+    color: color-mix(in srgb, var(--hue-quality) 70%, var(--text-strong));
+  }
+  .slot input[type="range"] {
+    width: 100%;
+    margin: 4px 0 2px;
+    accent-color: var(--hue-quality);
+  }
+  /* The right column's panel switch: the Ships tab row, small. */
+  .side-tabs {
+    display: flex;
+    gap: 4px;
+    margin: -4px 0 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .side-tab {
+    all: unset;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 10px 8px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-size: var(--text-control);
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .side-tab:hover {
+    color: var(--text);
+  }
+  .side-tab.active {
+    color: var(--text-strong);
+    font-weight: var(--weight-semibold);
+    border-bottom-color: var(--accent);
+  }
+  .side-tab:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .side-tab .n {
+    font-family: var(--font-mono);
+    font-size: var(--text-small);
+    font-weight: 400;
+    color: var(--text-faint);
   }
 </style>
