@@ -750,11 +750,13 @@ async shipsWallpaper(channel: string, ship: string) : Promise<Result<string | nu
 },
 /**
  * What else fits the port at `targets[0]`, each option with its figures
- * and the ship with it fitted on every target port.
+ * and the ship with it fitted on every target port. With `craft` (per
+ * crafting property GUID, the qualities of the fitted part's slots that
+ * move it) the options a blueprint makes are compared crafted.
  */
-async shipsCandidates(channel: string, loadout: ShipLoadoutView, power: PowerSettingsView, targets: string[][]) : Promise<Result<CandidateView[], AppError>> {
+async shipsCandidates(channel: string, loadout: ShipLoadoutView, power: PowerSettingsView, targets: string[][], craft: Partial<{ [key in string]: number[] }> | null) : Promise<Result<CandidateView[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("ships_candidates", { channel, loadout, power, targets }) };
+    return { status: "ok", data: await TAURI_INVOKE("ships_candidates", { channel, loadout, power, targets, craft }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2007,7 +2009,11 @@ export type BuildInfoView = { label: string; value: string }
 /**
  * One option for a port.
  */
-export type CandidateView = { item: string; name: string; recordName: string; size: number; grade: number; class: string | null; itemType: string; subType: string; stats: StatView[]; fitted: boolean; impact: ImpactView; 
+export type CandidateView = { item: string; name: string; recordName: string; size: number; grade: number; class: string | null; itemType: string; subType: string; stats: StatView[]; fitted: boolean; 
+/**
+ * Its figures are crafted at the picker's qualities.
+ */
+crafted: boolean; impact: ImpactView; 
 /**
  * Free owned copies by place, most first; null without an inventory
  * snapshot (My Items never refreshed).
@@ -4931,7 +4937,11 @@ export type StageState = "done" | "current" | "ahead"
 /**
  * One figure of a part.
  */
-export type StatView = { key: string; label: string; value: number; unit: string; better: number }
+export type StatView = { key: string; label: string; value: number; unit: string; better: number; 
+/**
+ * The figure as sold when crafting moved it; null otherwise.
+ */
+stock: number | null }
 export type StepKind = 
 /**
  * Fit a part you hold.

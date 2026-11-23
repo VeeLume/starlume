@@ -29,6 +29,7 @@
     channel = null,
     plans = null,
     oncraft = () => {},
+    oncompare = () => {},
     onplan = async () => false,
     onpick,
     onclose,
@@ -55,6 +56,9 @@
     plans?: { plan: Plan | undefined } | null;
     /** Mark the fitted part crafted at a quality per slot; null: as sold. */
     oncraft?: (slots: number[] | null) => void;
+    /** Compare the other options crafted: per crafting property, the
+     *  qualities of the fitted part's slots moving it; null: as sold. */
+    oncompare?: (byStat: Record<string, number[]> | null) => void;
     /** Plan it crafted at these minimums: a plan, or `parked` a bookmark. */
     onplan?: (slots: number[], parked: boolean) => Promise<boolean>;
     onpick: (item: string | null) => void;
@@ -401,7 +405,7 @@
   </div>
 
   {#if craft}
-    <CraftBar {craft} {channel} {count} {plans} {oncraft} {onplan} />
+    <CraftBar {craft} {channel} {count} {plans} {oncraft} {oncompare} {onplan} />
   {/if}
 
   {#if error}
@@ -447,8 +451,16 @@
           {#if showGrade}<span class="v cls">{classOf(c)}</span>{/if}
           {#each columns as col (col.key)}
             {@const v = value(c, col.key)}
-            <span class="v" class:best={v !== null && col.better !== 0 && shown(v, col.digits) === best[col.key] && (list?.length ?? 0) > 1}
-              >{v !== null && col.text ? col.text(v) : num(v, col.digits)}</span
+            {@const stock = c.stats.find((s) => s.key === col.key)?.stock ?? null}
+            <!-- A crafted figure: tinted, its change beside it, as sold in the tooltip. -->
+            <span
+              class="v"
+              class:best={v !== null && col.better !== 0 && shown(v, col.digits) === best[col.key] && (list?.length ?? 0) > 1}
+              class:made={stock !== null}
+              title={stock !== null ? `As sold: ${col.text ? col.text(stock) : num(stock, col.digits)}` : undefined}
+              >{v !== null && col.text ? col.text(v) : num(v, col.digits)}{#if stock !== null && v !== null && stock !== 0}<small class="chg"
+                  >{v >= stock ? "+" : "−"}{Math.abs(((v - stock) / stock) * 100).toFixed(1)}%</small
+                >{/if}</span
             >
           {/each}
           {#each extras as x (x.key)}
@@ -675,7 +687,18 @@
   }
   .v.best {
     color: var(--good);
-  }  .v.cls {
+  }
+  /* Crafted at the bar's qualities: the figure in the quality hue, its
+   * change from as sold beside it. */
+  .v.made {
+    color: color-mix(in srgb, var(--hue-quality) 70%, var(--text-strong));
+  }
+  .v .chg {
+    margin-left: 5px;
+    font-size: 0.68rem;
+    color: color-mix(in srgb, var(--hue-quality) 60%, var(--text-dim));
+  }
+  .v.cls {
     font-family: var(--font-sans);
     font-size: 0.74rem;
     text-align: left;

@@ -347,8 +347,11 @@
               : null}
             {channel}
             plans={plansOn ? { plan: plansStore.craftOf(craftable(page.slots, targets)?.blueprint ?? "") } : null}
-            oncraft={(slots) => {
-              setCrafted(targets, slots);
+            oncraft={(slots) => setCrafted(targets, slots)}
+            oncompare={(byStat) => {
+              // The fitted part's qualities per stat: every option is compared
+              // crafted at them, and the list follows (the old rows stay up).
+              shipsPicker.craft = byStat;
               if (channel) void openPicker(channel, targets);
             }}
             onplan={(slots, parked) => {

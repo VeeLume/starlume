@@ -507,7 +507,16 @@ let _candidatesSeq = 0;
 
 /** The port the picker is open on, and the ports the pick also goes to
  *  (a turret's other guns); null: closed. */
-export const shipsPicker = $state({ open: null as { targets: string[][] } | null });
+export const shipsPicker = $state({
+  open: null as { targets: string[][] } | null,
+  /** "Crafted" in the picker: per crafting property GUID, the qualities
+   *  of the fitted part's slots moving it; every option a blueprint makes
+   *  is compared crafted at them. Null: as sold. */
+  craft: null as Record<string, number[]> | null,
+});
+/** The ports the shown list is for: a new list for them keeps the old
+ *  rows up until it lands, so a slider never blanks the table. */
+let _listFor = "";
 
 export const shipsCandidates = {
   get list() {
@@ -531,11 +540,14 @@ export async function openPicker(channel: string, targets: string[][]): Promise<
   shipsPicker.open = { targets };
   const loadout = { ship, edits: shipsUi.edits[ship] ?? [] };
   const power = { mode: shipsUi.mode, off: shipsUi.off[ship] ?? [], levels: shipsUi.levels[ship] ?? [] };
-  const key = JSON.stringify([channel, loadout, power, targets]);
-  _candidates = _candidateCache.get(key) ?? null;
+  const craft = shipsPicker.craft;
+  const key = JSON.stringify([channel, loadout, power, targets, craft]);
+  const ports = JSON.stringify([ship, targets]);
+  _candidates = _candidateCache.get(key) ?? (ports === _listFor ? _candidates : null);
+  _listFor = ports;
   _candidatesError = "";
   const seq = ++_candidatesSeq;
-  const result = await commands.shipsCandidates(channel, loadout, power, targets);
+  const result = await commands.shipsCandidates(channel, loadout, power, targets, craft);
   if (result.status === "ok") {
     if (_candidateCache.size >= CANDIDATE_CACHE_MAX) _candidateCache.clear();
     _candidateCache.set(key, result.data);
@@ -547,6 +559,8 @@ export async function openPicker(channel: string, targets: string[][]): Promise<
 
 export function closePicker(): void {
   shipsPicker.open = null;
+  shipsPicker.craft = null;
+  _listFor = "";
   _candidatesSeq++;
 }
 

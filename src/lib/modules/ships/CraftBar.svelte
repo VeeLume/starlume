@@ -8,6 +8,10 @@
   // the main stats at stock quality (the figures start unchanged) and
   // Integrity at its floor. The sliders are drawn as sold too, dimmed, so
   // nothing moves as it toggles. Plan takes these minimums, one per slot.
+  // The picker compares every other part a blueprint makes crafted at the
+  // same qualities, slot by slot per stat (`oncompare`; Rust:
+  // `Recipes::slots_for`): unsnapped, so the parts compare like for like
+  // despite their different materials (Valerie, 2026-11-23).
   import { Segmented } from "@veelume/ui";
   import type { BlueprintDetailView, Plan } from "$lib/bindings";
   import PlanPair from "$lib/components/PlanPair.svelte";
@@ -22,6 +26,7 @@
     count,
     plans = null,
     oncraft,
+    oncompare,
     onplan,
   }: {
     /** The fitted part's blueprint and its mark: `quality` null while it
@@ -34,6 +39,9 @@
     plans?: { plan: Plan | undefined } | null;
     /** Mark it crafted at a quality per slot; null: as sold. */
     oncraft: (slots: number[] | null) => void;
+    /** Compare the other parts crafted: per crafting property, the
+     *  qualities of the slots moving it, in slot order; null: as sold. */
+    oncompare: (byStat: Record<string, number[]> | null) => void;
     /** Plan it crafted at these minimums: a plan, or `parked` a bookmark. */
     onplan: (slots: number[], parked: boolean) => Promise<boolean>;
   } = $props();
@@ -69,11 +77,14 @@
   const current = $derived(
     slots.map((s) => (crafted ? snapUp(s.stops, craft.slots[s.i] ?? craft.quality ?? s.start) : s.start)),
   );
-  /** A slider being dragged, until the mark takes it. */
+  /** A slider moved, until the mark takes it: it is kept past the
+   *  release, so the slider stays put while the page reads the new mark.
+   *  Only a new mark ends it (by its content: the page hands a new object
+   *  on every render). */
   let draft = $state<number[] | null>(null);
+  const markKey = $derived(JSON.stringify([craft.blueprint, craft.quality, craft.slots]));
   $effect(() => {
-    void craft.quality;
-    void craft.slots;
+    void markKey;
     draft = null;
   });
   const shown = $derived(draft ?? current);
@@ -82,13 +93,29 @@
     slots.filter((s) => s.slot.modifiers.length > 0).sort((a, b) => Number(minor(a.names)) - Number(minor(b.names))),
   );
 
+  // The comparison follows the fitted part's mark: its slots' qualities
+  // per stat, or as sold.
+  let compared = "";
+  $effect(() => {
+    if (!recipe) return;
+    const by: Record<string, number[]> = {};
+    if (crafted) {
+      recipe.slots.forEach((s, i) => {
+        for (const m of s.modifiers) if (m.property) (by[m.property] ??= []).push(current[i]);
+      });
+    }
+    const next = crafted ? by : null;
+    const key = JSON.stringify(next);
+    if (key === compared) return;
+    compared = key;
+    oncompare(next);
+  });
+
   function set(i: number, q: number, commit: boolean) {
     const next = [...shown];
     next[i] = q;
-    if (commit) {
-      draft = null;
-      oncraft(next);
-    } else draft = next;
+    draft = next;
+    if (commit) oncraft(next);
   }
 
   const label = (s: (typeof slots)[number], q: number) => (q <= s.floor && s.floor <= 1 ? "any" : `Q${q}+`);

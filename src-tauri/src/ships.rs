@@ -911,6 +911,8 @@ pub struct StatView {
     pub value: f64,
     pub unit: String,
     pub better: i32,
+    /// The figure as sold when crafting moved it; null otherwise.
+    pub stock: Option<f64>,
 }
 
 impl From<Stat> for StatView {
@@ -921,6 +923,7 @@ impl From<Stat> for StatView {
             value: s.value,
             unit: s.unit,
             better: i32::from(s.better),
+            stock: s.stock,
         }
     }
 }
@@ -980,6 +983,8 @@ pub struct CandidateView {
     pub sub_type: String,
     pub stats: Vec<StatView>,
     pub fitted: bool,
+    /// Its figures are crafted at the picker's qualities.
+    pub crafted: bool,
     pub impact: ImpactView,
     /// Free owned copies by place, most first; null without an inventory
     /// snapshot (My Items never refreshed).
@@ -1062,6 +1067,7 @@ impl From<Candidate> for CandidateView {
             sub_type: c.sub_type,
             stats: c.stats.into_iter().map(Into::into).collect(),
             fitted: c.fitted,
+            crafted: c.crafted,
             impact: ImpactView {
                 supply: c.impact.supply.map(|s| s as i32),
                 free: c.impact.free.map(|f| f as i32),
@@ -1117,7 +1123,9 @@ fn owned_free(finder: &mod_items::Finder) -> HashMap<String, Vec<OwnedPartView>>
 // ── Commands ────────────────────────────────────────────────────────────────
 
 /// What else fits the port at `targets[0]`, each option with its figures
-/// and the ship with it fitted on every target port.
+/// and the ship with it fitted on every target port. With `craft` (per
+/// crafting property GUID, the qualities of the fitted part's slots that
+/// move it) the options a blueprint makes are compared crafted.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn ships_candidates(
@@ -1126,6 +1134,7 @@ pub(crate) async fn ships_candidates(
     loadout: ShipLoadoutView,
     power: PowerSettingsView,
     targets: Vec<Vec<String>>,
+    craft: Option<std::collections::HashMap<String, Vec<i32>>>,
 ) -> Result<Vec<CandidateView>, AppError> {
     use tauri::Manager;
     let cooked = cooked_for(&app, &channel).await?;
@@ -1136,7 +1145,14 @@ pub(crate) async fn ships_candidates(
     let settings: PowerInput = power.into();
     tauri::async_runtime::spawn_blocking(move || {
         let recipes = svc_data::Recipes::new(blueprints.as_deref(), &cooked.crafting);
-        let list = mod_ships::candidates(&cooked, &recipes, &input, &settings, &targets)?;
+        let list = mod_ships::candidates(
+            &cooked,
+            &recipes,
+            &input,
+            &settings,
+            &targets,
+            craft.as_ref(),
+        )?;
         let owned = inventory.map(|inv| owned_free(&mod_items::finder(&inv, &cooked)));
         // UEX's cached prices (no network), loaded for this list and dropped.
         let prices = uex.snapshot();

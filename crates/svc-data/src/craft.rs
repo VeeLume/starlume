@@ -245,6 +245,44 @@ impl<'a> Recipes<'a> {
         self.by_item.get(item).copied()
     }
 
+    /// `item`'s slots at the qualities another recipe's slots were set
+    /// to, for comparing parts: `by_property` holds, per crafting property
+    /// GUID, the qualities of the slots that move it in slot order. A slot
+    /// takes, for each stat it moves, the quality of the same-numbered
+    /// slot moving that stat there (the last when this recipe has more),
+    /// the highest when it moves several; a slot that moves none of them
+    /// keeps its floor. The qualities are taken as they are, not snapped to
+    /// what this recipe's materials come in. `None` when no blueprint makes
+    /// it.
+    pub fn slots_for(
+        &self,
+        item: &str,
+        by_property: &HashMap<String, Vec<i32>>,
+    ) -> Option<Vec<i32>> {
+        let bp = self.of(item)?;
+        let mut seen: HashMap<&str, usize> = HashMap::new();
+        Some(
+            bp.slots
+                .iter()
+                .map(|s| {
+                    s.modifiers
+                        .iter()
+                        .filter_map(|m| {
+                            let p = m.property.as_deref()?;
+                            let n = seen.entry(p).or_insert(0);
+                            let qs = by_property.get(p)?;
+                            let q = qs.get(*n).or(qs.last()).copied();
+                            *n += 1;
+                            q
+                        })
+                        .max()
+                        .unwrap_or(s.min_quality)
+                        .max(s.min_quality)
+                })
+                .collect(),
+        )
+    }
+
     /// `item` crafted with every material at `quality` (clamped to
     /// 0..=1000); `None` when no blueprint makes it.
     pub fn crafted(&self, item: &str, quality: i32) -> Option<Crafted> {
@@ -339,7 +377,8 @@ impl<'a> Recipes<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blueprints::{ModifierTransform, SlotModifier};
+    use crate::blueprints::{BlueprintEntry, BlueprintIndex, ModifierTransform, SlotModifier};
+    use crate::crafting::CraftingIndex;
 
     /// The cases Crafting's TypeScript runs too (`model.test.ts`).
     #[derive(Deserialize)]
@@ -513,5 +552,70 @@ mod tests {
         let c = eval_property("dmg", &slots, &[1000.0]);
         assert!(close(c.factor, 1.4));
         assert!(eval_property("dmg", &slots, &[500.0]).is_none());
+    }
+
+    #[test]
+    fn another_part_takes_the_fitted_slots_qualities_stat_by_stat() {
+        let slot = |props: &[&str], min: i32| BlueprintSlot {
+            name: None,
+            material: "Ore".into(),
+            scu: Some(1.0),
+            count: None,
+            min_quality: min,
+            modifiers: props
+                .iter()
+                .map(|p| SlotModifier {
+                    property: Some((*p).into()),
+                    name: None,
+                    transform: ModifierTransform::Raw,
+                    ranges: Vec::new(),
+                })
+                .collect(),
+        };
+        let entry = |slots: Vec<BlueprintSlot>| BlueprintEntry {
+            guid: "bp".into(),
+            entity_guid: Some("gun".into()),
+            name: "Gun".into(),
+            family: "gun".into(),
+            family_name: "Gun".into(),
+            variant: None,
+            category: None,
+            item_type: "WeaponGun".into(),
+            sub_type: String::new(),
+            size: 3,
+            grade: 1,
+            class: None,
+            manufacturer: None,
+            craft_seconds: None,
+            slots,
+            stats: Vec::new(),
+            granted_by: Vec::new(),
+        };
+        // This gun: one damage slot, two integrity slots, one plain slot.
+        let index = BlueprintIndex {
+            default_quality: 500,
+            blueprints: vec![entry(vec![
+                slot(&["dmg"], 0),
+                slot(&["int"], 0),
+                slot(&["int"], 300),
+                slot(&[], 100),
+            ])],
+        };
+        let crafting = CraftingIndex::default();
+        let recipes = Recipes::new(Some(&index), &crafting);
+        // The fitted gun had two damage slots (912, 530) and one integrity
+        // slot (325).
+        let by = HashMap::from([
+            ("dmg".to_owned(), vec![912, 530]),
+            ("int".to_owned(), vec![325]),
+        ]);
+        // Its first damage slot takes the first; its second integrity slot
+        // the last there is, and keeps its own floor of 300 only when
+        // that is higher; the plain slot its floor.
+        assert_eq!(
+            recipes.slots_for("gun", &by),
+            Some(vec![912, 325, 325, 100])
+        );
+        assert_eq!(recipes.slots_for("other", &by), None);
     }
 }

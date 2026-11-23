@@ -259,7 +259,7 @@ fn walk(ctx: &Walk, level: &[Mounted], path: &mut Vec<String>) -> Vec<Slot> {
 
 /// A crafted part's own figures, the ones its recipe moves: the panels'
 /// headers sum them, and they read as the page's figures do.
-fn craft_stats(stats: &mut [Stat], c: &svc_data::Crafted) {
+pub(crate) fn craft_stats(stats: &mut [Stat], c: &svc_data::Crafted) {
     use svc_data::crafting::GameplayStat::*;
     for s in stats {
         let stat = match s.key.as_str() {
@@ -271,7 +271,11 @@ fn craft_stats(stats: &mut [Stat], c: &svc_data::Crafted) {
             "dps" | "alpha" | "dmgPhysical" | "dmgEnergy" | "dmgDistortion" => WeaponDamage,
             _ => continue,
         };
-        s.value = c.of(&stat).apply(s.value);
+        let value = c.of(&stat).apply(s.value);
+        if (value - s.value).abs() > 1e-9 {
+            s.stock = Some(s.value);
+        }
+        s.value = value;
     }
 }
 
