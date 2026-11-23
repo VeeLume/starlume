@@ -532,11 +532,15 @@
         <span class="kick">{PLAN_LOOK[d.kind].chip.toLowerCase()} plan{d.parked ? ", bookmarked" : ""}</span>
         <input
           class="band-name"
-          value={stored?.name ?? ""}
-          placeholder={d.kind === "project" ? "Project" : d.name}
+          value={d.name}
+          placeholder={d.kind === "project" ? "Project" : "Name it"}
           aria-label="Name of this plan"
-          title="Type to rename it; empty, it is named after its goal"
-          onchange={(e) => void renamePlan(d.id, e.currentTarget.value)}
+          title="Type to rename it; cleared, it is named after its goal again"
+          onchange={(e) => {
+            // The goal's own name, or nothing, keeps it named after the goal.
+            const next = e.currentTarget.value.trim();
+            void renamePlan(d.id, next === d.name && !stored?.name ? "" : next);
+          }}
         />
         <span class="band-prog"><span class="track"><i style:width="{pct}%"></i></span><span class="mono dim">{pct}%</span></span>
       </div>
@@ -1770,10 +1774,8 @@
     all: unset;
     box-sizing: border-box;
     width: 100%;
-    margin-left: -4px;
-    padding: 0 4px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-chip);
+    padding: 0;
+    border-bottom: 1px solid transparent;
     font-family: var(--font-display);
     font-size: 1.25rem;
     font-weight: var(--weight-bold);
@@ -1782,15 +1784,14 @@
     text-overflow: ellipsis;
   }
   .band-name::placeholder {
-    color: var(--text-strong);
-    opacity: 1;
+    color: var(--text-faint);
   }
+  /* An underline, not a box: nothing moves or overflows on focus. */
   .band-name:hover {
-    border-color: var(--border);
+    border-bottom-color: var(--border);
   }
   .band-name:focus {
-    border-color: var(--accent-line);
-    background: var(--bg);
+    border-bottom-color: var(--accent-line);
   }
   .band-prog {
     display: flex;
