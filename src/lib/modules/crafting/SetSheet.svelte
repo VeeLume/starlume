@@ -2,9 +2,11 @@
   // An armour set opened (UX board sketch 7): the recipe of one piece in one
   // colourway (a piece's colourways share one recipe; the owned mark is per
   // blueprint). Design pass 8 folds the colourway-by-piece grid, which took
-  // the whole first screen, into the recipe's header: a piece switch and a
-  // colourway list that says which you own and how many you own of each.
-  import { Segmented, Select } from "@veelume/ui";
+  // the whole first screen, into the recipe header's one picker: every
+  // colourway under its piece, saying which you own. The header keeps one
+  // layout for every item (Valerie, 2026-11-23), so a set brings no extra
+  // controls; the title names the piece.
+  import type { SelectOption } from "@veelume/ui";
   import { craftingStore } from "$lib/state/crafting.svelte";
   import { PIECE_SHORT, colourways, type CraftSet } from "./browse";
   import RecipeSheet from "./RecipeSheet.svelte";
@@ -12,54 +14,38 @@
   let { set, channel }: { set: CraftSet; channel: string } = $props();
 
   const grid = $derived(colourways(set));
-  /** The piece and colourway picked; by default the first piece in its
-   *  first colourway. */
-  let piece = $state<string | null>(null);
-  let colour = $state<string | null>(null);
-  const shownPiece = $derived(piece && grid.pieces.includes(piece) ? piece : (grid.pieces[0] ?? null));
-  const at = $derived(grid.pieces.indexOf(shownPiece ?? ""));
-  /** The colourways the piece comes in. */
-  const rows = $derived(grid.rows.filter((r) => r.cells[at]));
-  const shownColour = $derived(colour && rows.some((r) => r.name === colour) ? colour : (rows[0]?.name ?? null));
-  const cell = $derived(rows.find((r) => r.name === shownColour)?.cells[at] ?? null);
-  const ownedHere = $derived(rows.filter((r) => craftingStore.owns(r.cells[at]!.variant.guid)).length);
-
-  /** How many pieces of a colourway you own, for the list. */
-  function ownedOf(r: (typeof grid.rows)[number]): string {
-    const have = r.cells.filter((c) => c && craftingStore.owns(c.variant.guid)).length;
-    const of = r.cells.filter(Boolean).length;
-    if (have === 0) return "";
-    return of === 1 ? "owned" : `${have} of ${of} owned`;
-  }
+  /** Every blueprint of the set, by piece then colourway. */
+  const cells = $derived(
+    grid.pieces.flatMap((piece, at) =>
+      grid.rows.flatMap((r) => {
+        const c = r.cells[at];
+        return c ? [{ piece, colour: r.name, ...c }] : [];
+      }),
+    ),
+  );
+  let chosen = $state<string | null>(null);
+  const cell = $derived(cells.find((c) => c.variant.guid === chosen) ?? cells[0] ?? null);
+  const options = $derived<SelectOption[]>(
+    cells.map((c) => ({
+      value: c.variant.guid,
+      label: c.colour,
+      group: PIECE_SHORT[c.piece] ?? c.piece,
+      detail: craftingStore.owns(c.variant.guid) ? "owned" : "",
+    })),
+  );
 </script>
 
 {#if cell}
-  <RecipeSheet family={cell.family} {channel} pick={cell.variant.guid} single>
-    {#snippet picker()}
-      {#if grid.pieces.length > 1}
-        <Segmented
-          options={grid.pieces.map((p) => ({ value: p, label: PIECE_SHORT[p] ?? p }))}
-          value={shownPiece ?? ""}
-          onchange={(p) => (piece = p)}
-        />
-      {/if}
-      <Select
-        class="pick"
-        label="Colourway"
-        options={rows.map((r) => ({ value: r.name, label: r.name, detail: ownedOf(r) }))}
-        value={shownColour ?? ""}
-        onchange={(c) => (colour = c)}
-      />
-      <span class="count">{ownedHere} of {rows.length}</span>
-    {/snippet}
-  </RecipeSheet>
+  <RecipeSheet
+    family={cell.family}
+    {channel}
+    pick={cell.variant.guid}
+    single
+    choices={{
+      options,
+      value: cell.variant.guid,
+      onchange: (g) => (chosen = g),
+      owned: `${set.owned} of ${set.blueprints} owned`,
+    }}
+  />
 {/if}
-
-<style>
-  .count {
-    flex: 0 0 auto;
-    font-size: var(--text-small);
-    color: var(--text-faint);
-    white-space: nowrap;
-  }
-</style>

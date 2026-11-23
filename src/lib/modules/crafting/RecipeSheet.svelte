@@ -9,9 +9,8 @@
   // material comes in ($lib/quality). Design pass 8: the header with the
   // plan stays while the body scrolls, so plan, sliders and stats are in
   // view together.
-  import type { Snippet } from "svelte";
   import { Check } from "lucide-svelte";
-  import { Segmented, Select } from "@veelume/ui";
+  import { Segmented, Select, type SelectOption } from "@veelume/ui";
   import PlanPair from "$lib/components/PlanPair.svelte";
   import type { BlueprintDetailView, BlueprintStatView } from "$lib/bindings";
   import { getRecipe } from "$lib/state/catalog.svelte";
@@ -44,7 +43,7 @@
     channel,
     pick = null,
     single = false,
-    picker,
+    choices,
   }: {
     family: Family;
     channel: string;
@@ -53,9 +52,9 @@
     /** The blueprints list shows only the variant in view: the caller
      *  already lists the others (the set's colourway grid). */
     single?: boolean;
-    /** The header's variant line, from the caller (an armour set's piece
-     *  and colourway); without it the sheet offers the family's variants. */
-    picker?: Snippet;
+    /** The variants the header's picker offers, from the caller (an armour
+     *  set: every piece's colourways); without it, the family's own. */
+    choices?: { options: SelectOption[]; value: string; onchange: (value: string) => void; owned: string };
   } = $props();
 
   let detail = $state<BlueprintDetailView | null>(null);
@@ -81,6 +80,20 @@
   const owned = $derived(craftingStore.owns(variant.guid));
   const inGame = $derived(craftingStore.ownedInGame(variant.guid));
   const variantLabel = $derived(family.shelf.main === "Armour" ? "Colourway" : "Variant");
+  /** The header's picker: the caller's, else the family's variants. One
+   *  option is no choice, so it shows as text (Valerie, 2026-11-23). */
+  const pickFrom = $derived(
+    choices ?? {
+      options: family.variants.map((v) => ({
+        value: v.guid,
+        label: v.variant ?? "Standard",
+        detail: craftingStore.owns(v.guid) ? "owned" : "",
+      })),
+      value: variant.guid,
+      onchange: (g: string) => (focus = g),
+      owned: family.variants.length > 1 ? `${family.ownedCount} of ${family.variants.length} owned` : "",
+    },
+  );
 
   // The plan this sheet talks to: the variant on its own ("" here), or its
   // entry in a project. The sliders as they stand are what Plan stores, one
@@ -242,23 +255,17 @@
       />
     </div>
 
+    <!-- One layout for every item: the same three lines, the same slots,
+         whatever the item has (Valerie, 2026-11-23). -->
     <div class="line">
-      {#if picker}
-        {@render picker()}
-      {:else if many}
-        <span class="lbl">{variantLabel}</span>
-        <Select
-          class="pick"
-          label={variantLabel}
-          options={family.variants.map((v) => ({
-            value: v.guid,
-            label: v.variant ?? "Standard",
-            detail: craftingStore.owns(v.guid) ? "owned" : "",
-          }))}
-          value={variant.guid}
-          onchange={(g) => (focus = g)}
-        />
-      {/if}
+      <span class="lbl">{variantLabel}</span>
+      <span class="slot-pick">
+        {#if pickFrom.options.length > 1}
+          <Select class="pick" label={variantLabel} options={pickFrom.options} value={pickFrom.value} onchange={pickFrom.onchange} />
+        {:else}
+          <span class="fixed">{pickFrom.options[0]?.label ?? "Standard"}</span>
+        {/if}
+      </span>
       <button
         type="button"
         class="own"
@@ -269,7 +276,7 @@
         onclick={() => void toggleMark("owned", variant.guid)}><Check size={12} />Owned</button
       >
       <span class="grow"></span>
-      {#if many && !picker}<span class="faint">{family.ownedCount} of {family.variants.length} owned</span>{/if}
+      <span class="faint">{pickFrom.owned}</span>
     </div>
 
     {#if plans}
@@ -281,25 +288,31 @@
           <button type="button" aria-label="One more" onclick={() => (countDraft = planCount + 1)}>+</button>
         </span>
         <span class="lbl">In</span>
-        <Select
-          class="dest"
-          label="Where the craft goes"
-          options={[
-            { value: "", label: "A plan of its own" },
-            ...plansStore.projects.map((p) => ({ value: p.id, label: p.name || "Project", group: "Projects" })),
-          ]}
-          value={dest}
-          onchange={(v) => {
-            dest = v;
-            countDraft = null;
-          }}
-        />
+        <span class="slot-dest">
+          {#if plansStore.projects.length > 0}
+            <Select
+              class="dest"
+              label="Where the craft goes"
+              options={[
+                { value: "", label: "A plan of its own" },
+                ...plansStore.projects.map((p) => ({ value: p.id, label: p.name || "Project", group: "Projects" })),
+              ]}
+              value={dest}
+              onchange={(v) => {
+                dest = v;
+                countDraft = null;
+              }}
+            />
+          {:else}
+            <span class="fixed" title="Start a project on Plans to gather crafts in it">a plan of its own</span>
+          {/if}
+        </span>
         <!-- Always reserved, so a change that appears here moves nothing. -->
         <span class="save">
           {#if changed}
             <button type="button" class="sb quiet" title="Put the sliders back on the plan's minimums" onclick={toPlan}>Back</button>
             <button type="button" class="sb main" title="Take the count and the qualities below as the plan's minimums" onclick={() => void savePlan()}
-              >Save to plan</button
+              >Save</button
             >
           {/if}
         </span>
@@ -313,8 +326,10 @@
     <section>
       <div class="head">
         <h3>Materials</h3>
-        {#if filled && craftingStore.stockRead}<span class="faint">{ready} of {detail.slots.length} held at these</span>{/if}
         <span class="grow"></span>
+        {#if filled && craftingStore.stockRead}<span class="faint">{ready} of {detail.slots.length} held at these</span>{/if}
+      </div>
+      <div class="presets">
         <Segmented options={PRESETS.map((p) => ({ value: p, label: p }))} value={preset ?? ""} onchange={(v) => apply(v as Preset)} />
       </div>
       {#each detail.slots as slot, i (i)}
@@ -365,15 +380,16 @@
                 {#if craftingStore.stockRead}<i style="background: {HUE[stateOf(i)]}"></i>{/if}
                 {heldShort(craftingStore.stock.get(slot.material.name), slot.material, qualities[i] ?? 0, craftingStore.stockRead)}
               </span>
-              <span class="grow"></span>
-              {#each slot.modifiers as m, mi (mi)}
-                {@const e = effectText(m, qualities[i] ?? 0)}
-                {#if e}
-                  <span class="effect" title="{m.name ?? 'Effect'}: {reachText(m)}"
-                    >{m.name ?? "Effect"}<b style="color: {effectTone(m.property, e.up)}">{e.pct == null ? e.factor : fmtPct(e.pct)}</b></span
-                  >
-                {/if}
-              {/each}
+              <span class="effects">
+                {#each slot.modifiers as m, mi (mi)}
+                  {@const e = effectText(m, qualities[i] ?? 0)}
+                  {#if e}
+                    <span class="effect" title="{m.name ?? 'Effect'}: {reachText(m)}"
+                      >{m.name ?? "Effect"}<b style="color: {effectTone(m.property, e.up)}">{e.pct == null ? e.factor : fmtPct(e.pct)}</b></span
+                    >
+                  {/if}
+                {/each}
+              </span>
             </div>
           {/if}
         </div>
@@ -428,6 +444,10 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-width: 0;
+    /* The stats go to two columns only where the pane is wide enough for
+       their labels whole. */
+    container-type: inline-size;
   }
   /* The pane pads 16px and scrolls: the header pulls out over that padding
    * and sticks at the pane's top edge, the body scrolling under it. */
@@ -480,8 +500,9 @@
   }
   .kicker {
     display: flex;
-    flex-wrap: wrap;
     gap: 0 10px;
+    overflow: hidden;
+    white-space: nowrap;
     font-size: var(--text-small);
     color: var(--text-dim);
   }
@@ -505,13 +526,27 @@
     font-size: var(--text-small);
     color: var(--text-dim);
   }
-  .line :global(.pick) {
-    width: 150px;
-    flex: 0 1 auto;
+  /* Fixed slots: a picker or its one option as text take the same room. */
+  .slot-pick {
+    flex: 0 1 160px;
+    min-width: 0;
   }
-  .line :global(.dest) {
+  .slot-dest {
     flex: 1 1 0;
     min-width: 0;
+  }
+  .slot-pick :global(.pick),
+  .slot-dest :global(.dest) {
+    width: 100%;
+  }
+  .fixed {
+    display: block;
+    padding: 0 2px;
+    font-size: var(--text-control);
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .grow {
     flex: 1;
@@ -590,7 +625,7 @@
   }
   /* One width whatever it holds, so Save appearing moves nothing. */
   .save {
-    flex: 0 0 136px;
+    flex: 0 0 108px;
     display: flex;
     justify-content: flex-end;
     gap: 4px;
@@ -656,6 +691,7 @@
     align-items: baseline;
     gap: 8px;
     min-width: 0;
+    overflow: hidden;
   }
   .slot-name {
     font-family: var(--font-mono);
@@ -714,11 +750,23 @@
   }
   .held {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    gap: 12px;
+    gap: 2px 12px;
     font-size: var(--text-small);
     color: var(--text-dim);
     min-width: 0;
+  }
+  .effects {
+    margin-left: auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 2px 12px;
+    min-width: 0;
+  }
+  .presets {
+    display: flex;
   }
   .have {
     white-space: nowrap;
@@ -741,8 +789,13 @@
   }
   .stats {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 1px 20px;
+  }
+  @container (min-width: 560px) {
+    .stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
   .sub {
     grid-column: 1 / -1;

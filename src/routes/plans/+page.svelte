@@ -16,7 +16,7 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { Button, ConfirmDialog, Dialog, Picker } from "@veelume/ui";
-  import { ArrowDown, ArrowUp, ArrowUpRight, Plus } from "lucide-svelte";
+  import { ArrowUpRight, GripVertical, Plus, Target } from "lucide-svelte";
   import type { BlueprintRowView, PartChoice, PartSource, PlanBoard, PlanCraft, PlanSlot, RepFilter, StepKind, TrackKind } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import NowCard from "$lib/components/NowCard.svelte";
@@ -130,10 +130,10 @@
   /** The plan the page shows the controls of: the focus when it is a
    *  plan; on Done, the one picked there. */
   const detail = $derived(
-    shownFocus.kind === "plan"
-      ? (board?.plans.find((p) => p.id === shownFocus.plan) ?? null)
-      : tab !== "active"
-        ? plan
+    tab !== "active"
+      ? plan
+      : shownFocus.kind === "plan"
+        ? (board?.plans.find((p) => p.id === shownFocus.plan) ?? null)
         : null,
   );
   const target = $derived(board?.targets.find((t) => t.plan === detail?.id) ?? null);
@@ -205,7 +205,57 @@
   /** Picking a plan, in the list or on the card, makes it the focus. */
   function pickPlan(id: string) {
     picked = id;
-    focus = { kind: "plan", plan: id };
+    if (tab === "active") focus = { kind: "plan", plan: id };
+  }
+
+  // Drag to reorder (Active and Bookmarks): the row under the pointer says
+  // where the dragged one lands, drawn as a line on a row's edge so nothing
+  // moves until it is dropped. The grip also takes ↑ and ↓ from the keys.
+  let dragging = $state<string | null>(null);
+  /** Lands before this id; null: after the last row; undefined: nowhere. */
+  let dropBefore = $state<string | null | undefined>(undefined);
+  const sortable = $derived(tab !== "done");
+
+  function dragRow(p: PlanBoard, n: number) {
+    if (!sortable) return {};
+    return {
+      draggable: true,
+      ondragstart: (e: DragEvent) => {
+        dragging = p.id;
+        e.dataTransfer?.setData("text/plain", p.id);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      },
+      ondragover: (e: DragEvent) => {
+        if (!dragging) return;
+        e.preventDefault();
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        dropBefore = e.clientY > r.top + r.height / 2 ? (shown[n + 1]?.id ?? null) : p.id;
+      },
+      ondrop: (e: DragEvent) => {
+        e.preventDefault();
+        const id = dragging;
+        const before = dropBefore;
+        dragging = null;
+        dropBefore = undefined;
+        if (id && before !== undefined && before !== id) void movePlan(id, before ?? afterShown());
+      },
+      ondragend: () => {
+        dragging = null;
+        dropBefore = undefined;
+      },
+      "data-drop": dropBefore === p.id ? "above" : dropBefore === null && n === shown.length - 1 ? "below" : undefined,
+      "data-dragging": dragging === p.id || undefined,
+    };
+  }
+
+  /** The plan just after the shown list's last one in the whole order, so
+   *  a drop at the end of Bookmarks stays among the bookmarks' neighbours;
+   *  null: the very end. */
+  function afterShown(): string | null {
+    const all = plansStore.plans ?? [];
+    const last = shown.at(-1);
+    const at = all.findIndex((x) => x.id === last?.id);
+    return at >= 0 ? (all[at + 1]?.id ?? null) : null;
   }
   const bars = $derived(ledgerBars(board?.ledger ?? []));
   const counts = $derived(
@@ -347,8 +397,8 @@
   function shift(id: string, by: -1 | 1) {
     const at = shown.findIndex((p) => p.id === id);
     const before = by < 0 ? shown[at - 1] : shown[at + 2];
-    if (at < 0 || (by < 0 && !before)) return;
-    void movePlan(id, before?.id ?? null);
+    if (at < 0 || (by < 0 && !before) || (by > 0 && at === shown.length - 1)) return;
+    void movePlan(id, before?.id ?? afterShown());
   }
 
   async function remove() {
@@ -357,6 +407,62 @@
     if (gone) await removePlan(gone.id);
   }
 </script>
+
+{#snippet grip(p: PlanBoard, n: number)}
+  {#if sortable}
+    <button
+      type="button"
+      class="grip"
+      title="Drag to reorder, or use the arrow keys"
+      aria-label="Move {p.name}: arrow up or down"
+      onkeydown={(e) => {
+        if (e.key === "ArrowUp" && n > 0) {
+          e.preventDefault();
+          shift(p.id, -1);
+        } else if (e.key === "ArrowDown" && n < shown.length - 1) {
+          e.preventDefault();
+          shift(p.id, 1);
+        }
+      }}><GripVertical size={14} /></button
+    >
+  {/if}
+{/snippet}
+
+<!-- Bookmarks and Done: the list is the page (design pass 7). A bookmark
+     has no steps and reserves nothing, so there is no session to show. -->
+{#snippet planList()}
+  <section class="panel wide-list">
+    <h2 class="sec-h">
+      {tab === "bookmarks" ? "Bookmarks" : "Done"}
+      <span class="dim small sub">{tab === "bookmarks" ? "kept for later: no steps, nothing reserved" : "goals the game shows reached"}</span>
+      <span class="grow"></span><span class="mono">{shown.length}</span>
+    </h2>
+    {#if shown.length === 0}
+      <p class="dim none">
+        {tab === "bookmarks"
+          ? "Nothing bookmarked. The bookmark beside Plan, on Contracts, Crafting and Ships, keeps something here for later."
+          : "Nothing done yet."}
+      </p>
+    {/if}
+    {#each shown as p, n (p.id)}
+      {@const fig = p.tiles[0]}
+      <div class="wide-row kind-{p.kind}" class:sel={p.id === detail?.id} {...dragRow(p, n)}>
+        {@render grip(p, n)}
+        <button type="button" class="wide-pick" aria-pressed={p.id === detail?.id} onclick={() => pickPlan(p.id)}>
+          <span class="glyph"><PlanGlyph shape={PLAN_LOOK[p.kind].shape} /></span>
+          <span class="wide-text"><b>{p.name}</b><small>{PLAN_LOOK[p.kind].chip.toLowerCase()}</small></span>
+          {#if fig}<span class="wide-fig"><span class="mono">{fig.value}</span><small>{fig.label}</small></span>{/if}
+        </button>
+        <span class="wide-act">
+          {#if tab === "bookmarks"}
+            <Button onclick={() => void parkPlan(p.id, false)}><Target size={14} /> Plan</Button>
+          {/if}
+          <Button variant="ghost" onclick={() => (removing = p)}>Remove</Button>
+        </span>
+      </div>
+    {/each}
+  </section>
+{/snippet}
 
 <div class="plans">
   <!-- Active and Done are the page's views: the tab row Ships uses (a
@@ -402,7 +508,8 @@
       </section>
     {:else}
       <div class="cols">
-        <section class="lead" aria-label="Next session and next steps">
+        <section class="lead" aria-label={tab === "active" ? "Next session and next steps" : tab === "bookmarks" ? "Bookmarks" : "Done"}>
+          {#if tab === "active"}
           <!-- What the session is for (pass 6): a kind of work across your
                plans, or one plan to get ready. Distance leads; every time
                names its source; mining and refining have none (a dash). -->
@@ -520,6 +627,10 @@
 
 
 
+          {:else}
+            {@render planList()}
+          {/if}
+
           {#if detail && (detail.kind === "project" || detail.crafts.length > 0)}
             <!-- What the detail crafts, each with the minimum quality of
                  every material. All of it is always shown: nothing here
@@ -606,11 +717,17 @@
         </section>
 
         <aside class="sheet" aria-label="Your plans">
+          {#if tab === "active"}
           <section class="panel">
-            <h2 class="sec-h">{tab === "done" ? "Done" : tab === "bookmarks" ? "Bookmarks" : "Your plans"}<span class="grow"></span><span class="mono">{shown.length}</span></h2>
+            <h2 class="sec-h">Your plans<span class="grow"></span><span class="mono">{shown.length}</span></h2>
             <div class="plan-list">
               {#each shown as p, n (p.id)}
-                <div class="plan-row kind-{p.kind}" class:sel={p.id === (detail?.id ?? (shownFocus.kind === "plan" ? shownFocus.plan : null))} class:parked={p.parked}>
+                <div
+                  class="plan-row kind-{p.kind}"
+                  class:sel={p.id === (detail?.id ?? (shownFocus.kind === "plan" ? shownFocus.plan : null))}
+                  class:parked={p.parked}
+                  {...dragRow(p, n)}
+                >
                   <button type="button" class="plan-pick" aria-pressed={p.id === detail?.id} onclick={() => pickPlan(p.id)}>
                     <span class="glyph"><PlanGlyph shape={PLAN_LOOK[p.kind].shape} /></span>
                     <span class="plan-text">
@@ -620,24 +737,12 @@
                     </span>
                   </button>
                   <!-- The order is who gets the stock first. -->
-                  {#if tab === "active"}
-                    <span class="order">
-                      <button type="button" disabled={n === 0} title="Serve it earlier" aria-label="Move {p.name} up" onclick={() => shift(p.id, -1)}
-                        ><ArrowUp size={13} /></button
-                      >
-                      <button
-                        type="button"
-                        disabled={n === shown.length - 1}
-                        title="Serve it later"
-                        aria-label="Move {p.name} down"
-                        onclick={() => shift(p.id, 1)}><ArrowDown size={13} /></button
-                      >
-                    </span>
-                  {/if}
+                  {@render grip(p, n)}
                 </div>
               {/each}
             </div>
           </section>
+          {/if}
 
           {#if detail}
             <!-- The plan in focus: rename, note, park, remove, open its goal. -->
@@ -685,7 +790,7 @@
             </section>
           {/if}
 
-          {#if board.parts.length}
+          {#if tab === "active" && board.parts.length}
             <!-- Where each part the plans still need comes from: one choice
                  for all, and each part's own over it (decision 'one source
                  per need with a switch'). A source a part lacks is off. -->
@@ -730,6 +835,7 @@
             </section>
           {/if}
 
+          {#if tab === "active"}
           <section class="panel">
             <h2 class="sec-h">Materials across plans</h2>
             {#if board.ledger.length === 0}
@@ -743,6 +849,7 @@
               </div>
             {/each}
           </section>
+          {/if}
         </aside>
       </div>
     {/if}
@@ -1348,32 +1455,98 @@
   .plan-row.parked .plan-pick {
     opacity: 0.6;
   }
-  .order {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding-right: 4px;
-  }
-  .order button {
+  .grip {
     all: unset;
     display: grid;
     place-items: center;
-    width: 22px;
-    height: 18px;
+    width: 20px;
+    height: 32px;
+    margin-right: 2px;
     border-radius: var(--radius-chip);
     color: var(--text-faint);
+    cursor: grab;
+  }
+  .grip:hover {
+    color: var(--text);
+  }
+  .grip:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  /* Where a dragged row lands: a line on an edge, so nothing moves. */
+  [data-drop="above"] {
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+  [data-drop="below"] {
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  [data-dragging] {
+    opacity: 0.45;
+  }
+  .wide-list .sub {
+    margin-left: 10px;
+    font-family: var(--font-sans);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .wide-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 4px 4px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    border-radius: var(--radius);
+  }
+  .wide-row:hover {
+    background: var(--accent-fill-faint);
+  }
+  .wide-row.sel {
+    background: var(--accent-fill-weak);
+  }
+  .wide-pick {
+    all: unset;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 170px;
+    gap: 12px;
+    align-items: center;
+    min-width: 0;
+    padding: 6px 0;
     cursor: pointer;
   }
-  .order button:hover:not(:disabled) {
-    color: var(--text-strong);
-    background: var(--accent-fill);
-  }
-  .order button:focus-visible {
+  .wide-pick:focus-visible {
     outline: 2px solid var(--accent-line);
   }
-  .order button:disabled {
-    opacity: 0.3;
-    cursor: default;
+  .wide-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .wide-text b {
+    font-weight: var(--weight-medium);
+    color: var(--text-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wide-text small,
+  .wide-fig small {
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .wide-fig {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+  .wide-fig .mono {
+    color: var(--text-strong);
+  }
+  .wide-act {
+    display: inline-flex;
+    gap: 4px;
   }
   .plan-text {
     display: flex;
