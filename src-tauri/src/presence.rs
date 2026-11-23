@@ -62,6 +62,13 @@ struct Facts {
     in_shard: bool,
     /// The last place arrived at.
     location: Option<String>,
+    /// Left [`Self::location`] since: seated through a jurisdiction change,
+    /// out of the armistice zone, or a quantum course set. The log writes a
+    /// line only for the next place with an inventory, so until then only
+    /// the system is known.
+    left: bool,
+    /// A quantum trip arrived since leaving: there you are.
+    arrived: Option<String>,
     /// In quantum travel: where to.
     quantum_to: Option<String>,
     /// The vehicle seated in, its class.
@@ -105,8 +112,15 @@ fn facts(s: &Session, now_ms: i64) -> Facts {
             EntryKind::ShardJoined { .. } => f.in_shard = true,
             EntryKind::Location { location } => {
                 f.location = Some(location.clone());
+                f.left = false;
+                f.arrived = None;
                 quantum = None;
             }
+            EntryKind::Jurisdiction { .. } if f.vehicle.is_some() => f.left = true,
+            EntryKind::Zone {
+                zone: svc_log::Zone::Armistice,
+                entered: false,
+            } => f.left = true,
             EntryKind::VehicleEntered { class_name, .. } => f.vehicle = Some(class_name.clone()),
             EntryKind::VehicleLeft { .. } => {
                 f.vehicle = None;
@@ -117,6 +131,10 @@ fn facts(s: &Session, now_ms: i64) -> Facts {
                 quantum = None;
             }
             EntryKind::QuantumTravel { to, arrived_at, .. } => {
+                f.left = true;
+                if arrived_at.is_some() {
+                    f.arrived = Some(to.clone());
+                }
                 quantum = match arrived_at {
                     None => Some((to.clone(), e.at)),
                     Some(_) => None,
@@ -219,6 +237,7 @@ impl Names {
         f.location
             .iter()
             .chain(&f.quantum_to)
+            .chain(&f.arrived)
             .any(|p| !self.places.contains_key(p))
             || f.vehicle
                 .as_ref()
@@ -249,7 +268,13 @@ impl Names {
             // No game data: nothing is kept, so it is asked again once there is.
             return;
         };
-        let places: Vec<String> = f.location.iter().chain(&f.quantum_to).cloned().collect();
+        let places: Vec<String> = f
+            .location
+            .iter()
+            .chain(&f.quantum_to)
+            .chain(&f.arrived)
+            .cloned()
+            .collect();
         let names = resolve(
             &SessionNameQuery {
                 channel: Some(channel.clone()),
@@ -262,6 +287,13 @@ impl Names {
         for (internal, n) in names.places.iter().chain(&names.destinations) {
             // A place the cook knows beats a cleaned destination.
             if self.places.get(internal).is_some_and(|_| !n.resolved) {
+                continue;
+            }
+            // A destination the game data does not name (a mission beacon,
+            // a dynamic nav point) is no place to show.
+            let named_place = names.places.get(internal).is_some_and(|p| p.resolved);
+            if !n.resolved && !named_place && f.location.as_ref() != Some(internal) {
+                self.places.insert(internal.clone(), Place::default());
                 continue;
             }
             self.places.insert(
@@ -298,12 +330,33 @@ impl Names {
         } else {
             Doing::OnFoot
         };
-        let place = f
-            .quantum_to
+        // The system of the last place known; a place whose name the game
+        // data lacks (a mission beacon) says only that.
+        let system = f
+            .location
             .as_ref()
-            .or(f.location.as_ref())
-            .filter(|_| f.in_shard)
-            .and_then(|p| self.places.get(p).cloned());
+            .and_then(|l| self.places.get(l))
+            .map(|p| p.system.clone())
+            .unwrap_or_default();
+        let known = |internal: &String| {
+            let mut p = self.places.get(internal).cloned().unwrap_or_default();
+            if p.system.is_empty() {
+                p.system = system.clone();
+            }
+            p
+        };
+        let place = if !f.in_shard {
+            None
+        } else if let Some(to) = f.quantum_to.as_ref().or(f.arrived.as_ref()) {
+            Some(known(to))
+        } else if f.left {
+            Some(Place {
+                exact: String::new(),
+                system: system.clone(),
+            })
+        } else {
+            f.location.as_ref().map(known)
+        };
         Moment {
             doing,
             place,
@@ -857,6 +910,114 @@ mod tests {
             progress(&f, f.contract.as_ref().unwrap()).as_deref(),
             Some("1 contract done")
         );
+    }
+
+    #[test]
+    fn a_place_is_left_by_flying_off_and_found_again_at_the_next() {
+        let arrived = at(
+            1,
+            EntryKind::Location {
+                location: "Nyx_Levski".into(),
+            },
+        );
+        let shard = at(
+            0,
+            EntryKind::ShardJoined {
+                shard: "pub".into(),
+            },
+        );
+        let seated = at(
+            2,
+            EntryKind::VehicleEntered {
+                class_name: "RSI_Galaxy".into(),
+                name: "g".into(),
+            },
+        );
+        let changed = at(
+            3,
+            EntryKind::Jurisdiction {
+                jurisdiction: "People's Alliance".into(),
+            },
+        );
+        // On foot, Levski's jurisdictions change with no leaving.
+        assert!(
+            !facts(
+                &session(vec![shard.clone(), arrived.clone(), changed.clone()]),
+                4
+            )
+            .left
+        );
+        // Seated, a change is flying off.
+        let f = facts(
+            &session(vec![shard.clone(), arrived.clone(), seated, changed]),
+            4,
+        );
+        assert!(f.left);
+        let mut names = Names::default();
+        names.places.insert(
+            "Nyx_Levski".into(),
+            Place {
+                exact: "Levski, Delamar".into(),
+                system: "Nyx".into(),
+            },
+        );
+        assert_eq!(
+            names.moment(&f).place,
+            Some(Place {
+                exact: String::new(),
+                system: "Nyx".into()
+            })
+        );
+        // Out of the armistice zone.
+        let out = at(
+            3,
+            EntryKind::Zone {
+                zone: svc_log::Zone::Armistice,
+                entered: false,
+            },
+        );
+        assert!(facts(&session(vec![shard.clone(), arrived.clone(), out]), 4).left);
+        // A quantum arrival is where you are; a beacon says only the system.
+        let beacon = at(
+            3,
+            EntryKind::QuantumTravel {
+                from: None,
+                to: "MISSION_QT_Beacon_1".into(),
+                vehicle: None,
+                arrived_at: Some(5),
+            },
+        );
+        let f = facts(&session(vec![shard.clone(), arrived.clone(), beacon]), 6);
+        assert_eq!(f.arrived.as_deref(), Some("MISSION_QT_Beacon_1"));
+        names
+            .places
+            .insert("MISSION_QT_Beacon_1".into(), Place::default());
+        assert_eq!(
+            names.moment(&f).place,
+            Some(Place {
+                exact: String::new(),
+                system: "Nyx".into()
+            })
+        );
+        // The next place is where you are again.
+        let trip = at(
+            3,
+            EntryKind::QuantumTravel {
+                from: None,
+                to: "X".into(),
+                vehicle: None,
+                arrived_at: Some(5),
+            },
+        );
+        let next = at(
+            7,
+            EntryKind::Location {
+                location: "Nyx_Levski".into(),
+            },
+        );
+        let f = facts(&session(vec![shard, arrived, trip, next]), 8);
+        assert!(!f.left);
+        assert_eq!(f.arrived, None);
     }
 
     #[test]

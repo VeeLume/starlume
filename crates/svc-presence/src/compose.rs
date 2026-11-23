@@ -145,7 +145,9 @@ pub enum Doing {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Place {
-    /// "Levski, Nyx", "Yela", "Onyx Facility, Lyria".
+    /// "Levski, Nyx", "Yela", "Onyx Facility, Lyria". Empty: a place the
+    /// game data does not name, or one left for somewhere unknown; the
+    /// system stands in at the exact level too.
     pub exact: String,
     /// "Nyx", "Stanton".
     pub system: String,
@@ -196,11 +198,14 @@ pub fn compose(moment: &Moment, share: &Share) -> Activity {
     let state = match (share.place, &moment.place) {
         (PlaceLevel::Off, _) => contract.and_then(|c| c.progress.clone()),
         (_, None) => None,
-        (PlaceLevel::Exact, Some(p)) if moment.doing == Doing::Quantum => {
+        // An empty exact name is a place the game data does not name (a
+        // mission beacon), or one left for somewhere unknown: only its
+        // system is known.
+        (PlaceLevel::Exact, Some(p)) if !p.exact.is_empty() && moment.doing == Doing::Quantum => {
             Some(format!("To {}", p.exact))
         }
-        (PlaceLevel::Exact, Some(p)) => Some(p.exact.clone()),
-        (PlaceLevel::System, Some(p)) => Some(p.system.clone()),
+        (PlaceLevel::Exact, Some(p)) if !p.exact.is_empty() => Some(p.exact.clone()),
+        (PlaceLevel::Exact | PlaceLevel::System, Some(p)) => Some(p.system.clone()),
     };
 
     let (large_image, large_text) = match ship {
@@ -214,7 +219,7 @@ pub fn compose(moment: &Moment, share: &Share) -> Activity {
     let exact_place = moment
         .place
         .as_ref()
-        .filter(|_| exact)
+        .filter(|p| exact && !p.exact.is_empty())
         .map(|p| p.exact.clone());
     let (small_image, small_text) = match (contract, ship) {
         (Some(c), _) => {
@@ -582,6 +587,27 @@ mod tests {
             },
         );
         assert_eq!(a.buttons[0].url, STARLUME_URL);
+    }
+
+    #[test]
+    fn a_place_without_an_exact_name_says_its_system() {
+        let m = Moment {
+            doing: Doing::Quantum,
+            place: Some(Place {
+                exact: String::new(),
+                system: "Nyx".into(),
+            }),
+            ..Moment::default()
+        };
+        let a = compose(
+            &m,
+            &Share {
+                place: PlaceLevel::Exact,
+                ..Share::default()
+            },
+        );
+        assert_eq!(a.state.as_deref(), Some("Nyx"));
+        assert_eq!(assets(&a).small_text, None);
     }
 
     #[test]

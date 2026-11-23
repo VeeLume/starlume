@@ -298,19 +298,28 @@
     <section class="ss-box" aria-label="Where">
       <div class="ss-lab"><p class="label">Where</p></div>
       {#if st?.where}
-        <div class="ss-big">
-          {st.where.name}{#if st.where.system}<span class="sys">{st.where.system}</span>{/if}
-        </div>
-        <div class="ss-bottom">
-          <span class="ss-sm">
-            {#each st.where.jurisdictions as j (j)}<span>{j}</span>{/each}
-            {#if st.where.armistice}<span>armistice</span>{/if}
-          </span>
-          <span class="ss-sm f">
-            <span>arrived {clock(st.where.arrivedAt)}</span>
-            {#if !shown?.live}<span>last place</span>{/if}
-          </span>
-        </div>
+        {#if st.where.leftAt != null}
+          <!-- Left the last place; the log says where only at the next one. -->
+          <div class="ss-big">{st.where.system ?? "Under way"}</div>
+          <div class="ss-bottom">
+            <span class="ss-sm"><span>left {st.where.name}</span></span>
+            <span class="ss-sm f"><span>at {clock(st.where.leftAt)}</span></span>
+          </div>
+        {:else}
+          <div class="ss-big">
+            {st.where.name}{#if st.where.system}<span class="sys">{st.where.system}</span>{/if}
+          </div>
+          <div class="ss-bottom">
+            <span class="ss-sm">
+              {#each st.where.jurisdictions as j (j)}<span>{j}</span>{/each}
+              {#if st.where.armistice}<span>armistice</span>{/if}
+            </span>
+            <span class="ss-sm f">
+              <span>arrived {clock(st.where.arrivedAt)}</span>
+              {#if !shown?.live}<span>last place</span>{/if}
+            </span>
+          </div>
+        {/if}
       {:else}
         <div class="ss-big quiet">No place yet</div>
         <div class="ss-bottom">

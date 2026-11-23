@@ -307,6 +307,8 @@ export interface StatusNow {
     /** Inside an armistice zone, as the HUD last said. */
     armistice: boolean;
     arrivedAt: number;
+    /** Left it since, and nothing says where to yet. */
+    leftAt: number | null;
   } | null;
   ship: {
     /** The vehicle sat in right now (a running session only). */
@@ -427,6 +429,11 @@ interface PlaceState {
   name: DisplayName;
   jurisdictions: string[];
   arrivedAt: number;
+  /** When you left it: the log writes no line for that, only for the next
+   *  place with an inventory, so leaving is read from what comes after (a
+   *  jurisdiction change while seated, the armistice zone left, a quantum
+   *  course set). Until then, it is where you are. */
+  leftAt: number | null;
 }
 
 interface StayState {
@@ -568,6 +575,8 @@ export function readSession(session: Session, names: Names, now: number): Sessio
             place.jurisdictions.push(kind.jurisdiction);
           }
         }
+        // Seated, a change is flying off.
+        if (place && stay && place.leftAt == null) place.leftAt = entry.at;
         break;
       }
       case "location": {
@@ -580,6 +589,7 @@ export function readSession(session: Session, names: Names, now: number): Sessio
           name,
           jurisdictions: jurisdiction ? [jurisdiction] : [],
           arrivedAt: entry.at,
+          leftAt: null,
         };
         places.push(place);
         rows.push(r);
@@ -810,6 +820,7 @@ export function readSession(session: Session, names: Names, now: number): Sessio
       case "zone": {
         if (kind.zone === "Armistice") {
           armistice = kind.entered;
+          if (!kind.entered && place && place.leftAt == null) place.leftAt = entry.at;
           break;
         }
         const last = properties.at(-1);
@@ -881,6 +892,7 @@ export function readSession(session: Session, names: Names, now: number): Sessio
         break;
       }
       case "quantum_travel": {
+        if (place && place.leftAt == null) place.leftAt = entry.at;
         const to = names.destination(kind.to).name;
         const arrived = kind.arrived_at;
         // Without an arrival the log only says a course was set.
@@ -1039,6 +1051,7 @@ export function readSession(session: Session, names: Names, now: number): Sessio
             jurisdictions: place.jurisdictions,
             armistice,
             arrivedAt: place.arrivedAt,
+            leftAt: place.leftAt,
           }
         : null,
       ship: { aboard, last: lastStay, stays },
