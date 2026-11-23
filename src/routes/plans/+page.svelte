@@ -1902,22 +1902,22 @@
     min-width: 0;
     color: var(--text-faint);
   }
+  /* As wide as its text, so the pencil sits right beside it. */
   .note-q input {
     all: unset;
-    min-width: 0;
-    width: 100%;
+    field-sizing: content;
+    min-width: 2ch;
     max-width: 320px;
-    text-align: right;
     color: var(--text-dim);
     font-size: var(--text-control);
+    border-bottom: 1px solid transparent;
   }
   .note-q input::placeholder {
     color: var(--text-faint);
   }
   .note-q input:focus {
-    text-align: left;
     color: var(--text);
-    border-bottom: 1px solid var(--accent-line);
+    border-bottom-color: var(--accent-line);
   }
   .band-sec {
     display: flex;
