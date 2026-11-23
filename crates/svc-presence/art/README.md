@@ -19,8 +19,9 @@ shows none rather than a generic icon.
 
 The tiles use the app's `.tile` mixes on the app.css tokens: the hue at 12%
 on `--bg-raised`, its edge at 26% on `--border`, the lucide glyph at 85% on
-`--text`. Discord shows the small image as a circle, so each tile is a
-disc. `sheet.png` shows them all.
+`--text`, at the tile's own proportions (32 px, 7 px corners, a 1 px edge,
+a 16 px glyph). Discord shows the small image as a circle, so the tile
+sits inside it on a transparent surround. `sheet.png` shows them all.
 
 Rebuild from the repo root, keeping `make.mjs`'s list in step with the two
 app files and with `compose::asset`:
