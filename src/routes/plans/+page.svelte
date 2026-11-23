@@ -223,27 +223,45 @@
     if (tab === "active") focus = { kind: "plan", plan: id };
   }
 
-  // Drag to reorder (Active and Bookmarks), by the grip: the rows move
-  // under the pointer as you drag, so what you see is the order you get,
-  // and the drop is kept at once (the list reads the order from the plans
-  // file, not the re-derived board). The grip also takes the arrow keys.
+  // Drag to reorder (Active and Bookmarks): press anywhere on a row and
+  // move; the rows slide under the pointer as you drag, so what you see is
+  // the order you get, and the drop is kept at once (the list reads the
+  // order from the plans file, not the re-derived board). The list, which
+  // never moves, holds the pointer once a drag starts, so the drag follows
+  // it anywhere and ends on release, even outside the window. A press that
+  // does not move 4 px is a click. The grip takes the arrow keys.
   let dragging = $state<string | null>(null);
   /** The shown ids in their order while a drag runs. */
   let live = $state<string[] | null>(null);
   const sortable = $derived(tab !== "done");
+  /** A press on a row that may become a drag. */
+  let pressed: { id: string; y: number; pointer: number } | null = null;
+  /** The click a drag's release makes is not a pick. */
+  let swallow = false;
 
-  function grab(e: PointerEvent, id: string) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    dragging = id;
-    live = shown.map((p) => p.id);
+  function press(e: PointerEvent) {
+    swallow = false;
+    if (!sortable || e.button !== 0) return;
+    const t = e.target as HTMLElement;
+    // Buttons with their own job (Plan, Remove) and fields stay theirs.
+    if (t.closest("input, textarea, a, .wide-act")) return;
+    const row = t.closest<HTMLElement>("[data-row]");
+    if (row?.dataset.row) pressed = { id: row.dataset.row, y: e.clientY, pointer: e.pointerId };
   }
 
-  function drag(e: PointerEvent) {
-    if (!dragging || !live) return;
-    const list = (e.currentTarget as HTMLElement).closest("[data-list]");
-    if (!list) return;
+  function move(e: PointerEvent) {
+    const list = e.currentTarget as HTMLElement;
+    if (!dragging) {
+      if (!pressed || Math.abs(e.clientY - pressed.y) < 4) return;
+      dragging = pressed.id;
+      live = shown.map((p) => p.id);
+      list.setPointerCapture(pressed.pointer);
+    }
+    // Released where no up event reached us: the drag is over.
+    if (e.buttons === 0) {
+      release();
+      return;
+    }
     // Where it goes: after every other row whose middle is above the pointer.
     let to = 0;
     for (const row of list.querySelectorAll<HTMLElement>("[data-row]")) {
@@ -251,10 +269,32 @@
       const r = row.getBoundingClientRect();
       if (e.clientY > r.top + r.height / 2) to++;
     }
-    const rest = live.filter((x) => x !== dragging);
+    const rest = live!.filter((x) => x !== dragging);
     const next = [...rest.slice(0, to), dragging, ...rest.slice(to)];
     if (next.some((x, i) => x !== live![i])) live = next;
   }
+
+  function release() {
+    pressed = null;
+    if (!dragging) return;
+    swallow = true;
+    void drop();
+  }
+
+  /** The list's handlers, on the element that holds the pointer. */
+  const listDrag = {
+    onpointerdown: press,
+    onpointermove: move,
+    onpointerup: release,
+    onpointercancel: release,
+    onlostpointercapture: release,
+    onclickcapture: (e: MouseEvent) => {
+      if (!swallow) return;
+      swallow = false;
+      e.stopPropagation();
+      e.preventDefault();
+    },
+  };
 
   async function drop() {
     const id = dragging;
@@ -435,17 +475,16 @@
   }
 </script>
 
+<!-- Leaving the window ends a drag where it stands. -->
+<svelte:window onblur={release} />
+
 {#snippet grip(p: PlanBoard, n: number)}
   {#if sortable}
     <button
       type="button"
       class="grip"
-      title="Drag to reorder, or use the arrow keys"
+      title="Drag the row to reorder it, or use the arrow keys here"
       aria-label="Move {p.name}: arrow up or down"
-      onpointerdown={(e) => grab(e, p.id)}
-      onpointermove={drag}
-      onpointerup={() => void drop()}
-      onpointercancel={() => void drop()}
       onkeydown={(e) => {
         if (e.key === "ArrowUp" && n > 0) {
           e.preventDefault();
@@ -475,7 +514,7 @@
           : "Nothing done yet."}
       </p>
     {/if}
-    <div data-list>
+    <div data-list class:sorting={!!dragging} {...listDrag}>
     {#each shown as p, n (p.id)}
       {@const fig = p.tiles[0]}
       <div class="wide-row kind-{p.kind}" class:sel={p.id === detail?.id} class:lifted={dragging === p.id} data-row={p.id} animate:flip={{ duration: 140 }}>
@@ -753,7 +792,7 @@
           {#if tab === "active"}
           <section class="panel">
             <h2 class="sec-h">Your plans<span class="grow"></span><span class="mono">{shown.length}</span></h2>
-            <div class="plan-list" data-list>
+            <div class="plan-list" data-list class:sorting={!!dragging} {...listDrag}>
               {#each shown as p, n (p.id)}
                 <div
                   class="plan-row kind-{p.kind}"
@@ -1507,11 +1546,15 @@
   .grip:focus-visible {
     outline: 2px solid var(--accent);
   }
-  .grip:active {
-    cursor: grabbing;
+  [data-list] {
+    touch-action: pan-x;
   }
-  .grip {
-    touch-action: none;
+  [data-list] [data-row] {
+    user-select: none;
+  }
+  .sorting,
+  .sorting * {
+    cursor: grabbing !important;
   }
   /* The row being dragged: raised, the others make room around it. */
   .lifted {
