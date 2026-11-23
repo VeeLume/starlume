@@ -71,8 +71,6 @@
   let removing = $state<PlanBoard | null>(null);
   /** The right column's panel: where parts come from, or the materials. */
   let sideTab = $state<"parts" | "materials">("parts");
-  /** A minimum being dragged, until the plan takes it: `blueprint:slot`. */
-  let drafts = $state<Record<string, number>>({});
   let blueprints = $state<BlueprintRowView[]>([]);
 
   const channel = $derived(dataStore.channel);
@@ -407,12 +405,6 @@
   }
 
 
-  function setSlot(c: PlanCraft, index: number, quality: number) {
-    if (!detail) return;
-    const slots = minimums(c);
-    slots[index] = quality;
-    void updateCraft(detail.id, c.blueprint, c.count, slots);
-  }
 
   /** What a slot's minimum can be set to, and where it stands now. */
   function slotChoice(s: PlanSlot) {
@@ -420,11 +412,6 @@
     return { stops, now: snapUp(stops, s.min) };
   }
 
-  function stopLabel(s: PlanSlot, value: number, first: boolean) {
-    if (first && s.floor <= 1) return "any quality";
-    const band = s.bands.find((b) => b.value === value);
-    return band ? `Q${value}, band ${band.from} to ${band.to}` : `Q${value}`;
-  }
 
   const slotAmount = (s: PlanSlot) => `${amount(s, s.amount)} ${s.bulk ? "SCU" : "pcs"}`;
 
@@ -624,44 +611,13 @@
           <div class="slots">
             {#each c.slots as s, i (i)}
               {@const choice = slotChoice(s)}
-              {@const key = `${c.blueprint}:${i}`}
-              {@const q = drafts[key] ?? (choice.stops.length ? choice.now : s.min)}
-              <div class="slot">
-                <span class="slot-head">
-                  <span class="slot-mat"
-                    ><i class:held={s.held} title={s.held ? "Your stock covers it" : "Not covered by your stock"}></i>{s.material}<span
-                      class="dim mono">{slotAmount(s)}</span
-                    ></span
-                  >
-                  <span class="slot-q">{q <= 1 && s.floor <= 1 ? "any" : `Q${q}+`}</span>
-                </span>
-                {#if choice.stops.length > 1}
-                  <!-- One stop per quality the material comes in. -->
-                  <input
-                    type="range"
-                    min="0"
-                    max={choice.stops.length - 1}
-                    step="1"
-                    value={Math.max(0, choice.stops.indexOf(q))}
-                    aria-label="Minimum quality of {s.material}"
-                    aria-valuetext={stopLabel(s, q, choice.stops.indexOf(q) === 0)}
-                    oninput={(e) => (drafts[key] = choice.stops[e.currentTarget.valueAsNumber])}
-                    onchange={(e) => setSlot(c, i, choice.stops[e.currentTarget.valueAsNumber])}
-                  />
-                {:else if choice.stops.length === 0}
-                  <!-- No bands in the game data for this material. -->
-                  <input
-                    type="range"
-                    min={s.floor}
-                    max="1000"
-                    step="10"
-                    value={q}
-                    aria-label="Minimum quality of {s.material}"
-                    oninput={(e) => (drafts[key] = e.currentTarget.valueAsNumber)}
-                    onchange={(e) => setSlot(c, i, e.currentTarget.valueAsNumber)}
-                  />
-                {/if}
-                <span class="slot-moves">{s.moves.length ? `moves ${s.moves.join(", ")}` : "moves no stat"}</span>
+              <div class="slot" title={s.moves.length ? `Moves ${s.moves.join(", ")}` : "Moves no stat"}>
+                <span class="slot-mat"
+                  ><i class:held={s.held} title={s.held ? "Your stock covers it" : "Not covered by your stock"}></i>{s.material}<span
+                    class="dim mono">{slotAmount(s)}</span
+                  ></span
+                >
+                <span class="slot-q">{choice.now <= 1 && s.floor <= 1 ? "any" : `Q${choice.now}+`}</span>
               </div>
             {/each}
           </div>
@@ -1124,15 +1080,21 @@
     grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
     gap: 8px;
   }
+  /* A material and the minimum the plan sets for it; the minimums are
+   * set on the recipe. The stats it moves are its tooltip. */
   .slot {
     display: flex;
-    flex-direction: column;
-    gap: 3px;
+    align-items: baseline;
+    gap: 8px;
     min-width: 0;
-    padding: 8px 10px;
+    padding: 7px 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg-sunk);
+  }
+  .slot .slot-mat {
+    flex: 1;
+    min-width: 0;
   }
   .slot-name {
     font-family: var(--font-mono);
@@ -1162,15 +1124,6 @@
   .slot-mat .mono {
     font-size: var(--text-small);
     font-weight: 400;
-  }
-  /* The stat this material moves: the reason to set its minimum high or
-   * leave it low. */
-  .slot-moves {
-    font-size: var(--text-small);
-    color: color-mix(in srgb, var(--hue-rose) 55%, var(--text));
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   /* The tab row's other pieces sit on its middle, like the ship picker on
@@ -1997,24 +1950,10 @@
     font-weight: 500;
     color: var(--text-strong);
   }
-  .slot-head {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  .slot-head .slot-mat {
-    flex: 1;
-    min-width: 0;
-  }
   .slot-q {
     font-family: var(--font-mono);
     font-weight: var(--weight-bold);
     color: color-mix(in srgb, var(--hue-quality) 70%, var(--text-strong));
-  }
-  .slot input[type="range"] {
-    width: 100%;
-    margin: 4px 0 2px;
-    accent-color: var(--hue-quality);
   }
   /* The right column's panel switch: the Ships tab row, small. */
   .side-tabs {
