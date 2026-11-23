@@ -576,18 +576,28 @@
       <span class="next" class:waits={d.waiting}
         ><ArrowRight size={14} />{d.missing ? `${d.note}. Remove the plan, or bring its goal back.` : d.note}</span
       >
-      <label class="note-q" title="Your own words about this plan"
-        ><Pencil size={13} /><input value={d.notes} placeholder="Add a note" aria-label="Notes" onchange={(e) => void setPlanNotes(d.id, e.currentTarget.value)} /></label
-      >
+    </div>
+    <!-- Your note: as many lines as you write, growing down; kept when
+         the field loses focus. -->
+    <div class="note-row">
+      <Pencil size={13} />
+      <textarea
+        rows="1"
+        value={d.notes}
+        placeholder="Add a note"
+        aria-label="Notes"
+        title="Your own words about this plan"
+        onchange={(e) => void setPlanNotes(d.id, e.currentTarget.value)}
+      ></textarea>
     </div>
     {#if d.kind === "project" || d.crafts.length > 0}
-      <div class="band-sec">
-        <span class="band-lab">{d.kind === "project" ? "Crafts in this project" : "Minimum quality per material"}</span>
-        <span class="grow"></span>
-        {#if d.kind === "project"}
+      {#if d.kind === "project"}
+        <div class="band-sec">
+          <span class="band-lab">Crafts in this project</span>
+          <span class="grow"></span>
           <Button variant="outline" onclick={() => (addingTo = d)}><Plus size={14} /> Add a craft</Button>
-        {/if}
-      </div>
+        </div>
+      {/if}
       {#each d.crafts as c (c.blueprint)}
         <div class="craft" class:missing={c.missing}>
           <div class="craft-head">
@@ -1893,31 +1903,52 @@
   .next.waits {
     color: var(--warn);
   }
-  .note-q {
-    flex: 1 1 160px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 6px;
-    min-width: 0;
+  .note-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: -4px;
     color: var(--text-faint);
   }
-  /* As wide as its text, so the pencil sits right beside it. */
-  .note-q input {
+  .note-row :global(svg) {
+    flex: none;
+    margin-top: 4px;
+  }
+  .note-row textarea {
     all: unset;
+    flex: 1;
+    min-width: 0;
     field-sizing: content;
-    min-width: 2ch;
-    max-width: 320px;
-    color: var(--text-dim);
+    min-height: 1.5em;
+    padding: 1px 6px;
+    margin-left: -6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-chip);
     font-size: var(--text-control);
-    border-bottom: 1px solid transparent;
+    line-height: 1.5;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
-  .note-q input::placeholder {
+  .note-row textarea::placeholder {
     color: var(--text-faint);
   }
-  .note-q input:focus {
+  .note-row textarea:hover {
+    border-color: var(--border);
+  }
+  .note-row textarea:focus {
+    border-color: var(--accent-line);
+    background: var(--bg);
     color: var(--text);
-    border-bottom-color: var(--accent-line);
+  }
+  /* In the band, crafts sit flush; a project's are split by a rule. */
+  .band .craft {
+    padding: 4px 0 0;
+    border-bottom: 0;
+  }
+  .band .craft + .craft {
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   }
   .band-sec {
     display: flex;
