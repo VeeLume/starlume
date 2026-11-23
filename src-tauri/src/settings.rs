@@ -123,6 +123,50 @@ pub struct AppSettings {
     /// **not** behind `online_enabled`. Turning it on starts the watcher
     /// (`gamelog::sync`); off, no log is statted or read.
     pub gamelog_enabled: bool,
+    /// Discord Rich Presence (Settings › Discord). Sends what you are doing
+    /// to the Discord app, which publishes it: a network call, so it also
+    /// needs `online_enabled`. Off by default.
+    pub presence: PresenceSettings,
+}
+
+/// What Discord Rich Presence shares ([`AppSettings::presence`]; decision
+/// 01a2085d). Mirrors `svc_presence::Share` plus the switch.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(default)]
+pub struct PresenceSettings {
+    /// Show the game on Discord at all. Default OFF.
+    pub enabled: bool,
+    /// How much of the place: exact, the system (default), or none.
+    pub place: svc_presence::PlaceLevel,
+    /// The ship's picture and name.
+    pub ship: bool,
+    /// The contract's type and faction; its title and progress on hover.
+    pub contracts: bool,
+    /// The "Get Starlume" button.
+    pub button: bool,
+}
+
+impl Default for PresenceSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            place: svc_presence::PlaceLevel::System,
+            ship: true,
+            contracts: true,
+            button: false,
+        }
+    }
+}
+
+impl PresenceSettings {
+    pub fn share(&self) -> svc_presence::Share {
+        svc_presence::Share {
+            place: self.place,
+            ship: self.ship,
+            contracts: self.contracts,
+            button: self.button,
+        }
+    }
 }
 
 /// What an install that finished onboarding before the What's-new guide
@@ -168,6 +212,7 @@ impl Default for AppSettings {
             ship_holo: true,
             telemetry_enabled: false,
             gamelog_enabled: false,
+            presence: PresenceSettings::default(),
         }
     }
 }
@@ -335,6 +380,8 @@ pub(crate) fn update_settings(
     // After both: the session log lets go of what it holds when its module
     // or its last source went off.
     crate::session::sync(&app);
+    // Rich Presence follows its switch, its share choices and the online gate.
+    crate::presence::nudge(&app);
     // A tighter archive retention applies right away; a looser one only
     // keeps future builds (pruned ones are gone).
     if retention(&settings) != old_retention {

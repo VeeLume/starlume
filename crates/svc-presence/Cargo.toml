@@ -15,3 +15,8 @@ description = "Starlume presence service — Discord Rich Presence over the Disc
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# Types for the shell's IPC (the Settings preview), off by default.
+specta = { workspace = true, optional = true }
+
+[features]
+specta = ["dep:specta"]

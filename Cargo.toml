@@ -103,6 +103,7 @@ sc-nav-glyph = { git = "https://github.com/VeeLume/sc-nav", rev = "49dd267cb61f7
 svc-commlinks = { path = "crates/svc-commlinks" }
 svc-dossier = { path = "crates/svc-dossier" }
 svc-patchnotes = { path = "crates/svc-patchnotes" }
+svc-presence = { path = "crates/svc-presence" }
 svc-shipstore = { path = "crates/svc-shipstore" }
 svc-uex = { path = "crates/svc-uex" }
 svc-log = { path = "crates/svc-log" }

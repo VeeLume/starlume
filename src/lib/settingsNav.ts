@@ -1,7 +1,7 @@
 // Settings categories as data (the kit scaffold's contract): adding a
 // setting is one entry here plus one small page under /settings/<id>.
 
-import { Blocks, Database, Gauge, Globe, Info, SlidersHorizontal, UserRound } from "lucide-svelte";
+import { Blocks, Database, Gauge, Globe, Info, MessageCircle, SlidersHorizontal, UserRound } from "lucide-svelte";
 import type { SettingsCategory } from "@veelume/ui";
 import { SHOW_UNRELEASED } from "$lib/unreleased";
 
@@ -33,6 +33,13 @@ export const settingsCategories: SettingsCategory[] = [
     description: "Network master switch, unofficial-API consent",
     icon: Globe,
     path: "/settings/online",
+  },
+  {
+    id: "discord",
+    label: "Discord",
+    description: "What your profile shows while you play",
+    icon: MessageCircle,
+    path: "/settings/discord",
   },
   // Server + Discord serve only the unreleased friends/community layer.
   ...(SHOW_UNRELEASED

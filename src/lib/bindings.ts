@@ -1420,6 +1420,13 @@ async sessionState() : Promise<SessionStateView> {
     return await TAURI_INVOKE("session_state");
 },
 /**
+ * What Discord shows now and why; while the switch is off, what it would
+ * show, for the preview.
+ */
+async presenceState() : Promise<PresenceView> {
+    return await TAURI_INVOKE("presence_state");
+},
+/**
  * The finished sessions, newest first (at most [`HISTORY_CAP`]). One small
  * file read, after the queue has drained (so a session being filed is in
  * it); empty while the module is off.
@@ -1615,6 +1622,15 @@ async leaveGroup(groupId: string) : Promise<Result<null, AppError>> {
  * G per direction.
  */
 export type AccelView = { forward: number; backward: number; left: number; right: number; up: number; down: number }
+export type Activity = { 
+/**
+ * The top line: what you are doing.
+ */
+details?: string | null; 
+/**
+ * The second line: where.
+ */
+state?: string | null; timestamps?: Timestamps | null; assets?: Assets | null; buttons: Button[] }
 /**
  * What kind of work an activity is — inline surfaces filter on it.
  */
@@ -1849,7 +1865,13 @@ telemetry_enabled: boolean;
  * **not** behind `online_enabled`. Turning it on starts the watcher
  * (`gamelog::sync`); off, no log is statted or read.
  */
-gamelog_enabled: boolean }
+gamelog_enabled: boolean; 
+/**
+ * Discord Rich Presence (Settings › Discord). Sends what you are doing
+ * to the Discord app, which publishes it: a network call, so it also
+ * needs `online_enabled`. Off by default.
+ */
+presence: PresenceSettings }
 export type AreaRockView = { rockType: string; name: string; 
 /**
  * Share of the area's ship-mineable rocks.
@@ -1915,6 +1937,11 @@ export type ArticleRefView = { url: string; title: string; version: string | nul
  * Relative, as RSI's index shows it ("1 year ago").
  */
 age_text: string }
+/**
+ * An image is an asset key uploaded to the Discord application, or an
+ * https URL Discord fetches itself; its text is the hover.
+ */
+export type Assets = { large_image?: string | null; large_text?: string | null; small_image?: string | null; small_text?: string | null }
 /**
  * One attachment of an [`EntryKind::Attachments`] entry.
  */
@@ -2006,6 +2033,10 @@ turn: number[] }
 export type BpPoolEntryView = { blueprint_record_guid: string; name: string | null; weight: number }
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
 export type BuildInfoView = { label: string; value: string }
+/**
+ * A link under the activity. Discord hides buttons on your own profile.
+ */
+export type Button = { label: string; url: string }
 /**
  * One option for a port.
  */
@@ -3778,6 +3809,19 @@ export type PickView = { kind: "average" } | { kind: "mostCommon" } | { kind: "s
  * Spawn tables at a Lagrange point, by what they spawn at.
  */
 export type PlaceGroupView = { title: string | null; detail: string | null; areas: string[] }
+export type PlaceLevel = 
+/**
+ * The station, moon or quantum target.
+ */
+"exact" | 
+/**
+ * Only the system: Stanton, Pyro, Nyx.
+ */
+"system" | 
+/**
+ * No place; State shows progress.
+ */
+"off"
 /**
  * A place in the generator's tree, or a field standing for many places.
  */
@@ -4114,6 +4158,71 @@ plants: PlantView[];
  * off for that type's heat).
  */
 sources: SourceView[] }
+/**
+ * What Discord Rich Presence shares ([`AppSettings::presence`]; decision
+ * 01a2085d). Mirrors `svc_presence::Share` plus the switch.
+ */
+export type PresenceSettings = { 
+/**
+ * Show the game on Discord at all. Default OFF.
+ */
+enabled: boolean; 
+/**
+ * How much of the place: exact, the system (default), or none.
+ */
+place: PlaceLevel; 
+/**
+ * The ship's picture and name.
+ */
+ship: boolean; 
+/**
+ * The contract's type and faction; its title and progress on hover.
+ */
+contracts: boolean; 
+/**
+ * The "Get Starlume" button.
+ */
+button: boolean }
+/**
+ * Why Discord shows what it shows.
+ */
+export type PresenceStatus = 
+/**
+ * The switch is off.
+ */
+"off" | 
+/**
+ * Online features are off.
+ */
+"offline" | 
+/**
+ * The Session Log module is off, or neither of its sources is on.
+ */
+"no_session" | 
+/**
+ * No game session is live.
+ */
+"not_playing" | 
+/**
+ * The Discord app is not running (looked for again every 30 s).
+ */
+"no_discord" | 
+/**
+ * Discord shows the activity.
+ */
+"shown"
+/**
+ * What Discord shows now, for Settings.
+ */
+export type PresenceView = { status: PresenceStatus; 
+/**
+ * What Discord shows; while off, what it would show (the preview).
+ */
+activity: Activity | null; 
+/**
+ * The Discord user the app is signed in as, while connected.
+ */
+user: string | null }
 /**
  * One INI value before and after patching (`mod_langpatch::preview`).
  */
@@ -5169,6 +5278,11 @@ export type TimeSource =
  * recipe's craft time).
  */
 "game"
+/**
+ * Unix seconds. Discord counts up from `start`; with none it counts from
+ * when the activity was first set.
+ */
+export type Timestamps = { start?: number | null; end?: number | null }
 /**
  * One moment of the plan for everyone.
  */

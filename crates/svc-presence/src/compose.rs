@@ -103,6 +103,7 @@ impl Default for Share {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "snake_case")]
 pub enum PlaceLevel {
     /// The station, moon or quantum target.

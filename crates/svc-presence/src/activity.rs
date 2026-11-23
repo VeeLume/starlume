@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 pub const LINE_MAX: usize = 28;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct Activity {
     /// The top line: what you are doing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -31,16 +32,20 @@ pub struct Activity {
 /// Unix seconds. Discord counts up from `start`; with none it counts from
 /// when the activity was first set.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct Timestamps {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(type = Option<f64>))]
     pub start: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(type = Option<f64>))]
     pub end: Option<i64>,
 }
 
 /// An image is an asset key uploaded to the Discord application, or an
 /// https URL Discord fetches itself; its text is the hover.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct Assets {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub large_image: Option<String>,
@@ -54,6 +59,7 @@ pub struct Assets {
 
 /// A link under the activity. Discord hides buttons on your own profile.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct Button {
     pub label: String,
     pub url: String,

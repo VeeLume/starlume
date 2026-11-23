@@ -26,7 +26,7 @@ use tauri_plugin_sc_render::ScRenderExt;
 use crate::error::AppError;
 use crate::{AppState, suspend};
 
-const MAIN: &str = "main";
+pub(crate) const MAIN: &str = "main";
 
 /// How long a hidden window keeps its suspended webview before it closes.
 const CLOSE_HIDDEN_AFTER: Duration = Duration::from_secs(60);

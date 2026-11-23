@@ -47,6 +47,7 @@ mod patchnotes;
 mod performance;
 mod plans;
 mod plans_contracts;
+mod presence;
 mod sc;
 mod session;
 mod session_names;

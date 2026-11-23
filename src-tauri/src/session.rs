@@ -458,6 +458,7 @@ fn feed(app: &AppHandle, call: impl FnOnce(&mut Host) -> Outcome + Send + 'stati
             .run(&Store::at_data_root(), gates, call);
         if let Some(change) = change {
             let _ = app.emit(SESSION_CHANGED_EVENT, change);
+            crate::presence::nudge(&app);
         }
     });
     let _ = QUEUE.send(job);
@@ -637,6 +638,21 @@ pub(crate) async fn session_state(app: AppHandle) -> SessionStateView {
         telemetry_enabled: gates.telemetry,
         current: HOST.lock().unwrap().reducer.current().cloned(),
     }
+}
+
+/// The session being played right now, for Discord Rich Presence
+/// (`presence.rs`): `None` while the module is off or no game runs. A copy
+/// of the reducer's: the presence worker reads it off this module's queue.
+pub(crate) fn live(app: &AppHandle) -> Option<Session> {
+    if !gates(app).module {
+        return None;
+    }
+    HOST.lock()
+        .unwrap()
+        .reducer
+        .current()
+        .filter(|s| s.live)
+        .cloned()
 }
 
 /// Your average minutes per mission contract (its record name), measured

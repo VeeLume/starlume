@@ -1788,7 +1788,7 @@ type RowsOf = (Weak<svc_data::CookedData>, Arc<Vec<ShipRow>>);
 
 /// [`mod_ships::ships`] of `cooked`, shared. Blocking: call it off the
 /// async runtime. Callers asking at once wait for the one build.
-fn ship_rows(cooked: &Arc<svc_data::CookedData>) -> Arc<Vec<ShipRow>> {
+pub(crate) fn ship_rows(cooked: &Arc<svc_data::CookedData>) -> Arc<Vec<ShipRow>> {
     let mut held = SHIP_ROWS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((of, rows)) = held.as_ref()
         && of.upgrade().is_some_and(|c| Arc::ptr_eq(&c, cooked))
