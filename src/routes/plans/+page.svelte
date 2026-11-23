@@ -13,6 +13,7 @@
   // open a tab on a plan: Plan and Bookmark elsewhere link here.
   // Which plan is in view and which session choice is open are page-local.
   import { onMount, untrack } from "svelte";
+  import { flip } from "svelte/animate";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { Button, ConfirmDialog, Dialog, Picker } from "@veelume/ui";
@@ -105,8 +106,22 @@
    *  while one is off. */
   const on = (id: string) => settingsStore.current?.enabled_modules.includes(id) ?? false;
 
-  const tabOf = (p: PlanBoard): Tab => (p.done ? "done" : p.parked ? "bookmarks" : "active");
-  const shown = $derived((board?.plans ?? []).filter((p) => tabOf(p) === tab));
+  /** Bookmarked or not, from the plans file: a move between Active and
+   *  Bookmarks shows at once, before the board is derived again. */
+  const parked = $derived(new Map((plansStore.plans ?? []).map((p) => [p.id, p.parked])));
+  const tabOf = (p: PlanBoard): Tab => (p.done ? "done" : (parked.get(p.id) ?? p.parked) ? "bookmarks" : "active");
+  /** The board's plans in the plans file's order: a move shows at once,
+   *  before the board is derived again. */
+  const ordered = $derived.by(() => {
+    const rank = new Map((plansStore.plans ?? []).map((p, i) => [p.id, i]));
+    return [...(board?.plans ?? [])].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+  });
+  const shown = $derived.by(() => {
+    const mine = ordered.filter((p) => tabOf(p) === tab);
+    if (!live) return mine;
+    const byId = new Map(mine.map((p) => [p.id, p]));
+    return live.flatMap((id) => byId.get(id) ?? []);
+  });
   const plan = $derived(shown.find((p) => p.id === picked) ?? shown[0] ?? null);
   /** The kinds of work the board has, in the card's order. */
   const tracksShown = $derived(TRACKS.filter((t) => board?.tracks.tracks.some((x) => x.kind === t.id)));
@@ -208,55 +223,67 @@
     if (tab === "active") focus = { kind: "plan", plan: id };
   }
 
-  // Drag to reorder (Active and Bookmarks): the row under the pointer says
-  // where the dragged one lands, drawn as a line on a row's edge so nothing
-  // moves until it is dropped. The grip also takes ↑ and ↓ from the keys.
+  // Drag to reorder (Active and Bookmarks), by the grip: the rows move
+  // under the pointer as you drag, so what you see is the order you get,
+  // and the drop is kept at once (the list reads the order from the plans
+  // file, not the re-derived board). The grip also takes the arrow keys.
   let dragging = $state<string | null>(null);
-  /** Lands before this id; null: after the last row; undefined: nowhere. */
-  let dropBefore = $state<string | null | undefined>(undefined);
+  /** The shown ids in their order while a drag runs. */
+  let live = $state<string[] | null>(null);
   const sortable = $derived(tab !== "done");
 
-  function dragRow(p: PlanBoard, n: number) {
-    if (!sortable) return {};
-    return {
-      draggable: true,
-      ondragstart: (e: DragEvent) => {
-        dragging = p.id;
-        e.dataTransfer?.setData("text/plain", p.id);
-        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-      },
-      ondragover: (e: DragEvent) => {
-        if (!dragging) return;
-        e.preventDefault();
-        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        dropBefore = e.clientY > r.top + r.height / 2 ? (shown[n + 1]?.id ?? null) : p.id;
-      },
-      ondrop: (e: DragEvent) => {
-        e.preventDefault();
-        const id = dragging;
-        const before = dropBefore;
-        dragging = null;
-        dropBefore = undefined;
-        if (id && before !== undefined && before !== id) void movePlan(id, before ?? afterShown());
-      },
-      ondragend: () => {
-        dragging = null;
-        dropBefore = undefined;
-      },
-      "data-drop": dropBefore === p.id ? "above" : dropBefore === null && n === shown.length - 1 ? "below" : undefined,
-      "data-dragging": dragging === p.id || undefined,
-    };
+  function grab(e: PointerEvent, id: string) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragging = id;
+    live = shown.map((p) => p.id);
   }
 
-  /** The plan just after the shown list's last one in the whole order, so
-   *  a drop at the end of Bookmarks stays among the bookmarks' neighbours;
-   *  null: the very end. */
-  function afterShown(): string | null {
-    const all = plansStore.plans ?? [];
-    const last = shown.at(-1);
-    const at = all.findIndex((x) => x.id === last?.id);
-    return at >= 0 ? (all[at + 1]?.id ?? null) : null;
+  function drag(e: PointerEvent) {
+    if (!dragging || !live) return;
+    const list = (e.currentTarget as HTMLElement).closest("[data-list]");
+    if (!list) return;
+    // Where it goes: after every other row whose middle is above the pointer.
+    let to = 0;
+    for (const row of list.querySelectorAll<HTMLElement>("[data-row]")) {
+      if (row.dataset.row === dragging) continue;
+      const r = row.getBoundingClientRect();
+      if (e.clientY > r.top + r.height / 2) to++;
+    }
+    const rest = live.filter((x) => x !== dragging);
+    const next = [...rest.slice(0, to), dragging, ...rest.slice(to)];
+    if (next.some((x, i) => x !== live![i])) live = next;
   }
+
+  async function drop() {
+    const id = dragging;
+    const order = live;
+    dragging = null;
+    if (!id || !order) {
+      live = null;
+      return;
+    }
+    const was = ordered.filter((p) => tabOf(p) === tab).map((p) => p.id);
+    const at = order.indexOf(id);
+    if (order.every((x, i) => x === was[i])) {
+      live = null;
+      return;
+    }
+    // Before the row that now follows it; at the end, before whatever
+    // follows the list's last other row in the whole order.
+    const before = order[at + 1] ?? nextAfter(order.filter((x) => x !== id).at(-1), id);
+    await movePlan(id, before);
+    live = null;
+  }
+
+  /** The plan after `id` in the whole order, skipping `skip`; null: the end. */
+  function nextAfter(id: string | undefined, skip: string): string | null {
+    const all = (plansStore.plans ?? []).map((p) => p.id).filter((x) => x !== skip);
+    const at = id ? all.indexOf(id) : -1;
+    return at >= 0 ? (all[at + 1] ?? null) : null;
+  }
+
   const bars = $derived(ledgerBars(board?.ledger ?? []));
   const counts = $derived(
     Object.fromEntries(TABS.map(([id]) => [id, (board?.plans ?? []).filter((p) => tabOf(p) === id).length])) as Record<Tab, number>,
@@ -398,7 +425,7 @@
     const at = shown.findIndex((p) => p.id === id);
     const before = by < 0 ? shown[at - 1] : shown[at + 2];
     if (at < 0 || (by < 0 && !before) || (by > 0 && at === shown.length - 1)) return;
-    void movePlan(id, before?.id ?? afterShown());
+    void movePlan(id, before?.id ?? nextAfter(shown.at(-1)?.id, id));
   }
 
   async function remove() {
@@ -415,6 +442,10 @@
       class="grip"
       title="Drag to reorder, or use the arrow keys"
       aria-label="Move {p.name}: arrow up or down"
+      onpointerdown={(e) => grab(e, p.id)}
+      onpointermove={drag}
+      onpointerup={() => void drop()}
+      onpointercancel={() => void drop()}
       onkeydown={(e) => {
         if (e.key === "ArrowUp" && n > 0) {
           e.preventDefault();
@@ -444,9 +475,10 @@
           : "Nothing done yet."}
       </p>
     {/if}
+    <div data-list>
     {#each shown as p, n (p.id)}
       {@const fig = p.tiles[0]}
-      <div class="wide-row kind-{p.kind}" class:sel={p.id === detail?.id} {...dragRow(p, n)}>
+      <div class="wide-row kind-{p.kind}" class:sel={p.id === detail?.id} class:lifted={dragging === p.id} data-row={p.id} animate:flip={{ duration: 140 }}>
         {@render grip(p, n)}
         <button type="button" class="wide-pick" aria-pressed={p.id === detail?.id} onclick={() => pickPlan(p.id)}>
           <span class="glyph"><PlanGlyph shape={PLAN_LOOK[p.kind].shape} /></span>
@@ -461,6 +493,7 @@
         </span>
       </div>
     {/each}
+    </div>
   </section>
 {/snippet}
 
@@ -720,13 +753,15 @@
           {#if tab === "active"}
           <section class="panel">
             <h2 class="sec-h">Your plans<span class="grow"></span><span class="mono">{shown.length}</span></h2>
-            <div class="plan-list">
+            <div class="plan-list" data-list>
               {#each shown as p, n (p.id)}
                 <div
                   class="plan-row kind-{p.kind}"
                   class:sel={p.id === (detail?.id ?? (shownFocus.kind === "plan" ? shownFocus.plan : null))}
                   class:parked={p.parked}
-                  {...dragRow(p, n)}
+                  class:lifted={dragging === p.id}
+                  data-row={p.id}
+                  animate:flip={{ duration: 140 }}
                 >
                   <button type="button" class="plan-pick" aria-pressed={p.id === detail?.id} onclick={() => pickPlan(p.id)}>
                     <span class="glyph"><PlanGlyph shape={PLAN_LOOK[p.kind].shape} /></span>
@@ -1472,15 +1507,20 @@
   .grip:focus-visible {
     outline: 2px solid var(--accent);
   }
-  /* Where a dragged row lands: a line on an edge, so nothing moves. */
-  [data-drop="above"] {
-    box-shadow: inset 0 2px 0 var(--accent);
+  .grip:active {
+    cursor: grabbing;
   }
-  [data-drop="below"] {
-    box-shadow: inset 0 -2px 0 var(--accent);
+  .grip {
+    touch-action: none;
   }
-  [data-dragging] {
-    opacity: 0.45;
+  /* The row being dragged: raised, the others make room around it. */
+  .lifted {
+    position: relative;
+    z-index: 1;
+    background: var(--bg-raised);
+    box-shadow:
+      0 0 0 1px var(--accent-line),
+      0 6px 18px color-mix(in srgb, black 35%, transparent);
   }
   .wide-list .sub {
     margin-left: 10px;

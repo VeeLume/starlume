@@ -263,7 +263,7 @@
         {#if pickFrom.options.length > 1}
           <Select class="pick" label={variantLabel} options={pickFrom.options} value={pickFrom.value} onchange={pickFrom.onchange} />
         {:else}
-          <span class="fixed">{pickFrom.options[0]?.label ?? "Standard"}</span>
+          <span class="one">{pickFrom.options[0]?.label ?? "Standard"}</span>
         {/if}
       </span>
       <button
@@ -287,9 +287,10 @@
           <input type="number" min="1" value={planCount} aria-label="Count" onchange={(e) => setCount(e.currentTarget.value)} />
           <button type="button" aria-label="One more" onclick={() => (countDraft = planCount + 1)}>+</button>
         </span>
-        <span class="lbl">In</span>
+        <!-- Where it goes is a choice only once you have a project. -->
         <span class="slot-dest">
           {#if plansStore.projects.length > 0}
+            <span class="lbl">In</span>
             <Select
               class="dest"
               label="Where the craft goes"
@@ -303,8 +304,6 @@
                 countDraft = null;
               }}
             />
-          {:else}
-            <span class="fixed" title="Start a project on Plans to gather crafts in it">a plan of its own</span>
           {/if}
         </span>
         <!-- Always reserved, so a change that appears here moves nothing. -->
@@ -534,12 +533,19 @@
   .slot-dest {
     flex: 1 1 0;
     min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
-  .slot-pick :global(.pick),
-  .slot-dest :global(.dest) {
+  .slot-pick :global(.pick) {
     width: 100%;
   }
-  .fixed {
+  .slot-dest :global(.dest) {
+    flex: 1;
+    min-width: 0;
+  }
+  /* Not `.fixed`: that is Tailwind's position: fixed. */
+  .one {
     display: block;
     padding: 0 2px;
     font-size: var(--text-control);

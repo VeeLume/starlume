@@ -56,7 +56,7 @@
     display: grid;
     /* Narrow (the sheet open): maker and materials give way, the name
        keeps its room. */
-    grid-template-columns: 26px minmax(130px, 1.4fr) minmax(0, 0.9fr) minmax(0, 1.5fr) 56px 46px 44px;
+    grid-template-columns: 26px minmax(130px, 1.4fr) minmax(0, 0.9fr) minmax(0, 1.5fr) 56px 46px 72px;
     gap: 12px;
     align-items: center;
     width: 100%;
