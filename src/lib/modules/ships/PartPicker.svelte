@@ -12,7 +12,7 @@
   // and this list then read it crafted, and Plans takes it from here.
   import { X } from "lucide-svelte";
   import { Segmented } from "@veelume/ui";
-  import type { CandidateView, OfferView, Plan, TourView } from "$lib/bindings";
+  import type { CandidateView, CraftMarkView, OfferView, Plan, TourView } from "$lib/bindings";
   import CraftBar from "./CraftBar.svelte";
   import { damageType, figuresFor, SIGNALS } from "./figures";
   import UexLink from "./UexLink.svelte";
@@ -61,7 +61,9 @@
     oncompare?: (byStat: Record<string, number[]> | null) => void;
     /** Plan it crafted at these minimums: a plan, or `parked` a bookmark. */
     onplan?: (slots: number[], parked: boolean) => Promise<boolean>;
-    onpick: (item: string | null) => void;
+    /** Fit `item` (null: leave the port empty); `craft` fits it crafted
+     *  at the mark its row was compared at. */
+    onpick: (item: string | null, craft?: CraftMarkView | null) => void;
     onclose: () => void;
   } = $props();
 
@@ -439,7 +441,7 @@
         {@const d = delta(c)}
         {@const imp = impact?.get(c) ?? null}
         {@const own = ownedOf(c)}
-        <button type="button" class="row" class:cur={c.fitted} style={grid} onclick={() => !c.fitted && onpick(c.item)}>
+        <button type="button" class="row" class:cur={c.fitted} style={grid} onclick={() => !c.fitted && onpick(c.item, c.craft)}>
           <span class="nm"
             ><b>{c.name}</b>{#if kind === "WeaponGun" && damageType(c.stats)}<small class="dt">{damageType(c.stats)}</small>{/if}{#if c.fitted}<small
                 class="fit">fitted</small

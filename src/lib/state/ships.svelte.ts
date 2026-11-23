@@ -25,6 +25,7 @@ import {
   type ShipRowView,
   type ShipsHomeView,
   type SlotView,
+  type CraftMarkView,
 } from "$lib/bindings";
 
 let _ships = $state.raw<ShipRowView[] | null>(null);
@@ -565,12 +566,15 @@ export function closePicker(): void {
 }
 
 /** Fit `item` on every target port; null empties them. */
-export function pick(targets: string[][], item: string | null): void {
+export function pick(targets: string[][], item: string | null, craft: CraftMarkView | null = null): void {
   const ship = shipsUi.ship;
   const edits = shipsUi.edits[ship] ?? [];
-  shipsUi.edits[ship] = [...edits, ...targets.map((path) => ({ path, item }))];
+  const mark = craft ? { quality: craft.quality, qualities: craft.slots } : {};
+  shipsUi.edits[ship] = [...edits, ...targets.map((path) => ({ path, item, ...mark }))];
   persist(ship);
-  closePicker();
+  // Picked crafted, the picker stays: its sliders are the next thing to
+  // set (Valerie, 2026-11-23). As sold, a pick is done.
+  if (!craft) closePicker();
 }
 
 /** The slot at `path` on the open page, or null. */

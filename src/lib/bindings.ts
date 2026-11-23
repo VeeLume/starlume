@@ -2013,7 +2013,13 @@ export type CandidateView = { item: string; name: string; recordName: string; si
 /**
  * Its figures are crafted at the picker's qualities.
  */
-crafted: boolean; impact: ImpactView; 
+crafted: boolean; 
+/**
+ * The mark it is compared at, to fit it as its row reads: the highest
+ * quality, and a quality per slot (empty when all are alike). Null
+ * when it is compared as sold.
+ */
+craft: CraftMarkView | null; impact: ImpactView; 
 /**
  * Free owned copies by place, most first; null without an inventory
  * snapshot (My Items never refreshed).
@@ -2198,6 +2204,11 @@ quality: number;
  * per-slot minimums read). A slot past the end is at `quality` too.
  */
 slots: number[] }
+/**
+ * A crafted mark to fit a part with: the highest quality and a quality
+ * per slot (empty when all are alike).
+ */
+export type CraftMarkView = { quality: number; slots: number[] }
 /**
  * A laser crafted at a quality: its power and the recipe sheet's rows
  * that change.

@@ -89,6 +89,11 @@ pub struct Candidate {
     /// quality per stat, and a blueprint makes this one.
     #[serde(default)]
     pub crafted: bool,
+    /// The mark it is compared at (its highest quality and a quality per
+    /// slot, empty when all are alike), so picking it fits it as its row
+    /// reads; `None` when it is compared as sold.
+    #[serde(default)]
+    pub craft: Option<(i32, Vec<i32>)>,
     pub impact: Impact,
 }
 
@@ -212,6 +217,7 @@ pub fn candidates(
                 },
                 fitted: Some(g) == fitted,
                 crafted: own.is_some(),
+                craft: made.as_ref().map(|c| (c.quality, c.slots.clone())),
                 impact,
             })
         })

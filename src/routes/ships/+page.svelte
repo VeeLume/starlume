@@ -358,7 +358,7 @@
               const bp = craftable(page.slots, targets)?.blueprint;
               return bp ? planCraft(null, bp, targets.length, slots, parked) : Promise.resolve(false);
             }}
-            onpick={(item) => pick(targets, item)}
+            onpick={(item, craft) => pick(targets, item, craft ?? null)}
             onclose={closePicker}
           />
         </div>

@@ -216,6 +216,15 @@ pub struct SlotView {
     pub children: Vec<SlotView>,
 }
 
+/// A crafted mark to fit a part with: the highest quality and a quality
+/// per slot (empty when all are alike).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CraftMarkView {
+    pub quality: i32,
+    pub slots: Vec<i32>,
+}
+
 /// A part marked crafted: its quality and the figures that change.
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -985,6 +994,10 @@ pub struct CandidateView {
     pub fitted: bool,
     /// Its figures are crafted at the picker's qualities.
     pub crafted: bool,
+    /// The mark it is compared at, to fit it as its row reads: the highest
+    /// quality, and a quality per slot (empty when all are alike). Null
+    /// when it is compared as sold.
+    pub craft: Option<CraftMarkView>,
     pub impact: ImpactView,
     /// Free owned copies by place, most first; null without an inventory
     /// snapshot (My Items never refreshed).
@@ -1068,6 +1081,9 @@ impl From<Candidate> for CandidateView {
             stats: c.stats.into_iter().map(Into::into).collect(),
             fitted: c.fitted,
             crafted: c.crafted,
+            craft: c
+                .craft
+                .map(|(quality, slots)| CraftMarkView { quality, slots }),
             impact: ImpactView {
                 supply: c.impact.supply.map(|s| s as i32),
                 free: c.impact.free.map(|f| f as i32),
