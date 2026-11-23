@@ -455,6 +455,7 @@ pub enum PlanKind {
     Project,
     Rank,
     Mission,
+    Blueprint,
     Unknown,
 }
 
@@ -821,7 +822,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                     crafts.extend(start_craft(plan, goal, inputs, &mut pool, &mut used));
                 }
             }
-            Goal::Rank(_) | Goal::Mission(_) | Goal::Unknown => {}
+            Goal::Rank(_) | Goal::Mission(_) | Goal::Blueprint(_) | Goal::Unknown => {}
         }
     }
 
@@ -1126,22 +1127,34 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
     // Blueprints to earn: one step a blueprint, whichever plans want it.
     let mut earns: Vec<PlanStep> = Vec::new();
     let mut earn_paths: Vec<PlanStep> = Vec::new();
-    for craft in crafts
+    // Who wants one: crafts still to make, then blueprint goals.
+    let wants = crafts
         .iter()
         .filter(|c| c.left > 0 && !c.parked && !c.recipe.owned)
-    {
-        let id = format!("earn:{}", craft.blueprint);
+        .map(|c| (c.plan, c.blueprint, c.recipe))
+        .chain(state.plans.iter().filter(|p| !p.parked).filter_map(|p| {
+            match &p.goal {
+                Goal::Blueprint(goal) => inputs
+                    .recipes
+                    .get(&goal.blueprint)
+                    .filter(|r| !r.owned)
+                    .map(|r| (p.id.as_str(), goal.blueprint.as_str(), r)),
+                _ => None,
+            }
+        }));
+    for (plan, blueprint, recipe) in wants {
+        let id = format!("earn:{blueprint}");
         if let Some(step) = earns.iter_mut().find(|s| s.id == id) {
-            if !step.plans.iter().any(|p| p == craft.plan) {
-                step.plans.push(craft.plan.to_owned());
+            if !step.plans.iter().any(|p| p == plan) {
+                step.plans.push(plan.to_owned());
             }
             continue;
         }
-        let grants = &craft.recipe.grants;
+        let grants = &recipe.grants;
         // The path to the granting mission that is nearest: the ranks and
         // missions before it, as steps the earn step follows.
-        if let Some(route) = crate::contracts::earn_route(grants, &inputs.contracts, craft.plan) {
-            let (step, before) = earn_step(id, &craft.recipe.name, craft.plan, grants, route);
+        if let Some(route) = crate::contracts::earn_route(grants, &inputs.contracts, plan) {
+            let (step, before) = earn_step(id, &recipe.name, plan, grants, route);
             earn_paths.extend(before);
             earns.push(step);
             continue;
@@ -1155,13 +1168,13 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
             rep: None,
             id,
             kind: StepKind::Earn,
-            title: format!("Earn the {} blueprint", craft.recipe.name),
+            title: format!("Earn the {} blueprint", recipe.name),
             detail: match grants.as_slice() {
                 [] => "No mission is known to grant it".to_owned(),
                 [one] => format!("One mission grants it: {}", one.title),
                 many => format!("{} missions grant it", many.len()),
             },
-            plans: vec![craft.plan.to_owned()],
+            plans: vec![plan.to_owned()],
             blocked: grants.is_empty(),
             at: grants
                 .iter()
@@ -1459,6 +1472,14 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 ),
                 Goal::Rank(goal) => crate::contracts::rank_board(goal, &inputs.contracts),
                 Goal::Mission(goal) => crate::contracts::mission_board(goal, &inputs.contracts),
+                Goal::Blueprint(goal) => match inputs.recipes.get(&goal.blueprint) {
+                    Some(recipe) => blueprint_board(recipe, &mine),
+                    None => missing(
+                        PlanKind::Blueprint,
+                        "Blueprint",
+                        "This build has no such blueprint",
+                    ),
+                },
                 Goal::Unknown => missing(PlanKind::Unknown, "Plan", "Made by a newer Starlume"),
             };
             board.id = plan.id.clone();
@@ -1475,7 +1496,7 @@ pub fn derive(state: &PlansState, inputs: &Inputs, ores: &dyn Fn(&str, u32) -> O
                 // Nothing is reserved for it, so nothing can be said about
                 // how far it is.
                 board.waiting = false;
-                board.note = "Parked: it reserves nothing".to_owned();
+                board.note = "Bookmarked: it reserves nothing".to_owned();
             } else if empty {
                 board.waiting = true;
                 board.note = "No crafts in it yet".to_owned();
@@ -1840,6 +1861,41 @@ fn craft_board(progress: CraftProgress, steps: &[&PlanStep]) -> PlanBoard {
         parked: false,
         notes: String::new(),
         crafts: vec![progress.view],
+    }
+}
+
+/// A blueprint to own: one stage, done once you have it.
+fn blueprint_board(recipe: &RecipeFacts, steps: &[&PlanStep]) -> PlanBoard {
+    let owned = recipe.owned;
+    let mut stages = stages(&[("Blueprint", (u32::from(owned), 1))]);
+    stages[0].sub = if owned { "owned" } else { "to earn" }.to_owned();
+    let grants = recipe.grants.len();
+    PlanBoard {
+        id: String::new(),
+        kind: PlanKind::Blueprint,
+        title: recipe.name.clone(),
+        name: format!("{} blueprint", recipe.name),
+        subtitle: "Blueprint".to_owned(),
+        progress: f32::from(u8::from(owned)),
+        done: false,
+        missing: false,
+        waiting: false,
+        note: String::new(),
+        stages,
+        tiles: vec![
+            tile(
+                grants.to_string(),
+                if grants == 1 {
+                    "mission grants it"
+                } else {
+                    "missions grant it"
+                },
+            ),
+            open_tile(steps.len()),
+        ],
+        parked: false,
+        notes: String::new(),
+        crafts: Vec::new(),
     }
 }
 
@@ -3434,6 +3490,54 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_blueprint_goal_earns_it_and_is_done_once_owned() {
+        let mut state = PlansState::default();
+        let want = state.add(
+            "",
+            Goal::Blueprint(crate::model::BlueprintGoal {
+                blueprint: "bp-1".into(),
+            }),
+        );
+        // A craft of the same blueprint shares the one earn step.
+        let craft = state.add("", Goal::Craft(CraftGoal::uniform("bp-1", 1, 0)));
+        let mut inputs = Inputs::default();
+        inputs.recipes.insert("bp-1".into(), recipe(false, vec![]));
+        let board = derive(&state, &inputs, &no_ores);
+        let earns: Vec<_> = board
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::Earn)
+            .collect();
+        assert_eq!(earns.len(), 1);
+        assert_eq!(earns[0].plans, vec![craft.clone(), want.clone()]);
+        assert_eq!(board.plans[0].kind, PlanKind::Blueprint);
+        assert_eq!(board.plans[0].stages[0].sub, "to earn");
+        assert!(!board.plans[0].done);
+
+        inputs.recipes.insert("bp-1".into(), recipe(true, vec![]));
+        let board = derive(&state, &inputs, &no_ores);
+        assert!(board.plans[0].done);
+        assert!(!board.steps.iter().any(|s| s.kind == StepKind::Earn));
+    }
+
+    #[test]
+    fn a_bookmarked_blueprint_asks_for_nothing() {
+        let mut state = PlansState::default();
+        let id = state.add(
+            "",
+            Goal::Blueprint(crate::model::BlueprintGoal {
+                blueprint: "bp-1".into(),
+            }),
+        );
+        state.set_parked(&id, true);
+        let mut inputs = Inputs::default();
+        inputs.recipes.insert("bp-1".into(), recipe(false, vec![]));
+        let board = derive(&state, &inputs, &no_ores);
+        assert!(board.steps.is_empty());
+        assert_eq!(board.plans[0].note, "Bookmarked: it reserves nothing");
+    }
+
+    #[test]
     fn a_pool_gives_one_you_lack_a_drawing_run() {
         let always = PoolDraw {
             chance: 1.0,
@@ -3858,7 +3962,7 @@ pub(crate) mod tests {
         let parked = &board.plans[0];
         assert_eq!(parked.id, one);
         assert!(parked.parked && !parked.done && !parked.waiting);
-        assert_eq!(parked.note, "Parked: it reserves nothing");
+        assert_eq!(parked.note, "Bookmarked: it reserves nothing");
         assert_eq!(parked.crafts[0].name, "Widget");
         assert!(!parked.crafts[0].slots[0].held);
         assert_eq!(parked.progress, 0.5);

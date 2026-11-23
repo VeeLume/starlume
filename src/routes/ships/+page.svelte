@@ -17,7 +17,6 @@
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
   import { addCraftPlan, loadPlans, plansStore } from "$lib/state/plans.svelte";
-  import { goto } from "$app/navigation";
   import LoadoutBar from "$lib/modules/ships/LoadoutBar.svelte";
   import PartPicker from "$lib/modules/ships/PartPicker.svelte";
   import ShipDetails from "$lib/modules/ships/ShipDetails.svelte";
@@ -344,16 +343,14 @@
             coolantAsked={page.power?.coolantAsked ?? null}
             tour={page.summary.quantum?.tour ?? null}
             craft={craftable(page.slots, targets) ? { quality: at?.crafted?.quality ?? null } : null}
-            plans={plansOn ? { planned: !!plansStore.craftOf(craftable(page.slots, targets)?.blueprint ?? "") } : null}
+            plans={plansOn ? { plan: plansStore.craftOf(craftable(page.slots, targets)?.blueprint ?? "") } : null}
             oncraft={(quality) => {
               setCrafted(targets, quality);
               if (channel) void openPicker(channel, targets);
             }}
-            onplan={(quality) => {
+            onplan={(quality, parked) => {
               const bp = craftable(page.slots, targets)?.blueprint;
-              if (!bp) return;
-              if (plansStore.craftOf(bp)) void goto("/plans");
-              else void addCraftPlan(bp, targets.length, quality);
+              return bp ? addCraftPlan(bp, targets.length, quality, parked) : Promise.resolve(false);
             }}
             onpick={(item) => pick(targets, item)}
             onclose={closePicker}

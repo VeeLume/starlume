@@ -1,4 +1,6 @@
-// Crafting's personal side: what you marked and what you hold. The catalog
+// Crafting's personal side: the blueprints you marked as owned and what you
+// hold. Wanting a blueprint or an item is a plan or a bookmark in Plans
+// (decision 01a2017f); the old want marks fold in there at start. The catalog
 // itself is reference data (catalog.svelte.ts); owned blueprints read from
 // the game are blueprints.svelte.ts. A blueprint counts as owned from either.
 
@@ -9,16 +11,12 @@ import { stockIndex, type Stock } from "$lib/modules/crafting/model";
 import { blueprintsStore } from "./blueprints.svelte";
 
 let _owned = $state<Set<string>>(new Set());
-let _wantBlueprint = $state<Set<string>>(new Set());
-let _wantItem = $state<Set<string>>(new Set());
 let _stock = $state<Stock>(new Map());
 let _stockRead = $state(false);
 let _error = $state("");
 
 function apply(marks: CraftingMarksView) {
   _owned = new Set(marks.owned);
-  _wantBlueprint = new Set(marks.wantBlueprint);
-  _wantItem = new Set(marks.wantItem);
 }
 
 export const craftingStore = {
@@ -35,8 +33,6 @@ export const craftingStore = {
   /** Read from the game: the mark can't be taken off by hand. */
   ownedInGame: (guid: string) => blueprintsStore.owns(guid),
   owns: (guid: string) => blueprintsStore.owns(guid) || _owned.has(guid),
-  wantsBlueprint: (guid: string) => _wantBlueprint.has(guid),
-  wantsItem: (guid: string) => _wantItem.has(guid),
 };
 
 export async function loadMarks(): Promise<void> {

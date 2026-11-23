@@ -6,12 +6,15 @@
   // derived Rust-side from what the account holds; nothing is ticked here.
   // A plan is a saved loadout, one craft, or a project: a named group of
   // crafts served as one plan (Hearth's projects). The order of the list is
-  // who the ledger serves first; a parked plan keeps its place and reserves
-  // nothing. A craft's minimum quality is set per material, at the
-  // qualities that material comes in ($lib/quality).
+  // who the ledger serves first. A bookmark (a parked plan, decision
+  // 01a2017f) waits under Bookmarks: it keeps its place in the order and
+  // reserves nothing. A craft's minimum quality is set per material, at the
+  // qualities that material comes in ($lib/quality). `?tab=` and `?plan=`
+  // open a tab on a plan: Plan and Bookmark elsewhere link here.
   // Which plan is in view and which session choice is open are page-local.
   import { onMount, untrack } from "svelte";
   import { goto } from "$app/navigation";
+  import { page } from "$app/state";
   import { Button, ConfirmDialog, Dialog, Picker } from "@veelume/ui";
   import { ArrowDown, ArrowUp, ArrowUpRight, Plus } from "lucide-svelte";
   import type { BlueprintRowView, PartChoice, PartSource, PlanBoard, PlanCraft, PlanSlot, RepFilter, StepKind, TrackKind } from "$lib/bindings";
@@ -21,10 +24,9 @@
   import { KIND_TEXT, TRACKS, ago, amount, focusView, ledgerBars, stepFigure, type Focus } from "$lib/modules/plans/model";
   import { snapUp, stopsOf } from "$lib/quality";
   import { getBlueprints } from "$lib/state/catalog.svelte";
-  import { craftingStore, loadMarks } from "$lib/state/crafting.svelte";
+  import { loadMarks } from "$lib/state/crafting.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import {
-    addCraftPlan,
     addLoadoutPlan,
     addProject,
     loadBoard,
@@ -48,11 +50,20 @@
 
   let ready = $state(false);
   let now = $state(Date.now());
-  let tab = $state<"active" | "done">("active");
-  let picked = $state<string | null>(null);
+  type Tab = "active" | "bookmarks" | "done";
+  const TABS: [Tab, string][] = [
+    ["active", "Active"],
+    ["bookmarks", "Bookmarks"],
+    ["done", "Done"],
+  ];
+  const asked = page.url.searchParams.get("tab");
+  let tab = $state<Tab>(asked === "bookmarks" || asked === "done" ? asked : "active");
+  let picked = $state<string | null>(page.url.searchParams.get("plan"));
   /** What the session is for: a kind of work across your plans, or one
    *  plan to get ready; `null`: the kind of work the board suggests. */
-  let focus = $state<Focus | null>(null);
+  /** A link's plan (`?plan=` on the Active tab) opens as the focus. */
+  const linked = asked !== "bookmarks" && asked !== "done" ? page.url.searchParams.get("plan") : null;
+  let focus = $state<Focus | null>(linked ? { kind: "plan", plan: linked } : null);
   let adding = $state(false);
   /** The project a craft is being picked for. */
   let addingTo = $state<PlanBoard | null>(null);
@@ -94,7 +105,8 @@
    *  while one is off. */
   const on = (id: string) => settingsStore.current?.enabled_modules.includes(id) ?? false;
 
-  const shown = $derived((board?.plans ?? []).filter((p) => (tab === "done" ? p.done : !p.done)));
+  const tabOf = (p: PlanBoard): Tab => (p.done ? "done" : p.parked ? "bookmarks" : "active");
+  const shown = $derived((board?.plans ?? []).filter((p) => tabOf(p) === tab));
   const plan = $derived(shown.find((p) => p.id === picked) ?? shown[0] ?? null);
   /** The kinds of work the board has, in the card's order. */
   const tracksShown = $derived(TRACKS.filter((t) => board?.tracks.tracks.some((x) => x.kind === t.id)));
@@ -120,7 +132,7 @@
   const detail = $derived(
     shownFocus.kind === "plan"
       ? (board?.plans.find((p) => p.id === shownFocus.plan) ?? null)
-      : tab === "done"
+      : tab !== "active"
         ? plan
         : null,
   );
@@ -196,10 +208,9 @@
     focus = { kind: "plan", plan: id };
   }
   const bars = $derived(ledgerBars(board?.ledger ?? []));
-  const counts = $derived({
-    active: (board?.plans ?? []).filter((p) => !p.done).length,
-    done: (board?.plans ?? []).filter((p) => p.done).length,
-  });
+  const counts = $derived(
+    Object.fromEntries(TABS.map(([id]) => [id, (board?.plans ?? []).filter((p) => tabOf(p) === id).length])) as Record<Tab, number>,
+  );
 
   const PLAN_LOOK: Record<PlanBoard["kind"], { shape: GlyphShape; chip: string }> = {
     loadout: { shape: "ship", chip: "LOADOUT" },
@@ -207,6 +218,7 @@
     project: { shape: "blueprint", chip: "PROJECT" },
     rank: { shape: "mission", chip: "RANK" },
     mission: { shape: "mission", chip: "MISSION" },
+    blueprint: { shape: "blueprint", chip: "BLUEPRINT" },
     unknown: { shape: "blueprint", chip: "PLAN" },
   };
   const STEP_SHAPE: Record<StepKind, GlyphShape> = {
@@ -223,8 +235,8 @@
     run: "mission",
   };
 
-  // What "New plan" offers: your saved loadouts and the items you marked
-  // as wanted on Crafting, minus what is already planned.
+  // What "New plan" offers: your bookmarks first, to take up, then your
+  // saved loadouts not planned yet.
   type Offer = { key: string; label: string; detail: string; add: () => Promise<boolean> };
   const offers = $derived.by<Offer[]>(() => {
     const loadouts = plansStore.choices
@@ -235,15 +247,15 @@
         detail: "Saved loadout, to have fitted on the ship",
         add: () => addLoadoutPlan(c.id),
       }));
-    const wanted = blueprints
-      .filter((b) => craftingStore.wantsItem(b.guid) && !plansStore.craftOf(b.guid))
-      .map((b) => ({
-        key: `craft:${b.guid}`,
-        label: b.name,
-        detail: "Wanted item, to craft",
-        add: () => addCraftPlan(b.guid),
+    const marks = (board?.plans ?? [])
+      .filter((p) => p.parked && !p.done)
+      .map((p) => ({
+        key: `plan:${p.id}`,
+        label: p.name,
+        detail: `Bookmark, ${PLAN_LOOK[p.kind].chip.toLowerCase()}`,
+        add: () => parkPlan(p.id, false),
       }));
-    return [...loadouts, ...wanted];
+    return [...marks, ...loadouts];
   });
 
   async function add(offer: Offer) {
@@ -251,7 +263,7 @@
     if (!(await offer.add())) return;
     const [kind, id] = offer.key.split(/:(.*)/s);
     tab = "active";
-    picked = (kind === "loadout" ? plansStore.loadoutOf(id) : plansStore.craftOf(id))?.id ?? null;
+    picked = kind === "plan" ? id : (plansStore.loadoutOf(id)?.id ?? null);
   }
 
   function open() {
@@ -305,16 +317,21 @@
 
   const slotAmount = (s: PlanSlot) => `${amount(s, s.amount)} ${s.bulk ? "SCU" : "pcs"}`;
 
-  // What "Add a craft" offers a project: the items you marked as wanted on
-  // Crafting that it does not have yet.
+  // What "Add a craft" offers a project: your bookmarked crafts it does
+  // not have yet. Added, the craft leaves your bookmarks for the project.
   const craftOffers = $derived(
-    blueprints.filter((b) => craftingStore.wantsItem(b.guid) && !addingTo?.crafts.some((c) => c.blueprint === b.guid)),
+    (plansStore.plans ?? []).flatMap((p) => {
+      const g = p.goal;
+      if (!p.parked || g.kind !== "craft" || addingTo?.crafts.some((c) => c.blueprint === g.blueprint)) return [];
+      const name = blueprints.find((b) => b.guid === g.blueprint)?.name ?? p.name;
+      return [{ plan: p.id, guid: g.blueprint, count: g.count, slots: g.slots, name }];
+    }),
   );
 
-  async function addToProject(blueprint: string) {
+  async function addToProject(offer: (typeof craftOffers)[number]) {
     const project = addingTo;
     addingTo = null;
-    if (project) await planCraft(project.id, blueprint, 1, []);
+    if (project && (await planCraft(project.id, offer.guid, offer.count, offer.slots))) await removePlan(offer.plan);
   }
 
   async function newProject() {
@@ -345,9 +362,9 @@
   <!-- Active and Done are the page's views: the tab row Ships uses (a
        Segmented is an input, not navigation; Valerie, 2026-11-17). -->
   <header class="tabs" role="tablist" aria-label="Plans">
-    {#each [["active", "Active", counts.active], ["done", "Done", counts.done]] as const as [id, label, n] (id)}
+    {#each TABS as [id, label] (id)}
       <button type="button" role="tab" class="tab" class:active={tab === id} aria-selected={tab === id} onclick={() => (tab = id)}
-        >{label}{#if board}<span class="n">{n}</span>{/if}</button
+        >{label}{#if board}<span class="n">{counts[id]}</span>{/if}</button
       >
     {/each}
     <span class="grow"></span>
@@ -449,7 +466,7 @@
               {focused?.missing
                 ? focused.note
                 : focused?.parked
-                  ? "Parked: it reserves nothing and has no steps until you take it up again."
+                  ? "Bookmarked: it reserves nothing and has no steps until you plan it."
                   : focused?.kind === "project" && focused.crafts.length === 0
                   ? "No crafts in this project yet. Add one below, or from a recipe on Crafting."
                   : focused
@@ -590,7 +607,7 @@
 
         <aside class="sheet" aria-label="Your plans">
           <section class="panel">
-            <h2 class="sec-h">{tab === "done" ? "Done" : "Your plans"}<span class="grow"></span><span class="mono">{shown.length}</span></h2>
+            <h2 class="sec-h">{tab === "done" ? "Done" : tab === "bookmarks" ? "Bookmarks" : "Your plans"}<span class="grow"></span><span class="mono">{shown.length}</span></h2>
             <div class="plan-list">
               {#each shown as p, n (p.id)}
                 <div class="plan-row kind-{p.kind}" class:sel={p.id === (detail?.id ?? (shownFocus.kind === "plan" ? shownFocus.plan : null))} class:parked={p.parked}>
@@ -625,7 +642,7 @@
           {#if detail}
             <!-- The plan in focus: rename, note, park, remove, open its goal. -->
             <section class="panel" aria-label="This plan">
-              <h2 class="sec-h">This plan<span class="grow"></span><span class="for">{PLAN_LOOK[detail.kind].chip.toLowerCase()}{detail.parked ? ", parked" : ""}</span></h2>
+              <h2 class="sec-h">This plan<span class="grow"></span><span class="for">{PLAN_LOOK[detail.kind].chip.toLowerCase()}{detail.parked ? ", bookmarked" : ""}</span></h2>
               {#if detail.missing}
                 <p class="dim">{detail.note}. Remove the plan, or bring its goal back.</p>
               {/if}
@@ -654,8 +671,8 @@
                     variant="ghost"
                     title={detail.parked
                       ? "It reserves materials and parts again, at its place in the order"
-                      : "It stays in the list and reserves nothing, so the plans behind it get the stock"}
-                    onclick={() => void parkPlan(detail.id, !detail.parked)}>{detail.parked ? "Take it up again" : "Park"}</Button
+                      : "It waits under Bookmarks and reserves nothing, so the plans behind it get the stock"}
+                    onclick={() => void parkPlan(detail.id, !detail.parked)}>{detail.parked ? "Plan it" : "Move to bookmarks"}</Button
                   >
                 {/if}
                 <span class="grow"></span>
@@ -742,8 +759,8 @@
       <Picker items={offers} key={(o) => o.key} label={(o) => o.label} detail={(o) => o.detail} onpick={([o]) => void add(o)} class="pick" />
     {:else}
       <p class="dim new-none">
-        Nothing to plan yet. A plan starts from a loadout you saved on Ships, or from an item you marked as wanted on
-        Crafting.
+        Nothing to plan from here yet. Plan or bookmark a loadout on Ships, a recipe on Crafting, or a mission or rank
+        on Contracts.
       </p>
     {/if}
     <div class="new-foot">
@@ -762,14 +779,14 @@
         items={craftOffers}
         key={(b) => b.guid}
         label={(b) => b.name}
-        detail={() => "Wanted item, to craft"}
-        onpick={([b]) => void addToProject(b.guid)}
+        detail={(b) => `Bookmark, ${b.count} to craft`}
+        onpick={([b]) => void addToProject(b)}
         class="pick"
       />
     {:else}
       <p class="dim new-none">
-        Nothing to add from here: this lists the items you marked as wanted on Crafting. Any recipe there can be added
-        to a project from its own sheet.
+        Nothing to add from here: this lists the crafts you bookmarked. Any recipe on Crafting can be added to a
+        project from its own sheet.
       </p>
     {/if}
     <div class="new-foot">
@@ -833,7 +850,8 @@
   .k-run,
   .k-find,
   .kind-rank,
-  .kind-mission {
+  .kind-mission,
+  .kind-blueprint {
     --hue: var(--hue-sand);
   }
   .kind-loadout {

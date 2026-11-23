@@ -2,7 +2,7 @@
   // One item in the catalog as one dense row (UX board sketch 4: "a bit more
   // density without too much compression"): its colourways folded in, what
   // it takes and whether you hold it, where you stand with it.
-  import { Check, Flag, Hammer, Heart } from "lucide-svelte";
+  import { Bookmark, Check, Hammer, Target } from "lucide-svelte";
   import { craftingStore } from "$lib/state/crafting.svelte";
   import { classText, fmtTime, readiness, type Family, type Readiness } from "./model";
   import { lookOf } from "./shelf";
@@ -42,8 +42,10 @@
     {/if}
   </span>
   <span class="marks">
-    {#if family.wantBlueprint}<span title="You want this blueprint"><Flag size={12} /></span>{/if}
-    {#if family.wantItem}<span title="You want this item"><Heart size={12} /></span>{/if}
+    <!-- Read-only here: a family holds several blueprints, so Plan and
+         Bookmark live on the recipe sheet, which has picked one. -->
+    {#if family.planned}<span class="planned" title="In your plans"><Target size={12} /></span>
+    {:else if family.bookmarked}<span class="marked" title="Bookmarked in Plans"><Bookmark size={12} /></span>{/if}
     {#if family.craftable}<span class="craft" title="You can craft this now"><Hammer size={12} /></span>{/if}
   </span>
   <span class="time">{fmtTime(rep.craftSeconds)}</span>
@@ -136,6 +138,12 @@
   }
   .craft {
     color: var(--hue-teal);
+  }
+  .planned {
+    color: var(--accent);
+  }
+  .marked {
+    color: var(--hue-sand);
   }
   .time {
     font-family: var(--font-mono);

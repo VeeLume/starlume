@@ -1182,23 +1182,24 @@ async plansList() : Promise<Plan[]> {
     return await TAURI_INVOKE("plans_list");
 },
 /**
- * Plan a number of one item, crafted at a quality. Planning the same
- * blueprint again changes nothing.
+ * Plan a number of one item, crafted at a quality, as a goal or,
+ * `parked`, a bookmark.
  */
-async plansAddCraft(blueprint: string, count: number, quality: number) : Promise<Result<Plan[], AppError>> {
+async plansAddCraft(blueprint: string, count: number, quality: number, parked: boolean) : Promise<Result<Plan[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("plans_add_craft", { blueprint, count, quality }) };
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_craft", { blueprint, count, quality, parked }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
 /**
- * Plan to have a saved loadout fitted on its ship.
+ * Plan to have a saved loadout fitted on its ship, as a goal or,
+ * `parked`, a bookmark.
  */
-async plansAddLoadout(loadout: string) : Promise<Result<Plan[], AppError>> {
+async plansAddLoadout(loadout: string, parked: boolean) : Promise<Result<Plan[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("plans_add_loadout", { loadout }) };
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_loadout", { loadout, parked }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1223,6 +1224,18 @@ async plansAddRank(goal: RankGoal, parked: boolean) : Promise<Result<Plan[], App
 async plansAddMission(goal: MissionGoal, parked: boolean) : Promise<Result<Plan[], AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("plans_add_mission", { goal, parked }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Plan to own a blueprint (earned from the missions that grant it), as a
+ * goal or, `parked`, a bookmark.
+ */
+async plansAddBlueprint(blueprint: string, parked: boolean) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_blueprint", { blueprint, parked }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1258,12 +1271,12 @@ async plansSetCraft(id: string, count: number, quality: number) : Promise<Result
 /**
  * Plan a craft with a minimum quality per material slot (`slots`, in the
  * recipe's slot order; empty: `quality` for every slot). With `project`
- * it goes into that project, else it is a plan of its own. A blueprint
- * that is already there is left as it is.
+ * it goes into that project, else it is a plan of its own, or `parked` a
+ * bookmark. A blueprint that is already there keeps its minimums.
  */
-async plansPlanCraft(project: string | null, blueprint: string, count: number, quality: number, slots: number[]) : Promise<Result<Plan[], AppError>> {
+async plansPlanCraft(project: string | null, blueprint: string, count: number, quality: number, slots: number[], parked: boolean) : Promise<Result<Plan[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("plans_plan_craft", { project, blueprint, count, quality, slots }) };
+    return { status: "ok", data: await TAURI_INVOKE("plans_plan_craft", { project, blueprint, count, quality, slots, parked }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1961,6 +1974,10 @@ export type BlastView = { cleanMinM: number; cleanMaxM: number; cleanDamage: num
  * One blueprint opened: its slots, curves, stat sheet and sources.
  */
 export type BlueprintDetailView = { guid: string; defaultQuality: number; slots: BlueprintSlotView[]; stats: BlueprintStatView[]; grantedBy: GrantingMissionView[] }
+/**
+ * A blueprint by its record GUID.
+ */
+export type BlueprintGoal = { blueprint: string }
 /**
  * One blueprint in the catalog list.
  */
@@ -2686,7 +2703,13 @@ export type Goal =
  * A mission: open it to you (its ranks, the missions before it), then
  * run it.
  */
-({ kind: "mission" } & MissionGoal) | { kind: "unknown" }
+({ kind: "mission" } & MissionGoal) | 
+/**
+ * A blueprint to own: earned from the missions that grant it. A
+ * blueprint you want to craft is a [`Goal::Craft`], which earns it
+ * first.
+ */
+({ kind: "blueprint" } & BlueprintGoal) | { kind: "unknown" }
 export type GrantingMissionView = { missionId: string; title: string }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
@@ -3859,7 +3882,7 @@ missing: boolean;
  * The one quality every slot is set to; `None` when they differ.
  */
 quality: number | null; slots: PlanSlot[] }
-export type PlanKind = "loadout" | "craft" | "project" | "rank" | "mission" | "unknown"
+export type PlanKind = "loadout" | "craft" | "project" | "rank" | "mission" | "blueprint" | "unknown"
 /**
  * A place by its display name, and the quantum-travel place it resolves to
  * when the shell could tell (the id is opaque here).

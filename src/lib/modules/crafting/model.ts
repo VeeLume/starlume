@@ -234,8 +234,10 @@ export interface Family {
   /** The plain one first. */
   variants: BlueprintRowView[];
   ownedCount: number;
-  wantBlueprint: boolean;
-  wantItem: boolean;
+  /** A variant is in an active plan (a craft, a project, a blueprint). */
+  planned: boolean;
+  /** A variant is bookmarked in Plans, and none is planned. */
+  bookmarked: boolean;
   craftable: boolean;
 }
 
@@ -319,6 +321,20 @@ export function holdingText(stacks: StockStackView[] | undefined, m: MaterialVie
   if (held >= needOf(m)) return `You have ${amount(held)} at Q${quality} or better · ${best.place}`;
   if (held > 0) return `You have only ${amount(held)} at Q${quality} or better`;
   return `You have some, but your best is Q${best.quality}`;
+}
+
+/** What you hold of a material at a quality, in a few words for a
+ *  material's line on the recipe sheet. */
+export function heldShort(stacks: StockStackView[] | undefined, m: MaterialView, quality: number, read: boolean): string {
+  if (!read) return "inventory not read";
+  if (!stacks?.length) return "none held";
+  const bulk = stacks[0].bulk;
+  const amount = (v: number) => (bulk ? `${v.toFixed(2)} SCU` : `${Math.floor(v)} pcs`);
+  const held = heldAt(stacks, quality);
+  if (held >= needOf(m)) return `${amount(held)} held at Q${quality}+`;
+  if (held > 0) return `only ${amount(held)} at Q${quality}+`;
+  const best = stacks.reduce((a, b) => (b.quality > a.quality ? b : a));
+  return `best held Q${best.quality}`;
 }
 
 export type Preset = "Min" | "Base" | "Best in stock" | "Max";

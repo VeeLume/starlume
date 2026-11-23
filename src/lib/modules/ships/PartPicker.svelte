@@ -12,7 +12,8 @@
   // page and this list then read it crafted, and Plans takes it from here.
   import { X } from "lucide-svelte";
   import { Segmented } from "@veelume/ui";
-  import type { CandidateView, OfferView, TourView } from "$lib/bindings";
+  import type { CandidateView, OfferView, Plan, TourView } from "$lib/bindings";
+  import PlanPair from "$lib/components/PlanPair.svelte";
   import { damageType, figuresFor, SIGNALS } from "./figures";
   import UexLink from "./UexLink.svelte";
 
@@ -27,7 +28,7 @@
     craft = null,
     plans = null,
     oncraft = () => {},
-    onplan = () => {},
+    onplan = async () => false,
     onpick,
     onclose,
   }: {
@@ -46,12 +47,12 @@
     /** The fitted part, when a blueprint makes it: its crafted quality,
      *  null while it is as sold. */
     craft?: { quality: number | null } | null;
-    /** Plans, when the module is on: whether the part is planned already. */
-    plans?: { planned: boolean } | null;
+    /** Plans, when the module is on: the plan the part has already. */
+    plans?: { plan: Plan | undefined } | null;
     /** Mark the fitted part crafted at a quality; null: as sold. */
     oncraft?: (quality: number | null) => void;
-    /** Plan to craft it, at its quality. */
-    onplan?: (quality: number) => void;
+    /** Plan to craft it, at its quality: a plan, or `parked` a bookmark. */
+    onplan?: (quality: number, parked: boolean) => Promise<boolean>;
     onpick: (item: string | null) => void;
     onclose: () => void;
   } = $props();
@@ -434,17 +435,12 @@
       >
       <span class="grow"></span>
       {#if plans}
-        <button
-          type="button"
-          class="btn"
-          disabled={!crafted && !plans.planned}
-          title={plans.planned
-            ? "It is in your plans: open Plans"
-            : crafted
-              ? `Plan to craft ${count > 1 ? `${count} of them` : "it"} at Q${craft.quality}: the steps and materials go to Plans`
-              : "Mark it crafted to plan it"}
-          onclick={() => onplan(craft.quality ?? tried)}>{plans.planned ? "In plans" : "Add to plan"}</button
-        >
+        <PlanPair
+          plan={plans.plan}
+          add={(parked) => onplan(craft.quality ?? tried, parked)}
+          what={crafted ? `${count > 1 ? `${count} of them` : "it"}, crafted at Q${craft.quality}` : ""}
+          blocked={crafted ? "" : "Mark it crafted to plan it"}
+        />
       {/if}
     </div>
   {/if}

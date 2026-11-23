@@ -17,5 +17,6 @@ pub mod session;
 pub mod steps;
 
 pub use model::{
-    CraftGoal, Goal, LoadoutGoal, MissionGoal, PartSource, Plan, PlansState, ProjectGoal, RankGoal,
+    BlueprintGoal, CraftGoal, Goal, LoadoutGoal, MissionGoal, PartSource, Plan, PlansState,
+    ProjectGoal, RankGoal,
 };

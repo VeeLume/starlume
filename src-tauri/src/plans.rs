@@ -19,7 +19,9 @@ use mod_plans::steps::{
     CraftedCopy, Grant, HeldPart, Inputs, LoadoutFacts, LootOffer, Offer, OreSite, OreSites,
     PartFacts, PlanBoard, PlanPlace, PlanStep, QualityBand, RecipeFacts, ShipRead, SlotNeed,
 };
-use mod_plans::{CraftGoal, Goal, LoadoutGoal, MissionGoal, Plan, PlansState, RankGoal};
+use mod_plans::{
+    BlueprintGoal, CraftGoal, Goal, LoadoutGoal, MissionGoal, Plan, PlansState, RankGoal,
+};
 use svc_data::RecordCollection;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -99,8 +101,16 @@ pub(crate) fn plans_list() -> Vec<Plan> {
     load_state().plans
 }
 
-/// Plan a number of one item, crafted at a quality. Planning the same
-/// blueprint again changes nothing.
+/// Add a goal as a plan or, `parked`, a bookmark. A goal that is already
+/// planned keeps its place and takes the new `parked`: Plan on a bookmark
+/// takes it up, Bookmark on a plan sets it aside.
+fn add_goal(state: &mut PlansState, goal: Goal, parked: bool) {
+    let id = state.add("", goal);
+    state.set_parked(&id, parked);
+}
+
+/// Plan a number of one item, crafted at a quality, as a goal or,
+/// `parked`, a bookmark.
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn plans_add_craft(
@@ -108,19 +118,80 @@ pub(crate) fn plans_add_craft(
     blueprint: String,
     count: u32,
     quality: u32,
+    parked: bool,
 ) -> Result<Vec<Plan>, AppError> {
     change(&app, |state| {
-        state.add(
-            "",
+        add_goal(
+            state,
             Goal::Craft(CraftGoal::uniform(blueprint, count, quality)),
+            parked,
         );
     })
 }
 
+/// Plan to own a blueprint (earned from the missions that grant it), as a
+/// goal or, `parked`, a bookmark.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn plans_add_blueprint(
+    app: AppHandle,
+    blueprint: String,
+    parked: bool,
+) -> Result<Vec<Plan>, AppError> {
+    change(&app, |state| {
+        add_goal(state, Goal::Blueprint(BlueprintGoal { blueprint }), parked);
+    })
+}
+
+/// Fold Crafting's old marks into Plans, once: a wanted blueprint becomes a
+/// bookmarked blueprint goal, a wanted item a bookmarked craft. Nothing
+/// already planned is touched. The marks are cleared only after the plans
+/// file took them.
+pub(crate) fn fold_wants(app: &AppHandle) {
+    let (blueprints, items) = crate::crafting::wants();
+    if blueprints.is_empty() && items.is_empty() {
+        return;
+    }
+    let held = |state: &PlansState, bp: &str| {
+        state.plans.iter().any(|p| match &p.goal {
+            Goal::Craft(c) => c.blueprint == bp,
+            Goal::Blueprint(b) => b.blueprint == bp,
+            Goal::Project(project) => project.crafts.iter().any(|c| c.blueprint == bp),
+            _ => false,
+        })
+    };
+    let folded = change(app, |state| {
+        for bp in &items {
+            if !held(state, bp) {
+                add_goal(
+                    state,
+                    Goal::Craft(CraftGoal::uniform(bp.clone(), 1, 0)),
+                    true,
+                );
+            }
+        }
+        for bp in &blueprints {
+            if !held(state, bp) {
+                add_goal(
+                    state,
+                    Goal::Blueprint(BlueprintGoal {
+                        blueprint: bp.clone(),
+                    }),
+                    true,
+                );
+            }
+        }
+    });
+    match folded {
+        Ok(_) => crate::crafting::clear_wants(),
+        Err(e) => tracing::warn!("plans: Crafting's wants stay where they are: {e}"),
+    }
+}
+
 /// Plan a craft with a minimum quality per material slot (`slots`, in the
 /// recipe's slot order; empty: `quality` for every slot). With `project`
-/// it goes into that project, else it is a plan of its own. A blueprint
-/// that is already there is left as it is.
+/// it goes into that project, else it is a plan of its own, or `parked` a
+/// bookmark. A blueprint that is already there keeps its minimums.
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn plans_plan_craft(
@@ -130,6 +201,7 @@ pub(crate) fn plans_plan_craft(
     count: u32,
     quality: u32,
     slots: Vec<u32>,
+    parked: bool,
 ) -> Result<Vec<Plan>, AppError> {
     change(&app, |state| {
         let craft = CraftGoal::with_slots(blueprint, count, quality, &slots);
@@ -137,9 +209,7 @@ pub(crate) fn plans_plan_craft(
             Some(id) => {
                 state.add_to_project(&id, craft);
             }
-            None => {
-                state.add("", Goal::Craft(craft));
-            }
+            None => add_goal(state, Goal::Craft(craft), parked),
         }
     })
 }
@@ -252,12 +322,17 @@ pub(crate) fn plans_move(
     change(&app, |state| state.move_before(&id, before.as_deref()))
 }
 
-/// Plan to have a saved loadout fitted on its ship.
+/// Plan to have a saved loadout fitted on its ship, as a goal or,
+/// `parked`, a bookmark.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn plans_add_loadout(app: AppHandle, loadout: String) -> Result<Vec<Plan>, AppError> {
+pub(crate) fn plans_add_loadout(
+    app: AppHandle,
+    loadout: String,
+    parked: bool,
+) -> Result<Vec<Plan>, AppError> {
     change(&app, |state| {
-        state.add("", Goal::Loadout(LoadoutGoal { loadout }));
+        add_goal(state, Goal::Loadout(LoadoutGoal { loadout }), parked);
     })
 }
 
@@ -270,10 +345,7 @@ pub(crate) fn plans_add_rank(
     goal: RankGoal,
     parked: bool,
 ) -> Result<Vec<Plan>, AppError> {
-    change(&app, |state| {
-        let id = state.add("", Goal::Rank(goal));
-        state.set_parked(&id, parked);
-    })
+    change(&app, |state| add_goal(state, Goal::Rank(goal), parked))
 }
 
 /// Plan a mission, as a goal or, `parked`, a bookmark. Planning it again
@@ -285,10 +357,7 @@ pub(crate) fn plans_add_mission(
     goal: MissionGoal,
     parked: bool,
 ) -> Result<Vec<Plan>, AppError> {
-    change(&app, |state| {
-        let id = state.add("", Goal::Mission(goal));
-        state.set_parked(&id, parked);
-    })
+    change(&app, |state| add_goal(state, Goal::Mission(goal), parked))
 }
 
 #[tauri::command]
@@ -820,6 +889,15 @@ impl Gathered<'_> {
                             &sites,
                         );
                     }
+                }
+                Goal::Blueprint(goal) => {
+                    self.recipe_into(
+                        &mut inputs,
+                        &goal.blueprint,
+                        &bands,
+                        finder.as_ref(),
+                        &sites,
+                    );
                 }
                 // Gathered for all of them at once, below.
                 Goal::Rank(_) | Goal::Mission(_) | Goal::Unknown => {}

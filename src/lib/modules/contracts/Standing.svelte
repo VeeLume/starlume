@@ -17,7 +17,7 @@
   import { loadStanding, refreshStanding, standingStore } from "$lib/state/standing.svelte";
   import { factionSummaries, type FactionSummary } from "./model";
   import RankLadder from "./RankLadder.svelte";
-  import PlanButtons from "./PlanButtons.svelte";
+  import PlanPair from "$lib/components/PlanPair.svelte";
   import { addRankPlan, plansStore } from "$lib/state/plans.svelte";
 
   let missions = $state<MissionEntryView[]>([]);
@@ -35,9 +35,23 @@
     return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
   };
 
-  /** The rank picked on each faction's ladder, to plan; the next one by default. */
+  /** The rank picked on each faction's ladder for the row's Plan and
+   *  Bookmark: the one you planned with it, else the next one. */
   let picks = $state<Record<string, number>>({});
-  const pickOf = (f: FactionSummary) => picks[f.name] ?? (f.ladder && f.you >= 0 && f.you + 1 < f.ladder.ranks.length ? f.you + 1 : -1);
+  function pickOf(f: FactionSummary): number {
+    if (picks[f.name] != null) return picks[f.name];
+    if (!f.ladder) return -1;
+    const goal = plansStore.plans?.find((p) => p.goal.kind === "rank" && p.goal.geid === f.geid && p.goal.scope === f.scope)?.goal;
+    const planned = goal?.kind === "rank" ? f.ladder.ids.indexOf(goal.standing) : -1;
+    if (planned >= 0) return planned;
+    return f.you >= 0 && f.you + 1 < f.ladder.ranks.length ? f.you + 1 : -1;
+  }
+  /** The rank the row's pair plans, when the faction has one to plan. */
+  function rankOf(f: FactionSummary) {
+    const pick = pickOf(f);
+    if (!f.ladder || !f.geid || !f.scope || pick < 0) return null;
+    return { faction: f.name, geid: f.geid, scope: f.scope, standing: f.ladder.ids[pick], rank: f.ladder.ranks[pick] };
+  }
   const toNext = (f: FactionSummary) => (f.next != null && f.score != null ? Math.max(0, f.next - f.score) : null);
   const nextName = (f: FactionSummary) => (f.ladder && f.you >= 0 ? (f.ladder.ranks[f.you + 1] ?? null) : null);
   const newBlueprints = (f: FactionSummary) => f.openBlueprints.filter((g) => !blueprintsStore.owns(g)).length;
@@ -129,6 +143,17 @@
               <span class="c2 r"><span>{fmt(f.withBlueprint)}</span><small>give a blueprint</small></span>
             </span>
           {/snippet}
+          <!-- Plan and Bookmark the rank picked on the ladder (the next one
+               until you pick): the row's last column (design pass 8). -->
+          {#snippet actions()}
+            {@const rank = rankOf(f)}
+            <PlanPair
+              plan={rank ? plansStore.rankOf(rank.geid, rank.scope, rank.standing) : undefined}
+              add={(parked) => (rank ? addRankPlan(rank, parked) : Promise.resolve(false))}
+              what={rank?.rank ?? ""}
+              blocked={rank ? "" : f.you < 0 ? "Read your standing to plan a rank" : "You hold the top rank"}
+            />
+          {/snippet}
 
           {#if f.ladder}
             {@const nx = nextName(f)}
@@ -146,16 +171,6 @@
                 picked={pick}
                 onpick={f.geid && f.scope ? (i) => (picks[f.name] = i) : undefined}
               />
-              {#if f.geid && f.scope && pick >= 0}
-                {@const rank = { faction: f.name, geid: f.geid, scope: f.scope, standing: f.ladder.ids[pick], rank: f.ladder.ranks[pick] }}
-                <div class="plan-rank">
-                  <PlanButtons
-                    planned={plansStore.rankOf(rank.geid, rank.scope, rank.standing)}
-                    add={(parked) => addRankPlan(rank, parked)}
-                    what={rank.rank}
-                  />
-                </div>
-              {/if}
 
               {#if f.you >= 0}
                 <div class="stat-tiles">
@@ -301,9 +316,6 @@
   }
   .opened > p {
     margin: 0;
-  }
-  .plan-rank {
-    margin-top: -6px;
   }
   .charts {
     display: grid;

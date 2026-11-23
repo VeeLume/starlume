@@ -111,6 +111,9 @@ pub fn run() {
 
             build_tray(app)?;
 
+            // Crafting's old Want marks become bookmarks in Plans, once.
+            crate::plans::fold_wants(app.handle());
+
             // Modules an update brought that the user hasn't been offered:
             // a Windows notification on a hidden start, a bell entry always.
             crate::modules::announce_new(app.handle(), start_minimized);

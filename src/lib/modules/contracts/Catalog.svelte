@@ -46,8 +46,8 @@
   import RichText from "$lib/components/catalog/RichText.svelte";
   import CatalogBar from "./CatalogBar.svelte";
   import RankLadder from "./RankLadder.svelte";
-  import PlanButtons from "./PlanButtons.svelte";
-  import { addMissionPlan, plansStore } from "$lib/state/plans.svelte";
+  import PlanPair from "$lib/components/PlanPair.svelte";
+  import { addBlueprintPlan, addMissionPlan, plansStore } from "$lib/state/plans.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { getMissions } from "$lib/state/catalog.svelte";
   import { blueprintsStore, loadOwnedBlueprints } from "$lib/state/blueprints.svelte";
@@ -579,6 +579,13 @@
       <div>
         <h2 class="scope-h">
           <span>{scopeName}</span>
+          <span class="grow"></span>
+          <PlanPair
+            plan={plansStore.blueprintOf(scope)}
+            add={(parked) => addBlueprintPlan(scope, parked)}
+            what="the {scopeName} blueprint"
+            blocked={ownedKnown && blueprintsStore.owns(scope) ? "You own this blueprint" : ""}
+          />
         </h2>
         <div class="stat-tiles">
           <div class="stat-tile"><b>{oddsText(bestChance)}</b><span>per run at best</span></div>
@@ -653,6 +660,15 @@
               </span>
             {/snippet}
 
+            <!-- Plan and Bookmark: the row's last column, so a mission is
+                 planned without opening it (design pass 8). -->
+            {#snippet actions()}
+              <PlanPair
+                plan={plansStore.missionOf(r.mission_id)}
+                add={(parked) => addMissionPlan({ mission: r.mission_id, title: missionTitle(r) }, parked)}
+              />
+            {/snippet}
+
             {@render opened(r)}
           </Expand.Row>
         {/snippet}
@@ -668,12 +684,6 @@
   {@const places = m.locations.flatMap((l) => l.places.map((p) => p.name ?? p.record_name))}
   <div class="opened">
     <section class="brief">
-      <div class="plan-row">
-        <PlanButtons
-          planned={plansStore.missionOf(m.mission_id)}
-          add={(parked) => addMissionPlan({ mission: m.mission_id, title: missionTitle(m) }, parked)}
-        />
-      </div>
       <h4>Briefing</h4>
       {#if m.description}
         <p><RichText text={m.description} /></p>
@@ -831,12 +841,6 @@
 {/snippet}
 
 <style>
-  .plan-row {
-    margin-bottom: 16px;
-  }
-  .plan-row:empty {
-    display: none;
-  }
   /* The row's columns sit in the kit row's right slot; each is a value over
    * its caption, in the body font with tabular figures. */
   .tile {
@@ -957,6 +961,9 @@
     font-size: 1.05rem;
     font-weight: 600;
     color: var(--text-strong);
+  }
+  .scope-h .grow {
+    flex: 1;
   }
   .scope-pool {
     margin: 10px 0 0;

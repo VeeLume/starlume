@@ -127,6 +127,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         plans::plans_add_loadout,
         plans::plans_add_rank,
         plans::plans_add_mission,
+        plans::plans_add_blueprint,
         plans::plans_remove,
         plans::plans_focus,
         plans::plans_set_craft,

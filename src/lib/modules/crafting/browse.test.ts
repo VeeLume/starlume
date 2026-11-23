@@ -41,8 +41,8 @@ const families = (rows: BlueprintRowView[]): Family[] =>
     maker: "",
     variants,
     ownedCount: variants.filter((v) => v.guid.startsWith("own:")).length,
-    wantBlueprint: false,
-    wantItem: false,
+    planned: false,
+    bookmarked: false,
     craftable: false,
   }));
 

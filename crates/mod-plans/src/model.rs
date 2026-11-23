@@ -78,6 +78,10 @@ pub enum Goal {
     /// A mission: open it to you (its ranks, the missions before it), then
     /// run it.
     Mission(MissionGoal),
+    /// A blueprint to own: earned from the missions that grant it. A
+    /// blueprint you want to craft is a [`Goal::Craft`], which earns it
+    /// first.
+    Blueprint(BlueprintGoal),
     #[default]
     #[serde(other)]
     Unknown,
@@ -195,6 +199,14 @@ pub struct MissionGoal {
     pub title: String,
 }
 
+/// A blueprint by its record GUID.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(default, rename_all = "camelCase")]
+pub struct BlueprintGoal {
+    pub blueprint: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(default, rename_all = "camelCase")]
@@ -267,7 +279,6 @@ impl PlansState {
         }
     }
 
-    /// Park a plan, or take it back up. A parked plan keeps its place.
     /// Where parts come from when they have a choice; a part's own source
     /// gives way to it.
     pub fn set_prefer(&mut self, source: PartSource) {
@@ -287,6 +298,8 @@ impl PlansState {
         }
     }
 
+    /// Park a plan (a bookmark), or take it back up. A parked plan keeps
+    /// its place.
     pub fn set_parked(&mut self, id: &str, parked: bool) {
         if let Some(plan) = self.plans.iter_mut().find(|p| p.id == id) {
             plan.parked = parked;
@@ -362,6 +375,7 @@ fn same_target(a: &Goal, b: &Goal) -> bool {
             (&a.geid, &a.scope, &a.standing) == (&b.geid, &b.scope, &b.standing)
         }
         (Goal::Mission(a), Goal::Mission(b)) => a.mission == b.mission,
+        (Goal::Blueprint(a), Goal::Blueprint(b)) => a.blueprint == b.blueprint,
         _ => false,
     }
 }
