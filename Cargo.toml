@@ -19,6 +19,7 @@ members = [
     "crates/svc-commlinks",
     "crates/svc-dossier",
     "crates/svc-patchnotes",
+    "crates/svc-presence",
     "crates/svc-shipstore",
     "crates/svc-uex",
     "crates/svc-log",

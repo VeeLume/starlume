@@ -1,0 +1,17 @@
+[package]
+name = "svc-presence"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Starlume presence service — Discord Rich Presence over the Discord app's local IPC, and what a moment of play shows there"
+
+[dependencies]
+# Discord's local IPC is a named pipe (Windows) or a Unix socket, framed
+# with a little-endian header and JSON: std plus serde, no client crate.
+# Reaching the Discord app is local, but Discord sends what it gets on to
+# its servers, so the caller gates every connect (`require_online`).
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
