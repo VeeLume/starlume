@@ -14,9 +14,12 @@ under its file name without `.png`: these are the keys `compose` sends
 | `contract` | a contract shows | lucide `scroll-text` (the Contracts module) |
 | `mining` | mining | lucide `pickaxe` (the Mining module) |
 
-The icons are dark glyphs on the accent disc (`--accent` #a996ff,
-`--on-accent` #15112a): Discord shows the small image as a circle about
-20 px wide on the large image's corner. `sheet.png` shows them together.
+The icons are drawn the way the app icon draws its planet: the graphite
+surface (#232325 to #121213) with its hairline edge (#38383c), a soft
+accent glow (#a996ff), and the glyph as a holo line (#ddd5ff over a
+blurred accent stroke). The surface is a disc because Discord shows the
+small image as a circle about 20 px wide on the large image's corner.
+`sheet.png` shows them together.
 
 Rebuild from the repo root:
 
