@@ -47,6 +47,9 @@ pub enum ActivityKind {
     ShipStore,
     /// svc-uex: the first fill of UEX's price lists.
     Uex,
+    /// svc-dossier standing read for Contracts (reputation, completed
+    /// contracts).
+    Standing,
 }
 
 /// Where an activity is. `stage` is a user-facing label ("Parsing

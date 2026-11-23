@@ -23,6 +23,7 @@ import {
   signed,
   signedAuec,
   summaryParts,
+  tally,
   unanswered,
   walletLine,
   type LogRow,
@@ -289,6 +290,7 @@ describe("readSession", () => {
       name: "Tarnhold",
       system: "Vega",
       jurisdictions: ["Brell Mining"],
+      armistice: false,
       arrivedAt: T0 + 10 * MIN,
     });
   });
@@ -549,6 +551,108 @@ describe("readSession", () => {
     expect(texts(single)).toEqual([]);
   });
 
+  const kill = (seq: number, at: number): Entry =>
+    entry(seq, at, { type: "ship_destroyed", class_name: "VEGA_Courier_Mk2", reason: "Combat" });
+
+  it("puts the ships destroyed during the one running mission on its row", () => {
+    const accepted = entry(0, T0 + MIN, { type: "mission_accepted", mission_id: MISSION, title: "Clear the Lane" });
+    const reading = readSession(
+      session([accepted, kill(1, T0 + 2 * MIN), kill(2, T0 + 3 * MIN)]),
+      names,
+      T0 + 4 * MIN,
+    );
+    const m = reading.rows.find((r) => r.kind === "mission")!;
+    expect(texts(m)).toEqual(["running", "2 kills"]);
+    expect(m.facts.find((f) => f.label === "Destroyed")?.value).toBe("2 × Vega Courier Mk II");
+    expect(reading.rows.filter((r) => r.kind === "ship")).toHaveLength(0);
+  });
+
+  it("folds kills with no mission running into one fight per stretch", () => {
+    const reading = readSession(
+      session([kill(0, T0 + MIN), kill(1, T0 + 3 * MIN), kill(2, T0 + 30 * MIN)]),
+      names,
+      T0 + 40 * MIN,
+    );
+    const fights = reading.rows.filter((r) => r.kind === "ship");
+    expect(titles(fights)).toEqual(["Destroyed 2 ships", "Destroyed Vega Courier Mk II"]);
+    expect(fights[0].took).toBe(2 * MIN);
+  });
+
+  it("makes a lost ship its own row with how and by whom", () => {
+    const lost = entry(0, T0 + MIN, {
+      type: "ship_lost",
+      class_name: "VEGA_Courier_Mk2",
+      reason: "Combat",
+      by: "Rival",
+    });
+    const r = readSession(session([lost]), names, T0 + 2 * MIN).rows.find((x) => x.kind === "life")!;
+    expect(r.title).toBe("Lost Vega Courier Mk II");
+    expect(texts(r)).toEqual(["in combat", "by Rival"]);
+  });
+
+  it("shows a terminal visit only when it took money", () => {
+    const visit = entry(0, T0 + MIN, { type: "vehicle_terminal" });
+    const look = entry(1, T0 + 9 * MIN, { type: "vehicle_terminal" });
+    const reading = readSession(
+      session(
+        [visit, look],
+        [change(T0 + MIN + 4_000, 125_000, 123_592, 0), change(T0 + MIN + 8_000, 123_592, 123_307, 0)],
+      ),
+      names,
+      T0 + 10 * MIN,
+    );
+    const services = reading.rows.filter((r) => r.title === "Ship services");
+    expect(services).toHaveLength(1);
+    expect(services[0].amount).toBe(-1_693);
+    expect(texts(services[0])).toEqual(["2 charges"]);
+    expect(services[0].facts.map((f) => f.value)).toEqual([signedAuec(-1_408), signedAuec(-285)]);
+  });
+
+  it("rows private property stays, merging a quick return", () => {
+    const zone = (seq: number, at: number, entered: boolean, z: "Armistice" | "PrivateProperty" = "PrivateProperty") =>
+      entry(seq, at, { type: "zone", zone: z, entered });
+    const reading = readSession(
+      session([
+        zone(0, T0 + MIN, true, "Armistice"),
+        zone(1, T0 + 10 * MIN, true),
+        zone(2, T0 + 10 * MIN + 11_000, false),
+        zone(3, T0 + 12 * MIN, true),
+        zone(4, T0 + 14 * MIN, false),
+        zone(5, T0 + 30 * MIN, true),
+      ]),
+      names,
+      T0 + 31 * MIN,
+    );
+    const stays = reading.rows.filter((r) => r.title === "Private property");
+    expect(stays).toHaveLength(2);
+    expect(stays[0].took).toBe(4 * MIN);
+    expect(texts(stays[1])).toEqual(["inside"]);
+  });
+
+  it("rows an injury and the surgery that treats it", () => {
+    const reading = readSession(
+      session([
+        entry(0, T0 + MIN, { type: "injured", part: "LeftArm", tier: 3 }),
+        entry(1, T0 + 2 * MIN, { type: "injured", part: "LeftArm", tier: 2 }),
+        entry(2, T0 + 9 * MIN, { type: "treated", parts: ["Head", "LeftArm"], vehicle: null }),
+      ]),
+      names,
+      T0 + 10 * MIN,
+    );
+    const life = reading.rows.filter((r) => r.kind === "life");
+    expect(titles(life)).toEqual(["Minor injury", "Moderate injury", "Treated at a med bed"]);
+    expect(texts(life[1])).toEqual(["Left arm", "tier 2"]);
+    expect(texts(life[2])).toEqual(["Head, left arm"]);
+    expect(life[2].facts.map((f) => [f.label, f.value])).toEqual([
+      ["Head", "operated on"],
+      ["Left arm", "Moderate, tier 2"],
+    ]);
+  });
+
+  it("counts ships by name, most first", () => {
+    expect(tally(["Mantis", "Razor LX", "Razor LX"])).toBe("2 × Razor LX, Mantis");
+  });
+
   it("keeps the rows in time order", () => {
     const reading = readSession(
       session(
@@ -614,6 +718,8 @@ describe("history", () => {
     shards: ["pub_euw1b_13165946_100"],
     entries: 47,
     missions_completed: 1,
+    ships_destroyed: 0,
+    ships_lost: 0,
     opening_balance: 125_000,
     latest_balance: 100_000,
     net: -25_000,
@@ -622,6 +728,12 @@ describe("history", () => {
   it("gives a session's facts one at a time", () => {
     expect(summaryParts(summary)).toEqual(["1 h 55 min", "1 mission completed", "1 shard"]);
     expect(summaryParts({ ...summary, missions_completed: 0, shards: [] })).toEqual(["1 h 55 min"]);
+    expect(summaryParts({ ...summary, ships_destroyed: 12, ships_lost: 1, shards: [] })).toEqual([
+      "1 h 55 min",
+      "1 mission completed",
+      "12 kills",
+      "1 ship lost",
+    ]);
   });
 
   it("says which source a session lacks", () => {

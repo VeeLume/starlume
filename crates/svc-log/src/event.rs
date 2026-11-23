@@ -68,7 +68,12 @@ pub enum LogEventKind {
     /// The numeric CIG account id of the current character. A handle rename
     /// keeps it; CIG rotated it once (Oct–Dec 2024), so it is a strong hint,
     /// not an absolute key.
-    SessionAccountId { account_id: String },
+    SessionAccountId {
+        account_id: String,
+        /// The character's GEID: what mission pushes name the player by
+        /// ([`LogEventKind::MissionLeft`]).
+        geid: Option<String>,
+    },
     /// The player joined the persistent universe on a shard.
     ShardJoined { shard: String },
     /// The game is quitting (the player quit, or the client shut down).
@@ -178,6 +183,14 @@ pub enum LogEventKind {
         contract_definition_id: String,
         objective_id: String,
     },
+    /// A player left a mission: the server's push when you abandon one.
+    /// Usually beside an `Abandon` [`LogEventKind::MissionEnded`], but
+    /// sometimes the only line that says the mission is over. `player_id`
+    /// is a character GEID: in a shared mission it may be someone else.
+    MissionLeft {
+        mission_id: String,
+        player_id: String,
+    },
     /// A mission ended for the player.
     MissionEnded {
         mission_id: String,
@@ -249,6 +262,63 @@ pub enum LogEventKind {
     /// never carries the record guid. **Locale-dependent** (and the name is
     /// the localized one).
     BlueprintReceived { name: String },
+
+    // ── Combat ──────────────────────────────────────────────────────────
+    /// A vehicle was destroyed near the player: one they shot down, one of
+    /// their own, or anyone's the client saw go. Logged once per step
+    /// (`level [0] -> [2]`; a ship disabled first may log a second line for
+    /// the same `vehicle_id`). Seen in 4.10.
+    VehicleDestroyed {
+        /// The vehicle's entity id.
+        vehicle_id: String,
+        /// Its class (`DRAK_Marauder`, `MISC_Razor_LX_PU_AI_CRIM`).
+        class: String,
+        /// The GEID of the player who owns it; `None` for an NPC's (`[0]`).
+        owner: Option<String>,
+        /// `Combat`, `Collision`, `SelfDestruct`, `ShipItemCritical`, ….
+        reason: String,
+        /// The destruction level reached: 1 disabled, 2 destroyed.
+        level: u8,
+        /// Who or what destroyed it: a handle, an NPC's entity name, or the
+        /// vehicle itself (a self-destruct).
+        killer: String,
+        /// The killer's GEID or entity id.
+        killer_id: String,
+    },
+
+    // ── Zones ───────────────────────────────────────────────────────────
+    /// "Entering Armistice Zone - Combat Prohibited", "Leaving Armistice
+    /// Zone - Caution Advised", "Entering Private Property", "Leaving
+    /// Private Property" on the HUD. **Locale-dependent.** Seen in 4.0 to
+    /// 4.10.
+    ZoneChanged { zone: Zone, entered: bool },
+
+    // ── Health ──────────────────────────────────────────────────────────
+    /// "Minor Injury Detected - Left arm - Tier 3 Treatment Required" on
+    /// the HUD. The tier is the med bed it needs: 3 minor, 2 moderate,
+    /// 1 severe. **Locale-dependent.** Seen in 4.0 to 4.10.
+    Injured { part: BodyPart, tier: u8 },
+    /// A med bed operated (`<MED BED HEAL>`). The client logs other
+    /// players' surgery too, so `actor` says whose. Only `Success` seen in
+    /// 4.0 to 4.10.
+    MedBedSurgery {
+        /// The patient's handle.
+        actor: String,
+        /// `Success`.
+        outcome: String,
+        /// The ship the bed is in, as its class (`RSI_Polaris`); `None` for
+        /// a bed in a station or hospital.
+        vehicle: Option<String>,
+        /// The parts operated on.
+        parts: Vec<BodyPart>,
+    },
+
+    // ── Vehicle terminal ────────────────────────────────────────────────
+    /// The vehicle terminal (ASOP) asked for your ships: it was opened or
+    /// refreshed (also once while the character loads). The log has no
+    /// line for what is paid there (repair, refuel, restock, claim), so
+    /// this is the only trace of it. Seen in 4.10.
+    VehicleListFetched,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -268,6 +338,28 @@ pub enum ObjectiveChange {
     New,
     Completed,
     Withdrawn,
+}
+
+/// A zone the HUD announces entering and leaving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum Zone {
+    /// Combat prohibited (stations, cities, landing zones).
+    Armistice,
+    /// Trespassing there is a crime.
+    PrivateProperty,
+}
+
+/// A body part, as injuries and med beds name them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum BodyPart {
+    Head,
+    Torso,
+    LeftArm,
+    RightArm,
+    LeftLeg,
+    RightLeg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

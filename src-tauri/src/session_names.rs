@@ -28,6 +28,7 @@ use std::collections::BTreeMap;
 
 use mod_session::names::{
     clean_contract, clean_destination, clean_item, clean_place, clean_shop, clean_vehicle,
+    vehicle_base,
 };
 use tauri::{AppHandle, Manager};
 
@@ -160,8 +161,12 @@ fn resolve(query: &SessionNameQuery, cooked: Option<&svc_data::CookedData>) -> S
             .vehicles
             .iter()
             .map(|class| {
+                // An NPC's variant by its ship's name first.
                 let name = cooked
-                    .and_then(|c| c.vehicle_name(class))
+                    .and_then(|c| {
+                        c.vehicle_name(vehicle_base(class))
+                            .or_else(|| c.vehicle_name(class))
+                    })
                     .map(DisplayName::resolved)
                     .unwrap_or_else(|| DisplayName::cleaned(clean_vehicle(class)));
                 (class.clone(), name)

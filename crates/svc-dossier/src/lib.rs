@@ -9,7 +9,7 @@
 //! # Online-policy contract — READ THIS
 //!
 //! Every method that touches the network ([`DossierService::refresh_blueprints`],
-//! [`DossierService::refresh_inventory`]) is ToS-grey and **must** be called only after the shell has passed the gate
+//! [`DossierService::refresh_inventory`], [`DossierService::refresh_standing`]) is ToS-grey and **must** be called only after the shell has passed the gate
 //! `AppState::require_unofficial("<feature>")`. This crate cannot see settings, so it
 //! cannot gate itself — the gate lives at the call site, exactly like
 //! mod-langpatch's pack fetch behind `require_online()`. The cached reads
@@ -19,7 +19,9 @@
 //! # Posture
 //!
 //! Reads are **manual or startup-only, never polled** (the dossier posture).
-//! `refresh_*` mints a fresh launcher session, does one query, and drops the
+//! `refresh_*` mints a fresh launcher session (always on the live servers,
+//! `Env::Live`, whichever channel the launcher was last on: account data
+//! lives there), does one query, and drops the
 //! connection — no long-lived channel, because the ledger changes rarely and
 //! the cheapest ToS-grey footprint is the fewest calls.
 
@@ -30,10 +32,12 @@ use serde::{Deserialize, Serialize};
 
 pub mod inventory;
 pub mod launcher;
+pub mod standing;
 
 pub use inventory::Inventory;
 /// CRC32C of a lowercased item-port name — how stash trees name ports.
 pub use sc_dossier::port_crc;
+pub use standing::{PlayerStanding, RepRow};
 
 /// The owned-blueprint set — the durable, cacheable projection the tracker
 /// decorates catalogs with. Each id is a holotable `blueprint_record_guid`
@@ -88,7 +92,8 @@ impl DossierService {
     /// "sign in to the RSI launcher" hint; a launcher too old for the mint API
     /// as [`sc_dossier::Error::LauncherOutdated`].
     pub async fn refresh_blueprints(&self, user_agent: &str) -> anyhow::Result<OwnedBlueprints> {
-        let dossier = sc_dossier::Dossier::from_launcher(user_agent).await?;
+        let dossier =
+            sc_dossier::Dossier::from_launcher(user_agent, sc_dossier::auth::Env::Live).await?;
         let blueprints = dossier.owned_blueprints().await?;
         let owned = OwnedBlueprints {
             blueprint_ids: blueprints.into_iter().map(|b| b.blueprint_id).collect(),
@@ -100,6 +105,38 @@ impl DossierService {
             "refreshed owned blueprints"
         );
         Ok(owned)
+    }
+
+    fn standing_path(&self) -> PathBuf {
+        self.cache_root.join("standing.json")
+    }
+
+    /// The last-fetched standing (reputation rows, completed contracts), or
+    /// `None` when never fetched. No network, no gate.
+    pub fn cached_standing(&self) -> Option<PlayerStanding> {
+        let standing: PlayerStanding = app_kit::load_json(&self.standing_path());
+        (standing.fetched_at != 0).then_some(standing)
+    }
+
+    /// Fetch the standing live and cache it: `ReputationService` and the
+    /// mission token wallet, one launcher session for both.
+    ///
+    /// **Gated:** the caller must have passed `require_unofficial("standing")`
+    /// first (see the module contract).
+    pub async fn refresh_standing(&self, user_agent: &str) -> anyhow::Result<PlayerStanding> {
+        let dossier =
+            sc_dossier::Dossier::from_launcher(user_agent, sc_dossier::auth::Env::Live).await?;
+        let reputations = dossier.reputations().await?;
+        let tokens = dossier.mission_tokens().await?;
+        let standing =
+            PlayerStanding::from_reads(reputations, tokens, chrono::Utc::now().timestamp());
+        write_cache(&self.standing_path(), &standing);
+        tracing::info!(
+            rows = standing.reputations.len(),
+            completed = standing.completed_contracts.len(),
+            "refreshed standing"
+        );
+        Ok(standing)
     }
 
     fn inventory_path(&self) -> PathBuf {
@@ -209,7 +246,8 @@ impl DossierService {
         with_loadouts: bool,
         build: Option<inventory::BuildTag>,
     ) -> anyhow::Result<Inventory> {
-        let dossier = sc_dossier::Dossier::from_launcher(user_agent).await?;
+        let dossier =
+            sc_dossier::Dossier::from_launcher(user_agent, sc_dossier::auth::Env::Live).await?;
         let stashes = dossier.stashes().await?;
         let entitlements = dossier.entitlements().await?;
         let loadouts = if with_loadouts {

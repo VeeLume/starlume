@@ -367,6 +367,7 @@ fn centaurus_stock_slots() {
         &input,
         &PowerInput::default(),
         &[vec!["hardpoint_quantum_drive".into()]],
+        None,
     )
     .unwrap();
     let other = qd.iter().find(|c| !c.fitted).expect("another S2 drive");
@@ -376,6 +377,7 @@ fn centaurus_stock_slots() {
             path: vec!["hardpoint_quantum_drive".into()],
             item: Some(other.item.clone()),
             quality: None,
+            qualities: Vec::new(),
         }],
     };
     let sv = view(
@@ -443,6 +445,7 @@ fn centaurus_stock_slots() {
         &input,
         &PowerInput::default(),
         &[vec!["hardpoint_cooler_01".into()]],
+        None,
     )
     .unwrap();
     eprintln!("\n{} coolers in {:?}", coolers.len(), t.elapsed());
@@ -471,6 +474,7 @@ fn centaurus_stock_slots() {
         &input,
         &PowerInput::default(),
         &[gun],
+        None,
     )
     .unwrap();
     eprintln!("\n{} S5 guns", guns.len());
@@ -1189,6 +1193,7 @@ fn crafted_parts_move_the_figures() {
         path: s.path.clone(),
         item: s.item.clone(),
         quality: Some(q),
+        qualities: Vec::new(),
     };
     let with = |edits: Vec<mod_ships::Edit>| {
         let input = LoadoutInput {
@@ -1253,6 +1258,7 @@ fn crafted_parts_move_the_figures() {
         },
         &power,
         std::slice::from_ref(&shield.path),
+        None,
     )
     .unwrap();
     let fitted = options.iter().find(|c| c.fitted).expect("fitted option");

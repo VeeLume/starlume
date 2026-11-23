@@ -29,6 +29,9 @@ pub struct Stat {
     pub unit: String,
     /// 1 when higher is better, -1 when lower is, 0 when neither.
     pub better: i8,
+    /// The figure as sold, when the part is crafted and crafting moved it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stock: Option<f64>,
 }
 
 /// The ship with an option fitted.
@@ -82,17 +85,31 @@ pub struct Candidate {
     /// It is what every target holds now (swapping several ports that hold
     /// different parts, nothing is).
     pub fitted: bool,
+    /// Its figures are crafted: the picker compares crafted parts at one
+    /// quality per stat, and a blueprint makes this one.
+    #[serde(default)]
+    pub crafted: bool,
+    /// The mark it is compared at (its highest quality and a quality per
+    /// slot, empty when all are alike), so picking it fits it as its row
+    /// reads; `None` when it is compared as sold.
+    #[serde(default)]
+    pub craft: Option<(i32, Vec<i32>)>,
     pub impact: Impact,
 }
 
 /// Every option for the port at `targets[0]` (the others take the same
-/// item: a turret's other guns), best name first.
+/// item: a turret's other guns), best name first. With `craft` (per
+/// crafting property GUID, the qualities of the fitted part's slots that
+/// move it: [`Recipes::slots_for`]) every option a blueprint makes is
+/// compared crafted at those qualities: its own figures and the ship's
+/// with it fitted.
 pub fn candidates(
     cooked: &CookedData,
     recipes: &Recipes,
     input: &LoadoutInput,
     settings: &PowerInput,
     targets: &[Vec<String>],
+    craft: Option<&HashMap<String, Vec<i32>>>,
 ) -> Result<Vec<Candidate>, ViewError> {
     let Some(first) = targets.first() else {
         return Ok(Vec::new());
@@ -121,16 +138,40 @@ pub fn candidates(
             if name.contains("PLACEHOLDER") {
                 return None;
             }
+            // Compared crafted: this option at the picker's qualities per
+            // stat. Else the fitted part keeps its own mark.
+            let compared = craft.and_then(|by| recipes.slots_for(&g.to_string(), by));
+            let made = compared
+                .as_ref()
+                .and_then(|slots| recipes.crafted_at(&g.to_string(), slots));
             let mut with = input.clone();
             with.edits.extend(targets.iter().map(|t| {
+                let (quality, qualities) = match &made {
+                    Some(c) => (Some(c.quality), c.slots.clone()),
+                    None => {
+                        let mark = (held(t) == Some(g))
+                            .then(|| crafted.get(&t.join("/")))
+                            .flatten();
+                        (
+                            mark.map(|c| c.quality),
+                            mark.map(|c| c.slots.clone()).unwrap_or_default(),
+                        )
+                    }
+                };
                 Edit {
                     path: t.clone(),
                     item: Some(g.to_string()),
-                    quality: (held(t) == Some(g))
-                        .then(|| crafted.get(&t.join("/")).map(|c| c.quality))
-                        .flatten(),
+                    quality,
+                    qualities,
                 }
             }));
+            // Its own figures crafted the same way: this option's mark, or
+            // the fitted part's own.
+            let own = made.clone().or_else(|| {
+                (Some(g) == fitted)
+                    .then(|| crafted.get(&first.join("/")).cloned())
+                    .flatten()
+            });
             let impact =
                 view(cooked, recipes, &with, settings)
                     .ok()
@@ -167,8 +208,16 @@ pub fn candidates(
                 class: class_of(cooked, item),
                 item_type: item.item_type.as_dcb_str().to_string(),
                 sub_type: item.item_sub_type.as_dcb_str().to_string(),
-                stats: stats(cooked, &g, &item.item_type, &weapons),
+                stats: {
+                    let mut own_stats = stats(cooked, &g, &item.item_type, &weapons);
+                    if let Some(c) = &own {
+                        crate::tree::craft_stats(&mut own_stats, c);
+                    }
+                    own_stats
+                },
                 fitted: Some(g) == fitted,
+                crafted: own.is_some(),
+                craft: made.as_ref().map(|c| (c.quality, c.slots.clone())),
                 impact,
             })
         })
@@ -212,6 +261,7 @@ fn stat(key: &str, label: &str, value: Option<f64>, unit: &str, better: i8) -> O
         value,
         unit: unit.into(),
         better,
+        stock: None,
     })
 }
 

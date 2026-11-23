@@ -16,8 +16,7 @@
   import { shieldResist } from "$lib/modules/ships/figures";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
-  import { addCraftPlan, loadPlans, plansStore } from "$lib/state/plans.svelte";
-  import { goto } from "$app/navigation";
+  import { loadPlans, planCraft, plansStore } from "$lib/state/plans.svelte";
   import LoadoutBar from "$lib/modules/ships/LoadoutBar.svelte";
   import PartPicker from "$lib/modules/ships/PartPicker.svelte";
   import ShipDetails from "$lib/modules/ships/ShipDetails.svelte";
@@ -343,19 +342,23 @@
             count={targets.length}
             coolantAsked={page.power?.coolantAsked ?? null}
             tour={page.summary.quantum?.tour ?? null}
-            craft={craftable(page.slots, targets) ? { quality: at?.crafted?.quality ?? null } : null}
-            plans={plansOn ? { planned: !!plansStore.craftOf(craftable(page.slots, targets)?.blueprint ?? "") } : null}
-            oncraft={(quality) => {
-              setCrafted(targets, quality);
+            craft={craftable(page.slots, targets)
+              ? { blueprint: craftable(page.slots, targets)!.blueprint!, quality: at?.crafted?.quality ?? null, slots: at?.crafted?.slots ?? [] }
+              : null}
+            {channel}
+            plans={plansOn ? { plan: plansStore.craftOf(craftable(page.slots, targets)?.blueprint ?? "") } : null}
+            oncraft={(slots) => setCrafted(targets, slots)}
+            oncompare={(byStat) => {
+              // The fitted part's qualities per stat: every option is compared
+              // crafted at them, and the list follows (the old rows stay up).
+              shipsPicker.craft = byStat;
               if (channel) void openPicker(channel, targets);
             }}
-            onplan={(quality) => {
+            onplan={(slots, parked) => {
               const bp = craftable(page.slots, targets)?.blueprint;
-              if (!bp) return;
-              if (plansStore.craftOf(bp)) void goto("/plans");
-              else void addCraftPlan(bp, targets.length, quality);
+              return bp ? planCraft(null, bp, targets.length, slots, parked) : Promise.resolve(false);
             }}
-            onpick={(item) => pick(targets, item)}
+            onpick={(item, craft) => pick(targets, item, craft ?? null)}
             onclose={closePicker}
           />
         </div>

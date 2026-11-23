@@ -8,11 +8,12 @@
   // figures parts are chosen by, per type (./figures, shared with the part
   // lines). Search filters; Esc, a click outside or Cancel closes; a row
   // fits the part. A fitted part a blueprint makes can be tried as crafted
-  // at a quality (one for every material, as a Plans project has it): the
-  // page and this list then read it crafted, and Plans takes it from here.
+  // at a minimum quality per stat its recipe moves (./CraftBar): the page
+  // and this list then read it crafted, and Plans takes it from here.
   import { X } from "lucide-svelte";
   import { Segmented } from "@veelume/ui";
-  import type { CandidateView, OfferView, TourView } from "$lib/bindings";
+  import type { CandidateView, CraftMarkView, OfferView, Plan, TourView } from "$lib/bindings";
+  import CraftBar from "./CraftBar.svelte";
   import { damageType, figuresFor, SIGNALS } from "./figures";
   import UexLink from "./UexLink.svelte";
 
@@ -25,9 +26,11 @@
     coolantAsked = null,
     tour = null,
     craft = null,
+    channel = null,
     plans = null,
     oncraft = () => {},
-    onplan = () => {},
+    oncompare = () => {},
+    onplan = async () => false,
     onpick,
     onclose,
   }: {
@@ -43,31 +46,28 @@
     /** The ship's moon tour (which planet, how many hops): names the
      *  quantum drive's tour column. */
     tour?: TourView | null;
-    /** The fitted part, when a blueprint makes it: its crafted quality,
-     *  null while it is as sold. */
-    craft?: { quality: number | null } | null;
-    /** Plans, when the module is on: whether the part is planned already. */
-    plans?: { planned: boolean } | null;
-    /** Mark the fitted part crafted at a quality; null: as sold. */
-    oncraft?: (quality: number | null) => void;
-    /** Plan to craft it, at its quality. */
-    onplan?: (quality: number) => void;
-    onpick: (item: string | null) => void;
+    /** The fitted part, when a blueprint makes it: its blueprint and its
+     *  crafted mark (`quality` null while it is as sold; `slots` a quality
+     *  per recipe slot, empty when all are at `quality`). */
+    craft?: { blueprint: string; quality: number | null; slots: number[] } | null;
+    /** The game data's channel, for the recipe. */
+    channel?: string | null;
+    /** Plans, when the module is on: the plan the part has already. */
+    plans?: { plan: Plan | undefined } | null;
+    /** Mark the fitted part crafted at a quality per slot; null: as sold. */
+    oncraft?: (slots: number[] | null) => void;
+    /** Compare the other options crafted: per crafting property, the
+     *  qualities of the fitted part's slots moving it; null: as sold. */
+    oncompare?: (byStat: Record<string, number[]> | null) => void;
+    /** Plan it crafted at these minimums: a plan, or `parked` a bookmark. */
+    onplan?: (slots: number[], parked: boolean) => Promise<boolean>;
+    /** Fit `item` (null: leave the port empty); `craft` fits it crafted
+     *  at the mark its row was compared at. */
+    onpick: (item: string | null, craft?: CraftMarkView | null) => void;
     onclose: () => void;
   } = $props();
 
   let q = $state("");
-  /** The quality "Crafted" sets: the last one tried, the best to start. */
-  let tried = $state(1000);
-  $effect(() => {
-    if (craft?.quality != null) tried = craft.quality;
-  });
-  function setQuality(raw: string) {
-    const v = Math.round(Number(raw));
-    if (!Number.isFinite(v)) return;
-    tried = Math.min(Math.max(v, 0), 1000);
-    oncraft(tried);
-  }
   let sort = $state<{ key: string; dir: number } | null>(null);
   let el = $state<HTMLElement>();
 
@@ -407,46 +407,7 @@
   </div>
 
   {#if craft}
-    {@const crafted = craft.quality !== null}
-    <!-- The same controls in both states, so nothing moves as it toggles. -->
-    <div class="craft">
-      <span class="clbl">Fitted part</span>
-      <Segmented
-        options={[
-          { value: "sold", label: "As sold" },
-          { value: "crafted", label: "Crafted" },
-        ]}
-        value={crafted ? "crafted" : "sold"}
-        onchange={(v) => oncraft(v === "sold" ? null : tried)}
-      />
-      <label class="cq" class:dim={!crafted} title="The quality every material reaches; 500 is stock"
-        >Quality
-        <input
-          class="input"
-          type="number"
-          min="0"
-          max="1000"
-          step="50"
-          value={craft.quality ?? tried}
-          disabled={!crafted}
-          onchange={(e) => setQuality(e.currentTarget.value)}
-        /></label
-      >
-      <span class="grow"></span>
-      {#if plans}
-        <button
-          type="button"
-          class="btn"
-          disabled={!crafted && !plans.planned}
-          title={plans.planned
-            ? "It is in your plans: open Plans"
-            : crafted
-              ? `Plan to craft ${count > 1 ? `${count} of them` : "it"} at Q${craft.quality}: the steps and materials go to Plans`
-              : "Mark it crafted to plan it"}
-          onclick={() => onplan(craft.quality ?? tried)}>{plans.planned ? "In plans" : "Add to plan"}</button
-        >
-      {/if}
-    </div>
+    <CraftBar {craft} {channel} {count} {plans} {oncraft} {oncompare} {onplan} />
   {/if}
 
   {#if error}
@@ -480,7 +441,7 @@
         {@const d = delta(c)}
         {@const imp = impact?.get(c) ?? null}
         {@const own = ownedOf(c)}
-        <button type="button" class="row" class:cur={c.fitted} style={grid} onclick={() => !c.fitted && onpick(c.item)}>
+        <button type="button" class="row" class:cur={c.fitted} style={grid} onclick={() => !c.fitted && onpick(c.item, c.craft)}>
           <span class="nm"
             ><b>{c.name}</b>{#if kind === "WeaponGun" && damageType(c.stats)}<small class="dt">{damageType(c.stats)}</small>{/if}{#if c.fitted}<small
                 class="fit">fitted</small
@@ -492,8 +453,16 @@
           {#if showGrade}<span class="v cls">{classOf(c)}</span>{/if}
           {#each columns as col (col.key)}
             {@const v = value(c, col.key)}
-            <span class="v" class:best={v !== null && col.better !== 0 && shown(v, col.digits) === best[col.key] && (list?.length ?? 0) > 1}
-              >{v !== null && col.text ? col.text(v) : num(v, col.digits)}</span
+            {@const stock = c.stats.find((s) => s.key === col.key)?.stock ?? null}
+            <!-- A crafted figure: tinted, its change beside it, as sold in the tooltip. -->
+            <span
+              class="v"
+              class:best={v !== null && col.better !== 0 && shown(v, col.digits) === best[col.key] && (list?.length ?? 0) > 1}
+              class:made={stock !== null}
+              title={stock !== null ? `As sold: ${col.text ? col.text(stock) : num(stock, col.digits)}` : undefined}
+              >{v !== null && col.text ? col.text(v) : num(v, col.digits)}{#if stock !== null && v !== null && stock !== 0}<small class="chg"
+                  >{v >= stock ? "+" : "−"}{Math.abs(((v - stock) / stock) * 100).toFixed(1)}%</small
+                >{/if}</span
             >
           {/each}
           {#each extras as x (x.key)}
@@ -598,33 +567,6 @@
     color: var(--accent);
   }
   /* The fitted part as crafted: a quiet strip under the header. */
-  .craft {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: -2px 0 10px;
-    padding: 6px 8px;
-    border-radius: var(--radius);
-    background: var(--accent-fill-faint);
-    font-size: var(--text-small);
-  }
-  .clbl {
-    color: var(--text-dim);
-  }
-  .cq {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text-dim);
-  }
-  .cq.dim {
-    opacity: 0.5;
-  }
-  .cq .input {
-    width: 72px;
-    font-size: var(--text-small);
-    padding-block: 3px;
-  }
   .ph .input {
     flex: 0 1 220px;
     font-size: var(--text-small);
@@ -747,7 +689,18 @@
   }
   .v.best {
     color: var(--good);
-  }  .v.cls {
+  }
+  /* Crafted at the bar's qualities: the figure in the quality hue, its
+   * change from as sold beside it. */
+  .v.made {
+    color: color-mix(in srgb, var(--hue-quality) 70%, var(--text-strong));
+  }
+  .v .chg {
+    margin-left: 5px;
+    font-size: 0.68rem;
+    color: color-mix(in srgb, var(--hue-quality) 60%, var(--text-dim));
+  }
+  .v.cls {
     font-family: var(--font-sans);
     font-size: 0.74rem;
     text-align: left;

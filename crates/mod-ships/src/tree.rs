@@ -98,6 +98,9 @@ pub struct Slot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CraftedMark {
     pub quality: i32,
+    /// A quality per material slot; empty when every slot is at `quality`.
+    #[serde(default)]
+    pub slots: Vec<i32>,
     pub gains: Vec<Gain>,
 }
 
@@ -192,9 +195,17 @@ fn walk(ctx: &Walk, level: &[Mounted], path: &mut Vec<String>) -> Vec<Slot> {
                 .map(|b| b.guid.clone());
             let crafted = ctx.crafted.get(&key).map(|c| CraftedMark {
                 quality: c.quality,
+                slots: c.slots.clone(),
                 gains: m
                     .item
-                    .map(|g| ctx.recipes.gains(&g.to_string(), c.quality))
+                    .map(|g| {
+                        let at = if c.slots.is_empty() {
+                            vec![c.quality]
+                        } else {
+                            c.slots.clone()
+                        };
+                        ctx.recipes.gains_at(&g.to_string(), &at)
+                    })
                     .unwrap_or_default(),
             });
             out.push(Slot {
@@ -248,7 +259,7 @@ fn walk(ctx: &Walk, level: &[Mounted], path: &mut Vec<String>) -> Vec<Slot> {
 
 /// A crafted part's own figures, the ones its recipe moves: the panels'
 /// headers sum them, and they read as the page's figures do.
-fn craft_stats(stats: &mut [Stat], c: &svc_data::Crafted) {
+pub(crate) fn craft_stats(stats: &mut [Stat], c: &svc_data::Crafted) {
     use svc_data::crafting::GameplayStat::*;
     for s in stats {
         let stat = match s.key.as_str() {
@@ -260,7 +271,11 @@ fn craft_stats(stats: &mut [Stat], c: &svc_data::Crafted) {
             "dps" | "alpha" | "dmgPhysical" | "dmgEnergy" | "dmgDistortion" => WeaponDamage,
             _ => continue,
         };
-        s.value = c.of(&stat).apply(s.value);
+        let value = c.of(&stat).apply(s.value);
+        if (value - s.value).abs() > 1e-9 {
+            s.stock = Some(s.value);
+        }
+        s.value = value;
     }
 }
 

@@ -180,9 +180,19 @@ pub fn clean_shop(internal: &str, places: &[String]) -> String {
     words(&tokens.join("_")).join(" ")
 }
 
-/// `RSI_Constellation_Mk5_Centaurus` → RSI Constellation Mk5 Centaurus.
+/// The ship an NPC's vehicle is a variant of: `MISC_Razor_LX_PU_AI_CRIM`
+/// → `MISC_Razor_LX`. A player's class comes back as it is.
+pub fn vehicle_base(class_name: &str) -> &str {
+    class_name
+        .find("_PU_AI")
+        .map_or(class_name, |at| &class_name[..at])
+}
+
+/// `RSI_Constellation_Mk5_Centaurus` → RSI Constellation Mk5 Centaurus; an
+/// NPC's variant reads as its ship (`MISC_Razor_LX_PU_AI_CRIM` → MISC Razor
+/// LX).
 pub fn clean_vehicle(class_name: &str) -> String {
-    words(class_name).join(" ")
+    words(vehicle_base(class_name)).join(" ")
 }
 
 /// `HRST_LaserRepeater_S5` → HRST Laser Repeater S5. The entity suffix
@@ -314,6 +324,7 @@ mod tests {
             clean_vehicle("RSI_Constellation_Mk5_Centaurus"),
             "RSI Constellation Mk5 Centaurus"
         );
+        assert_eq!(clean_vehicle("MISC_Razor_LX_PU_AI_CRIM"), "MISC Razor LX");
         assert_eq!(clean_item("SHLD_BEHR_S03_7CA_SCItem"), "SHLD BEHR S03 7CA");
         assert_eq!(
             clean_item("HRST_LaserRepeater_S5"),

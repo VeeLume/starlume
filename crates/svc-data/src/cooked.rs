@@ -70,7 +70,17 @@ use serde::{Deserialize, Serialize};
 /// rev 28: sc-holotable v0.56: mining-site anchors and ring shapes.
 /// rev 29: sc-holotable v0.57: the loot index, written beside the cook
 /// ([`crate::loot::LootIndex`]).
-pub const STARLUME_COOK_REV: u32 = 29;
+/// rev 30: each mission rank requirement carries its scope's full ladder
+/// ([`crate::missions::RepRequirement::ladder`]) for the Contracts catalog.
+/// rev 31: faction GEIDs, rank standing ids, chain-step and member contract
+/// names, to join the player's standing and completed contracts.
+/// rev 32: no aUEC estimate for event (Priority) missions, whose time
+/// budget is an event window.
+/// rev 33: chain gates with their run counts and tags
+/// ([`crate::missions::ChainGate`]).
+/// rev 34: sc-holotable v0.58.2: the points a gate's mission adds a run
+/// ([`crate::missions::MissionRef::adds`]); a doubled gate once.
+pub const STARLUME_COOK_REV: u32 = 34;
 
 /// The version guard for the processed snapshot on disk — composes the
 /// upstream cook version so *either* bump invalidates cleanly.

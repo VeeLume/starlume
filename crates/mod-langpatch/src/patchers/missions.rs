@@ -2043,11 +2043,13 @@ mod tests {
             event_rewards: Vec::new(),
             rep_required: Vec::new(),
             chain_required: Vec::new(),
+            chain_gates: Vec::new(),
             locations: Vec::new(),
             encounters: Vec::new(),
             cargo: Vec::new(),
             placeholders: Vec::new(),
             instance_count: 1,
+            contracts: Vec::new(),
             facts: MissionPoolFacts::default(),
         }
     }

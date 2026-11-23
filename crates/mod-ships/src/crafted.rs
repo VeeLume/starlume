@@ -1,6 +1,7 @@
 //! "What if this part were crafted": a loadout edit can mark the part it
-//! fits as crafted with every material at one quality (`Edit::quality`),
-//! and the page's figures take what the recipe changes.
+//! fits as crafted, at one quality for every material (`Edit::quality`)
+//! or one per material slot (`Edit::qualities`), and the page's figures
+//! take what the recipe changes.
 //!
 //! The holotable sheets are keyed by item class, and two ports often hold
 //! the same class with only one crafted, so a crafted part is applied per
@@ -58,7 +59,12 @@ impl CraftedParts {
                 if loadout.at(&refs).and_then(|m| m.item) != Some(guid) {
                     return None;
                 }
-                Some((path, recipes.crafted(&guid.to_string(), quality)?))
+                let at: Vec<i32> = if e.qualities.is_empty() {
+                    vec![quality]
+                } else {
+                    e.qualities.clone()
+                };
+                Some((path, recipes.crafted_at(&guid.to_string(), &at)?))
             })
             .collect();
         Self { by_path }

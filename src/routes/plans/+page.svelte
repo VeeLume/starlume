@@ -6,25 +6,28 @@
   // derived Rust-side from what the account holds; nothing is ticked here.
   // A plan is a saved loadout, one craft, or a project: a named group of
   // crafts served as one plan (Hearth's projects). The order of the list is
-  // who the ledger serves first; a parked plan keeps its place and reserves
-  // nothing. A craft's minimum quality is set per material, at the
-  // qualities that material comes in ($lib/quality).
+  // who the ledger serves first. A bookmark (a parked plan, decision
+  // 01a2017f) waits under Bookmarks: it keeps its place in the order and
+  // reserves nothing. A craft's minimum quality is set per material, at the
+  // qualities that material comes in ($lib/quality). `?tab=` and `?plan=`
+  // open a tab on a plan: Plan and Bookmark elsewhere link here.
   // Which plan is in view and which session choice is open are page-local.
   import { onMount, untrack } from "svelte";
+  import { flip } from "svelte/animate";
   import { goto } from "$app/navigation";
+  import { page } from "$app/state";
   import { Button, ConfirmDialog, Dialog, Picker } from "@veelume/ui";
-  import { ArrowDown, ArrowUp, ArrowUpRight, Plus } from "lucide-svelte";
-  import type { BlueprintRowView, PartChoice, PartSource, PlanBoard, PlanCraft, PlanSlot, StepKind, TrackKind } from "$lib/bindings";
+  import { ArrowRight, ArrowUpRight, Bookmark, GripVertical, Pencil, Plus, Target, Trash2 } from "lucide-svelte";
+  import type { BlueprintRowView, PartChoice, PartSource, PlanBoard, PlanCraft, PlanSlot, RepFilter, StepKind, TrackKind } from "$lib/bindings";
   import NoGameData from "$lib/components/catalog/NoGameData.svelte";
   import NowCard from "$lib/components/NowCard.svelte";
   import PlanGlyph, { type GlyphShape } from "$lib/modules/plans/PlanGlyph.svelte";
   import { KIND_TEXT, TRACKS, ago, amount, focusView, ledgerBars, stepFigure, type Focus } from "$lib/modules/plans/model";
   import { snapUp, stopsOf } from "$lib/quality";
   import { getBlueprints } from "$lib/state/catalog.svelte";
-  import { craftingStore, loadMarks } from "$lib/state/crafting.svelte";
+  import { loadMarks } from "$lib/state/crafting.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import {
-    addCraftPlan,
     addLoadoutPlan,
     addProject,
     loadBoard,
@@ -48,15 +51,39 @@
 
   let ready = $state(false);
   let now = $state(Date.now());
-  let tab = $state<"active" | "done">("active");
-  let picked = $state<string | null>(null);
+  type Tab = "active" | "bookmarks" | "done";
+  const TABS: [Tab, string][] = [
+    ["active", "Active"],
+    ["bookmarks", "Bookmarks"],
+    ["done", "Done"],
+  ];
+  const asked = page.url.searchParams.get("tab");
+  let tab = $state<Tab>(asked === "bookmarks" || asked === "done" ? asked : "active");
+  let picked = $state<string | null>(page.url.searchParams.get("plan"));
   /** What the session is for: a kind of work across your plans, or one
    *  plan to get ready; `null`: the kind of work the board suggests. */
-  let focus = $state<Focus | null>(null);
+  /** A link's plan (`?plan=` on the Active tab) opens as the focus. */
+  const linked = asked !== "bookmarks" && asked !== "done" ? page.url.searchParams.get("plan") : null;
+  let focus = $state<Focus | null>(linked ? { kind: "plan", plan: linked } : null);
   let adding = $state(false);
   /** The project a craft is being picked for. */
   let addingTo = $state<PlanBoard | null>(null);
   let removing = $state<PlanBoard | null>(null);
+  /** The right column's panel: where parts come from, or the materials. */
+  let sideTab = $state<"parts" | "materials">("parts");
+  /** The focused plan's name is being edited. */
+  let renaming = $state(false);
+
+  /** Keep a typed name; the goal's own name, or nothing, keeps the plan
+   *  named after its goal. */
+  function rename(d: PlanBoard, raw: string) {
+    if (!renaming) return;
+    renaming = false;
+    const next = raw.trim();
+    const own = plansStore.plans?.find((p) => p.id === d.id)?.name ?? "";
+    const value = next === d.name && !own ? "" : next;
+    if (value !== own) void renamePlan(d.id, value);
+  }
   let blueprints = $state<BlueprintRowView[]>([]);
 
   const channel = $derived(dataStore.channel);
@@ -94,7 +121,22 @@
    *  while one is off. */
   const on = (id: string) => settingsStore.current?.enabled_modules.includes(id) ?? false;
 
-  const shown = $derived((board?.plans ?? []).filter((p) => (tab === "done" ? p.done : !p.done)));
+  /** Bookmarked or not, from the plans file: a move between Active and
+   *  Bookmarks shows at once, before the board is derived again. */
+  const parked = $derived(new Map((plansStore.plans ?? []).map((p) => [p.id, p.parked])));
+  const tabOf = (p: PlanBoard): Tab => (p.done ? "done" : (parked.get(p.id) ?? p.parked) ? "bookmarks" : "active");
+  /** The board's plans in the plans file's order: a move shows at once,
+   *  before the board is derived again. */
+  const ordered = $derived.by(() => {
+    const rank = new Map((plansStore.plans ?? []).map((p, i) => [p.id, i]));
+    return [...(board?.plans ?? [])].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+  });
+  const shown = $derived.by(() => {
+    const mine = ordered.filter((p) => tabOf(p) === tab);
+    if (!live) return mine;
+    const byId = new Map(mine.map((p) => [p.id, p]));
+    return live.flatMap((id) => byId.get(id) ?? []);
+  });
   const plan = $derived(shown.find((p) => p.id === picked) ?? shown[0] ?? null);
   /** The kinds of work the board has, in the card's order. */
   const tracksShown = $derived(TRACKS.filter((t) => board?.tracks.tracks.some((x) => x.kind === t.id)));
@@ -118,15 +160,19 @@
   /** The plan the page shows the controls of: the focus when it is a
    *  plan; on Done, the one picked there. */
   const detail = $derived(
-    shownFocus.kind === "plan"
-      ? (board?.plans.find((p) => p.id === shownFocus.plan) ?? null)
-      : tab === "done"
-        ? plan
+    tab !== "active"
+      ? plan
+      : shownFocus.kind === "plan"
+        ? (board?.plans.find((p) => p.id === shownFocus.plan) ?? null)
         : null,
   );
   const target = $derived(board?.targets.find((t) => t.plan === detail?.id) ?? null);
-  /** The plan as stored: its own name (the board's is the shown one). */
-  const stored = $derived(plansStore.plans?.find((p) => p.id === detail?.id) ?? null);
+  // Another plan in focus ends the edit; the same plan re-derived does not.
+  const detailId = $derived(detail?.id ?? null);
+  $effect(() => {
+    void detailId;
+    renaming = false;
+  });
   /** A plan's name where room is short (the Focus pills, step tags,
    *  Components rows): your own name for it, else the ship or item
    *  without its maker ("Constellation Mk V Centaurus"). The full name is
@@ -140,11 +186,6 @@
     const words = p.title.split(" ");
     return words.length > 1 ? words.slice(1).join(" ") : p.title;
   }
-  const focusName = $derived(
-    shownFocus.kind === "plan"
-      ? `to get ${names.get(shownFocus.plan) ?? "the plan"} ready`
-      : `for ${(TRACKS.find((t) => t.id === shownFocus.track)?.label ?? "").toLowerCase()} across your plans`,
-  );
   const FOCUS_HUE: Record<TrackKind, string> = {
     shopping: "var(--hue-sky)",
     mining: "var(--hue-quality)",
@@ -174,21 +215,141 @@
     return { value: "craft", detail: o.detail };
   }
 
+  /** A rep step's missions in Contracts: its faction, open to you now (or
+   *  opening at the step's rank), sorted by rep per minute. */
+  /** A chain step's id (`chain:<mission>` or `chain:<mission>:<gate>`) as
+   *  Contracts' `unlock` scope (`<mission>.<gate>`). */
+  function unlockOf(id: string): string {
+    const [, mission, gate = "0"] = id.split(":");
+    return `${mission}.${gate}`;
+  }
+
+  function repLink(f: RepFilter): string {
+    const q = new URLSearchParams({ faction: f.faction, sort: "repmin" });
+    if (f.rank) q.set("rank", f.rank);
+    else q.set("status", "open");
+    return `/contracts?${q}`;
+  }
+
   /** Picking a plan, in the list or on the card, makes it the focus. */
   function pickPlan(id: string) {
     picked = id;
-    focus = { kind: "plan", plan: id };
+    if (tab === "active") focus = { kind: "plan", plan: id };
   }
+
+  // Drag to reorder (Active and Bookmarks): press anywhere on a row and
+  // move; the rows slide under the pointer as you drag, so what you see is
+  // the order you get, and the drop is kept at once (the list reads the
+  // order from the plans file, not the re-derived board). The list, which
+  // never moves, holds the pointer once a drag starts, so the drag follows
+  // it anywhere and ends on release, even outside the window. A press that
+  // does not move 4 px is a click. The grip takes the arrow keys.
+  let dragging = $state<string | null>(null);
+  /** The shown ids in their order while a drag runs. */
+  let live = $state<string[] | null>(null);
+  const sortable = $derived(tab !== "done");
+  /** A press on a row that may become a drag. */
+  let pressed: { id: string; y: number; pointer: number } | null = null;
+  /** The click a drag's release makes is not a pick. */
+  let swallow = false;
+
+  function press(e: PointerEvent) {
+    swallow = false;
+    if (!sortable || e.button !== 0) return;
+    const t = e.target as HTMLElement;
+    // Buttons with their own job (Plan, Remove) and fields stay theirs.
+    if (t.closest("input, textarea, a, .wide-act")) return;
+    const row = t.closest<HTMLElement>("[data-row]");
+    if (row?.dataset.row) pressed = { id: row.dataset.row, y: e.clientY, pointer: e.pointerId };
+  }
+
+  function move(e: PointerEvent) {
+    const list = e.currentTarget as HTMLElement;
+    if (!dragging) {
+      if (!pressed || Math.abs(e.clientY - pressed.y) < 4) return;
+      dragging = pressed.id;
+      live = shown.map((p) => p.id);
+      list.setPointerCapture(pressed.pointer);
+    }
+    // Released where no up event reached us: the drag is over.
+    if (e.buttons === 0) {
+      release();
+      return;
+    }
+    // Where it goes: after every other row whose middle is above the pointer.
+    let to = 0;
+    for (const row of list.querySelectorAll<HTMLElement>("[data-row]")) {
+      if (row.dataset.row === dragging) continue;
+      const r = row.getBoundingClientRect();
+      if (e.clientY > r.top + r.height / 2) to++;
+    }
+    const rest = live!.filter((x) => x !== dragging);
+    const next = [...rest.slice(0, to), dragging, ...rest.slice(to)];
+    if (next.some((x, i) => x !== live![i])) live = next;
+  }
+
+  function release() {
+    pressed = null;
+    if (!dragging) return;
+    swallow = true;
+    void drop();
+  }
+
+  /** The list's handlers, on the element that holds the pointer. */
+  const listDrag = {
+    onpointerdown: press,
+    onpointermove: move,
+    onpointerup: release,
+    onpointercancel: release,
+    onlostpointercapture: release,
+    onclickcapture: (e: MouseEvent) => {
+      if (!swallow) return;
+      swallow = false;
+      e.stopPropagation();
+      e.preventDefault();
+    },
+  };
+
+  async function drop() {
+    const id = dragging;
+    const order = live;
+    dragging = null;
+    if (!id || !order) {
+      live = null;
+      return;
+    }
+    const was = ordered.filter((p) => tabOf(p) === tab).map((p) => p.id);
+    const at = order.indexOf(id);
+    if (order.every((x, i) => x === was[i])) {
+      live = null;
+      return;
+    }
+    // Before the row that now follows it; at the end, before whatever
+    // follows the list's last other row in the whole order.
+    const before = order[at + 1] ?? nextAfter(order.filter((x) => x !== id).at(-1), id);
+    await movePlan(id, before);
+    live = null;
+  }
+
+  /** The plan after `id` in the whole order, skipping `skip`; null: the end. */
+  function nextAfter(id: string | undefined, skip: string): string | null {
+    const all = (plansStore.plans ?? []).map((p) => p.id).filter((x) => x !== skip);
+    const at = id ? all.indexOf(id) : -1;
+    return at >= 0 ? (all[at + 1] ?? null) : null;
+  }
+
   const bars = $derived(ledgerBars(board?.ledger ?? []));
-  const counts = $derived({
-    active: (board?.plans ?? []).filter((p) => !p.done).length,
-    done: (board?.plans ?? []).filter((p) => p.done).length,
-  });
+  const counts = $derived(
+    Object.fromEntries(TABS.map(([id]) => [id, (board?.plans ?? []).filter((p) => tabOf(p) === id).length])) as Record<Tab, number>,
+  );
 
   const PLAN_LOOK: Record<PlanBoard["kind"], { shape: GlyphShape; chip: string }> = {
     loadout: { shape: "ship", chip: "LOADOUT" },
     craft: { shape: "craft", chip: "CRAFT" },
     project: { shape: "blueprint", chip: "PROJECT" },
+    rank: { shape: "mission", chip: "RANK" },
+    mission: { shape: "mission", chip: "MISSION" },
+    blueprint: { shape: "blueprint", chip: "BLUEPRINT" },
     unknown: { shape: "blueprint", chip: "PLAN" },
   };
   const STEP_SHAPE: Record<StepKind, GlyphShape> = {
@@ -201,10 +362,12 @@
     earn: "mission",
     find: "find",
     loot: "find",
+    rep: "mission",
+    run: "mission",
   };
 
-  // What "New plan" offers: your saved loadouts and the items you marked
-  // as wanted on Crafting, minus what is already planned.
+  // What "New plan" offers: your bookmarks first, to take up, then your
+  // saved loadouts not planned yet.
   type Offer = { key: string; label: string; detail: string; add: () => Promise<boolean> };
   const offers = $derived.by<Offer[]>(() => {
     const loadouts = plansStore.choices
@@ -215,15 +378,15 @@
         detail: "Saved loadout, to have fitted on the ship",
         add: () => addLoadoutPlan(c.id),
       }));
-    const wanted = blueprints
-      .filter((b) => craftingStore.wantsItem(b.guid) && !plansStore.craftOf(b.guid))
-      .map((b) => ({
-        key: `craft:${b.guid}`,
-        label: b.name,
-        detail: "Wanted item, to craft",
-        add: () => addCraftPlan(b.guid),
+    const marks = (board?.plans ?? [])
+      .filter((p) => p.parked && !p.done)
+      .map((p) => ({
+        key: `plan:${p.id}`,
+        label: p.name,
+        detail: `Bookmark, ${PLAN_LOOK[p.kind].chip.toLowerCase()}`,
+        add: () => parkPlan(p.id, false),
       }));
-    return [...loadouts, ...wanted];
+    return [...marks, ...loadouts];
   });
 
   async function add(offer: Offer) {
@@ -231,7 +394,7 @@
     if (!(await offer.add())) return;
     const [kind, id] = offer.key.split(/:(.*)/s);
     tab = "active";
-    picked = (kind === "loadout" ? plansStore.loadoutOf(id) : plansStore.craftOf(id))?.id ?? null;
+    picked = kind === "plan" ? id : (plansStore.loadoutOf(id)?.id ?? null);
   }
 
   function open() {
@@ -258,18 +421,7 @@
     return count ?? c.count;
   }
 
-  /** One quality for every material of a craft: the shortcut. */
-  function setAll(c: PlanCraft, raw: string) {
-    const quality = typed(raw, 0, 1000);
-    if (detail && quality != null) void updateCraft(detail.id, c.blueprint, c.count, [], quality);
-  }
 
-  function setSlot(c: PlanCraft, index: number, quality: number) {
-    if (!detail) return;
-    const slots = minimums(c);
-    slots[index] = quality;
-    void updateCraft(detail.id, c.blueprint, c.count, slots);
-  }
 
   /** What a slot's minimum can be set to, and where it stands now. */
   function slotChoice(s: PlanSlot) {
@@ -277,24 +429,24 @@
     return { stops, now: snapUp(stops, s.min) };
   }
 
-  function stopLabel(s: PlanSlot, value: number, first: boolean) {
-    if (first && s.floor <= 1) return "any quality";
-    const band = s.bands.find((b) => b.value === value);
-    return band ? `Q${value}, band ${band.from} to ${band.to}` : `Q${value}`;
-  }
 
   const slotAmount = (s: PlanSlot) => `${amount(s, s.amount)} ${s.bulk ? "SCU" : "pcs"}`;
 
-  // What "Add a craft" offers a project: the items you marked as wanted on
-  // Crafting that it does not have yet.
+  // What "Add a craft" offers a project: your bookmarked crafts it does
+  // not have yet. Added, the craft leaves your bookmarks for the project.
   const craftOffers = $derived(
-    blueprints.filter((b) => craftingStore.wantsItem(b.guid) && !addingTo?.crafts.some((c) => c.blueprint === b.guid)),
+    (plansStore.plans ?? []).flatMap((p) => {
+      const g = p.goal;
+      if (!p.parked || g.kind !== "craft" || addingTo?.crafts.some((c) => c.blueprint === g.blueprint)) return [];
+      const name = blueprints.find((b) => b.guid === g.blueprint)?.name ?? p.name;
+      return [{ plan: p.id, guid: g.blueprint, count: g.count, slots: g.slots, name }];
+    }),
   );
 
-  async function addToProject(blueprint: string) {
+  async function addToProject(offer: (typeof craftOffers)[number]) {
     const project = addingTo;
     addingTo = null;
-    if (project) await planCraft(project.id, blueprint, 1, []);
+    if (project && (await planCraft(project.id, offer.guid, offer.count, offer.slots))) await removePlan(offer.plan);
   }
 
   async function newProject() {
@@ -310,8 +462,8 @@
   function shift(id: string, by: -1 | 1) {
     const at = shown.findIndex((p) => p.id === id);
     const before = by < 0 ? shown[at - 1] : shown[at + 2];
-    if (at < 0 || (by < 0 && !before)) return;
-    void movePlan(id, before?.id ?? null);
+    if (at < 0 || (by < 0 && !before) || (by > 0 && at === shown.length - 1)) return;
+    void movePlan(id, before?.id ?? nextAfter(shown.at(-1)?.id, id));
   }
 
   async function remove() {
@@ -321,13 +473,202 @@
   }
 </script>
 
+<!-- Leaving the window ends a drag where it stands. -->
+<svelte:window onblur={release} />
+
+{#snippet grip(p: PlanBoard, n: number)}
+  {#if sortable}
+    <button
+      type="button"
+      class="grip"
+      title="Drag the row to reorder it, or use the arrow keys here"
+      aria-label="Move {p.name}: arrow up or down"
+      onkeydown={(e) => {
+        if (e.key === "ArrowUp" && n > 0) {
+          e.preventDefault();
+          shift(p.id, -1);
+        } else if (e.key === "ArrowDown" && n < shown.length - 1) {
+          e.preventDefault();
+          shift(p.id, 1);
+        }
+      }}><GripVertical size={14} /></button
+    >
+  {/if}
+{/snippet}
+
+<!-- Bookmarks and Done: the list is the page (design pass 7). A bookmark
+     has no steps and reserves nothing, so there is no session to show. -->
+{#snippet planList()}
+  <section class="panel wide-list">
+    <h2 class="sec-h">
+      {tab === "bookmarks" ? "Bookmarks" : "Done"}
+      <span class="dim small sub">{tab === "bookmarks" ? "kept for later: no steps, nothing reserved" : "goals the game shows reached"}</span>
+      <span class="grow"></span><span class="mono">{shown.length}</span>
+    </h2>
+    {#if shown.length === 0}
+      <p class="dim none">
+        {tab === "bookmarks"
+          ? "Nothing bookmarked. The bookmark beside Plan, on Contracts, Crafting and Ships, keeps something here for later."
+          : "Nothing done yet."}
+      </p>
+    {/if}
+    <div data-list class:sorting={!!dragging} {...listDrag}>
+    {#each shown as p, n (p.id)}
+      {@const fig = p.tiles[0]}
+      <div class="wide-row kind-{p.kind}" class:sel={p.id === detail?.id} class:lifted={dragging === p.id} data-row={p.id} animate:flip={{ duration: 140 }}>
+        {@render grip(p, n)}
+        <button type="button" class="wide-pick" aria-pressed={p.id === detail?.id} onclick={() => pickPlan(p.id)}>
+          <span class="glyph"><PlanGlyph shape={PLAN_LOOK[p.kind].shape} /></span>
+          <span class="wide-text"><b>{p.name}</b><small>{PLAN_LOOK[p.kind].chip.toLowerCase()}</small></span>
+          {#if fig}<span class="wide-fig"><span class="mono">{fig.value}</span><small>{fig.label}</small></span>{/if}
+        </button>
+        <span class="wide-act">
+          {#if tab === "bookmarks"}
+            <Button onclick={() => void parkPlan(p.id, false)}><Target size={14} /> Plan</Button>
+          {/if}
+          <Button variant="ghost" onclick={() => (removing = p)}>Remove</Button>
+        </span>
+      </div>
+    {/each}
+    </div>
+  </section>
+{/snippet}
+
+<!-- The plan in focus (pass 9): under the session card on Active, where
+     This plan was on Bookmarks and Done. Its name is the heading (type to
+     rename it), its next step and your note under it, and a craft's count
+     and minimum quality per material in the band itself, so they are seen
+     with the plan, not under the steps. -->
+{#snippet band()}
+  {@const d = detail!}
+  {@const pct = Math.round(d.progress * 100)}
+  <section class="band kind-{d.kind}" aria-label="The plan in focus">
+    <div class="band-top">
+      <span class="glyph lg"><PlanGlyph shape={PLAN_LOOK[d.kind].shape} /></span>
+      <div class="band-title">
+        <span class="kick">{PLAN_LOOK[d.kind].chip.toLowerCase()} plan{d.parked ? ", bookmarked" : ""}</span>
+        <!-- The name is a heading; the pencil turns it into the app's
+             field in the same box (Enter or leaving it keeps the name,
+             Escape drops the change). -->
+        <span class="band-name-row">
+          {#if renaming}
+            <!-- svelte-ignore a11y_autofocus -->
+            <input
+              class="input band-edit"
+              value={d.name}
+              placeholder={d.kind === "project" ? "Project" : "Name it"}
+              aria-label="Name of this plan"
+              autofocus
+              onfocus={(e) => e.currentTarget.select()}
+              onkeydown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                else if (e.key === "Escape") renaming = false;
+              }}
+              onblur={(e) => rename(d, e.currentTarget.value)}
+            />
+          {:else}
+            <h2 class="band-name" title={d.name}>{d.name}</h2>
+            <button type="button" class="tool pen" title="Rename it" aria-label="Rename this plan" onclick={() => (renaming = true)}
+              ><Pencil size={14} /></button
+            >
+          {/if}
+        </span>
+        <span class="band-prog"><span class="track"><i style:width="{pct}%"></i></span><span class="mono dim">{pct}%</span></span>
+      </div>
+      <div class="tools" role="group" aria-label="This plan">
+        {#if !d.done && !d.missing}
+          <button
+            type="button"
+            class="tool"
+            title={d.parked ? "Plan it: it reserves materials and parts again" : "Move it to your bookmarks: it reserves nothing"}
+            aria-label={d.parked ? "Plan it" : "Move to bookmarks"}
+            onclick={() => void parkPlan(d.id, !d.parked)}
+            >{#if d.parked}<Target size={15} />{:else}<Bookmark size={15} />{/if}</button
+          >
+        {/if}
+        {#if (target?.ship && on("ships")) || (target?.family && on("crafting"))}
+          <button type="button" class="tool" title={target.ship ? "Open the ship" : "Open the recipe"} aria-label={target.ship ? "Open the ship" : "Open the recipe"} onclick={open}
+            ><ArrowUpRight size={15} /></button
+          >
+        {/if}
+        <button type="button" class="tool bad" title="Remove the plan" aria-label="Remove the plan" onclick={() => (removing = d)}><Trash2 size={15} /></button>
+      </div>
+    </div>
+    <div class="band-meta">
+      <span class="next" class:waits={d.waiting}
+        ><ArrowRight size={14} />{d.missing ? `${d.note}. Remove the plan, or bring its goal back.` : d.note}</span
+      >
+    </div>
+    <!-- Your note: as many lines as you write, growing down; kept when
+         the field loses focus. -->
+    <div class="note-row">
+      <Pencil size={13} />
+      <textarea
+        rows="1"
+        value={d.notes}
+        placeholder="Add a note"
+        aria-label="Notes"
+        title="Your own words about this plan"
+        onchange={(e) => void setPlanNotes(d.id, e.currentTarget.value)}
+      ></textarea>
+    </div>
+    {#if d.kind === "project" || d.crafts.length > 0}
+      {#if d.kind === "project"}
+        <div class="band-sec">
+          <span class="band-lab">Crafts in this project</span>
+          <span class="grow"></span>
+          <Button variant="outline" onclick={() => (addingTo = d)}><Plus size={14} /> Add a craft</Button>
+        </div>
+      {/if}
+      {#each d.crafts as c (c.blueprint)}
+        <div class="craft" class:missing={c.missing}>
+          <div class="craft-head">
+            {#if d.kind === "project"}<b>{c.name}</b>{/if}
+            <span class="dim small">{c.crafted} of {c.count} crafted</span>
+            <span class="grow"></span>
+            {#if !c.missing}
+              <span class="count">
+                <span class="dim small">Count</span>
+                <span class="stepper">
+                  <button type="button" aria-label="One less" disabled={c.count <= 1} onclick={() => setCount(c, String(c.count - 1))}>−</button>
+                  <b class="mono">{c.count}</b>
+                  <button type="button" aria-label="One more" onclick={() => setCount(c, String(c.count + 1))}>+</button>
+                </span>
+              </span>
+              {#if d.kind === "project" && c.family && on("crafting")}
+                <Button variant="ghost" href="/crafting?sel={encodeURIComponent(c.family)}">Recipe <ArrowUpRight size={14} /></Button>
+              {/if}
+            {/if}
+            {#if d.kind === "project"}
+              <Button variant="ghost" onclick={() => void removeCraft(d.id, c.blueprint)}>Take out</Button>
+            {/if}
+          </div>
+          <div class="slots">
+            {#each c.slots as s, i (i)}
+              {@const choice = slotChoice(s)}
+              <div class="slot" title={s.moves.length ? `Moves ${s.moves.join(", ")}` : "Moves no stat"}>
+                <span class="slot-mat"
+                  ><i class:held={s.held} title={s.held ? "Your stock covers it" : "Not covered by your stock"}></i>{s.material}<span
+                    class="dim mono">{slotAmount(s)}</span
+                  ></span
+                >
+                <span class="slot-q">{choice.now <= 1 && s.floor <= 1 ? "any" : `Q${choice.now}+`}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/each}
+    {/if}
+  </section>
+{/snippet}
+
 <div class="plans">
   <!-- Active and Done are the page's views: the tab row Ships uses (a
        Segmented is an input, not navigation; Valerie, 2026-11-17). -->
   <header class="tabs" role="tablist" aria-label="Plans">
-    {#each [["active", "Active", counts.active], ["done", "Done", counts.done]] as const as [id, label, n] (id)}
+    {#each TABS as [id, label] (id)}
       <button type="button" role="tab" class="tab" class:active={tab === id} aria-selected={tab === id} onclick={() => (tab = id)}
-        >{label}{#if board}<span class="n">{n}</span>{/if}</button
+        >{label}{#if board}<span class="n">{counts[id]}</span>{/if}</button
       >
     {/each}
     <span class="grow"></span>
@@ -365,7 +706,8 @@
       </section>
     {:else}
       <div class="cols">
-        <section class="lead" aria-label="Next session and next steps">
+        <section class="lead" aria-label={tab === "active" ? "Next session and next steps" : tab === "bookmarks" ? "Bookmarks" : "Done"}>
+          {#if tab === "active"}
           <!-- What the session is for (pass 6): a kind of work across your
                plans, or one plan to get ready. Distance leads; every time
                names its source; mining and refining have none (a dash). -->
@@ -422,14 +764,15 @@
           </NowCard>
           </div>
 
-          <h2 class="sec-h steps-h">Next steps<span class="for">{focusName}</span></h2>
+          {#if detail}{@render band()}{/if}
+
           {#if view.groups.length === 0}
             {@const focused = shownFocus.kind === "plan" ? board.plans.find((p) => p.id === shownFocus.plan) : null}
             <p class="dim none">
               {focused?.missing
                 ? focused.note
                 : focused?.parked
-                  ? "Parked: it reserves nothing and has no steps until you take it up again."
+                  ? "Bookmarked: it reserves nothing and has no steps until you plan it."
                   : focused?.kind === "project" && focused.crafts.length === 0
                   ? "No crafts in this project yet. Add one below, or from a recipe on Crafting."
                   : focused
@@ -452,6 +795,23 @@
                       <span class="step-sub">
                         <span class="hue-chip" class:wait={s.blocked}>{s.blocked ? "waits" : KIND_TEXT[s.kind]}</span>
                         <span>{s.detail}</span>
+                        {#if s.kind === "earn" && s.id.startsWith("earn:") && on("contracts")}
+                          <!-- The step's id carries the blueprint; Contracts scopes its catalog to it.
+                               The label counts every mission that gives it. -->
+                          <a class="earn-lk" href="/contracts?bp={encodeURIComponent(s.id.slice(5))}">{s.sources === 1 ? "1 mission" : `${s.sources} missions`}</a>
+                        {/if}
+                        {#if s.rep && on("contracts")}
+                          <!-- The faction's missions open now (or at the rank), most rep a minute first. -->
+                          <a class="earn-lk" href={repLink(s.rep)}>Missions</a>
+                        {/if}
+                        {#if s.id.startsWith("chain:") && s.sources > 1 && on("contracts")}
+                          <!-- Every mission that counts toward the gate: Contracts scopes
+                               its catalog to them. The id carries mission and gate. -->
+                          <a class="earn-lk" href="/contracts?unlock={encodeURIComponent(unlockOf(s.id))}">{s.sources} missions</a>
+                        {:else if s.kind !== "earn" && s.mission && on("contracts")}
+                          <!-- Contracts finds the mission by its title and opens it. -->
+                          <a class="earn-lk" href="/contracts?q={encodeURIComponent(s.mission.title)}&open={encodeURIComponent(s.mission.id)}">Mission</a>
+                        {/if}
                         {#if shownFocus.kind === "plan" ? other : s.plans.length > 1}
                           {#each s.plans as p (p)}<span class="tag" title={names.get(p) ?? p}>{short(p)}</span>{/each}
                         {/if}
@@ -466,177 +826,64 @@
 
 
 
-          {#if detail && (detail.kind === "project" || detail.crafts.length > 0)}
-            <!-- What the detail crafts, each with the minimum quality of
-                 every material. All of it is always shown: nothing here
-                 opens or closes. -->
-            <h2 class="sec-h crafts-h">
-              {detail.kind === "project" ? "Crafts in this project" : "Minimum quality per material"}
-              <span class="grow"></span>
-              {#if detail.kind === "project"}
-                <Button variant="outline" onclick={() => (addingTo = detail)}><Plus size={14} /> Add a craft</Button>
-              {/if}
-            </h2>
-            {#each detail.crafts as c (c.blueprint)}
-              <div class="craft" class:missing={c.missing}>
-                <div class="craft-head">
-                  <b>{c.name}</b>
-                  <span class="dim small">{c.crafted} of {c.count} crafted</span>
-                  <span class="grow"></span>
-                  {#if !c.missing}
-                    <label class="field"
-                      >Count
-                      <input
-                        class="input"
-                        type="number"
-                        min="1"
-                        value={c.count}
-                        onchange={(e) => (e.currentTarget.value = String(setCount(c, e.currentTarget.value)))}
-                      /></label
-                    >
-                    <label class="field" title="One minimum for every material; each can then be set on its own below"
-                      >All at least
-                      <input
-                        class="input"
-                        type="number"
-                        min="0"
-                        max="1000"
-                        step="50"
-                        value={c.quality ?? ""}
-                        placeholder="mixed"
-                        onchange={(e) => setAll(c, e.currentTarget.value)}
-                      /></label
-                    >
-                    {#if c.family && on("crafting")}
-                      <Button variant="ghost" href="/crafting?sel={encodeURIComponent(c.family)}">Recipe <ArrowUpRight size={14} /></Button>
-                    {/if}
-                  {/if}
-                  {#if detail.kind === "project"}
-                    <Button variant="ghost" onclick={() => void removeCraft(detail.id, c.blueprint)}>Take out</Button>
-                  {/if}
-                </div>
-                <div class="slots">
-                  {#each c.slots as s, i (i)}
-                    {@const choice = slotChoice(s)}
-                    <label class="slot">
-                      <span class="slot-name">{s.name ?? "Material"}</span>
-                      <span class="slot-mat"
-                        ><i class:held={s.held} title={s.held ? "Your stock covers it" : "Not covered by your stock"}></i>{s.material}<span
-                          class="dim mono">{slotAmount(s)}</span
-                        ></span
-                      >
-                      <span class="slot-moves">{s.moves.length ? `moves ${s.moves.join(", ")}` : "moves no stat"}</span>
-                      {#if choice.stops.length}
-                        <select class="select" value={choice.now} onchange={(e) => setSlot(c, i, Number(e.currentTarget.value))}>
-                          {#each choice.stops as v, n (v)}
-                            <option value={v}>{stopLabel(s, v, n === 0)}</option>
-                          {/each}
-                        </select>
-                      {:else}
-                        <!-- No bands in the game data for this material. -->
-                        <input
-                          class="input"
-                          type="number"
-                          min={s.floor}
-                          max="1000"
-                          value={s.min}
-                          onchange={(e) => setSlot(c, i, typed(e.currentTarget.value, s.floor, 1000) ?? s.min)}
-                        />
-                      {/if}
-                    </label>
-                  {/each}
-                </div>
-              </div>
-            {/each}
+          {:else}
+            {@render planList()}
           {/if}
+
         </section>
 
         <aside class="sheet" aria-label="Your plans">
+          {#if tab === "active"}
           <section class="panel">
-            <h2 class="sec-h">{tab === "done" ? "Done" : "Your plans"}<span class="grow"></span><span class="mono">{shown.length}</span></h2>
-            <div class="plan-list">
+            <h2 class="sec-h">Your plans<span class="grow"></span><span class="mono">{shown.length}</span></h2>
+            <div class="plan-list" data-list class:sorting={!!dragging} {...listDrag}>
               {#each shown as p, n (p.id)}
-                <div class="plan-row kind-{p.kind}" class:sel={p.id === (detail?.id ?? (shownFocus.kind === "plan" ? shownFocus.plan : null))} class:parked={p.parked}>
+                <div
+                  class="plan-row kind-{p.kind}"
+                  class:sel={p.id === (detail?.id ?? (shownFocus.kind === "plan" ? shownFocus.plan : null))}
+                  class:parked={p.parked}
+                  class:lifted={dragging === p.id}
+                  data-row={p.id}
+                  animate:flip={{ duration: 140 }}
+                >
                   <button type="button" class="plan-pick" aria-pressed={p.id === detail?.id} onclick={() => pickPlan(p.id)}>
                     <span class="glyph"><PlanGlyph shape={PLAN_LOOK[p.kind].shape} /></span>
                     <span class="plan-text">
                       <span class="plan-head"><b>{p.name}</b><span class="mono dim">{Math.round(p.progress * 100)}%</span></span>
-                      <span class="track"><i style:width="{Math.round(p.progress * 100)}%"></i></span>
-                      <span class="plan-note" class:waits={p.waiting}>{p.note}</span>
+                      <span class="plan-sub"
+                        ><span class="track"><i style:width="{Math.round(p.progress * 100)}%"></i></span><span class="plan-note" class:waits={p.waiting}
+                          >{p.note}</span
+                        ></span
+                      >
                     </span>
                   </button>
                   <!-- The order is who gets the stock first. -->
-                  {#if tab === "active"}
-                    <span class="order">
-                      <button type="button" disabled={n === 0} title="Serve it earlier" aria-label="Move {p.name} up" onclick={() => shift(p.id, -1)}
-                        ><ArrowUp size={13} /></button
-                      >
-                      <button
-                        type="button"
-                        disabled={n === shown.length - 1}
-                        title="Serve it later"
-                        aria-label="Move {p.name} down"
-                        onclick={() => shift(p.id, 1)}><ArrowDown size={13} /></button
-                      >
-                    </span>
-                  {/if}
+                  {@render grip(p, n)}
                 </div>
               {/each}
             </div>
           </section>
-
-          {#if detail}
-            <!-- The plan in focus: rename, note, park, remove, open its goal. -->
-            <section class="panel" aria-label="This plan">
-              <h2 class="sec-h">This plan<span class="grow"></span><span class="for">{PLAN_LOOK[detail.kind].chip.toLowerCase()}{detail.parked ? ", parked" : ""}</span></h2>
-              {#if detail.missing}
-                <p class="dim">{detail.note}. Remove the plan, or bring its goal back.</p>
-              {/if}
-              <label class="this-field"
-                >Name
-                <input
-                  class="input"
-                  value={stored?.name ?? ""}
-                  placeholder={detail.kind === "project" ? "Project" : `${detail.title}, ${detail.subtitle}`}
-                  onchange={(e) => void renamePlan(detail.id, e.currentTarget.value)}
-                /></label
-              >
-              <label class="this-field"
-                >Notes
-                <input
-                  class="input"
-                  value={detail.notes}
-                  placeholder="What it is for"
-                  onchange={(e) => void setPlanNotes(detail.id, e.currentTarget.value)}
-                /></label
-              >
-              <div class="this-actions">
-                <Button variant="ghost" onclick={() => (removing = detail)}>Remove</Button>
-                {#if !detail.done && !detail.missing}
-                  <Button
-                    variant="ghost"
-                    title={detail.parked
-                      ? "It reserves materials and parts again, at its place in the order"
-                      : "It stays in the list and reserves nothing, so the plans behind it get the stock"}
-                    onclick={() => void parkPlan(detail.id, !detail.parked)}>{detail.parked ? "Take it up again" : "Park"}</Button
-                  >
-                {/if}
-                <span class="grow"></span>
-                {#if (target?.ship && on("ships")) || (target?.family && on("crafting"))}
-                  <Button variant="outline" onclick={open}>
-                    {target.ship ? "Open ship" : "Open recipe"} <ArrowUpRight size={14} />
-                  </Button>
-                {/if}
-              </div>
-            </section>
           {/if}
 
-          {#if board.parts.length}
-            <!-- Where each part the plans still need comes from: one choice
-                 for all, and each part's own over it (decision 'one source
-                 per need with a switch'). A source a part lacks is off. -->
+
+          {#if tab === "active"}
+            <!-- What the plans need, across them all: one panel, two views
+                 (pass 9), so the column fits one screen. Components: where
+                 each part comes from (decision 'one source per need with a
+                 switch'). Materials: the ledger. -->
             <section class="panel">
-              <h2 class="sec-h">Components across plans</h2>
+              <div class="side-tabs" role="tablist" aria-label="Across your plans">
+                <button type="button" role="tab" class="side-tab" class:active={sideTab === "parts"} aria-selected={sideTab === "parts"} onclick={() => (sideTab = "parts")}
+                  >Components<span class="n">{board.parts.length}</span></button
+                >
+                <button type="button" role="tab" class="side-tab" class:active={sideTab === "materials"} aria-selected={sideTab === "materials"} onclick={() => (sideTab = "materials")}
+                  >Materials<span class="n">{board.ledger.length}</span></button
+                >
+              </div>
+              {#if sideTab === "parts"}
+                {#if board.parts.length === 0}
+                  <p class="dim none">No open plan needs a part.</p>
+                {:else}
               <div class="src-pref" role="radiogroup" aria-label="Prefer">
                 <span class="pick-label">Prefer</span>
                 {#each SOURCES as [id, label] (id)}
@@ -673,11 +920,8 @@
                   {/if}
                 </div>
               {/each}
-            </section>
-          {/if}
-
-          <section class="panel">
-            <h2 class="sec-h">Materials across plans</h2>
+                {/if}
+              {:else}
             {#if board.ledger.length === 0}
               <p class="dim none">No open plan needs materials.</p>
             {/if}
@@ -688,7 +932,12 @@
                 <span class="mat-figure mono"><span class={bars[i].state}>{amount(m, m.held)}</span><span class="unit">/ {amount(m, m.need)} {m.bulk ? "SCU" : "pcs"}</span></span>
               </div>
             {/each}
-          </section>
+              {/if}
+            </section>
+          {/if}
+
+          <!-- Bookmarks and Done: the picked plan, where This plan was. -->
+          {#if tab !== "active" && detail}{@render band()}{/if}
         </aside>
       </div>
     {/if}
@@ -705,8 +954,8 @@
       <Picker items={offers} key={(o) => o.key} label={(o) => o.label} detail={(o) => o.detail} onpick={([o]) => void add(o)} class="pick" />
     {:else}
       <p class="dim new-none">
-        Nothing to plan yet. A plan starts from a loadout you saved on Ships, or from an item you marked as wanted on
-        Crafting.
+        Nothing to plan from here yet. Plan or bookmark a loadout on Ships, a recipe on Crafting, or a mission or rank
+        on Contracts.
       </p>
     {/if}
     <div class="new-foot">
@@ -725,14 +974,14 @@
         items={craftOffers}
         key={(b) => b.guid}
         label={(b) => b.name}
-        detail={() => "Wanted item, to craft"}
-        onpick={([b]) => void addToProject(b.guid)}
+        detail={(b) => `Bookmark, ${b.count} to craft`}
+        onpick={([b]) => void addToProject(b)}
         class="pick"
       />
     {:else}
       <p class="dim new-none">
-        Nothing to add from here: this lists the items you marked as wanted on Crafting. Any recipe there can be added
-        to a project from its own sheet.
+        Nothing to add from here: this lists the crafts you bookmarked. Any recipe on Crafting can be added to a
+        project from its own sheet.
       </p>
     {/if}
     <div class="new-foot">
@@ -792,7 +1041,12 @@
     --hue: var(--hue-rose);
   }
   .k-earn,
-  .k-find {
+  .k-rep,
+  .k-run,
+  .k-find,
+  .kind-rank,
+  .kind-mission,
+  .kind-blueprint {
     --hue: var(--hue-sand);
   }
   .kind-loadout {
@@ -816,9 +1070,6 @@
   .session :global(.now .main) {
     min-height: 250px;
   }
-  .steps-h {
-    margin-top: 22px;
-  }
   /* A row's thumbnail: the glyph on a tile in its hue. */
   .glyph {
     display: grid;
@@ -835,38 +1086,9 @@
     height: 30px;
     opacity: 0.9;
   }
-  /* The plan in focus, in the side column under Your plans. */
-  .this-field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: var(--text-small);
-    color: var(--text-dim);
-  }
-  .this-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-  }
 
   .stat-tiles {
     max-width: 680px;
-  }
-  .field {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--text-small);
-    color: var(--text-dim);
-  }
-  .field .input {
-    width: 76px;
-  }
-  .crafts-h {
-    align-items: center;
-    min-height: 32px;
-    margin-top: 22px;
   }
   .craft {
     display: flex;
@@ -893,15 +1115,21 @@
     grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
     gap: 8px;
   }
+  /* A material and the minimum the plan sets for it; the minimums are
+   * set on the recipe. The stats it moves are its tooltip. */
   .slot {
     display: flex;
-    flex-direction: column;
-    gap: 3px;
+    align-items: baseline;
+    gap: 8px;
     min-width: 0;
-    padding: 8px 10px;
+    padding: 7px 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg-sunk);
+  }
+  .slot .slot-mat {
+    flex: 1;
+    min-width: 0;
   }
   .slot-name {
     font-family: var(--font-mono);
@@ -931,21 +1159,6 @@
   .slot-mat .mono {
     font-size: var(--text-small);
     font-weight: 400;
-  }
-  /* The stat this material moves: the reason to set its minimum high or
-   * leave it low. */
-  .slot-moves {
-    font-size: var(--text-small);
-    color: color-mix(in srgb, var(--hue-rose) 55%, var(--text));
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .slot .select,
-  .slot .input {
-    width: 100%;
-    max-width: none;
-    margin-top: 3px;
   }
 
   /* The tab row's other pieces sit on its middle, like the ship picker on
@@ -1160,13 +1373,6 @@
     letter-spacing: var(--label-tracking);
     color: var(--text-faint);
   }
-  .sec-h .for {
-    font-family: var(--font-sans);
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--text-faint);
-  }
   .none {
     margin: 0;
     padding: 9px 6px;
@@ -1192,6 +1398,13 @@
   }
   .text {
     min-width: 0;
+  }
+  .earn-lk {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .earn-lk:hover {
+    text-decoration: underline;
   }
   .step-title {
     display: block;
@@ -1263,10 +1476,10 @@
     all: unset;
     box-sizing: border-box;
     display: grid;
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: 12px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 10px;
     align-items: center;
-    padding: 8px 6px;
+    padding: 5px 6px;
     border-radius: var(--radius);
     cursor: pointer;
   }
@@ -1282,38 +1495,137 @@
   .plan-row.parked .plan-pick {
     opacity: 0.6;
   }
-  .order {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding-right: 4px;
-  }
-  .order button {
+  .grip {
     all: unset;
     display: grid;
     place-items: center;
-    width: 22px;
-    height: 18px;
+    width: 20px;
+    height: 32px;
+    margin-right: 2px;
     border-radius: var(--radius-chip);
     color: var(--text-faint);
+    cursor: grab;
+  }
+  .grip:hover {
+    color: var(--text);
+  }
+  .grip:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  [data-list] {
+    touch-action: pan-x;
+  }
+  [data-list] [data-row] {
+    user-select: none;
+  }
+  .sorting,
+  .sorting * {
+    cursor: grabbing !important;
+  }
+  /* The row being dragged: raised, the others make room around it. */
+  .lifted {
+    position: relative;
+    z-index: 1;
+    background: var(--bg-raised);
+    box-shadow:
+      0 0 0 1px var(--accent-line),
+      0 6px 18px color-mix(in srgb, black 35%, transparent);
+  }
+  .wide-list .sub {
+    margin-left: 10px;
+    font-family: var(--font-sans);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .wide-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 4px 4px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    border-radius: var(--radius);
+  }
+  .wide-row:hover {
+    background: var(--accent-fill-faint);
+  }
+  .wide-row.sel {
+    background: var(--accent-fill-weak);
+  }
+  .wide-pick {
+    all: unset;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 170px;
+    gap: 12px;
+    align-items: center;
+    min-width: 0;
+    padding: 6px 0;
     cursor: pointer;
   }
-  .order button:hover:not(:disabled) {
-    color: var(--text-strong);
-    background: var(--accent-fill);
-  }
-  .order button:focus-visible {
+  .wide-pick:focus-visible {
     outline: 2px solid var(--accent-line);
   }
-  .order button:disabled {
-    opacity: 0.3;
-    cursor: default;
+  .wide-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .wide-text b {
+    font-weight: var(--weight-medium);
+    color: var(--text-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wide-text small,
+  .wide-fig small {
+    font-size: var(--text-small);
+    color: var(--text-faint);
+  }
+  .wide-fig {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+  .wide-fig .mono {
+    color: var(--text-strong);
+  }
+  .wide-act {
+    display: inline-flex;
+    gap: 4px;
   }
   .plan-text {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 3px;
     min-width: 0;
+  }
+  /* Two lines a plan (pass 9): name and percent, then a short bar beside
+   * the next step. */
+  .plan-sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .plan-sub .track {
+    flex: 0 0 64px;
+    height: 3px;
+  }
+  .plan-sub .plan-note {
+    flex: 1;
+    min-width: 0;
+  }
+  .plan-pick .glyph {
+    width: 28px;
+    height: 28px;
+  }
+  .plan-pick .glyph :global(svg) {
+    width: 20px;
+    height: 20px;
   }
   .plan-head {
     display: flex;
@@ -1445,5 +1757,285 @@
     gap: 8px;
     padding: 12px 16px 16px;
     border-top: 1px solid var(--border);
+  }
+  /* The plan in focus (pass 9). */
+  .band {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 14px 16px;
+    border: 1px solid color-mix(in srgb, var(--hue) 30%, var(--border));
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--hue) 70%, transparent);
+  }
+  .sheet .band {
+    margin-top: 0;
+  }
+  .band-top {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+  }
+  .glyph.lg {
+    width: 48px;
+    height: 48px;
+  }
+  .glyph.lg :global(svg) {
+    width: 36px;
+    height: 36px;
+  }
+  .band-title {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .kick {
+    font-family: var(--font-mono);
+    font-size: var(--text-badge);
+    letter-spacing: var(--label-tracking);
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--hue) 80%, var(--text));
+  }
+  /* The name: a heading, and the app's field in the same 34 px box while
+   * it is renamed, so nothing moves. */
+  .band-name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    min-width: 0;
+  }
+  .band-name {
+    margin: 0;
+    min-width: 0;
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: var(--weight-bold);
+    line-height: 1.3;
+    color: var(--text-strong);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pen {
+    flex: none;
+    opacity: 0;
+  }
+  .band-name-row:hover .pen,
+  .pen:focus-visible {
+    opacity: 1;
+  }
+  .band-edit {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 640px;
+    height: 34px;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: var(--weight-bold);
+    color: var(--text-strong);
+  }
+  .band-prog {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 420px;
+  }
+  .band-prog .track {
+    flex: 1;
+  }
+  .band-prog .mono {
+    font-size: var(--text-small);
+  }
+  .tools {
+    align-self: start;
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-sunk);
+  }
+  .tool {
+    all: unset;
+    box-sizing: border-box;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-chip);
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .tool:hover {
+    color: var(--text-strong);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+  .tool.bad:hover {
+    color: var(--bad);
+  }
+  .tool:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .band-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    font-size: var(--text-control);
+  }
+  .next {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--text);
+  }
+  .next :global(svg) {
+    flex: none;
+    color: color-mix(in srgb, var(--hue) 80%, var(--text));
+  }
+  .next.waits {
+    color: var(--warn);
+  }
+  .note-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: -4px;
+    color: var(--text-faint);
+  }
+  .note-row :global(svg) {
+    flex: none;
+    margin-top: 4px;
+  }
+  .note-row textarea {
+    all: unset;
+    flex: 1;
+    min-width: 0;
+    field-sizing: content;
+    min-height: 1.5em;
+    padding: 1px 6px;
+    margin-left: -6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-chip);
+    font-size: var(--text-control);
+    line-height: 1.5;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .note-row textarea::placeholder {
+    color: var(--text-faint);
+  }
+  .note-row textarea:hover {
+    border-color: var(--border);
+  }
+  .note-row textarea:focus {
+    border-color: var(--accent-line);
+    background: var(--bg);
+    color: var(--text);
+  }
+  /* In the band, crafts sit flush; a project's are split by a rule. */
+  .band .craft {
+    padding: 4px 0 0;
+    border-bottom: 0;
+  }
+  .band .craft + .craft {
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  }
+  .band-sec {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 28px;
+  }
+  .band-lab {
+    font-family: var(--font-mono);
+    font-size: var(--text-badge);
+    letter-spacing: var(--label-tracking);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .count {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .stepper {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+  .stepper button {
+    all: unset;
+    width: 22px;
+    text-align: center;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .stepper button:hover:not(:disabled) {
+    color: var(--text-strong);
+  }
+  .stepper button:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+  .stepper b {
+    min-width: 2.5ch;
+    text-align: center;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+  .slot-q {
+    font-family: var(--font-mono);
+    font-weight: var(--weight-bold);
+    color: color-mix(in srgb, var(--hue-quality) 70%, var(--text-strong));
+  }
+  /* The right column's panel switch: the Ships tab row, small. */
+  .side-tabs {
+    display: flex;
+    gap: 4px;
+    margin: -4px 0 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .side-tab {
+    all: unset;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 10px 8px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-size: var(--text-control);
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .side-tab:hover {
+    color: var(--text);
+  }
+  .side-tab.active {
+    color: var(--text-strong);
+    font-weight: var(--weight-semibold);
+    border-bottom-color: var(--accent);
+  }
+  .side-tab:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .side-tab .n {
+    font-family: var(--font-mono);
+    font-size: var(--text-small);
+    font-weight: 400;
+    color: var(--text-faint);
   }
 </style>

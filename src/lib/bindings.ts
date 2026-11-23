@@ -99,6 +99,27 @@ async blueprintsRefresh() : Promise<Result<OwnedBlueprintsView, AppError>> {
 }
 },
 /**
+ * The cached standing, or an empty one when never fetched. **No network,
+ * no gate.**
+ */
+async standingCached() : Promise<PlayerStandingView> {
+    return await TAURI_INVOKE("standing_cached");
+},
+/**
+ * Read the standing live from CIG's backend and cache it.
+ * 
+ * **Gated** by `require_unofficial("standing")`: online, the unofficial-API
+ * master and the feature's own toggle must all be on.
+ */
+async standingRefresh() : Promise<Result<PlayerStandingView, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("standing_refresh") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List compiled-in modules with their enabled state — drives the onboarding
  * picker and the settings module list.
  */
@@ -729,11 +750,13 @@ async shipsWallpaper(channel: string, ship: string) : Promise<Result<string | nu
 },
 /**
  * What else fits the port at `targets[0]`, each option with its figures
- * and the ship with it fitted on every target port.
+ * and the ship with it fitted on every target port. With `craft` (per
+ * crafting property GUID, the qualities of the fitted part's slots that
+ * move it) the options a blueprint makes are compared crafted.
  */
-async shipsCandidates(channel: string, loadout: ShipLoadoutView, power: PowerSettingsView, targets: string[][]) : Promise<Result<CandidateView[], AppError>> {
+async shipsCandidates(channel: string, loadout: ShipLoadoutView, power: PowerSettingsView, targets: string[][], craft: Partial<{ [key in string]: number[] }> | null) : Promise<Result<CandidateView[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("ships_candidates", { channel, loadout, power, targets }) };
+    return { status: "ok", data: await TAURI_INVOKE("ships_candidates", { channel, loadout, power, targets, craft }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1161,23 +1184,60 @@ async plansList() : Promise<Plan[]> {
     return await TAURI_INVOKE("plans_list");
 },
 /**
- * Plan a number of one item, crafted at a quality. Planning the same
- * blueprint again changes nothing.
+ * Plan a number of one item, crafted at a quality, as a goal or,
+ * `parked`, a bookmark.
  */
-async plansAddCraft(blueprint: string, count: number, quality: number) : Promise<Result<Plan[], AppError>> {
+async plansAddCraft(blueprint: string, count: number, quality: number, parked: boolean) : Promise<Result<Plan[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("plans_add_craft", { blueprint, count, quality }) };
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_craft", { blueprint, count, quality, parked }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
 /**
- * Plan to have a saved loadout fitted on its ship.
+ * Plan to have a saved loadout fitted on its ship, as a goal or,
+ * `parked`, a bookmark.
  */
-async plansAddLoadout(loadout: string) : Promise<Result<Plan[], AppError>> {
+async plansAddLoadout(loadout: string, parked: boolean) : Promise<Result<Plan[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("plans_add_loadout", { loadout }) };
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_loadout", { loadout, parked }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Plan a rank with a faction (by the ids the standing read reports), as
+ * a goal or, `parked`, a bookmark. Planning it again changes nothing.
+ */
+async plansAddRank(goal: RankGoal, parked: boolean) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_rank", { goal, parked }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Plan a mission, as a goal or, `parked`, a bookmark. Planning it again
+ * changes nothing.
+ */
+async plansAddMission(goal: MissionGoal, parked: boolean) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_mission", { goal, parked }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Plan to own a blueprint (earned from the missions that grant it), as a
+ * goal or, `parked`, a bookmark.
+ */
+async plansAddBlueprint(blueprint: string, parked: boolean) : Promise<Result<Plan[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plans_add_blueprint", { blueprint, parked }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1213,12 +1273,12 @@ async plansSetCraft(id: string, count: number, quality: number) : Promise<Result
 /**
  * Plan a craft with a minimum quality per material slot (`slots`, in the
  * recipe's slot order; empty: `quality` for every slot). With `project`
- * it goes into that project, else it is a plan of its own. A blueprint
- * that is already there is left as it is.
+ * it goes into that project, else it is a plan of its own, or `parked` a
+ * bookmark. A blueprint that is already there keeps its minimums.
  */
-async plansPlanCraft(project: string | null, blueprint: string, count: number, quality: number, slots: number[]) : Promise<Result<Plan[], AppError>> {
+async plansPlanCraft(project: string | null, blueprint: string, count: number, quality: number, slots: number[], parked: boolean) : Promise<Result<Plan[], AppError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("plans_plan_craft", { project, blueprint, count, quality, slots }) };
+    return { status: "ok", data: await TAURI_INVOKE("plans_plan_craft", { project, blueprint, count, quality, slots, parked }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1373,12 +1433,34 @@ async sessionHistory() : Promise<Result<SessionSummary[], AppError>> {
 }
 },
 /**
+ * Your average minutes per mission contract (its record name), for the
+ * Contracts catalog's time column: the same figures Plans reads. One small
+ * file read; empty while the module is off.
+ */
+async sessionRunMinutes() : Promise<Partial<{ [key in string]: number }>> {
+    return await TAURI_INVOKE("session_run_minutes");
+},
+/**
  * One finished session with its timeline; `None` when it is not kept (any
  * more).
  */
 async sessionGet(id: string) : Promise<Result<Session | null, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("session_get", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Read a past session's Game.log again: what this version reads in it
+ * that the one that filed it did not. Returns the session as filed again;
+ * `None` when it is not kept or its log is gone. Needs the Game.log
+ * opt-in. Runs on the feed queue, so it never races a session being filed.
+ */
+async sessionReread(id: string) : Promise<Result<SessionSummary | null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("session_reread", { id }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1572,7 +1654,12 @@ export type ActivityKind =
 /**
  * svc-uex: the first fill of UEX's price lists.
  */
-"uex"
+"uex" | 
+/**
+ * svc-dossier standing read for Contracts (reputation, completed
+ * contracts).
+ */
+"standing"
 /**
  * Where an activity is. `stage` is a user-facing label ("Parsing
  * DataCore…"); work without stages leaves it empty.
@@ -1890,6 +1977,10 @@ export type BlastView = { cleanMinM: number; cleanMaxM: number; cleanDamage: num
  */
 export type BlueprintDetailView = { guid: string; defaultQuality: number; slots: BlueprintSlotView[]; stats: BlueprintStatView[]; grantedBy: GrantingMissionView[] }
 /**
+ * A blueprint by its record GUID.
+ */
+export type BlueprintGoal = { blueprint: string }
+/**
  * One blueprint in the catalog list.
  */
 export type BlueprintRowView = { guid: string; name: string; family: string; familyName: string; variant: string | null; category: string | null; itemType: string; subType: string; size: number; grade: number; class: string | null; manufacturer: string | null; craftSeconds: number | null; materials: MaterialView[] }
@@ -1900,6 +1991,10 @@ export type BlueprintSlotView = { name: string | null; material: MaterialView; m
  */
 bands: QualityBandView[] }
 export type BlueprintStatView = { group: string | null; label: string; property: string | null; unit: string; higherIsBetter: boolean | null; base: number | null }
+/**
+ * A body part, as injuries and med beds name them.
+ */
+export type BodyPart = "Head" | "Torso" | "LeftArm" | "RightArm" | "LeftLeg" | "RightLeg"
 /**
  * The boost capacitor at one assignment level.
  */
@@ -1914,7 +2009,17 @@ export type BuildInfoView = { label: string; value: string }
 /**
  * One option for a port.
  */
-export type CandidateView = { item: string; name: string; recordName: string; size: number; grade: number; class: string | null; itemType: string; subType: string; stats: StatView[]; fitted: boolean; impact: ImpactView; 
+export type CandidateView = { item: string; name: string; recordName: string; size: number; grade: number; class: string | null; itemType: string; subType: string; stats: StatView[]; fitted: boolean; 
+/**
+ * Its figures are crafted at the picker's qualities.
+ */
+crafted: boolean; 
+/**
+ * The mark it is compared at, to fit it as its row reads: the highest
+ * quality, and a quality per slot (empty when all are alike). Null
+ * when it is compared as sold.
+ */
+craft: CraftMarkView | null; impact: ImpactView; 
 /**
  * Free owned copies by place, most first; null without an inventory
  * snapshot (My Items never refreshed).
@@ -1973,6 +2078,18 @@ export type Cause =
  * does not know).
  */
 { type: "untracked" }
+/**
+ * One chain gate (`svc_data::ChainGate`).
+ */
+export type ChainGateView = { 
+/**
+ * Tag points it asks for, at least 1.
+ */
+need: number; 
+/**
+ * Completion-tag GUIDs whose counters measure your progress.
+ */
+tags: string[]; missions: MissionRefView[] }
 export type ChoiceView = { value: string; label: string }
 export type ClassSharesView = { easy: number; manageable: number; hard: number; tooMuchPower: number; impossible: number }
 export type ClimbStepView = { untilCharge: number; throttle: number }
@@ -2088,6 +2205,11 @@ quality: number;
  */
 slots: number[] }
 /**
+ * A crafted mark to fit a part with: the highest quality and a quality
+ * per slot (empty when all are alike).
+ */
+export type CraftMarkView = { quality: number; slots: number[] }
+/**
  * A laser crafted at a quality: its power and the recipe sheet's rows
  * that change.
  */
@@ -2099,7 +2221,11 @@ power: number; gains: GainView[] }
 /**
  * A part marked crafted: its quality and the figures that change.
  */
-export type CraftedMarkView = { quality: number; gains: GainView[] }
+export type CraftedMarkView = { quality: number; 
+/**
+ * A quality per material slot; empty when all are at `quality`.
+ */
+slots: number[]; gains: GainView[] }
 export type CraftedPropertyView = { 
 /**
  * `CraftingGameplayPropertyDef` CRC.
@@ -2353,7 +2479,12 @@ export type EditView = { path: string[]; item: string | null;
  * What if the part were crafted, every material at this quality
  * (0..=1000); `null`: as the shops sell it.
  */
-quality?: number | null }
+quality?: number | null; 
+/**
+ * A quality per material slot, in the recipe's order, when they
+ * differ (`quality` is their highest); empty: all at `quality`.
+ */
+qualities?: number[] }
 /**
  * What lasers put on the rock: power, and the change to resistance,
  * instability and window as fractions (`-0.3`: 30 % less).
@@ -2412,7 +2543,36 @@ export type EntryKind =
  * Seated in a vehicle (from the stream's vehicle, not its seat events,
  * which are incomplete).
  */
-{ type: "vehicle_entered"; class_name: string; name: string } | { type: "vehicle_left"; class_name: string; name: string } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" } | 
+{ type: "vehicle_entered"; class_name: string; name: string } | { type: "vehicle_left"; class_name: string; name: string } | 
+/**
+ * A ship you destroyed: the log names you its killer, and it was not
+ * yours. Once per ship.
+ */
+{ type: "ship_destroyed"; class_name: string; reason: string } | 
+/**
+ * A ship of yours was destroyed. Once per ship.
+ */
+{ type: "ship_lost"; class_name: string; reason: string; by: string | null } | 
+/**
+ * Entered or left an armistice zone or private property. Only a
+ * change is kept: the HUD can repeat itself.
+ */
+{ type: "zone"; zone: Zone; entered: boolean } | 
+/**
+ * One of your body parts was injured. `tier` is the med bed it needs:
+ * 3 minor, 2 moderate, 1 severe.
+ */
+{ type: "injured"; part: BodyPart; tier: number } | 
+/**
+ * A med bed operated on you.
+ */
+{ type: "treated"; parts: BodyPart[]; vehicle: string | null } | 
+/**
+ * A visit to the vehicle terminal (ASOP): it fetched your ships, once
+ * or several times close together. Shown only when it explains a
+ * spend ([`Cause::Entry`]): the log does not say what was paid there.
+ */
+{ type: "vehicle_terminal" } | { type: "died" } | { type: "downed" } | { type: "respawned" } | { type: "spawned" } | 
 /**
  * One quantum trip: a destination was set on the star map (the
  * entry's time) and, if `arrived_at` says so, the drive got there. The
@@ -2560,7 +2720,22 @@ export type Goal =
  * A named group of crafts, served together at the plan's place in the
  * order.
  */
-({ kind: "project" } & ProjectGoal) | { kind: "unknown" }
+({ kind: "project" } & ProjectGoal) | 
+/**
+ * A rank with a faction, reached by running its missions.
+ */
+({ kind: "rank" } & RankGoal) | 
+/**
+ * A mission: open it to you (its ranks, the missions before it), then
+ * run it.
+ */
+({ kind: "mission" } & MissionGoal) | 
+/**
+ * A blueprint to own: earned from the missions that grant it. A
+ * blueprint you want to craft is a [`Goal::Craft`], which earns it
+ * first.
+ */
+({ kind: "blueprint" } & BlueprintGoal) | { kind: "unknown" }
 export type GrantingMissionView = { missionId: string; title: string }
 export type GroupMember = { username: string; is_owner: boolean }
 /**
@@ -2957,7 +3132,7 @@ export type LogEventKind =
  * keeps it; CIG rotated it once (Oct–Dec 2024), so it is a strong hint,
  * not an absolute key.
  */
-{ type: "SessionAccountId"; account_id: string } | 
+{ type: "SessionAccountId"; account_id: string; geid: string | null } | 
 /**
  * The player joined the persistent universe on a shard.
  */
@@ -3032,6 +3207,13 @@ export type LogEventKind =
  */
 { type: "MissionMarkerCreated"; mission_id: string; generator: string; contract: string; contract_definition_id: string; objective_id: string } | 
 /**
+ * A player left a mission: the server's push when you abandon one.
+ * Usually beside an `Abandon` [`LogEventKind::MissionEnded`], but
+ * sometimes the only line that says the mission is over. `player_id`
+ * is a character GEID: in a shared mission it may be someone else.
+ */
+{ type: "MissionLeft"; mission_id: string; player_id: string } | 
+/**
  * A mission ended for the player.
  */
 { type: "MissionEnded"; mission_id: string; completion: string; reason: string } | 
@@ -3078,7 +3260,40 @@ export type LogEventKind =
  * never carries the record guid. **Locale-dependent** (and the name is
  * the localized one).
  */
-{ type: "BlueprintReceived"; name: string }
+{ type: "BlueprintReceived"; name: string } | 
+/**
+ * A vehicle was destroyed near the player: one they shot down, one of
+ * their own, or anyone's the client saw go. Logged once per step
+ * (`level [0] -> [2]`; a ship disabled first may log a second line for
+ * the same `vehicle_id`). Seen in 4.10.
+ */
+{ type: "VehicleDestroyed"; vehicle_id: string; class: string; owner: string | null; reason: string; level: number; killer: string; killer_id: string } | 
+/**
+ * "Entering Armistice Zone - Combat Prohibited", "Leaving Armistice
+ * Zone - Caution Advised", "Entering Private Property", "Leaving
+ * Private Property" on the HUD. **Locale-dependent.** Seen in 4.0 to
+ * 4.10.
+ */
+{ type: "ZoneChanged"; zone: Zone; entered: boolean } | 
+/**
+ * "Minor Injury Detected - Left arm - Tier 3 Treatment Required" on
+ * the HUD. The tier is the med bed it needs: 3 minor, 2 moderate,
+ * 1 severe. **Locale-dependent.** Seen in 4.0 to 4.10.
+ */
+{ type: "Injured"; part: BodyPart; tier: number } | 
+/**
+ * A med bed operated (`<MED BED HEAL>`). The client logs other
+ * players' surgery too, so `actor` says whose. Only `Success` seen in
+ * 4.0 to 4.10.
+ */
+{ type: "MedBedSurgery"; actor: string; outcome: string; vehicle: string | null; parts: BodyPart[] } | 
+/**
+ * The vehicle terminal (ASOP) asked for your ships: it was opened or
+ * refreshed (also once while the character loads). The log has no
+ * line for what is paid there (repair, refuel, restock, claim), so
+ * this is the only trace of it. Seen in 4.10.
+ */
+{ type: "VehicleListFetched" }
 export type ManufacturerRowView = { guid: string; code: string; name: string | null }
 /**
  * UEX's marketplace average for an item, one side, one quality tier.
@@ -3208,8 +3423,27 @@ export type MissionEncounterView = { label: string; difficulty: string | null; w
  * `waves[].ships`, the others `waves[].spawns`.
  */
 kind: string }
-export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; abandon_cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; event_rewards: EventRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView }
-export type MissionFactionView = { guid: string; name: string | null }
+export type MissionEntryView = { mission_id: string; title: string | null; debug_name: string; description: string | null; category: MissionCategoryView | null; faction: MissionFactionView | null; difficulty: MissionDifficultyView | null; payout: MissionPayoutView; once_only: boolean; shareable: boolean; illegal: boolean; cooldown_seconds: number | null; abandon_cooldown_seconds: number | null; scrip: ScripRewardView[]; reputation: RepRewardView[]; item_rewards: ItemRewardView[]; blueprint_rewards: BpPoolRewardView[]; event_rewards: EventRewardView[]; rep_required: RepRequirementView[]; chain_required: MissionRefView[]; 
+/**
+ * The chain gates: every one must be met, each by `need` tag points
+ * from any of its missions.
+ */
+chain_gates: ChainGateView[]; locations: MissionRegionView[]; encounters: MissionEncounterView[]; cargo: CargoLegView[]; placeholders: string[]; instance_count: number; facts: MissionPoolFactsView; 
+/**
+ * Every member's contract record name: how a completed contract finds
+ * its entry.
+ */
+contracts: string[] }
+export type MissionFactionView = { guid: string; name: string | null; 
+/**
+ * `FactionReputation.GEID`, decimal: the org a reputation standing is
+ * reported under.
+ */
+geid: string | null }
+/**
+ * A mission by its catalog id; the title is the one it was planned with.
+ */
+export type MissionGoal = { mission: string; title: string }
 /**
  * How a mission ended.
  */
@@ -3248,7 +3482,16 @@ id: string; title: PreviewTextView; description: PreviewTextView;
  * The Mission Enhancer option ids this mission shows.
  */
 showcases: string[] }
-export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean }
+export type MissionRefView = { mission_id: string; title: string | null; once_only: boolean; 
+/**
+ * Contract record names that clear this step when completed.
+ */
+contracts: string[]; 
+/**
+ * In a gate: the tag points one run adds toward it; 0 in the flat
+ * `chain_required` list.
+ */
+adds: number }
 export type MissionRegionView = { system: string; name: string; places: MissionPlaceView[] }
 export type MissionWaveView = { name: string; ships: ShipSlotView[]; cargo: string[]; spawns: SpawnSlotView[] }
 export type ModeView = "scm" | "nav"
@@ -3665,7 +3908,7 @@ missing: boolean;
  * The one quality every slot is set to; `None` when they differ.
  */
 quality: number | null; slots: PlanSlot[] }
-export type PlanKind = "loadout" | "craft" | "project" | "unknown"
+export type PlanKind = "loadout" | "craft" | "project" | "rank" | "mission" | "blueprint" | "unknown"
 /**
  * A place by its display name, and the quantum-travel place it resolves to
  * when the shell could tell (the id is opaque here).
@@ -3698,7 +3941,16 @@ moves: string[];
  */
 bands: QualityBand[] }
 export type PlanStage = { name: string; sub: string; state: StageState }
-export type PlanStep = { id: string; kind: StepKind; 
+export type PlanStep = { 
+/**
+ * A rep step's missions to pick from, as a Contracts catalog filter.
+ */
+rep: RepFilter | null; 
+/**
+ * The mission it runs, waits on or earns rep from; `None` for a step
+ * that is no one mission (an earn step lists its missions by blueprint).
+ */
+mission: StepMission | null; id: string; kind: StepKind; 
 /**
  * The action: "Fit the … you own".
  */
@@ -3713,10 +3965,15 @@ detail: string;
 plans: string[]; blocked: boolean; at: PlanPlace | null; 
 /**
  * Time the step itself takes, where the data gives one: a recipe's
- * craft time; for an earn step, CIG's estimate for the shortest
- * mission that grants the blueprint.
+ * craft time; for an earn step, the runs it takes on average of the
+ * nearest mission that grants the blueprint (the shortest one when no
+ * route is known), each by its best time.
  */
 seconds: number | null; 
+/**
+ * Where `seconds` comes from; `None` without seconds.
+ */
+secondsFrom: TimeSource | null; 
 /**
  * aUEC.
  */
@@ -3811,6 +4068,23 @@ inventoryAt: number | null;
  */
 pricesAt: number | null }
 export type PlantView = { path: string; on: boolean }
+/**
+ * The player's standing as it crosses IPC (`svc_dossier::PlayerStanding`).
+ */
+export type PlayerStandingView = { reputations: RepRowView[]; 
+/**
+ * Contract record names with a completion token.
+ */
+completed_contracts: string[]; 
+/**
+ * Completion-tag counters, tag GUID -> running total (chain gates that
+ * ask for several runs).
+ */
+tag_counts: Partial<{ [key in string]: number }>; 
+/**
+ * When fetched, epoch seconds; `null` when never.
+ */
+fetched_at: number | null }
 /**
  * The player's hand on the power network.
  */
@@ -3923,6 +4197,13 @@ powerShare: number;
  */
 backOff: BackOffView | null }
 /**
+ * A rank on one faction's ladder, by the ids the standing read reports: the
+ * org's `FactionReputation.GEID`, the ladder (its reputation scope GUID)
+ * and the rank (its standing GUID). The names are the ones it was planned
+ * with, shown when this build has no such ladder.
+ */
+export type RankGoal = { faction: string; geid: string; scope: string; standing: string; rank: string }
+/**
  * One LIVE release as the page and Home show it (specta mirror of
  * `sc_dossier::patchnotes::Release`, overview fields only).
  */
@@ -3976,8 +4257,54 @@ highlights: string[]; bug_fixes: number | null; known_issues: number | null;
  * only the newest LIVE release's article has one. `null` = none.
  */
 image: string | null }
-export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean }
+/**
+ * A rep step's catalog filter: the faction's missions, open to you now
+ * (`rank` = `None`) or opening at `rank`, sorted by the rep they give.
+ */
+export type RepFilter = { faction: string; rank: string | null }
+/**
+ * One rank of a reputation ladder (`svc_data::RepRank`).
+ */
+export type RepRankView = { 
+/**
+ * The rank's standing GUID (what the reputation service reports).
+ */
+id: string; name: string | null; 
+/**
+ * Reputation the rank begins at (game ladders top out in the
+ * millions, so i32 holds them).
+ */
+min_reputation: number }
+export type RepRequirementView = { faction: string | null; min_rank: string | null; max_rank: string | null; min_rank_index: number | null; max_rank_index: number | null; exclude: boolean; 
+/**
+ * The reputation scope (GUID) the window is measured on.
+ */
+scope: string | null; 
+/**
+ * The scope's whole ladder, lowest rank first.
+ */
+ladder: RepRankView[]; 
+/**
+ * The faction's `FactionReputation.GEID`, decimal.
+ */
+faction_geid: string | null }
 export type RepRewardView = { faction_guid: string | null; amount: number | null }
+/**
+ * One reputation row as it crosses IPC (`svc_dossier::RepRow`).
+ */
+export type RepRowView = { 
+/**
+ * `FactionReputation.GEID`, decimal.
+ */
+org_geid: string | null; scope: string; 
+/**
+ * The scope's ladder (`SReputationScopeParams` GUID).
+ */
+scope_id: string; score: number; 
+/**
+ * The rank the score falls in (`SReputationStandingParams` GUID).
+ */
+standing_id: string | null; standing_min: number | null }
 /**
  * What became of a request the client sent a shop.
  */
@@ -4344,7 +4671,15 @@ shards: string[];
 /**
  * Timeline entries kept.
  */
-entries: number; missions_completed: number; opening_balance: number | null; latest_balance: number | null; net: number }
+entries: number; missions_completed: number; 
+/**
+ * Ships you destroyed ([`EntryKind::ShipDestroyed`]).
+ */
+ships_destroyed: number; 
+/**
+ * Ships of yours destroyed ([`EntryKind::ShipLost`]).
+ */
+ships_lost: number; opening_balance: number | null; latest_balance: number | null; net: number }
 /**
  * One stay on a shard.
  */
@@ -4613,7 +4948,11 @@ export type StageState = "done" | "current" | "ahead"
 /**
  * One figure of a part.
  */
-export type StatView = { key: string; label: string; value: number; unit: string; better: number }
+export type StatView = { key: string; label: string; value: number; unit: string; better: number; 
+/**
+ * The figure as sold when crafting moved it; null otherwise.
+ */
+stock: number | null }
 export type StepKind = 
 /**
  * Fit a part you hold.
@@ -4638,7 +4977,19 @@ export type StepKind =
 /**
  * Loot a part from containers in the world.
  */
-"loot"
+"loot" | 
+/**
+ * Earn rep with a faction, up to its next rank.
+ */
+"rep" | 
+/**
+ * Run a mission.
+ */
+"run"
+/**
+ * The mission a step is about, for its link into the Contracts catalog.
+ */
+export type StepMission = { id: string; title: string }
 /**
  * One stack of a material you hold.
  */
@@ -4799,6 +5150,25 @@ export type ThrusterView = {
  * `Main`, `Retro`, `VTOL` or `Maneuvering`.
  */
 kind: string; place: string; hp: number }
+/**
+ * Where a time comes from, best first (Valerie, 2026-11-18): your own
+ * runs, the community's, the game data's estimate.
+ */
+export type TimeSource = 
+/**
+ * Your average over the runs the Session Log measured.
+ */
+"yours" | 
+/**
+ * The community's average. Nothing gives it yet: it comes with the
+ * server.
+ */
+"community" | 
+/**
+ * The game data's own figure (a mission's `time_to_complete`, a
+ * recipe's craft time).
+ */
+"game"
 /**
  * One moment of the plan for everyone.
  */
@@ -5006,6 +5376,18 @@ operators: OperatorView[];
  * The wave for everyone at the plan's moments.
  */
 total: TotalRowView[]; scannerResistancePct: number; scannerInstability: number; guide: GuideView }
+/**
+ * A zone the HUD announces entering and leaving.
+ */
+export type Zone = 
+/**
+ * Combat prohibited (stations, cities, landing zones).
+ */
+"Armistice" | 
+/**
+ * Trespassing there is a crime.
+ */
+"PrivateProperty"
 
 /** tauri-specta globals **/
 

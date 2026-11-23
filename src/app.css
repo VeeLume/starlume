@@ -34,12 +34,16 @@ main {
 main p {
   margin-block: 0.8em;
 }
-main ul,
+/* Prose lists only: the kit's Surface.List renders a bare <ul> whose rows
+ * carry data-index, and bullets and padding there put a stray dot before
+ * every catalog row. :where() keeps the old weight (main ul), so a page's
+ * own scoped list styles still win. */
+main ul:where(:not(:has(> li[data-index]))),
 main ol {
   margin-block: 0.8em;
   padding-inline-start: 1.6em;
 }
-main ul {
+main ul:where(:not(:has(> li[data-index]))) {
   list-style: disc;
 }
 main ol {

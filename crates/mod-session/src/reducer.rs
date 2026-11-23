@@ -28,7 +28,7 @@
 //! flag only decides where a session without a quit line ends: one that was
 //! only ever replayed ends at its last recorded moment, not "now".
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use svc_log::{ContractChange, LogEvent, LogEventKind, MoneyChange, TradeSide};
 
@@ -37,7 +37,7 @@ use crate::model::{
     ShardStay, Source,
 };
 use crate::time::{Millis, parse_ts, session_id};
-use crate::wallet::Ledger;
+use crate::wallet::{Ledger, TERMINAL_REACH};
 
 /// With telemetry alone, a session interrupted by an app restart carries on
 /// when the stream is back within this long of its last recorded moment.
@@ -116,6 +116,9 @@ impl Outcome {
 struct Mission {
     title: Option<String>,
     contract: Option<String>,
+    /// Its accept is on the timeline: the HUD says "Contract Accepted"
+    /// again for a mission you hold after a respawn.
+    accepted: bool,
     /// The `seq` of its `MissionEnded` entry.
     ended: Option<u32>,
 }
@@ -163,6 +166,19 @@ pub struct Reducer {
     announced: Option<Option<String>>,
     ledger: Ledger,
     missions: HashMap<String, Mission>,
+    /// Your character's GEID, from the login line: tells your leaving a
+    /// mission from a party member's. Not stored in the session.
+    character: Option<String>,
+    /// Vehicles already recorded as destroyed: a ship disabled, then
+    /// blown up, logs twice.
+    destroyed: HashSet<String>,
+    /// The character's handle, from the login line: tells your surgery
+    /// from another player's. Not stored in the session.
+    handle: Option<String>,
+    /// Zones the HUD last said you are in.
+    zones: HashSet<svc_log::Zone>,
+    /// The open vehicle terminal visit: its entry and its last fetch.
+    terminal: Option<(u32, Millis)>,
     /// The `seq` of the request the next shop answer belongs to.
     last_request: Option<u32>,
     last_location: Option<String>,
@@ -294,6 +310,28 @@ impl Reducer {
         session
     }
 
+    /// Build a filed session again from its log, read whole from its first
+    /// line: what a newer reader finds in an old log. The telemetry half
+    /// (the wallet, the stream's entries) exists nowhere else and is kept;
+    /// the log's half is replaced. `None` when the log is not this
+    /// session's (its start line names another) or `kept` was never read
+    /// from a log.
+    pub fn reread(kept: Session, events: &[LogEvent]) -> Option<Session> {
+        if !kept.sources.log {
+            return None;
+        }
+        let id = kept.id.clone();
+        let channel = kept.channel.clone();
+        let ended = kept.ended_at.unwrap_or(kept.last_activity_at);
+        let mut reducer = Reducer::default();
+        // The same path as an app restart: the log's replay adopts it.
+        reducer.restore(kept);
+        reducer.log_session_started(channel);
+        reducer.log_events(events, true);
+        let done = reducer.log_session_ended(ended).finished?;
+        (done.id == id).then_some(done)
+    }
+
     /// Forget everything: both sources are off, or the module is. Nothing
     /// stays in memory; what was finished is already filed.
     pub fn clear(&mut self) {
@@ -379,6 +417,11 @@ impl Reducer {
         self.await_stream_end = false;
         self.ledger = Ledger::default();
         self.missions.clear();
+        self.character = None;
+        self.destroyed.clear();
+        self.terminal = None;
+        self.zones.clear();
+        self.handle = None;
         self.last_request = None;
         self.last_location = None;
         self.last_jurisdiction = None;
@@ -418,11 +461,18 @@ impl Reducer {
             push(session, at, Source::Log, locale, kind)
         };
         match event {
-            // The handle and the account id are not kept: nothing here
-            // needs them, and a session file is easier to share without.
-            E::SessionStarted | E::SessionHandle { .. } | E::SessionAccountId { .. } => {
+            // The handle and the account id are not kept in the session:
+            // a session file is easier to share without. The character's
+            // GEID stays in the reducer only (`MissionLeft`).
+            E::SessionAccountId { geid, .. } => {
+                self.character = geid.clone();
                 return false;
             }
+            E::SessionHandle { handle } => {
+                self.handle = Some(handle.clone());
+                return false;
+            }
+            E::SessionStarted => return false,
             E::Branch { name } => session.branch = Some(name.clone()),
             E::Changelist { number } => session.build = Some(number.clone()),
             E::SessionPlatform { env_tag } => session.env_tag = Some(env_tag.clone()),
@@ -486,7 +536,14 @@ impl Reducer {
                 ContractChange::Available | ContractChange::Shared => return false,
                 ContractChange::Accepted => {
                     if let Some(id) = mission_id {
-                        self.mission(id).title = Some(title.clone());
+                        let m = self.mission(id);
+                        m.title = Some(title.clone());
+                        // Said again for a mission you still hold (after a
+                        // respawn): one accept on the timeline.
+                        if m.accepted && m.ended.is_none() {
+                            return false;
+                        }
+                        m.accepted = true;
                     }
                     log(
                         session,
@@ -554,6 +611,24 @@ impl Reducer {
             } => {
                 self.mission(mission_id).contract = Some(contract.clone());
                 return false;
+            }
+            // You left: the mission is over for you, abandoned. A party
+            // member leaving a shared mission is not your end.
+            E::MissionLeft {
+                mission_id,
+                player_id,
+            } => {
+                if self.character.as_ref().is_some_and(|c| c != player_id) {
+                    return false;
+                }
+                return self.mission_ended(
+                    session,
+                    at,
+                    Some(mission_id),
+                    None,
+                    MissionOutcome::Abandoned,
+                    false,
+                );
             }
             E::MissionEnded {
                 mission_id,
@@ -795,6 +870,108 @@ impl Reducer {
                         location: location.clone(),
                     },
                 );
+            }
+            // Yours or by you; anything else destroyed nearby is not this
+            // session's. Without the login line there is no telling.
+            E::VehicleDestroyed {
+                vehicle_id,
+                class,
+                owner,
+                reason,
+                killer,
+                killer_id,
+                ..
+            } => {
+                let Some(me) = self.character.as_deref() else {
+                    return false;
+                };
+                let kind = if owner.as_deref() == Some(me) {
+                    // An NPC's name ends in its entity id; a player's is a
+                    // handle. You and the ship itself are no one to name.
+                    let player = killer_id != me
+                        && killer_id != vehicle_id
+                        && !killer.ends_with(&format!("_{killer_id}"));
+                    EntryKind::ShipLost {
+                        class_name: class.clone(),
+                        reason: reason.clone(),
+                        by: player.then(|| killer.clone()),
+                    }
+                } else if killer_id == me {
+                    EntryKind::ShipDestroyed {
+                        class_name: class.clone(),
+                        reason: reason.clone(),
+                    }
+                } else {
+                    return false;
+                };
+                if !self.destroyed.insert(vehicle_id.clone()) {
+                    return false;
+                }
+                log(session, false, kind);
+            }
+            E::ZoneChanged { zone, entered } => {
+                let changed = if *entered {
+                    self.zones.insert(*zone)
+                } else {
+                    self.zones.remove(zone)
+                };
+                // A leave with no enter seen (the session began inside) is
+                // still news; a repeated enter is not.
+                if !changed && *entered {
+                    return false;
+                }
+                log(
+                    session,
+                    true,
+                    EntryKind::Zone {
+                        zone: *zone,
+                        entered: *entered,
+                    },
+                );
+            }
+            E::Injured { part, tier } => {
+                log(
+                    session,
+                    true,
+                    EntryKind::Injured {
+                        part: *part,
+                        tier: *tier,
+                    },
+                );
+            }
+            // Yours only; without the login line there is no telling. Only
+            // `Success` has been seen.
+            E::MedBedSurgery {
+                actor,
+                outcome,
+                vehicle,
+                parts,
+            } => {
+                if self.handle.as_ref() != Some(actor) || outcome != "Success" {
+                    return false;
+                }
+                log(
+                    session,
+                    false,
+                    EntryKind::Treated {
+                        parts: parts.clone(),
+                        vehicle: vehicle.clone(),
+                    },
+                );
+            }
+            // Fetches closer together than a terminal's reach are one
+            // visit; each one keeps its window open.
+            E::VehicleListFetched => {
+                let seq = match self.terminal {
+                    Some((seq, last))
+                        if at - last <= TERMINAL_REACH && session.entry(seq).is_some() =>
+                    {
+                        seq
+                    }
+                    _ => log(session, false, EntryKind::VehicleTerminal),
+                };
+                self.terminal = Some((seq, at));
+                self.ledger.explain_spends(&mut session.wallet, at, seq);
             }
             E::BlueprintReceived { name } => {
                 log(
@@ -1078,6 +1255,7 @@ mod tests {
                 "2026-11-13T16:11:31.000Z",
                 LogEventKind::SessionAccountId {
                     account_id: "0000001".into(),
+                    geid: Some(ME.into()),
                 },
             ),
         ]
@@ -1327,6 +1505,308 @@ mod tests {
             "the engine line said it too"
         );
         assert_eq!(s.summary().missions_completed, 1);
+    }
+
+    const ME: &str = "200000000001";
+
+    fn left(ts: &str, player: &str) -> LogEvent {
+        ev(
+            ts,
+            LogEventKind::MissionLeft {
+                mission_id: MISSION.into(),
+                player_id: player.into(),
+            },
+        )
+    }
+
+    #[test]
+    fn leaving_a_mission_ends_it_for_you_not_for_a_party_member() {
+        let mut events = header();
+        events.extend([
+            contract("2026-11-13T16:30:05.000Z", ContractChange::Accepted),
+            // A party member leaves the shared mission: still yours.
+            left("2026-11-13T16:31:00.000Z", "200000000002"),
+            // You leave, and no other line says it is over.
+            left("2026-11-13T16:33:00.000Z", ME),
+        ]);
+        let r = started(&events, false);
+        let s = r.current().unwrap();
+        let ends: Vec<_> = kinds(s)
+            .into_iter()
+            .filter(|k| matches!(k, EntryKind::MissionEnded { .. }))
+            .collect();
+        assert_eq!(
+            ends,
+            [&EntryKind::MissionEnded {
+                mission_id: Some(MISSION.into()),
+                title: Some("Covalex Local Delivery".into()),
+                contract: None,
+                outcome: MissionOutcome::Abandoned,
+            }]
+        );
+        assert_eq!(s.timeline.last().unwrap().at - s.timeline[0].at, 175_000);
+    }
+
+    #[test]
+    fn an_accept_said_again_after_a_respawn_is_one_accept() {
+        let mut events = header();
+        events.extend([
+            contract("2026-11-13T16:30:05.000Z", ContractChange::Accepted),
+            contract("2026-11-13T16:52:19.000Z", ContractChange::Accepted),
+        ]);
+        let r = started(&events, false);
+        let accepts = kinds(r.current().unwrap())
+            .into_iter()
+            .filter(|k| matches!(k, EntryKind::MissionAccepted { .. }))
+            .count();
+        assert_eq!(accepts, 1);
+    }
+
+    fn destroyed(
+        ts: &str,
+        vehicle: &str,
+        owner: Option<&str>,
+        killer: &str,
+        killer_id: &str,
+    ) -> LogEvent {
+        let class = if owner.is_some() {
+            "DRAK_Marauder"
+        } else {
+            "MISC_Razor_LX_PU_AI_CRIM"
+        };
+        ev(
+            ts,
+            LogEventKind::VehicleDestroyed {
+                vehicle_id: vehicle.into(),
+                class: class.into(),
+                owner: owner.map(Into::into),
+                reason: "Combat".into(),
+                level: 2,
+                killer: killer.into(),
+                killer_id: killer_id.into(),
+            },
+        )
+    }
+
+    #[test]
+    fn a_filed_session_read_again_gains_what_its_log_holds() {
+        use svc_log::BodyPart;
+        let mut r = started(&header(), false);
+        r.telemetry(&sample("2026-11-13T16:14:00.000Z", 125_000));
+        r.telemetry(&sample("2026-11-13T16:20:00.000Z", 124_000));
+        let kept = r
+            .log_session_ended(ms("2026-11-13T17:00:00.000Z"))
+            .finished
+            .unwrap();
+
+        // The same log, with a line an older reader skipped.
+        let mut log = header();
+        log.push(ev(
+            "2026-11-13T16:30:00.000Z",
+            LogEventKind::Injured {
+                part: BodyPart::Head,
+                tier: 3,
+            },
+        ));
+        let again = Reducer::reread(kept.clone(), &log).unwrap();
+        assert_eq!(again.id, kept.id);
+        assert!(!again.live);
+        assert!(kinds(&again).contains(&&EntryKind::Injured {
+            part: BodyPart::Head,
+            tier: 3
+        }));
+        assert_eq!(again.wallet.changes.len(), 1);
+        assert_eq!(again.wallet.net, -1_000);
+        assert!(again.sources.telemetry);
+
+        // Another game run's log is not this session's.
+        let other: Vec<LogEvent> = header()
+            .into_iter()
+            .map(|mut e| {
+                e.ts = e.ts.replace("2026-11-13", "2026-11-14");
+                e
+            })
+            .collect();
+        assert!(Reducer::reread(kept, &other).is_none());
+    }
+
+    #[test]
+    fn a_zone_is_kept_when_it_changes() {
+        use svc_log::Zone;
+        let zone = |ts, entered| {
+            ev(
+                ts,
+                LogEventKind::ZoneChanged {
+                    zone: Zone::PrivateProperty,
+                    entered,
+                },
+            )
+        };
+        let mut events = header();
+        events.extend([
+            zone("2026-11-13T16:40:00.000Z", true),
+            zone("2026-11-13T16:40:01.000Z", true),
+            zone("2026-11-13T16:41:00.000Z", false),
+        ]);
+        let r = started(&events, false);
+        let zones: Vec<_> = kinds(r.current().unwrap())
+            .into_iter()
+            .filter_map(|k| match k {
+                EntryKind::Zone { entered, .. } => Some(*entered),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(zones, [true, false]);
+    }
+
+    #[test]
+    fn injuries_and_your_own_surgery() {
+        use svc_log::BodyPart;
+        let surgery = |ts, actor: &str| {
+            ev(
+                ts,
+                LogEventKind::MedBedSurgery {
+                    actor: actor.into(),
+                    outcome: "Success".into(),
+                    vehicle: None,
+                    parts: vec![BodyPart::LeftArm],
+                },
+            )
+        };
+        let mut events = header();
+        events.extend([
+            ev(
+                "2026-11-13T16:40:00.000Z",
+                LogEventKind::Injured {
+                    part: BodyPart::LeftArm,
+                    tier: 2,
+                },
+            ),
+            // Another player's, seen by this client.
+            surgery("2026-11-13T16:45:00.000Z", "Friend"),
+            surgery("2026-11-13T16:50:00.000Z", "TestPilot"),
+        ]);
+        let r = started(&events, false);
+        let health: Vec<_> = kinds(r.current().unwrap())
+            .into_iter()
+            .filter(|k| matches!(k, EntryKind::Injured { .. } | EntryKind::Treated { .. }))
+            .collect();
+        assert_eq!(
+            health,
+            [
+                &EntryKind::Injured {
+                    part: BodyPart::LeftArm,
+                    tier: 2
+                },
+                &EntryKind::Treated {
+                    parts: vec![BodyPart::LeftArm],
+                    vehicle: None
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_terminal_visit_explains_the_services_paid_there() {
+        let mut r = started(&header(), false);
+        r.telemetry(&sample("2026-11-17T22:56:00.000Z", 7_564_991));
+        let fetch = || ev("2026-11-17T22:57:02.640Z", LogEventKind::VehicleListFetched);
+        r.log_events(&[fetch()], false);
+        r.telemetry(&sample("2026-11-17T22:57:06.226Z", 7_563_583));
+        r.telemetry(&sample("2026-11-17T22:57:10.483Z", 7_563_298));
+        // A refresh of the same visit.
+        r.log_events(
+            &[ev(
+                "2026-11-17T22:57:18.297Z",
+                LogEventKind::VehicleListFetched,
+            )],
+            false,
+        );
+        // Long after the terminal: nothing explains it.
+        r.telemetry(&sample("2026-11-17T23:10:00.000Z", 7_563_000));
+
+        let s = r.current().unwrap();
+        let visits: Vec<u32> = s
+            .timeline
+            .iter()
+            .filter(|e| e.kind == EntryKind::VehicleTerminal)
+            .map(|e| e.seq)
+            .collect();
+        assert_eq!(visits.len(), 1);
+        let causes: Vec<Cause> = s.wallet.changes.iter().map(|c| c.cause).collect();
+        assert_eq!(
+            causes,
+            [
+                Cause::Entry { seq: visits[0] },
+                Cause::Entry { seq: visits[0] },
+                Cause::Untracked
+            ]
+        );
+    }
+
+    #[test]
+    fn ships_you_destroy_and_ships_you_lose() {
+        let mut events = header();
+        events.extend([
+            destroyed("2026-11-13T16:40:00.000Z", "9001", None, "You", ME),
+            // The same ship again, disabled first and then blown up.
+            destroyed("2026-11-13T16:40:01.000Z", "9001", None, "You", ME),
+            // Someone else's kill nearby.
+            destroyed(
+                "2026-11-13T16:41:00.000Z",
+                "9002",
+                None,
+                "Other",
+                "200000000002",
+            ),
+            // Yours, by an NPC, and by a player.
+            destroyed(
+                "2026-11-13T16:42:00.000Z",
+                "9003",
+                Some(ME),
+                "PU_Pilots-Human-Criminal-Pilot_Light_9100",
+                "9100",
+            ),
+            destroyed(
+                "2026-11-13T16:50:00.000Z",
+                "9004",
+                Some(ME),
+                "Rival",
+                "200000000002",
+            ),
+        ]);
+        let r = started(&events, false);
+        let s = r.current().unwrap();
+        let combat: Vec<_> = kinds(s)
+            .into_iter()
+            .filter(|k| {
+                matches!(
+                    k,
+                    EntryKind::ShipDestroyed { .. } | EntryKind::ShipLost { .. }
+                )
+            })
+            .collect();
+        assert_eq!(
+            combat,
+            [
+                &EntryKind::ShipDestroyed {
+                    class_name: "MISC_Razor_LX_PU_AI_CRIM".into(),
+                    reason: "Combat".into(),
+                },
+                &EntryKind::ShipLost {
+                    class_name: "DRAK_Marauder".into(),
+                    reason: "Combat".into(),
+                    by: None,
+                },
+                &EntryKind::ShipLost {
+                    class_name: "DRAK_Marauder".into(),
+                    reason: "Combat".into(),
+                    by: Some("Rival".into()),
+                },
+            ]
+        );
+        let summary = s.summary();
+        assert_eq!((summary.ships_destroyed, summary.ships_lost), (1, 2));
     }
 
     #[test]
@@ -2060,7 +2540,12 @@ mod tests {
         let events = svc_log::read_log(std::path::Path::new(&path)).unwrap();
         let r = started(&events, true);
         let s = r.current().unwrap();
-        println!("{} events, {} entries", events.len(), s.timeline.len());
+        println!(
+            "{} events, {} entries, {} runs",
+            events.len(),
+            s.timeline.len(),
+            s.runs().len()
+        );
         for e in &s.timeline {
             let clock = |at: Millis| {
                 let secs = at / 1000 % 86_400;
@@ -2078,6 +2563,20 @@ mod tests {
                     arrived_at.map(clock),
                     arrived_at.map(|a| (a - e.at) / 1000),
                 ),
+                EntryKind::MissionAccepted { title, .. } => {
+                    println!("{} accepted: {title}", clock(e.at))
+                }
+                EntryKind::MissionEnded {
+                    contract, outcome, ..
+                } => println!("{} ended: {outcome:?} {contract:?}", clock(e.at)),
+                EntryKind::ShipDestroyed { class_name, reason } => {
+                    println!("{} destroyed: {class_name} ({reason})", clock(e.at))
+                }
+                EntryKind::ShipLost {
+                    class_name,
+                    reason,
+                    by,
+                } => println!("{} lost: {class_name} ({reason}) by {by:?}", clock(e.at)),
                 EntryKind::Attachments { weapon, items, .. } => println!(
                     "{} attachments on {weapon:?}: {:?}",
                     clock(e.at),
@@ -2089,6 +2588,47 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    /// A filed session rebuilt from its own log, without writing anything:
+    /// `STARLUME_REAL_SESSION=<sessions/…json> STARLUME_REAL_GAME_LOG=<log>
+    /// cargo test -p mod-session real_session -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads a real session file and its Game.log"]
+    fn real_session_reread() {
+        let file = std::env::var("STARLUME_REAL_SESSION").unwrap();
+        let log = std::env::var("STARLUME_REAL_GAME_LOG").unwrap();
+        let kept: Session = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+        let events = svc_log::read_log(std::path::Path::new(&log)).unwrap();
+        let again = Reducer::reread(kept.clone(), &events).expect("the log is this session's");
+        let tally = |s: &Session| {
+            let mut kinds = std::collections::BTreeMap::<String, usize>::new();
+            for e in &s.timeline {
+                let json = serde_json::to_value(&e.kind).unwrap();
+                *kinds
+                    .entry(json["type"].as_str().unwrap().to_owned())
+                    .or_default() += 1;
+            }
+            kinds
+        };
+        println!("before: {:?}", tally(&kept));
+        println!("after:  {:?}", tally(&again));
+        let untracked = |s: &Session| {
+            s.wallet
+                .changes
+                .iter()
+                .filter(|c| c.cause == Cause::Untracked)
+                .count()
+        };
+        println!(
+            "wallet: {} changes, {} untracked before, {} after; net {} -> {}",
+            again.wallet.changes.len(),
+            untracked(&kept),
+            untracked(&again),
+            kept.wallet.net,
+            again.wallet.net
+        );
+        assert_eq!(again.wallet.net, kept.wallet.net);
     }
 
     const SHIP: &str = "VEGA_Courier_Mk2";

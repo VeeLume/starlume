@@ -7,7 +7,16 @@
 // re-read catches up after a suspension.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { commands, type CraftGoal, type LoadoutChoiceView, type PartSource, type Plan, type PlansBoardView } from "$lib/bindings";
+import {
+  commands,
+  type CraftGoal,
+  type LoadoutChoiceView,
+  type MissionGoal,
+  type PartSource,
+  type Plan,
+  type PlansBoardView,
+  type RankGoal,
+} from "$lib/bindings";
 
 /** Where a blueprint is planned: a plan of its own, or an entry of a project. */
 export type CraftHolder = { plan: Plan; craft: CraftGoal };
@@ -44,6 +53,18 @@ export const plansStore = {
   craftOf(blueprint: string): Plan | undefined {
     return _plans?.find((p) => p.goal.kind === "craft" && p.goal.blueprint === blueprint);
   },
+  /** The plan of this rank (faction ladder and rank), if it has one. */
+  rankOf(geid: string, scope: string, standing: string): Plan | undefined {
+    return _plans?.find((p) => p.goal.kind === "rank" && p.goal.geid === geid && p.goal.scope === scope && p.goal.standing === standing);
+  },
+  /** The plan to own this blueprint, if it has one. */
+  blueprintOf(blueprint: string): Plan | undefined {
+    return _plans?.find((p) => p.goal.kind === "blueprint" && p.goal.blueprint === blueprint);
+  },
+  /** The plan of this mission, if it has one. */
+  missionOf(mission: string): Plan | undefined {
+    return _plans?.find((p) => p.goal.kind === "mission" && p.goal.mission === mission);
+  },
   /** Your projects, in plan order. */
   get projects(): Plan[] {
     return (_plans ?? []).filter((p) => p.goal.kind === "project");
@@ -60,6 +81,21 @@ export const plansStore = {
       }
     }
     return out;
+  },
+  /** Where a blueprint stands in Plans: in an active plan (its own craft,
+   *  a project's craft, a blueprint goal), only bookmarked, or neither. */
+  markOf(blueprint: string): "planned" | "bookmarked" | null {
+    let marked = false;
+    for (const plan of _plans ?? []) {
+      const g = plan.goal;
+      const has =
+        ((g.kind === "craft" || g.kind === "blueprint") && g.blueprint === blueprint) ||
+        (g.kind === "project" && g.crafts.some((c) => c.blueprint === blueprint));
+      if (!has) continue;
+      if (!plan.parked) return "planned";
+      marked = true;
+    }
+    return marked ? "bookmarked" : null;
   },
   /** The plan for this saved loadout, if it is planned. */
   loadoutOf(loadout: string): Plan | undefined {
@@ -109,12 +145,29 @@ function settle(result: Changed): boolean {
   return false;
 }
 
-export async function addCraftPlan(blueprint: string, count = 1, quality = 0): Promise<boolean> {
-  return settle(await commands.plansAddCraft(blueprint, count, quality));
+/** Plan a craft at one quality: a goal, or `parked` a bookmark. */
+export async function addCraftPlan(blueprint: string, count = 1, quality = 0, parked = false): Promise<boolean> {
+  return settle(await commands.plansAddCraft(blueprint, count, quality, parked));
 }
 
-export async function addLoadoutPlan(loadout: string): Promise<boolean> {
-  return settle(await commands.plansAddLoadout(loadout));
+/** Plan a saved loadout: a goal, or `parked` a bookmark. */
+export async function addLoadoutPlan(loadout: string, parked = false): Promise<boolean> {
+  return settle(await commands.plansAddLoadout(loadout, parked));
+}
+
+/** Plan to own a blueprint: a goal, or `parked` a bookmark. */
+export async function addBlueprintPlan(blueprint: string, parked = false): Promise<boolean> {
+  return settle(await commands.plansAddBlueprint(blueprint, parked));
+}
+
+/** Plan a rank with a faction: a goal, or `parked` a bookmark. */
+export async function addRankPlan(goal: RankGoal, parked = false): Promise<boolean> {
+  return settle(await commands.plansAddRank(goal, parked));
+}
+
+/** Plan a mission: a goal, or `parked` a bookmark. */
+export async function addMissionPlan(goal: MissionGoal, parked = false): Promise<boolean> {
+  return settle(await commands.plansAddMission(goal, parked));
 }
 
 export async function removePlan(id: string): Promise<boolean> {
@@ -133,9 +186,10 @@ export async function setCraftPlan(id: string, count: number, quality: number): 
 const top = (slots: number[], quality = 0) => (slots.length ? Math.max(...slots) : quality);
 
 /** Plan a craft with a minimum quality per material slot (`slots`, in the
- *  recipe's order): into `project`, or as a plan of its own. */
-export async function planCraft(project: string | null, blueprint: string, count: number, slots: number[]): Promise<boolean> {
-  return settle(await commands.plansPlanCraft(project, blueprint, count, top(slots), slots));
+ *  recipe's order): into `project`, or as a plan of its own (`parked`: a
+ *  bookmark). */
+export async function planCraft(project: string | null, blueprint: string, count: number, slots: number[], parked = false): Promise<boolean> {
+  return settle(await commands.plansPlanCraft(project, blueprint, count, top(slots), slots, parked));
 }
 
 /** Change a planned craft: plan `id`'s own, or a project's entry for
@@ -163,7 +217,7 @@ export async function setPlanNotes(id: string, notes: string): Promise<boolean> 
   return settle(await commands.plansSetNotes(id, notes));
 }
 
-/** Park a plan (it reserves nothing), or take it back up. */
+/** Bookmark a plan (parked: it reserves nothing), or take it up again. */
 export async function parkPlan(id: string, parked: boolean): Promise<boolean> {
   return settle(await commands.plansSetParked(id, parked));
 }
@@ -185,7 +239,8 @@ export async function movePlan(id: string, before: string | null): Promise<boole
 }
 
 /** What the board is derived from: a change to any of these re-derives it. */
-const SOURCES = ["plans:changed", "items:changed", "blueprints:changed", "data:changed", "uex:changed"];
+// `standing:changed`: rank and mission plans read your standing.
+const SOURCES = ["plans:changed", "items:changed", "blueprints:changed", "data:changed", "uex:changed", "standing:changed"];
 
 let _watchers = 0;
 let _unlisten: Promise<UnlistenFn>[] = [];

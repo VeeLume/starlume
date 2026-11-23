@@ -19,7 +19,7 @@
 //! JavaScript number: neither comes near 2^53.
 
 use serde::{Deserialize, Deserializer, Serialize};
-use svc_log::{MoneyChange, ObjectiveChange, TradeSide};
+use svc_log::{BodyPart, MoneyChange, ObjectiveChange, TradeSide, Zone};
 
 use crate::time::Millis;
 
@@ -138,6 +138,16 @@ pub enum Source {
     Unknown,
 }
 
+/// One mission run, accept to completion ([`Session::runs`]).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContractRun {
+    /// The contract's record name, as the marker line gave it: what the
+    /// mission catalog's `contracts` list holds.
+    pub contract: String,
+    pub seconds: f64,
+}
+
 /// One thing that happened.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -238,6 +248,46 @@ pub enum EntryKind {
         class_name: String,
         name: String,
     },
+    /// A ship you destroyed: the log names you its killer, and it was not
+    /// yours. Once per ship.
+    ShipDestroyed {
+        class_name: String,
+        /// The log's reason (`Combat`, `Collision`).
+        reason: String,
+    },
+    /// A ship of yours was destroyed. Once per ship.
+    ShipLost {
+        class_name: String,
+        /// The log's reason (`Combat`, `Collision`, `SelfDestruct`,
+        /// `ShipItemCritical`).
+        reason: String,
+        /// The player who destroyed it, when the killer was one (an NPC is
+        /// named by its entity, which says nothing).
+        by: Option<String>,
+    },
+    /// Entered or left an armistice zone or private property. Only a
+    /// change is kept: the HUD can repeat itself.
+    Zone {
+        zone: Zone,
+        entered: bool,
+    },
+    /// One of your body parts was injured. `tier` is the med bed it needs:
+    /// 3 minor, 2 moderate, 1 severe.
+    Injured {
+        part: BodyPart,
+        tier: u8,
+    },
+    /// A med bed operated on you.
+    Treated {
+        parts: Vec<BodyPart>,
+        /// The ship the bed is in, as its class; `None` for a station or
+        /// hospital bed.
+        vehicle: Option<String>,
+    },
+    /// A visit to the vehicle terminal (ASOP): it fetched your ships, once
+    /// or several times close together. Shown only when it explains a
+    /// spend ([`Cause::Entry`]): the log does not say what was paid there.
+    VehicleTerminal,
     Died,
     Downed,
     Respawned,
@@ -413,6 +463,10 @@ pub struct SessionSummary {
     /// Timeline entries kept.
     pub entries: u32,
     pub missions_completed: u32,
+    /// Ships you destroyed ([`EntryKind::ShipDestroyed`]).
+    pub ships_destroyed: u32,
+    /// Ships of yours destroyed ([`EntryKind::ShipLost`]).
+    pub ships_lost: u32,
     #[cfg_attr(feature = "specta", specta(type = Option<f64>))]
     pub opening_balance: Option<i64>,
     #[cfg_attr(feature = "specta", specta(type = Option<f64>))]
@@ -433,6 +487,44 @@ impl Session {
         self.timeline.iter().rev().find(|e| e.seq == seq)
     }
 
+    /// The missions you ran start to finish here: accepted and completed
+    /// in this session, and tied to their contract by a marker line. What
+    /// your own time for a contract is measured from (Plans). A mission
+    /// accepted before the session began, or ended any other way, is no
+    /// run.
+    pub fn runs(&self) -> Vec<ContractRun> {
+        let mut accepted: std::collections::HashMap<&str, Millis> =
+            std::collections::HashMap::new();
+        let mut out = Vec::new();
+        for e in &self.timeline {
+            match &e.kind {
+                EntryKind::MissionAccepted {
+                    mission_id: Some(id),
+                    ..
+                } => {
+                    accepted.entry(id.as_str()).or_insert(e.at);
+                }
+                EntryKind::MissionEnded {
+                    mission_id: Some(id),
+                    contract: Some(contract),
+                    outcome: MissionOutcome::Completed,
+                    ..
+                } => {
+                    if let Some(start) = accepted.remove(id.as_str())
+                        && e.at > start
+                    {
+                        out.push(ContractRun {
+                            contract: contract.clone(),
+                            seconds: (e.at - start) as f64 / 1000.0,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
     pub fn summary(&self) -> SessionSummary {
         let missions_completed = self
             .timeline
@@ -447,6 +539,8 @@ impl Session {
                 )
             })
             .count() as u32;
+        let counted =
+            |f: fn(&EntryKind) -> bool| self.timeline.iter().filter(|e| f(&e.kind)).count() as u32;
         SessionSummary {
             id: self.id.clone(),
             started_at: self.started_at,
@@ -458,6 +552,8 @@ impl Session {
             shards: self.shards.iter().map(|s| s.shard.clone()).collect(),
             entries: self.timeline.len() as u32,
             missions_completed,
+            ships_destroyed: counted(|k| matches!(k, EntryKind::ShipDestroyed { .. })),
+            ships_lost: counted(|k| matches!(k, EntryKind::ShipLost { .. })),
             opening_balance: self.wallet.opening.map(|s| s.balance),
             latest_balance: self.wallet.latest.map(|s| s.balance),
             net: self.wallet.net,
@@ -468,6 +564,69 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_is_a_mission_accepted_and_completed_here_with_its_contract() {
+        let accepted = |seq, at, id: &str| Entry {
+            seq,
+            at,
+            kind: EntryKind::MissionAccepted {
+                mission_id: Some(id.into()),
+                title: "t".into(),
+            },
+            ..Entry::default()
+        };
+        let ended = |seq, at, id: &str, contract: Option<&str>, outcome| Entry {
+            seq,
+            at,
+            kind: EntryKind::MissionEnded {
+                mission_id: Some(id.into()),
+                title: None,
+                contract: contract.map(Into::into),
+                outcome,
+            },
+            ..Entry::default()
+        };
+        let session = Session {
+            timeline: vec![
+                accepted(1, 1_000, "a"),
+                accepted(2, 2_000, "b"),
+                accepted(3, 3_000, "c"),
+                ended(
+                    4,
+                    601_000,
+                    "a",
+                    Some("Covalex_Small"),
+                    MissionOutcome::Completed,
+                ),
+                // Abandoned, and one never tied to its contract: no runs.
+                ended(
+                    5,
+                    9_000,
+                    "b",
+                    Some("Covalex_Small"),
+                    MissionOutcome::Abandoned,
+                ),
+                ended(6, 9_000, "c", None, MissionOutcome::Completed),
+                // Accepted before the session began.
+                ended(
+                    7,
+                    9_000,
+                    "d",
+                    Some("Covalex_Small"),
+                    MissionOutcome::Completed,
+                ),
+            ],
+            ..Session::default()
+        };
+        assert_eq!(
+            session.runs(),
+            vec![ContractRun {
+                contract: "Covalex_Small".into(),
+                seconds: 600.0
+            }]
+        );
+    }
 
     #[test]
     fn a_file_from_an_older_version_loads() {

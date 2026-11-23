@@ -26,6 +26,7 @@
   import { craftingStore, listenForStockChanges, loadMarks, loadStock } from "$lib/state/crafting.svelte";
   import { dataStore, ensureChannel } from "$lib/state/data.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
+  import { loadPlans, plansStore } from "$lib/state/plans.svelte";
 
   const browse = createBrowseState({
     q: { kind: "text" },
@@ -73,7 +74,9 @@
   onMount(() => {
     void (async () => {
       unlisten = await listenForStockChanges(() => dataStore.channel);
-      await Promise.all([ensureChannel(), loadOwnedBlueprints(), loadMarks()]);
+      // Plans marks the rows planned or bookmarked: one small file read.
+      const plans = settingsStore.current?.enabled_modules.includes("plans") && plansStore.plans === null ? loadPlans() : null;
+      await Promise.all([ensureChannel(), loadOwnedBlueprints(), loadMarks(), plans]);
       ready = true;
     })();
   });
@@ -85,6 +88,7 @@
     foldFamilies(blueprints).map((variants) => {
       const rep = variants[0];
       const owned = variants.filter((x) => craftingStore.owns(x.guid)).length;
+      const marks = variants.map((x) => plansStore.markOf(x.guid));
       return {
         key: rep.family,
         title: rep.familyName,
@@ -92,8 +96,8 @@
         maker: rep.manufacturer ? (codeByName.get(rep.manufacturer) ?? rep.manufacturer) : "",
         variants,
         ownedCount: owned,
-        wantBlueprint: variants.some((x) => craftingStore.wantsBlueprint(x.guid)),
-        wantItem: variants.some((x) => craftingStore.wantsItem(x.guid)),
+        planned: marks.includes("planned"),
+        bookmarked: !marks.includes("planned") && marks.includes("bookmarked"),
         craftable: owned > 0 && canCraft(rep.materials, craftingStore.stock),
       };
     }),
@@ -104,8 +108,8 @@
     ["", "All", () => true],
     ["owned", "Owned", (f) => f.ownedCount > 0],
     ["missing", "Missing", (f) => f.ownedCount === 0],
-    ["wantbp", "Want blueprint", (f) => f.wantBlueprint],
-    ["wantitem", "Want item", (f) => f.wantItem],
+    ["planned", "Planned", (f) => f.planned],
+    ["bookmarked", "Bookmarked", (f) => f.bookmarked],
     ["craftable", "Craftable", (f) => f.craftable],
   ];
   const viewTest = $derived(VIEWS.find(([id]) => id === v.show)?.[2] ?? VIEWS[0][2]);
@@ -421,12 +425,6 @@
     gap: var(--space-3);
     height: 100%;
     min-height: 0;
-  }
-  /* app.css bullets every `main ul`; a short list is the kit's bare <ul>. */
-  .page :global(ul) {
-    list-style: none;
-    margin: 0;
-    padding: 0;
   }
   .fieldrow {
     display: flex;

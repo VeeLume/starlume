@@ -36,6 +36,7 @@ const SOURCE: Record<ActivityKind, string> = {
   "comm-links": "commlinks",
   "ship-store": "ships",
   uex: "uex",
+  standing: "contracts",
 };
 
 function apply(records: ActivityRecord[]) {

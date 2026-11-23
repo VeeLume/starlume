@@ -54,6 +54,8 @@ describe("a step's figure", () => {
     expect(stepFigure({ seconds: null, cost: 41300 })).toBe("41,300 aUEC");
     expect(stepFigure({ seconds: null, cost: null })).toBe("");
     expect(stepFigure({ seconds: 1200, cost: null, kind: "earn" })).toBe("≈20 min CIG");
+    expect(stepFigure({ seconds: 5400, cost: null, kind: "rep", secondsFrom: "game" })).toBe("≈1 h 30 min CIG");
+    expect(stepFigure({ seconds: 1440, cost: null, kind: "run", secondsFrom: "yours" })).toBe("≈24 min yours");
   });
 });
 
@@ -141,6 +143,8 @@ describe("the ledger", () => {
 
 describe("a plan's steps", () => {
   const step = (id: string, kind: PlanStep["kind"], plans: string[], site: string | null, after: string[] = []): PlanStep => ({
+    mission: null,
+    rep: null,
     id,
     kind,
     title: id,
@@ -149,6 +153,7 @@ describe("a plan's steps", () => {
     blocked: false,
     at: site ? { name: site, site } : null,
     seconds: null,
+    secondsFrom: null,
     cost: null,
     odds: null,
     sources: 1,
@@ -178,6 +183,8 @@ describe("a plan's steps", () => {
 
 describe("a session focus", () => {
   const ps = (id: string, kind: StepKind, plans: string[], site: string | null, more: Partial<PlanStep> = {}): PlanStep => ({
+    mission: null,
+    rep: null,
     id,
     kind,
     title: id,
@@ -186,6 +193,7 @@ describe("a session focus", () => {
     blocked: false,
     at: site ? { name: `Place ${site}`, site } : null,
     seconds: null,
+    secondsFrom: null,
     cost: null,
     odds: null,
     sources: 1,
@@ -275,6 +283,19 @@ describe("a session focus", () => {
       { value: "1.33 M", label: "aUEC" },
       { value: "2", label: "plans" },
     ]);
+  });
+
+  it("adds up the missions' time, saying whose times they are", () => {
+    const missions = [
+      ps("rep1", "rep", ["a"], "s1", { seconds: 1440, secondsFrom: "yours" }),
+      ps("run1", "run", ["b"], null, { seconds: 600, secondsFrom: "game" }),
+    ];
+    const missionTracks = [track("missions", [at("s1", leg(59, 240), [["rep1", "rep"]])])];
+    const v = focusView(missions, missionTracks, { kind: "activity", track: "missions" }, "New Babbage");
+    expect(v.groups[0].runs[0].figure).toBe("59 Gm from New Babbage, ~4 min flying, ≈34 min on missions");
+    expect(v.card.tiles[1]).toEqual({ value: "≈34 min", label: "missions, yours and estimates" });
+    const mine = focusView(missions.slice(0, 1), missionTracks, { kind: "activity", track: "missions" });
+    expect(mine.card.tiles[1]).toEqual({ value: "≈24 min", label: "missions, your times" });
   });
 
   it("says when nothing is ready", () => {

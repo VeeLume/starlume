@@ -34,7 +34,9 @@ pub mod watch;
 
 use std::path::{Path, PathBuf};
 
-pub use event::{ContractChange, LogEvent, LogEventKind, MoneyChange, ObjectiveChange, TradeSide};
+pub use event::{
+    BodyPart, ContractChange, LogEvent, LogEventKind, MoneyChange, ObjectiveChange, TradeSide, Zone,
+};
 pub use parse::parse_record;
 pub use tailer::{LogTailer, Poll, RecordJoiner, read_log};
 pub use watch::{LogWatch, SessionSnapshot, WatchConfig, WatchSignal};

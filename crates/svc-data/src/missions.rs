@@ -80,8 +80,13 @@ pub struct MissionEntry {
     pub event_rewards: Vec<EventReward>,
     /// Reputation required to accept (faction + standing-tier window).
     pub rep_required: Vec<RepRequirement>,
-    /// Missions that must be completed first (the chain gate).
+    /// Missions that must be completed first (the chain gate), every gate's
+    /// missions in one list. [`Self::chain_gates`] keeps them apart.
     pub chain_required: Vec<MissionRef>,
+    /// The chain gates, one per `CompletedContractTags` prerequisite: every
+    /// gate must be met, each by `need` tag points from any of its missions.
+    #[serde(default)]
+    pub chain_gates: Vec<ChainGate>,
     /// Where the mission is offered, grouped by star system.
     pub locations: Vec<MissionRegion>,
     /// Structured ship encounters (waves → slots → candidates).
@@ -94,6 +99,10 @@ pub struct MissionEntry {
     pub placeholders: Vec<String>,
     /// How many raw contract expansions this entry collapses.
     pub instance_count: u32,
+    /// The contract record names of every member, deduped: how a completed
+    /// contract (Game.log, a mission token) finds its catalog entry.
+    #[serde(default)]
+    pub contracts: Vec<String>,
     /// What still diverges *within* this entry's collapsed pool — the axes
     /// the pooling key doesn't pin (see [`MissionPoolFacts`]). Cross-entry
     /// divergence (contracts sharing a title/description key but split into
@@ -144,6 +153,10 @@ pub struct MissionCategory {
 pub struct MissionFaction {
     pub guid: String,
     pub name: Option<String>,
+    /// `FactionReputation.GEID`, decimal: the org id the reputation service
+    /// reports a standing under (`urn:sc:reputations:org:geid:<geid>`).
+    #[serde(default)]
+    pub geid: Option<String>,
 }
 
 /// The four authored difficulty axes, each `1..=8` (`0` = unparsed).
@@ -256,6 +269,32 @@ pub struct RepRequirement {
     pub max_rank_index: Option<i32>,
     /// True for an *exclusion* requirement (must NOT be in this range).
     pub exclude: bool,
+    /// The reputation scope the window is measured on
+    /// (`SReputationScopeParams` GUID, the gRPC standing's `scope_id`).
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// That scope's whole ladder, lowest rank first, so a page can draw
+    /// every rank with the window inside it. Empty when the scope is
+    /// unknown.
+    #[serde(default)]
+    pub ladder: Vec<RepRank>,
+    /// The faction's `FactionReputation.GEID`, decimal (see
+    /// [`MissionFaction::geid`]).
+    #[serde(default)]
+    pub faction_geid: Option<String>,
+}
+
+/// One rank of a reputation ladder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepRank {
+    /// The rank's `SReputationStandingParams` GUID, the standing id the
+    /// reputation service reports.
+    #[serde(default)]
+    pub id: String,
+    /// Resolved rank name (`"Jr. Contractor"`); `None` if the locale has none.
+    pub name: Option<String>,
+    /// Reputation the rank begins at.
+    pub min_reputation: i64,
 }
 
 /// A lean reference to another mission (chain prerequisites).
@@ -265,6 +304,31 @@ pub struct MissionRef {
     pub mission_id: String,
     pub title: Option<String>,
     pub once_only: bool,
+    /// The contract record names of every mission that grants this step
+    /// (the step is deduped by title, so several contracts can stand for
+    /// it); a completed-contract token for any of them clears the step.
+    #[serde(default)]
+    pub contracts: Vec<String>,
+    /// In a [`ChainGate`]: the tag points one run adds toward it (1 for the
+    /// Foxwell ladders, 150 to 675 for Alliance Aid). 0 in the flat
+    /// [`MissionEntry::chain_required`] list, which has no gate to count.
+    #[serde(default)]
+    pub adds: u32,
+}
+
+/// One `CompletedContractTags` prerequisite: `need` points on the counters
+/// of `tags` open it. A completion adds its contract's grant to the counter
+/// (1 for the Foxwell ladders; Alliance Aid asks for 150 to 5000), each
+/// mission's in [`MissionRef::adds`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChainGate {
+    /// The tag points the gate asks for (`requiredCountValue`, at least 1).
+    pub need: u32,
+    /// The completion-tag GUIDs that count toward it; a mission-token tag
+    /// counter for one of them is the player's progress.
+    pub tags: Vec<String>,
+    /// The missions that grant those tags.
+    pub missions: Vec<MissionRef>,
 }
 
 /// One locality's worth of accept-locations — the "available in" card
@@ -386,6 +450,7 @@ pub(crate) fn build_missions(
     // just means estimates come back `None`.
     let curve = UecCurve::build(datacore);
     let pools = &missions.blueprints;
+    let grantors = grantors_by_tag(&missions);
 
     // Collapse raw expansions into displayed missions. The key is the
     // player-meaningful identity: title + description + reward identity
@@ -430,7 +495,15 @@ pub(crate) fn build_missions(
                 RewardAmount::Fixed(n) => Some(n),
                 _ => None,
             },
-            estimate: curve.as_ref().and_then(|c| rep.estimate_uec(c)),
+            // Event missions (category Priority: the resupply donation
+            // drives, Fleet Week hunts) run on an event window as their time
+            // budget, up to 2,000 minutes, and the curve scales with it:
+            // LIVE 4.10.3 gave 30 million aUEC for a Large Resupply. No
+            // estimate for them; the UI shows "calculated".
+            estimate: curve
+                .as_ref()
+                .filter(|_| !is_event(rep, &missions, locale))
+                .and_then(|c| rep.estimate_uec(c)),
             buy_in: rep.buy_in,
             time_to_complete: rep.time_to_complete,
         };
@@ -555,11 +628,18 @@ pub(crate) fn build_missions(
             event_rewards,
             rep_required: build_rep_required(rep, &missions, locale),
             chain_required: build_chain(rep, &missions, locale),
+            chain_gates: build_gates(rep, &missions, &grantors, locale),
             locations: build_locations(members, &missions, locale),
             encounters,
             cargo,
             placeholders: missions.unresolved_markers(rep, locale),
             instance_count: members.len() as u32,
+            contracts: {
+                let mut names: Vec<String> = members.iter().map(|m| m.debug_name.clone()).collect();
+                names.sort();
+                names.dedup();
+                names
+            },
             facts,
         });
     }
@@ -718,6 +798,15 @@ fn payout_signature(m: &Mission) -> String {
     }
 }
 
+/// An event mission: its category (`MissionType`) is Priority, by the
+/// game's own English name (the cook reads the shipped `global.ini`).
+fn is_event(m: &Mission, missions: &Missions, locale: &LocaleMap) -> bool {
+    build_category(m, missions, locale)
+        .and_then(|c| c.name)
+        .as_deref()
+        == Some("Priority")
+}
+
 /// Resolve the mission category (`MissionType`) name + icon.
 fn build_category(m: &Mission, missions: &Missions, locale: &LocaleMap) -> Option<MissionCategory> {
     let info = missions.mission_types.get(&m.category?)?;
@@ -730,14 +819,14 @@ fn build_category(m: &Mission, missions: &Missions, locale: &LocaleMap) -> Optio
 /// Resolve the mission's reputation faction → display name + stable guid key.
 fn build_faction(m: &Mission, missions: &Missions, locale: &LocaleMap) -> Option<MissionFaction> {
     let guid = m.faction?;
-    let name = missions
-        .factions
-        .get(&guid)
+    let rep = missions.factions.get(&guid);
+    let name = rep
         .and_then(|f| locale.resolve(&f.display_name_key))
         .map(str::to_owned);
     Some(MissionFaction {
         guid: guid.to_string(),
         name,
+        geid: rep.map(|f| f.geid.to_string()),
     })
 }
 
@@ -757,16 +846,41 @@ fn build_rep_required(m: &Mission, missions: &Missions, locale: &LocaleMap) -> V
             .and_then(|g| missions.rep_standings.get(g))
             .and_then(|s| s.record_name.rsplit("Rank").next()?.parse::<i32>().ok())
     };
+    // The scope's ranks, lowest first (holotable sorts them by threshold).
+    let ladder = |scope: &Option<Guid>| -> Vec<RepRank> {
+        scope
+            .as_ref()
+            .and_then(|g| missions.rep_scopes.get(g))
+            .map(|s| {
+                s.ranks
+                    .iter()
+                    .filter_map(|g| missions.rep_standings.get(g).map(|st| (g, st)))
+                    .map(|(g, st)| RepRank {
+                        id: g.to_string(),
+                        name: locale.resolve(&st.display_name_key).map(str::to_owned),
+                        min_reputation: st.min_reputation,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
     m.prerequisites
         .iter()
         .filter_map(|p| match p {
             PrereqView::Reputation {
                 faction,
+                scope,
                 min_standing,
                 max_standing,
                 exclude,
                 ..
             } => Some(RepRequirement {
+                scope: scope.as_ref().map(ToString::to_string),
+                ladder: ladder(scope),
+                faction_geid: faction
+                    .as_ref()
+                    .and_then(|g| missions.factions.get(g))
+                    .map(|f| f.geid.to_string()),
                 faction: faction
                     .as_ref()
                     .and_then(|g| missions.factions.get(g))
@@ -785,20 +899,104 @@ fn build_rep_required(m: &Mission, missions: &Missions, locale: &LocaleMap) -> V
 
 /// Resolve the chain gate — prerequisite missions, deduped by title.
 fn build_chain(m: &Mission, missions: &Missions, locale: &LocaleMap) -> Vec<MissionRef> {
+    let ids = missions
+        .prerequisite_missions(m)
+        .into_iter()
+        .map(|id| (id, 0))
+        .collect();
+    chain_refs(ids, missions, locale)
+}
+
+/// Completion tag → the missions that grant it, with the points a run adds,
+/// built once per cook.
+fn grantors_by_tag(missions: &Missions) -> HashMap<Guid, Vec<(Guid, u32)>> {
+    let mut out: HashMap<Guid, Vec<(Guid, u32)>> = HashMap::new();
+    for (_, m) in missions.iter() {
+        for grant in &m.grants_completion_tags {
+            let adds = u32::try_from(grant.count).unwrap_or(0);
+            out.entry(grant.tag).or_default().push((m.id, adds));
+        }
+    }
+    out
+}
+
+/// One [`ChainGate`] per `CompletedContractTags` prerequisite that some
+/// known mission can meet.
+fn build_gates(
+    m: &Mission,
+    missions: &Missions,
+    grantors: &HashMap<Guid, Vec<(Guid, u32)>>,
+    locale: &LocaleMap,
+) -> Vec<ChainGate> {
+    let mut out = Vec::new();
+    for p in &m.prerequisites {
+        let PrereqView::CompletedContractTags {
+            required_tags,
+            required_count,
+            ..
+        } = p
+        else {
+            continue;
+        };
+        // A mission granting several of the gate's tags adds to each counter.
+        let mut ids: Vec<(Guid, u32)> = Vec::new();
+        for (g, adds) in required_tags
+            .iter()
+            .flat_map(|t| grantors.get(t).map(Vec::as_slice).unwrap_or(&[]))
+            .filter(|(g, _)| *g != m.id)
+        {
+            match ids.iter_mut().find(|(seen, _)| seen == g) {
+                Some((_, n)) => *n += adds,
+                None => ids.push((*g, *adds)),
+            }
+        }
+        let refs = chain_refs(ids, missions, locale);
+        if refs.is_empty() {
+            continue;
+        }
+        let gate = ChainGate {
+            need: (*required_count).max(1) as u32,
+            tags: required_tags.iter().map(Guid::to_string).collect(),
+            missions: refs,
+        };
+        // The handler and contract layers can both carry a gate (Foxwell's
+        // *_Super lists its ladder twice): under AND a repeat adds nothing.
+        if !out.contains(&gate) {
+            out.push(gate);
+        }
+    }
+    out
+}
+
+/// The granting missions as steps, deduped by title. Contracts behind one
+/// title that add different points keep the smallest, so the runs a step
+/// says are never too few.
+fn chain_refs(ids: Vec<(Guid, u32)>, missions: &Missions, locale: &LocaleMap) -> Vec<MissionRef> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
-    for id in missions.prerequisite_missions(m) {
+    for (id, adds) in ids {
         let Some(grantor) = missions.get(&id) else {
             continue;
         };
         let title = missions.title_text(grantor, locale);
         let dedupe_key = title.clone().unwrap_or_else(|| grantor.id.to_string());
-        if seen.insert(dedupe_key) {
+        if seen.insert(dedupe_key.clone()) {
             out.push(MissionRef {
                 mission_id: grantor.id.to_string(),
                 title,
                 once_only: grantor.availability.once_only,
+                contracts: vec![grantor.debug_name.clone()],
+                adds,
             });
+        } else if let Some(step) = out
+            .iter_mut()
+            .find(|r| r.title.clone().unwrap_or_else(|| r.mission_id.clone()) == dedupe_key)
+            && !step.contracts.contains(&grantor.debug_name)
+        {
+            step.contracts.push(grantor.debug_name.clone());
+            if adds > 0 && (step.adds == 0 || adds < step.adds) {
+                step.adds = adds;
+            }
         }
     }
     out

@@ -13,6 +13,7 @@
 // has not arrived yet reads as `PENDING`, never as the internal one.
 
 import type {
+  BodyPart,
   DisplayName,
   Entry,
   Session,
@@ -157,7 +158,12 @@ export function nameQuery(session: Session): SessionNameQuery {
         break;
       case "vehicle_entered":
       case "vehicle_left":
+      case "ship_destroyed":
+      case "ship_lost":
         vehicles.add(kind.class_name);
+        break;
+      case "treated":
+        if (kind.vehicle) vehicles.add(kind.vehicle);
         break;
       case "mission_ended":
         if (kind.contract) contracts.add(kind.contract);
@@ -298,6 +304,8 @@ export interface StatusNow {
     /** The outermost place it lies in (the system). */
     system: string | null;
     jurisdictions: string[];
+    /** Inside an armistice zone, as the HUD last said. */
+    armistice: boolean;
     arrivedAt: number;
   } | null;
   ship: {
@@ -339,6 +347,44 @@ const OUTCOME = {
 } as const;
 
 const SOURCE = { log: "Game.log", telemetry: "telemetry", unknown: "an unknown source" } as const;
+
+/** How the log says a ship was destroyed, as words. */
+const DESTROYED_BY: Record<string, string> = {
+  Combat: "in combat",
+  Collision: "in a collision",
+  SelfDestruct: "self-destructed",
+  ShipItemCritical: "a critical failure",
+};
+
+function destroyedBy(reason: string): string {
+  return DESTROYED_BY[reason] ?? reason.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+}
+
+const PART: Record<BodyPart, string> = {
+  Head: "Head",
+  Torso: "Torso",
+  LeftArm: "Left arm",
+  RightArm: "Right arm",
+  LeftLeg: "Left leg",
+  RightLeg: "Right leg",
+};
+
+/** An injury's tier is the med bed it needs. */
+const SEVERITY: Record<number, string> = { 1: "Severe", 2: "Moderate", 3: "Minor" };
+
+function severity(tier: number): string {
+  return SEVERITY[tier] ?? `Tier ${tier}`;
+}
+
+/** Ships by name, most first: "2 × Razor LX, Mantis". */
+export function tally(ships: string[]): string {
+  const counts = new Map<string, number>();
+  for (const ship of ships) counts.set(ship, (counts.get(ship) ?? 0) + 1);
+  return [...counts]
+    .sort((a, b) => b[1] - a[1])
+    .map(([ship, n]) => (n > 1 ? `${n} × ${ship}` : ship))
+    .join(", ");
+}
 
 function row(key: string, at: number, kind: RowKind, title: string): LogRow {
   return {
@@ -398,7 +444,28 @@ interface MissionState {
   ended: { at: number; outcome: keyof typeof OUTCOME } | null;
   change: WalletChange | null;
   said: Entry;
+  /** Ships destroyed while it was the one mission running. */
+  kills: string[];
 }
+
+/** Ships destroyed with no mission running, close together. */
+interface FightState {
+  row: LogRow;
+  ships: string[];
+  last: number;
+}
+
+/** A stay on private property; one left and entered again within
+ *  [`PROPERTY_GAP`] goes on. */
+interface PropertyState {
+  row: LogRow;
+  leftAt: number | null;
+}
+
+const PROPERTY_GAP = 3 * 60_000;
+
+/** Kills further apart than this are two fights. */
+const FIGHT_GAP = 10 * 60_000;
 
 /** Fold a session into rows and the status strip. `now` times what still
  *  runs; it matters only for a live session. */
@@ -406,6 +473,8 @@ export function readSession(session: Session, names: Names, now: number): Sessio
   const end = session.ended_at ?? (session.live ? now : session.last_activity_at);
   const open = session.live;
   const byEntry = new Map<number, WalletChange>();
+  // A terminal visit may explain several charges; every other entry one.
+  const allByEntry = new Map<number, WalletChange[]>();
   const onTimeline = new Set(session.timeline.map((e) => e.seq));
   const rows: LogRow[] = [];
   let explained = 0;
@@ -413,6 +482,7 @@ export function readSession(session: Session, names: Names, now: number): Sessio
   for (const change of session.wallet.changes) {
     if (change.cause.type === "entry" && onTimeline.has(change.cause.seq)) {
       byEntry.set(change.cause.seq, change);
+      allByEntry.set(change.cause.seq, [...(allByEntry.get(change.cause.seq) ?? []), change]);
       explained++;
       continue;
     }
@@ -442,12 +512,17 @@ export function readSession(session: Session, names: Names, now: number): Sessio
   let place: PlaceState | null = null;
   const places: PlaceState[] = [];
   let stay: StayState | null = null;
+  let armistice = false;
+  const properties: PropertyState[] = [];
+  // Untreated injuries, the worst (lowest) tier per part.
+  const injuries = new Map<BodyPart, number>();
   let stays = 0;
   let lastStay: StatusNow["ship"]["last"] = null;
   let jurisdiction: string | null = null;
   let shardJoins = 0;
   const missions: MissionState[] = [];
   const missionById = new Map<string, MissionState>();
+  const fights: FightState[] = [];
 
   const mission = (id: string | null, entry: Entry): MissionState => {
     // An objective without an id belongs to the mission still open.
@@ -460,6 +535,7 @@ export function readSession(session: Session, names: Names, now: number): Sessio
       ended: null,
       change: null,
       said: entry,
+      kills: [],
     };
     m.row.facets = ["missions"];
     missions.push(m);
@@ -643,6 +719,25 @@ export function readSession(session: Session, names: Names, now: number): Sessio
         rows.push(r);
         break;
       }
+      case "vehicle_terminal": {
+        // A visit that paid for nothing is just a look at the fleet.
+        const charges = allByEntry.get(entry.seq);
+        if (!charges) break;
+        const r = row(`e${entry.seq}`, entry.at, "buy", "Ship services");
+        if (charges.length > 1) r.meta.push({ text: count(charges.length, "charge") });
+        if (place) r.meta.push({ text: place.name.name });
+        r.amount = charges.reduce((sum, c) => sum + c.delta, 0);
+        r.facets = ["money"];
+        r.facts = charges.map((c) => ({ label: clockSeconds(c.at), value: signedAuec(c.delta), mono: true }));
+        const where = whereFact();
+        if (where) r.facts.push(where);
+        r.sources = [
+          { label: "Terminal", value: saidBy(entry) },
+          { label: "Charged", value: `${clockSeconds(charges[0].at)}, from the telemetry balance` },
+        ];
+        rows.push(r);
+        break;
+      }
       case "vehicle_entered": {
         const name = names.vehicle(kind.class_name).name;
         const r = row(`e${entry.seq}`, entry.at, "ship", name);
@@ -678,10 +773,106 @@ export function readSession(session: Session, names: Names, now: number): Sessio
         stay = null;
         break;
       }
+      case "ship_destroyed": {
+        const ship = names.vehicle(kind.class_name).name;
+        // A kill is a mission's when that mission is the only one running.
+        const running = missions.filter((m) => !m.ended && m.acceptedAt != null);
+        if (running.length === 1) {
+          running[0].kills.push(ship);
+          break;
+        }
+        let fight = fights.at(-1);
+        if (!fight || entry.at - fight.last > FIGHT_GAP) {
+          fight = { row: row(`e${entry.seq}`, entry.at, "ship", ""), ships: [], last: entry.at };
+          fight.row.sources = [{ label: "First", value: saidBy(entry) }];
+          fights.push(fight);
+          rows.push(fight.row);
+        }
+        fight.ships.push(ship);
+        fight.last = entry.at;
+        break;
+      }
+      case "ship_lost": {
+        const ship = names.vehicle(kind.class_name).name;
+        const r = row(`e${entry.seq}`, entry.at, "life", `Lost ${ship}`);
+        r.meta = [{ text: destroyedBy(kind.reason) }];
+        if (kind.by) r.meta.push({ text: `by ${kind.by}` });
+        if (place) r.meta.push({ text: place.name.name });
+        r.facts = [
+          { label: "Ship", value: ship },
+          { label: "How", value: destroyedBy(kind.reason) },
+        ];
+        if (kind.by) r.facts.push({ label: "By", value: kind.by });
+        r.sources = [{ label: "Destroyed", value: saidBy(entry) }];
+        rows.push(r);
+        break;
+      }
+      case "zone": {
+        if (kind.zone === "Armistice") {
+          armistice = kind.entered;
+          break;
+        }
+        const last = properties.at(-1);
+        if (!kind.entered) {
+          if (last && last.leftAt == null) last.leftAt = entry.at;
+          break;
+        }
+        if (last && (last.leftAt == null || entry.at - last.leftAt <= PROPERTY_GAP)) {
+          last.leftAt = null;
+          break;
+        }
+        const r = row(`e${entry.seq}`, entry.at, "place", "Private property");
+        if (stay) r.meta.push({ text: `in ${stay.name}` });
+        if (place) r.meta.push({ text: `near ${place.name.name}` });
+        r.facets = ["travel"];
+        r.sources = [{ label: "Entered", value: saidBy(entry) }];
+        properties.push({ row: r, leftAt: null });
+        rows.push(r);
+        break;
+      }
+      case "injured": {
+        const part = PART[kind.part];
+        const r = row(`e${entry.seq}`, entry.at, "life", `${severity(kind.tier)} injury`);
+        r.meta = [{ text: part }, { text: `tier ${kind.tier}` }];
+        if (place) r.meta.push({ text: place.name.name });
+        r.facts = [
+          { label: "Part", value: part },
+          { label: "Needs", value: `a tier ${kind.tier} med bed or better` },
+        ];
+        const where = whereFact();
+        if (where) r.facts.push(where);
+        r.sources = [{ label: "Reported", value: saidBy(entry) }];
+        rows.push(r);
+        injuries.set(kind.part, Math.min(kind.tier, injuries.get(kind.part) ?? kind.tier));
+        break;
+      }
+      case "treated": {
+        const ship = kind.vehicle ? names.vehicle(kind.vehicle).name : null;
+        const r = row(`e${entry.seq}`, entry.at, "life", "Treated at a med bed");
+        const parts = kind.parts.map((p) => PART[p]);
+        if (parts.length > 0) {
+          r.meta.push({ text: [parts[0], ...parts.slice(1).map((p) => p.toLowerCase())].join(", ") });
+        }
+        if (ship) r.meta.push({ text: `in ${ship}` });
+        else if (place) r.meta.push({ text: place.name.name });
+        r.facts = kind.parts.map((p) => {
+          const tier = injuries.get(p);
+          injuries.delete(p);
+          return { label: PART[p], value: tier != null ? `${severity(tier)}, tier ${tier}` : "operated on" };
+        });
+        if (ship) r.facts.push({ label: "Ship", value: ship });
+        const where = whereFact();
+        if (where) r.facts.push(where);
+        r.sources = [{ label: "Surgery", value: saidBy(entry) }];
+        rows.push(r);
+        break;
+      }
       case "died":
       case "downed":
       case "respawned":
       case "spawned": {
+        // A new body has none of the old one's injuries.
+        if (kind.type === "died") injuries.clear();
         const title = { died: "Died", downed: "Downed", respawned: "Respawned", spawned: "Spawned" };
         const r = row(`e${entry.seq}`, entry.at, "life", title[kind.type]);
         if (place) r.meta = [{ text: place.name.name }];
@@ -787,6 +978,30 @@ export function readSession(session: Session, names: Names, now: number): Sessio
 
   for (const m of missions) finishMission(m, open, now);
 
+  for (const p of properties) {
+    const r = p.row;
+    r.facts = [{ label: "Entered", value: clockSeconds(r.at), mono: true }];
+    if (p.leftAt != null) {
+      r.took = p.leftAt - r.at;
+      r.facts.push(
+        { label: "Left", value: clockSeconds(p.leftAt), mono: true },
+        { label: "Stayed", value: duration(p.leftAt - r.at), mono: true },
+      );
+      r.sources.push({ label: "Left", value: `${clockSeconds(p.leftAt)}, from Game.log` });
+    } else {
+      r.meta.push({ text: open ? "inside" : "no leaving seen" });
+    }
+  }
+
+  for (const f of fights) {
+    const r = f.row;
+    r.title = f.ships.length === 1 ? `Destroyed ${f.ships[0]}` : `Destroyed ${f.ships.length} ships`;
+    if (f.ships.length > 1) r.meta = [{ text: tally(f.ships) }];
+    r.took = f.ships.length > 1 ? f.last - r.at : null;
+    r.facts = [{ label: "Destroyed", value: tally(f.ships) }];
+    if (f.ships.length > 1) r.sources.push({ label: "Last", value: `${clockSeconds(f.last)}, from Game.log` });
+  }
+
   if (!open) {
     const ended = row("end", end, "session", "Session ended");
     ended.meta = [{ text: duration(end - session.started_at) }];
@@ -822,6 +1037,7 @@ export function readSession(session: Session, names: Names, now: number): Sessio
             name: place.name.name,
             system: place.name.parents.at(-1) ?? null,
             jurisdictions: place.jurisdictions,
+            armistice,
             arrivedAt: place.arrivedAt,
           }
         : null,
@@ -882,17 +1098,20 @@ function finishMission(m: MissionState, open: boolean, now: number) {
   if (m.ended) {
     r.meta = [{ text: OUTCOME[m.ended.outcome] }];
     if (steps.length > 0) r.meta.push({ text: count(steps.length, "objective") });
+    if (m.kills.length > 0) r.meta.push({ text: count(m.kills.length, "kill") });
     r.took = m.ended.at - started;
     r.amount = m.change?.delta ?? null;
     if (r.amount != null) r.facets = ["missions", "money"];
   } else if (open) {
     r.meta = [{ text: "running" }];
     if (steps.length > 0) r.meta.push({ text: `objective ${steps.length}` });
+    if (m.kills.length > 0) r.meta.push({ text: count(m.kills.length, "kill") });
     r.took = now - started;
     r.running = true;
   } else {
     r.meta = [{ text: "open when the session ended" }];
     if (steps.length > 0) r.meta.push({ text: count(steps.length, "objective") });
+    if (m.kills.length > 0) r.meta.push({ text: count(m.kills.length, "kill") });
   }
   r.facts = [];
   if (m.acceptedAt != null) r.facts.push({ label: "Accepted", value: clock(m.acceptedAt), mono: true });
@@ -913,6 +1132,7 @@ function finishMission(m: MissionState, open: boolean, now: number) {
       { label: "Reward", value: "shows when it pays" },
     );
   }
+  if (m.kills.length > 0) r.facts.push({ label: "Destroyed", value: tally(m.kills) });
   r.sources = [{ label: "Read from", value: SOURCE[m.said.source] }];
   if (m.said.locale_dependent || steps.length > 0) {
     r.sources.push({ label: "Needs", value: "the game's English HUD text" });
@@ -1010,6 +1230,8 @@ export function summaryParts(s: SessionSummary): string[] {
   if (s.missions_completed > 0) {
     parts.push(`${count(s.missions_completed, "mission")} completed`);
   }
+  if (s.ships_destroyed > 0) parts.push(count(s.ships_destroyed, "kill"));
+  if (s.ships_lost > 0) parts.push(`${count(s.ships_lost, "ship")} lost`);
   if (s.shards.length > 0) parts.push(count(s.shards.length, "shard"));
   return parts;
 }

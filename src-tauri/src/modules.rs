@@ -50,10 +50,10 @@ impl Module for Contracts {
         "contracts"
     }
     fn name(&self) -> &'static str {
-        "Contract Tracker"
+        "Contracts"
     }
     fn description(&self) -> &'static str {
-        "Track active contracts with per-objective progress, plan multi-contract routes — hauling gets cargo packing"
+        "Every mission in the game: what it gives, where it runs, what rank it needs and what you will fight"
     }
 }
 

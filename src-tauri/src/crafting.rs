@@ -326,6 +326,27 @@ fn state_path() -> std::path::PathBuf {
     app_kit::app_data_root().join("crafting").join("state.json")
 }
 
+/// The old Want blueprint and Want item marks, for Plans to fold in
+/// (`plans::fold_wants`).
+pub(crate) fn wants() -> (Vec<String>, Vec<String>) {
+    let state: CraftingState = app_kit::load_json(&state_path());
+    (
+        state.want_blueprint.into_iter().collect(),
+        state.want_item.into_iter().collect(),
+    )
+}
+
+/// Clear the want marks once Plans holds them.
+pub(crate) fn clear_wants() {
+    let _lock = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state: CraftingState = app_kit::load_json(&state_path());
+    state.want_blueprint.clear();
+    state.want_item.clear();
+    if let Err(e) = app_kit::save_json(&state_path(), &state) {
+        tracing::warn!("crafting: the want marks could not be cleared: {e}");
+    }
+}
+
 /// What you marked.
 #[tauri::command]
 #[specta::specta]

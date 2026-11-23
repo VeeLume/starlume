@@ -13,6 +13,8 @@ pub use sc_dossier::auth::{Game, GameChannel};
 /// as `sc_dossier::Error::Mint`.
 pub async fn library() -> anyhow::Result<Vec<Game>> {
     let creds = tokio::task::spawn_blocking(sc_dossier::store::read_credentials).await??;
-    let opts = sc_dossier::auth::MintOptions::from_credentials(&creds);
+    // The live launcher API, whatever channel the launcher was last on: a
+    // PTU-selected launcher made v0.15 send the live session to PTU (403).
+    let opts = sc_dossier::auth::MintOptions::from_credentials(&creds, sc_dossier::auth::Env::Live);
     Ok(sc_dossier::auth::library(&creds, &opts).await?)
 }

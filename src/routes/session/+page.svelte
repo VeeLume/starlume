@@ -26,7 +26,13 @@
   import RichText from "$lib/components/catalog/RichText.svelte";
   import type { Session } from "$lib/bindings";
   import { channelHue } from "$lib/channels";
-  import { loadNames, openSession, sessionStore, watchSession } from "$lib/state/session.svelte";
+  import {
+    loadNames,
+    openSession,
+    rereadSession,
+    sessionStore,
+    watchSession,
+  } from "$lib/state/session.svelte";
   import {
     FACETS,
     amount,
@@ -172,6 +178,24 @@
   }
 
   const STEP_GLYPH = { done: "✓", current: "●", open: "○", withdrawn: "✕" } as const;
+
+  // Reading a past session's log again: page-local, one at a time.
+  let rereading = $state(false);
+  let rereadNote = $state("");
+  // A note is about the session it was asked for.
+  $effect(() => {
+    void pastId;
+    rereadNote = "";
+  });
+  async function reread(id: string) {
+    rereading = true;
+    rereadNote = "";
+    try {
+      rereadNote = await rereadSession(id);
+    } finally {
+      rereading = false;
+    }
+  }
 </script>
 
 <div class="ss-page">
@@ -200,6 +224,19 @@
       <span class="ss-mark"><i></i>{pastId ? "Not kept" : "No session"}</span>
     {/if}
     <span class="ss-links">
+      {#if rereadNote}
+        <span class="ss-note">{rereadNote}</span>
+      {/if}
+      {#if pastId && shown && shown.sources.log}
+        <button
+          class="btn subtle ss-reread"
+          disabled={rereading}
+          title="Read this session's Game.log again, with what this version of Starlume reads"
+          onclick={() => reread(shown.id)}
+        >
+          {rereading ? "Reading Game.log…" : "Read Game.log again"}
+        </button>
+      {/if}
       {#if pastId}
         <a href="/session">Current session</a>
       {/if}
@@ -217,6 +254,7 @@
         <div class="ss-bottom">
           <span class="ss-sm">
             {#each st.where.jurisdictions as j (j)}<span>{j}</span>{/each}
+            {#if st.where.armistice}<span>armistice</span>{/if}
           </span>
           <span class="ss-sm f">
             <span>arrived {clock(st.where.arrivedAt)}</span>
@@ -519,7 +557,15 @@
   .ss-links {
     margin-left: auto;
     display: inline-flex;
+    align-items: center;
     gap: 14px;
+  }
+  .ss-reread {
+    font-size: var(--text-small);
+  }
+  .ss-note {
+    font-size: var(--text-small);
+    color: var(--text-dim);
   }
   .ss-head a {
     font-size: var(--text-small);

@@ -106,7 +106,7 @@ impl TrackKind {
     pub fn of(kind: StepKind) -> Option<Self> {
         match kind {
             StepKind::Fit | StepKind::Buy => Some(TrackKind::Shopping),
-            StepKind::Earn => Some(TrackKind::Missions),
+            StepKind::Earn | StepKind::Rep | StepKind::Run => Some(TrackKind::Missions),
             StepKind::Mine | StepKind::Gather => Some(TrackKind::Mining),
             StepKind::Refine => Some(TrackKind::Refining),
             StepKind::Loot => Some(TrackKind::Looting),
@@ -466,6 +466,8 @@ mod tests {
 
     fn step(id: &str, kind: StepKind, site: Option<&str>) -> PlanStep {
         PlanStep {
+            mission: None,
+            rep: None,
             id: id.into(),
             kind,
             title: format!("Do {id}"),
@@ -477,6 +479,7 @@ mod tests {
                 site: Some(s.into()),
             }),
             seconds: None,
+            seconds_from: None,
             cost: None,
             odds: None,
             sources: 1,

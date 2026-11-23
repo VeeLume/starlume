@@ -10,7 +10,7 @@
   // crafted at a quality (one for every material): the solver gives it the
   // recipe's power, and Plans takes it from here.
   import { Segmented } from "@veelume/ui";
-  import { goto } from "$app/navigation";
+  import PlanPair from "$lib/components/PlanPair.svelte";
   import { addCraftPlan, loadPlans, plansStore } from "$lib/state/plans.svelte";
   import { settingsStore } from "$lib/state/settings.svelte";
   import type { Snippet } from "svelte";
@@ -142,12 +142,9 @@
   $effect(() => {
     if (plansOn && plansStore.plans === null) void loadPlans();
   });
-  const planned = $derived(fitted?.blueprint ? !!plansStore.craftOf(fitted.blueprint) : false);
-  function plan() {
-    if (!fitted?.blueprint) return;
-    if (planned) void goto("/plans");
-    else void addCraftPlan(fitted.blueprint, 1, crafted ?? tried);
-  }
+  const planOf = $derived(fitted?.blueprint ? plansStore.craftOf(fitted.blueprint) : undefined);
+  const plan = (parked: boolean) =>
+    fitted?.blueprint ? addCraftPlan(fitted.blueprint, 1, crafted ?? tried, parked) : Promise.resolve(false);
 
   function outside(e: MouseEvent) {
     const t = e.target as HTMLElement;
@@ -200,19 +197,7 @@
         /></label
       >
       <span class="grow"></span>
-      {#if plansOn}
-        <button
-          type="button"
-          class="btn"
-          disabled={crafted === null && !planned}
-          title={planned
-            ? "It is in your plans: open Plans"
-            : crafted !== null
-              ? `Plan to craft it at Q${crafted}: the steps and materials go to Plans`
-              : "Mark it crafted to plan it"}
-          onclick={plan}>{planned ? "In plans" : "Add to plan"}</button
-        >
-      {/if}
+      <PlanPair plan={planOf} add={plan} what={crafted !== null ? `it, crafted at Q${crafted}` : ""} blocked={crafted !== null ? "" : "Mark it crafted to plan it"} />
     </div>
   {/if}
 

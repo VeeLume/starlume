@@ -31,6 +31,11 @@ pub struct Edit {
     /// (0..=1000): [`crate::crafted`]. `None`: as the shops sell it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quality: Option<i32>,
+    /// A quality per material slot, in the recipe's slot order, when they
+    /// differ (`quality` is then their highest). Empty: every slot at
+    /// `quality`, as loadouts saved before per-slot qualities read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub qualities: Vec<i32>,
 }
 
 /// A ship and how it differs from stock.

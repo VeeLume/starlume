@@ -32,6 +32,10 @@ let _error = $state("");
 let _names = $state<Record<string, SessionNames>>({});
 /** Channels whose answers are older than the last game-data change. */
 let _stale = $state<Record<string, boolean>>({});
+// Your average minutes per contract record name, from the filed sessions:
+// the Contracts catalog's time column. `null` = not read yet.
+let _runMinutes = $state<Partial<Record<string, number>> | null>(null);
+let _unlistenRuns: Promise<UnlistenFn> | null = null;
 
 export const sessionStore = {
   /** `null` = not read yet. */
@@ -53,6 +57,11 @@ export const sessionStore = {
   /** The display names known for a session's channel; `null` = none yet. */
   names(session: Pick<Session, "channel">): SessionNames | null {
     return _names[session.channel ?? ""] ?? null;
+  },
+  /** Your average minutes per contract record name; empty while the module
+   *  is off, `null` = not read yet. */
+  get runMinutes() {
+    return _runMinutes;
   },
   get error() {
     return _error;
@@ -87,6 +96,24 @@ export async function openSession(id: string): Promise<void> {
   const kept = Object.entries(_opened).slice(-(OPENED_KEPT - 1));
   _opened = Object.fromEntries([...kept, [id, result.data]]);
   _error = "";
+}
+
+/** Read a past session's Game.log again and file what this version finds
+ *  in it. `session:changed` then reloads the history and the open session.
+ *  Returns what to tell the user, `""` when it worked. */
+export async function rereadSession(id: string): Promise<string> {
+  const result = await commands.sessionReread(id);
+  if (result.status !== "ok") return result.error.message;
+  return result.data ? "" : "Its Game.log is gone: the game keeps only so many old logs.";
+}
+
+/** Your measured times per contract: one small file read. A filed session
+ *  (`session:changed` with history) can add runs, so it reloads then. */
+export async function loadRunMinutes(): Promise<void> {
+  _unlistenRuns ??= listen<{ history: boolean }>("session:changed", (event) => {
+    if (event.payload.history) void loadRunMinutes();
+  });
+  _runMinutes = await commands.sessionRunMinutes();
 }
 
 const _asking = new Set<string>();

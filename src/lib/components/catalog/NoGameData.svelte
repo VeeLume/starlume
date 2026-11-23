@@ -3,12 +3,15 @@
   // data is being prepared (startup warm, post-patch cook, a cook revision
   // bump) it is a card in the channel's hue: the build, why, and the load's
   // stages, the running one with the time so far — a multi-minute parse
-  // must never read as a hang. The page fills itself when the cook lands
-  // (`data:changed`). With nothing running it points at Settings → Game
-  // data, where loading is managed; `waiting` (the page has a channel, its
-  // data is on the way) shows only a faint outline instead. Nothing shows
-  // for the first 400 ms, so a cached load never flashes it.
+  // must never read as a hang. Every state stands alone in the middle of
+  // the content area, with no placeholder panels: they never matched the
+  // page that comes (Valerie, 2026-11-15/23). The page fills itself when
+  // the cook lands (`data:changed`). With nothing running it points at
+  // Settings → Game data, where loading is managed; `waiting` (the page
+  // has a channel, its data is on the way) is the kit's spinner. Nothing
+  // shows for the first 400 ms, so a cached load never flashes it.
   import { onMount } from "svelte";
+  import { Loading } from "@veelume/ui";
   import NowCard from "$lib/components/NowCard.svelte";
   import { activityFor, activityLabel, activityStore } from "$lib/state/activities.svelte";
   import { dataStore } from "$lib/state/data.svelte";
@@ -90,26 +93,28 @@
           {/if}
         </NowCard>
       </div>
-      <div class="skel" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     </div>
   {:else if waiting}
-    <div class="skel" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="wait"><Loading label="Loading game data" /></div>
   {:else}
-    <p class="dim">
-      No game data loaded yet — load it in <a href="/settings/game-data">Settings → Game data</a>.
-    </p>
+    <div class="wait">
+      <p class="dim">
+        No game data loaded yet — load it in <a href="/settings/game-data">Settings → Game data</a>.
+      </p>
+    </div>
   {/if}
 {/if}
 
 <style>
+  /* The middle of the content area, whatever the page around it. */
   .wait {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+    display: grid;
+    place-items: center;
+    min-height: 60vh;
   }
   .card-row {
     display: flex;
-    max-width: 640px;
+    width: min(560px, 100%);
   }
   .reason,
   .now {
@@ -177,20 +182,6 @@
     font-size: 0.75rem;
     color: var(--text-faint);
   }
-  .skel {
-    display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-    gap: 16px;
-    opacity: 0.3;
-    pointer-events: none;
-  }
-  .skel i {
-    display: block;
-    height: 200px;
-    border-radius: var(--radius-lg);
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-  }
   @keyframes spin {
     to {
       transform: rotate(360deg);
@@ -208,11 +199,6 @@
     .dot.run,
     .indet::after {
       animation: none;
-    }
-  }
-  @media (max-width: 760px) {
-    .skel {
-      grid-template-columns: minmax(0, 1fr);
     }
   }
 </style>

@@ -28,7 +28,7 @@
 //!   (`<EM4>[BP]</EM4>`); [`clean_title`] removes them.
 
 use crate::event::{
-    ContractChange, LogEvent, LogEventKind, MoneyChange, ObjectiveChange, TradeSide,
+    BodyPart, ContractChange, LogEvent, LogEventKind, MoneyChange, ObjectiveChange, TradeSide, Zone,
 };
 
 /// Recognise one record. `None` for the ~99.9% that carry nothing tracked.
@@ -62,6 +62,7 @@ fn parse_body(rest: &str) -> Option<LogEventKind> {
             "ObjectiveUpserted" => objective_upserted(body),
             "CLocalMissionPhaseMarker::CreateMarker" => mission_marker(body),
             "EndMission" => mission_ended(body),
+            "PlayerLeft" => mission_left(body),
             "Join PU" => shard_joined(body),
             "CEntityComponentCommodityUIProvider::SendCommodityBuyRequest" => {
                 commodity_trade(body, TradeSide::Buy)
@@ -82,6 +83,12 @@ fn parse_body(rest: &str) -> Option<LogEventKind> {
             "Quantum Drive Arrived - Arrived at Final Destination" => quantum_arrived(body),
             "AttachmentReceived" => held_item_received(body),
             "EquipItem" => attachment_requested(body),
+            "Vehicle Destroyed" => vehicle_destroyed(body),
+            "MED BED HEAL" => med_bed_surgery(body),
+            // Its other lines (`Querying … inventory`) are the same request.
+            "OnRequestFetchVehicles" => body
+                .contains("> Fetching player vehicle list")
+                .then_some(LogEventKind::VehicleListFetched),
             _ => None,
         };
     }
@@ -172,8 +179,16 @@ fn session_account_id(body: &str) -> Option<LogEventKind> {
     let end = rest
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(rest.len());
+    let geid = body.find("geid ").and_then(|i| {
+        let rest = &body[i + "geid ".len()..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        owned(&rest[..end])
+    });
     Some(LogEventKind::SessionAccountId {
         account_id: owned(&rest[..end])?,
+        geid,
     })
 }
 
@@ -413,6 +428,20 @@ fn notification(body: &str) -> Option<LogEventKind> {
         }
     }
 
+    const ZONES: [(&str, Zone, bool); 4] = [
+        ("Entering Armistice Zone", Zone::Armistice, true),
+        ("Leaving Armistice Zone", Zone::Armistice, false),
+        ("Entering Private Property", Zone::PrivateProperty, true),
+        ("Leaving Private Property", Zone::PrivateProperty, false),
+    ];
+    for (prefix, zone, entered) in ZONES {
+        if text.starts_with(prefix) {
+            return Some(LogEventKind::ZoneChanged { zone, entered });
+        }
+    }
+    if let Some(injury) = injury(text) {
+        return Some(injury);
+    }
     if let Some(name) = text.strip_prefix("Received Blueprint: ") {
         return Some(LogEventKind::BlueprintReceived { name: owned(name)? });
     }
@@ -430,6 +459,64 @@ fn notification(body: &str) -> Option<LogEventKind> {
         });
     }
     money(text)
+}
+
+/// `Minor Injury Detected - Left arm - Tier 3 Treatment Required`.
+fn injury(text: &str) -> Option<LogEventKind> {
+    let (_, rest) = text.split_once(" Injury Detected - ")?;
+    let (part, rest) = rest.split_once(" - ")?;
+    let part = match part {
+        "Head" => BodyPart::Head,
+        "Torso" => BodyPart::Torso,
+        "Left arm" => BodyPart::LeftArm,
+        "Right arm" => BodyPart::RightArm,
+        "Left leg" => BodyPart::LeftLeg,
+        "Right leg" => BodyPart::RightLeg,
+        _ => return None,
+    };
+    let tier = rest
+        .strip_prefix("Tier ")?
+        .split(' ')
+        .next()?
+        .parse()
+        .ok()?;
+    Some(LogEventKind::Injured { part, tier })
+}
+
+/// `Actor: VeeLume (…) | […] | -> Perform surgery event Success, med bed
+/// name: …, vehicle name: none, head: true torso: false leftArm: true …`.
+fn med_bed_surgery(body: &str) -> Option<LogEventKind> {
+    let actor = body.split_once("Actor: ")?.1;
+    let actor = owned(&actor[..actor.find(" (").or_else(|| actor.find(" |"))?])?;
+    let outcome = body.split_once("surgery event ")?.1;
+    let outcome = owned(outcome.split([',', ' ']).next()?)?;
+    let vehicle = body.split_once("vehicle name: ")?.1;
+    let vehicle = vehicle.split(',').next()?.trim();
+    // A ship's bed names it by its display-name key: `@vehicle_NameRSI_Polaris`.
+    const KEY: &str = "@vehicle_name";
+    let vehicle = match vehicle.get(..KEY.len()) {
+        Some(prefix) if prefix.eq_ignore_ascii_case(KEY) => owned(&vehicle[KEY.len()..]),
+        _ => None,
+    };
+    const PARTS: [(&str, BodyPart); 6] = [
+        (" head: true", BodyPart::Head),
+        (" torso: true", BodyPart::Torso),
+        (" leftArm: true", BodyPart::LeftArm),
+        (" rightArm: true", BodyPart::RightArm),
+        (" leftLeg: true", BodyPart::LeftLeg),
+        (" rightLeg: true", BodyPart::RightLeg),
+    ];
+    let parts = PARTS
+        .iter()
+        .filter(|(key, _)| body.contains(key))
+        .map(|(_, part)| *part)
+        .collect();
+    Some(LogEventKind::MedBedSurgery {
+        actor,
+        outcome,
+        vehicle,
+        parts,
+    })
 }
 
 /// `Awarded 500 aUEC` / `Fined 72000 UEC` (the game prints both units).
@@ -511,6 +598,54 @@ fn mission_ended(body: &str) -> Option<LogEventKind> {
         completion: owned(bracket(body, "CompletionType[")?)?,
         reason: bracket(body, "Reason[").unwrap_or_default().to_owned(),
     })
+}
+
+/// ```text
+/// <2026-11-17T22:09:47.665Z> [Notice] <PlayerLeft> Received PlayerLeft push message for: mission_id de74…-6dfee9d92d6c - player_id 204717100112 [Team_GameServices][Missions]
+/// ```
+fn mission_left(body: &str) -> Option<LogEventKind> {
+    let after = |key: &str| {
+        let rest = &body[body.find(key)? + key.len()..];
+        owned(rest.split_whitespace().next()?)
+    };
+    Some(LogEventKind::MissionLeft {
+        mission_id: after("mission_id ")?,
+        player_id: after("player_id ")?,
+    })
+}
+
+// ── Combat ──────────────────────────────────────────────────────────────
+
+/// ```text
+/// <2026-11-18T19:26:26.880Z> [Notice] <Vehicle Destroyed> Vehicle 'MISC_Razor_LX_PU_AI_CRIM_939606349453' [939606349453] class 'MISC_Razor_LX_PU_AI_CRIM' (owner player [0], driver [0]) destroyed: reason [Combat] level [0] -> [2] flags [4066] killer 'VeeLume' [204717100112] authority [0] [Team_CGP4][Vehicle]
+/// ```
+fn vehicle_destroyed(body: &str) -> Option<LogEventKind> {
+    let vehicle = body.find("Vehicle '")?;
+    let rest = &body[vehicle..];
+    let id_start = rest.find("' [")? + 3;
+    let vehicle_id = owned(&rest[id_start..id_start + rest[id_start..].find(']')?])?;
+    let class = owned(quoted(rest, "class '")?)?;
+    let owner = bracket(rest, "(owner player [")?;
+    let killer_at = rest.find(" killer '")?;
+    let killer_rest = &rest[killer_at..];
+    let killer = owned(quoted(killer_rest, " killer '")?)?;
+    let killer_id = owned(bracket(killer_rest, "' [")?)?;
+    Some(LogEventKind::VehicleDestroyed {
+        vehicle_id,
+        class,
+        owner: (owner != "0").then(|| owner.to_owned()),
+        reason: owned(bracket(rest, " reason [")?)?,
+        level: bracket(rest, " -> [")?.parse().ok()?,
+        killer,
+        killer_id,
+    })
+}
+
+/// The text between `key` and the next `'`.
+fn quoted<'a>(s: &'a str, key: &str) -> Option<&'a str> {
+    let start = s.find(key)? + key.len();
+    let rest = &s[start..];
+    Some(&rest[..rest.find('\'')?])
 }
 
 // ── Economy ─────────────────────────────────────────────────────────────
@@ -661,9 +796,125 @@ mod tests {
         assert_eq!(
             kind(character),
             Some(LogEventKind::SessionAccountId {
-                account_id: "1234567".into()
+                account_id: "1234567".into(),
+                geid: Some("200000000001".into()),
             })
         );
+    }
+
+    #[test]
+    fn a_player_leaving_a_mission() {
+        let line = r#"<2026-11-17T22:09:47.665Z> [Notice] <PlayerLeft> Received PlayerLeft push message for: mission_id de7491a1-121d-4b5e-a26d-6dfee9d92d6c - player_id 204717100112 [Team_GameServices][Missions]"#;
+        assert_eq!(
+            kind(line),
+            Some(LogEventKind::MissionLeft {
+                mission_id: "de7491a1-121d-4b5e-a26d-6dfee9d92d6c".into(),
+                player_id: "204717100112".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn zones_entered_and_left() {
+        let armistice = r#"<2026-11-18T19:18:51.317Z> [Notice] <SHUDEvent_OnNotification> Added notification "Entering Armistice Zone - Combat Prohibited: " [0] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        let left = r#"<2026-11-18T19:22:54.389Z> [Notice] <SHUDEvent_OnNotification> Added notification "Leaving Armistice Zone - Caution Advised: " [3] to queue. New queue size: 2, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        let private = r#"<2026-11-18T19:25:41.666Z> [Notice] <SHUDEvent_OnNotification> Added notification "Entering Private Property: " [12] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        let private_left = r#"<2026-11-18T19:25:54.010Z> [Notice] <SHUDEvent_OnNotification> Added notification "Leaving Private Property: " [13] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        let zone = |zone, entered| Some(LogEventKind::ZoneChanged { zone, entered });
+        assert_eq!(kind(armistice), zone(Zone::Armistice, true));
+        assert_eq!(kind(left), zone(Zone::Armistice, false));
+        assert_eq!(kind(private), zone(Zone::PrivateProperty, true));
+        assert_eq!(kind(private_left), zone(Zone::PrivateProperty, false));
+    }
+
+    #[test]
+    fn an_injury_on_the_hud() {
+        let line = r#"<2026-11-18T20:38:33.983Z> [Notice] <SHUDEvent_OnNotification> Added notification "Moderate Injury Detected - Left arm - Tier 2 Treatment Required : " [76] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]"#;
+        assert_eq!(
+            kind(line),
+            Some(LogEventKind::Injured {
+                part: BodyPart::LeftArm,
+                tier: 2
+            })
+        );
+    }
+
+    #[test]
+    fn surgery_in_a_hospital_and_in_a_ship() {
+        let hospital = r#"<2026-11-18T21:02:36.564Z> [Notice] <MED BED HEAL> Actor: VeeLume (Non-Authoritative CLIENT: VeeLume) | [CEntityComponentMedBed::HandleComponentEvent:1101] | -> Perform surgery event Success, med bed name: bed_hospital_2_a-005, vehicle name: none, head: true torso: false leftArm: true rightArm: false leftLeg: false rightLeg: false [Team_ActorFeatures][Actor]"#;
+        assert_eq!(
+            kind(hospital),
+            Some(LogEventKind::MedBedSurgery {
+                actor: "VeeLume".into(),
+                outcome: "Success".into(),
+                vehicle: None,
+                parts: vec![BodyPart::Head, BodyPart::LeftArm],
+            })
+        );
+        let ship = r#"<2024-12-02T22:07:59.522Z> [Notice] <MED BED HEAL> Actor: VeeLume (Non-Authoritative CLIENT: VeeLume) | [CEntityComponentMedBed::HandleComponentEvent:817] | -> Perform surgery event Success, med bed name: Bed_Single_Medical_Carrack-001, vehicle name: @vehicle_nameANVL_Carrack, head: false torso: true leftArm: false rightArm: false leftLeg: false rightLeg: false [Team_ActorFeatures][Actor]"#;
+        assert_eq!(
+            kind(ship),
+            Some(LogEventKind::MedBedSurgery {
+                actor: "VeeLume".into(),
+                outcome: "Success".into(),
+                vehicle: Some("ANVL_Carrack".into()),
+                parts: vec![BodyPart::Torso],
+            })
+        );
+    }
+
+    #[test]
+    fn the_vehicle_terminal_fetches_your_ships() {
+        let line = r#"<2026-11-17T22:57:02.640Z> [Notice] <OnRequestFetchVehicles> Fetching player vehicle list [Team_GameServices][ASOP][Entitlement][Insurance]"#;
+        assert_eq!(kind(line), Some(LogEventKind::VehicleListFetched));
+        let line = r#"<2026-11-17T22:57:02.877Z> [Notice] <OnRequestFetchVehicles> Querying location inventory for player [204717100112] at location [848868938] [Team_GameServices][ASOP][Entitlement][Insurance]"#;
+        assert_eq!(kind(line), None);
+    }
+
+    #[test]
+    fn a_ship_you_shot_down() {
+        let line = r#"<2026-11-18T19:26:26.880Z> [Notice] <Vehicle Destroyed> Vehicle 'MISC_Razor_LX_PU_AI_CRIM_939606349453' [939606349453] class 'MISC_Razor_LX_PU_AI_CRIM' (owner player [0], driver [0]) destroyed: reason [Combat] level [0] -> [2] flags [4066] killer 'VeeLume' [204717100112] authority [0] [Team_CGP4][Vehicle]"#;
+        assert_eq!(
+            kind(line),
+            Some(LogEventKind::VehicleDestroyed {
+                vehicle_id: "939606349453".into(),
+                class: "MISC_Razor_LX_PU_AI_CRIM".into(),
+                owner: None,
+                reason: "Combat".into(),
+                level: 2,
+                killer: "VeeLume".into(),
+                killer_id: "204717100112".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn your_ship_lost_to_an_npc_and_to_itself() {
+        let rammed = r#"<2026-11-17T23:31:05.927Z> [Notice] <Vehicle Destroyed> Vehicle 'DRAK_Marauder_939405947782' [939405947782] class 'DRAK_Marauder' (owner player [204717100112], driver [0]) destroyed: reason [Collision] level [0] -> [2] flags [4066] killer 'PU_Pilots-Human-Criminal-Pilot_Light_939479930047' [939479930047] authority [0] [Team_CGP4][Vehicle]"#;
+        assert_eq!(
+            kind(rammed),
+            Some(LogEventKind::VehicleDestroyed {
+                vehicle_id: "939405947782".into(),
+                class: "DRAK_Marauder".into(),
+                owner: Some("204717100112".into()),
+                reason: "Collision".into(),
+                level: 2,
+                killer: "PU_Pilots-Human-Criminal-Pilot_Light_939479930047".into(),
+                killer_id: "939479930047".into(),
+            })
+        );
+        let self_destruct = r#"<2026-11-17T21:58:50.410Z> [Notice] <Vehicle Destroyed> Vehicle 'DRAK_Marauder_939283554698' [939283554698] class 'DRAK_Marauder' (owner player [204717100112], driver [0]) destroyed: reason [SelfDestruct] level [0] -> [2] flags [16482] killer 'DRAK_Marauder_939283554698' [939283554698] authority [0] [Team_CGP4][Vehicle]"#;
+        let Some(LogEventKind::VehicleDestroyed {
+            reason,
+            killer_id,
+            vehicle_id,
+            ..
+        }) = kind(self_destruct)
+        else {
+            panic!("not a destroyed vehicle");
+        };
+        assert_eq!(reason, "SelfDestruct");
+        assert_eq!(killer_id, vehicle_id);
     }
 
     #[test]

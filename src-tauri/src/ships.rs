@@ -216,11 +216,22 @@ pub struct SlotView {
     pub children: Vec<SlotView>,
 }
 
+/// A crafted mark to fit a part with: the highest quality and a quality
+/// per slot (empty when all are alike).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CraftMarkView {
+    pub quality: i32,
+    pub slots: Vec<i32>,
+}
+
 /// A part marked crafted: its quality and the figures that change.
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CraftedMarkView {
     pub quality: i32,
+    /// A quality per material slot; empty when all are at `quality`.
+    pub slots: Vec<i32>,
     pub gains: Vec<GainView>,
 }
 
@@ -271,6 +282,7 @@ impl From<Slot> for SlotView {
             blueprint: s.blueprint,
             crafted: s.crafted.map(|c| CraftedMarkView {
                 quality: c.quality,
+                slots: c.slots,
                 gains: c.gains.into_iter().map(Into::into).collect(),
             }),
             children: s.children.into_iter().map(Into::into).collect(),
@@ -288,6 +300,10 @@ pub struct EditView {
     /// (0..=1000); `null`: as the shops sell it.
     #[serde(default)]
     pub quality: Option<i32>,
+    /// A quality per material slot, in the recipe's order, when they
+    /// differ (`quality` is their highest); empty: all at `quality`.
+    #[serde(default)]
+    pub qualities: Vec<i32>,
 }
 
 /// A ship and how it differs from stock.
@@ -309,6 +325,7 @@ impl From<ShipLoadoutView> for LoadoutInput {
                     path: e.path,
                     item: e.item,
                     quality: e.quality,
+                    qualities: e.qualities,
                 })
                 .collect(),
         }
@@ -903,6 +920,8 @@ pub struct StatView {
     pub value: f64,
     pub unit: String,
     pub better: i32,
+    /// The figure as sold when crafting moved it; null otherwise.
+    pub stock: Option<f64>,
 }
 
 impl From<Stat> for StatView {
@@ -913,6 +932,7 @@ impl From<Stat> for StatView {
             value: s.value,
             unit: s.unit,
             better: i32::from(s.better),
+            stock: s.stock,
         }
     }
 }
@@ -972,6 +992,12 @@ pub struct CandidateView {
     pub sub_type: String,
     pub stats: Vec<StatView>,
     pub fitted: bool,
+    /// Its figures are crafted at the picker's qualities.
+    pub crafted: bool,
+    /// The mark it is compared at, to fit it as its row reads: the highest
+    /// quality, and a quality per slot (empty when all are alike). Null
+    /// when it is compared as sold.
+    pub craft: Option<CraftMarkView>,
     pub impact: ImpactView,
     /// Free owned copies by place, most first; null without an inventory
     /// snapshot (My Items never refreshed).
@@ -1054,6 +1080,10 @@ impl From<Candidate> for CandidateView {
             sub_type: c.sub_type,
             stats: c.stats.into_iter().map(Into::into).collect(),
             fitted: c.fitted,
+            crafted: c.crafted,
+            craft: c
+                .craft
+                .map(|(quality, slots)| CraftMarkView { quality, slots }),
             impact: ImpactView {
                 supply: c.impact.supply.map(|s| s as i32),
                 free: c.impact.free.map(|f| f as i32),
@@ -1109,7 +1139,9 @@ fn owned_free(finder: &mod_items::Finder) -> HashMap<String, Vec<OwnedPartView>>
 // ── Commands ────────────────────────────────────────────────────────────────
 
 /// What else fits the port at `targets[0]`, each option with its figures
-/// and the ship with it fitted on every target port.
+/// and the ship with it fitted on every target port. With `craft` (per
+/// crafting property GUID, the qualities of the fitted part's slots that
+/// move it) the options a blueprint makes are compared crafted.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn ships_candidates(
@@ -1118,6 +1150,7 @@ pub(crate) async fn ships_candidates(
     loadout: ShipLoadoutView,
     power: PowerSettingsView,
     targets: Vec<Vec<String>>,
+    craft: Option<std::collections::HashMap<String, Vec<i32>>>,
 ) -> Result<Vec<CandidateView>, AppError> {
     use tauri::Manager;
     let cooked = cooked_for(&app, &channel).await?;
@@ -1128,7 +1161,14 @@ pub(crate) async fn ships_candidates(
     let settings: PowerInput = power.into();
     tauri::async_runtime::spawn_blocking(move || {
         let recipes = svc_data::Recipes::new(blueprints.as_deref(), &cooked.crafting);
-        let list = mod_ships::candidates(&cooked, &recipes, &input, &settings, &targets)?;
+        let list = mod_ships::candidates(
+            &cooked,
+            &recipes,
+            &input,
+            &settings,
+            &targets,
+            craft.as_ref(),
+        )?;
         let owned = inventory.map(|inv| owned_free(&mod_items::finder(&inv, &cooked)));
         // UEX's cached prices (no network), loaded for this list and dropped.
         let prices = uex.snapshot();
@@ -1929,6 +1969,7 @@ impl From<ShipDraftView> for mod_ships::Draft {
                     path: e.path,
                     item: e.item,
                     quality: e.quality,
+                    qualities: e.qualities,
                 })
                 .collect(),
             off: v.off,
@@ -1948,6 +1989,7 @@ fn edit_views(edits: &[Edit]) -> Vec<EditView> {
             path: e.path.clone(),
             item: e.item.clone(),
             quality: e.quality,
+            qualities: e.qualities.clone(),
         })
         .collect()
 }
