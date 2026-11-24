@@ -23,6 +23,6 @@ export const langpatchModule: ModuleDescriptor = {
     lead: "Which installs to patch, and which patchers.",
     component: Setup,
   },
-  nav: [{ href: "/langpatch", label: "Text Patching", icon: Languages }],
+  nav: [{ href: "/langpatch", label: "Text Patching", icon: Languages, section: "companion" }],
   installStatus: { label: "Text", component: InstallStatus },
 };

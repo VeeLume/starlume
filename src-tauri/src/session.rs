@@ -161,6 +161,11 @@ impl Store {
         mod_session::is_session_id(id).then(|| self.dir.join(format!("{id}.json")))
     }
 
+    /// A session's capture (`capture.rs`): its frames and its Game.log.
+    fn capture_dir(&self, id: &str) -> Option<PathBuf> {
+        mod_session::is_session_id(id).then(|| self.dir.join(format!("{id}.capture")))
+    }
+
     /// The kept sessions, newest first.
     fn index(&self) -> Vec<SessionSummary> {
         app_kit::load_json(&self.index_path())
@@ -190,6 +195,9 @@ impl Store {
         for dropped in index.drain(HISTORY_CAP.min(index.len())..) {
             if let Some(old) = self.session_path(&dropped.id) {
                 let _ = std::fs::remove_file(old);
+            }
+            if let Some(capture) = self.capture_dir(&dropped.id) {
+                let _ = std::fs::remove_dir_all(capture);
             }
         }
         write_compact(&self.index_path(), &index)?;
@@ -458,6 +466,8 @@ fn feed(app: &AppHandle, call: impl FnOnce(&mut Host) -> Outcome + Send + 'stati
             .run(&Store::at_data_root(), gates, call);
         if let Some(change) = change {
             let _ = app.emit(SESSION_CHANGED_EVENT, change);
+            crate::presence::nudge(&app);
+            crate::capture::on_session_change(&app);
         }
     });
     let _ = QUEUE.send(job);
@@ -571,6 +581,8 @@ pub(crate) fn flush(app: &AppHandle) {
     if gates(app).module {
         HOST.lock().unwrap().checkpoint(&Store::at_data_root());
     }
+    // The capture's held frames: the session goes on after a restart.
+    crate::capture::flush();
 }
 
 // ── IPC ─────────────────────────────────────────────────────────────────────
@@ -585,7 +597,10 @@ pub struct SessionStateView {
     /// vehicles, no deaths.
     pub telemetry_enabled: bool,
     /// The live session, or the last one seen in this run of the app.
+    /// While a replay runs (dev builds), the replayed session.
     pub current: Option<Session>,
+    /// The replay that stands in for the live session, if one runs.
+    pub replay: Option<ReplayView>,
 }
 
 /// The session the watcher follows right now, from its first line. The
@@ -632,11 +647,65 @@ pub(crate) async fn session_state(app: AppHandle) -> SessionStateView {
         feed(&app, move |host| host.seed(|| watched(&handle)));
     }
     drained().await;
-    SessionStateView {
+    let mut view = SessionStateView {
         log_enabled: gates.log,
         telemetry_enabled: gates.telemetry,
         current: HOST.lock().unwrap().reducer.current().cloned(),
+        replay: None,
+    };
+    if let Some(r) = REPLAY.lock().unwrap().as_ref() {
+        view.current = Some(r.shown.clone());
+        view.replay = Some(r.view());
     }
+    view
+}
+
+/// The session being played right now, for Discord Rich Presence
+/// (`presence.rs`): `None` while the module is off or no game runs. A copy
+/// of the reducer's: the presence worker reads it off this module's queue.
+pub(crate) fn live(app: &AppHandle) -> Option<Session> {
+    if !gates(app).module {
+        return None;
+    }
+    if let Some(r) = REPLAY.lock().unwrap().as_ref() {
+        return Some(r.shown.clone());
+    }
+    HOST.lock()
+        .unwrap()
+        .reducer
+        .current()
+        .filter(|s| s.live)
+        .cloned()
+}
+
+/// The session being played right now, by id, for captures (`capture.rs`):
+/// never a replay. `None` while the module is off or no game runs.
+pub(crate) fn live_id(app: &AppHandle) -> Option<String> {
+    if !gates(app).module {
+        return None;
+    }
+    HOST.lock()
+        .unwrap()
+        .reducer
+        .current()
+        .filter(|s| s.live)
+        .map(|s| s.id.clone())
+}
+
+/// Where a session's capture is kept; `None` for an id that is not one.
+pub(crate) fn capture_dir(id: &str) -> Option<PathBuf> {
+    Store::at_data_root().capture_dir(id)
+}
+
+/// The sessions directory, where the captures sit beside the sessions.
+pub(crate) fn sessions_dir() -> PathBuf {
+    Store::at_data_root().dir
+}
+
+/// The Game.log a filed session was read from, if it is still there.
+pub(crate) fn log_for(app: &AppHandle, id: &str) -> Option<PathBuf> {
+    let session = Store::at_data_root().get(id)?;
+    log_of(&game_dirs(app), &session)
 }
 
 /// Your average minutes per mission contract (its record name), measured
@@ -688,6 +757,146 @@ pub(crate) async fn session_get(app: AppHandle, id: String) -> Result<Option<Ses
     tokio::task::spawn_blocking(move || Store::at_data_root().get(&id))
         .await
         .map_err(|e| AppError::Internal(format!("session read failed: {e}")))
+}
+
+// ── Replay (dev builds) ─────────────────────────────────────────────────────
+
+/// A past session played back as if it were the live one, cut after its
+/// first `step` entries, for debugging what follows the live session (the
+/// Session Log page, Discord Rich Presence) without playing. Dev builds
+/// only. While it runs, [`session_state`] and [`live`] hand out the cut
+/// session instead of the reducer's; the reducer keeps running underneath
+/// and nothing of the replay is written.
+struct Replay {
+    source: Session,
+    step: usize,
+    shown: Session,
+}
+
+static REPLAY: LazyLock<Mutex<Option<Replay>>> = LazyLock::new(Mutex::default);
+
+/// Where a replay stands, for the page's step bar.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, specta::Type)]
+pub struct ReplayView {
+    /// The past session played back.
+    pub id: String,
+    /// Entries shown: 0 is before the first.
+    pub step: u32,
+    pub total: u32,
+    /// The last entry shown: its kind (`mission_accepted`) and when, in
+    /// the session's own time.
+    pub kind: Option<String>,
+    #[specta(type = Option<f64>)]
+    pub at: Option<Millis>,
+}
+
+impl Replay {
+    fn view(&self) -> ReplayView {
+        let last = self
+            .step
+            .checked_sub(1)
+            .and_then(|i| self.source.timeline.get(i));
+        ReplayView {
+            id: self.source.id.clone(),
+            step: self.step as u32,
+            total: self.source.timeline.len() as u32,
+            kind: last.and_then(|e| {
+                serde_json::to_value(&e.kind)
+                    .ok()?
+                    .get("type")?
+                    .as_str()
+                    .map(str::to_owned)
+            }),
+            at: last.map(|e| e.at),
+        }
+    }
+}
+
+/// `s` as it stood after its first `step` entries, live, every time moved so
+/// the last entry shown happened at `now`: timers, "since" and staleness
+/// read as they did then. What happened later is not known yet: arrivals,
+/// shard leaves and the wallet are cut too.
+fn replay_cut(s: &Session, step: usize, now: Millis) -> Session {
+    let step = step.min(s.timeline.len());
+    let timeline = &s.timeline[..step];
+    let cut = timeline.last().map_or(s.started_at, |e| e.at);
+    let shift = now - cut;
+    let at = |t: Millis| t + shift;
+    let timeline = timeline
+        .iter()
+        .cloned()
+        .map(|mut e| {
+            e.at = at(e.at);
+            if let mod_session::EntryKind::QuantumTravel { arrived_at, .. } = &mut e.kind {
+                *arrived_at = arrived_at.filter(|a| *a <= cut).map(at);
+            }
+            e
+        })
+        .collect();
+    Session {
+        started_at: at(s.started_at),
+        ended_at: None,
+        last_activity_at: now,
+        live: true,
+        end_reason: None,
+        shards: s
+            .shards
+            .iter()
+            .filter(|sh| sh.joined_at <= cut)
+            .map(|sh| mod_session::ShardStay {
+                shard: sh.shard.clone(),
+                joined_at: at(sh.joined_at),
+                left_at: sh.left_at.filter(|l| *l <= cut).map(at),
+            })
+            .collect(),
+        timeline,
+        timeline_dropped: 0,
+        wallet: mod_session::Wallet::default(),
+        ..s.clone()
+    }
+}
+
+/// Start, step or stop a replay (dev builds): `id` a filed session and
+/// `step` the entries to show (clamped); `id: None` stops it. Announces the
+/// change like a live one, so the page and Rich Presence follow.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn session_replay(
+    app: AppHandle,
+    id: Option<String>,
+    step: u32,
+) -> Result<Option<ReplayView>, AppError> {
+    if !cfg!(debug_assertions) {
+        return Err(AppError::Config("replay is for dev builds".into()));
+    }
+    let view = tokio::task::spawn_blocking(move || -> Result<Option<ReplayView>, AppError> {
+        let mut replay = REPLAY.lock().unwrap();
+        let Some(id) = id else {
+            *replay = None;
+            return Ok(None);
+        };
+        let source = match replay.take() {
+            Some(r) if r.source.id == id => r.source,
+            _ => Store::at_data_root()
+                .get(&id)
+                .ok_or_else(|| AppError::Config(format!("no filed session {id}")))?,
+        };
+        let step = (step as usize).min(source.timeline.len());
+        let shown = replay_cut(&source, step, now_ms());
+        let r = Replay {
+            source,
+            step,
+            shown,
+        };
+        let view = r.view();
+        *replay = Some(r);
+        Ok(Some(view))
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("replay failed: {e}")))??;
+    let _ = app.emit(SESSION_CHANGED_EVENT, SessionChange { history: false });
+    crate::presence::nudge(&app);
+    Ok(view)
 }
 
 // ── Reading a past session again ────────────────────────────────────────────
@@ -1183,6 +1392,68 @@ mod tests {
             host.reducer.log_session_ended(now_ms())
         });
         assert!(host.reducer.current().is_some());
+    }
+
+    #[test]
+    fn a_replay_cut_knows_only_what_happened_so_far_and_happens_now() {
+        use mod_session::{Entry, EntryKind, ShardStay};
+        let entry = |at: Millis, kind: EntryKind| Entry {
+            at,
+            kind,
+            ..Entry::default()
+        };
+        let past = Session {
+            id: "2026-11-22T19-24-53.832Z".into(),
+            started_at: 1_000,
+            ended_at: Some(9_000),
+            shards: vec![ShardStay {
+                shard: "pub".into(),
+                joined_at: 2_000,
+                left_at: Some(7_000),
+            }],
+            timeline: vec![
+                entry(
+                    2_000,
+                    EntryKind::ShardJoined {
+                        shard: "pub".into(),
+                    },
+                ),
+                entry(
+                    3_000,
+                    EntryKind::QuantumTravel {
+                        from: None,
+                        to: "OOC_Stanton_2c_Yela".into(),
+                        vehicle: None,
+                        arrived_at: Some(5_000),
+                    },
+                ),
+                entry(
+                    6_000,
+                    EntryKind::Location {
+                        location: "Yela".into(),
+                    },
+                ),
+            ],
+            ..Session::default()
+        };
+        let cut = replay_cut(&past, 2, 100_000);
+        assert!(cut.live);
+        assert_eq!(cut.ended_at, None);
+        assert_eq!(cut.timeline.len(), 2);
+        assert_eq!(cut.started_at, 98_000);
+        assert_eq!(cut.timeline[1].at, 100_000);
+        // The arrival was after the cut: still under way.
+        assert!(matches!(
+            cut.timeline[1].kind,
+            EntryKind::QuantumTravel {
+                arrived_at: None,
+                ..
+            }
+        ));
+        assert_eq!(cut.shards[0].joined_at, 99_000);
+        assert_eq!(cut.shards[0].left_at, None);
+        assert_eq!(replay_cut(&past, 99, 100_000).timeline.len(), 3);
+        assert!(replay_cut(&past, 0, 100_000).shards.is_empty());
     }
 
     #[test]

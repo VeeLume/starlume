@@ -19,6 +19,7 @@ members = [
     "crates/svc-commlinks",
     "crates/svc-dossier",
     "crates/svc-patchnotes",
+    "crates/svc-presence",
     "crates/svc-shipstore",
     "crates/svc-uex",
     "crates/svc-log",
@@ -60,6 +61,9 @@ sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.16.0", f
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
+# Session captures (svc-telemetry::capture): gzip blocks. Already in the
+# tree through other crates.
+flate2 = "1"
 
 # Device-token storage in Windows Credential Manager (the fleetsync pattern).
 keyring = { version = "3", features = ["windows-native"] }
@@ -102,6 +106,7 @@ sc-nav-glyph = { git = "https://github.com/VeeLume/sc-nav", rev = "49dd267cb61f7
 svc-commlinks = { path = "crates/svc-commlinks" }
 svc-dossier = { path = "crates/svc-dossier" }
 svc-patchnotes = { path = "crates/svc-patchnotes" }
+svc-presence = { path = "crates/svc-presence" }
 svc-shipstore = { path = "crates/svc-shipstore" }
 svc-uex = { path = "crates/svc-uex" }
 svc-log = { path = "crates/svc-log" }

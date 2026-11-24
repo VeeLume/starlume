@@ -24,6 +24,7 @@
     uninstallTelemetryEnv,
     watchTelemetry,
   } from "$lib/state/telemetry.svelte";
+  import { commands, type CaptureUsage } from "$lib/bindings";
 
   const settings = $derived(settingsStore.current);
   let error = $state("");
@@ -35,8 +36,25 @@
     void loadSettings();
     void loadStatus();
     void loadBuilds();
+    void loadCaptures();
     return watchTelemetry();
   });
+
+  // Session captures: what they take now (a directory walk Rust-side).
+  let captures = $state<CaptureUsage | null>(null);
+  async function loadCaptures() {
+    captures = await commands.sessionCaptureUsage();
+  }
+  function setCaptureBudget(next: number | null) {
+    if (next == null || !Number.isFinite(next)) return;
+    const mb = Math.max(50, Math.round(next));
+    if (mb !== settings?.session_capture_budget_mb)
+      void apply({ session_capture_budget_mb: mb }).then(loadCaptures);
+  }
+  async function revealCaptures() {
+    const r = await commands.sessionCaptureReveal();
+    if (r.status === "error") error = r.error.message;
+  }
 
   // The connection in plain words. "no_stream" covers two cases the port
   // cannot tell apart: the game is still starting, or it runs without the
@@ -110,8 +128,13 @@
     if (releases !== settings?.archive_releases) void apply({ archive_releases: releases });
   }
 
-  const megabytes = (bytes: number) =>
-    `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(bytes / 1048576)} MB`;
+  // Whole megabytes for builds; a capture of a short session is well under
+  // one, so small sizes keep a decimal or say kilobytes.
+  const megabytes = (bytes: number) => {
+    if (bytes < 1048576) return `${new Intl.NumberFormat().format(Math.ceil(bytes / 1024))} KB`;
+    const mb = bytes / 1048576;
+    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: mb < 10 ? 1 : 0 }).format(mb)} MB`;
+  };
 
   const totalBytes = $derived(dataStore.builds.reduce((sum, b) => sum + b.bytes, 0));
 </script>
@@ -292,6 +315,37 @@
             from Starlume: quit it from its tray icon and start it again for this to take effect.
           </p>
         {/if}
+      {/if}
+    </Settings.Section>
+  {/if}
+
+  {#if settings && settings.enabled_modules.includes("session")}
+    <Settings.Section title="Session captures">
+      <Settings.Row
+        label="Capture full sessions"
+        hint="Keep everything the game reported during each session: every telemetry frame and the session's Game.log, compressed, beside the session on this PC. About 3 MB an hour of play. For looking into what the game sends; nothing is sent anywhere."
+      >
+        <Switch
+          label="Capture full sessions"
+          checked={settings.session_capture}
+          onchange={(v) => apply({ session_capture: v }).then(loadCaptures)}
+        />
+      </Settings.Row>
+      <Settings.Row label="Space for captures, MB" hint="When all captures together pass this, the oldest are deleted. A capture also goes when its session leaves the Session Log's history.">
+        <NumberInput
+          value={settings.session_capture_budget_mb ?? 500}
+          onchange={setCaptureBudget}
+          format={{ maximumFractionDigits: 0 }}
+          class="w-24"
+        />
+      </Settings.Row>
+      {#if captures && (captures.sessions > 0 || captures.recording)}
+        <Settings.Row
+          label={`${captures.sessions} ${captures.sessions === 1 ? "session" : "sessions"} captured`}
+          hint={`${megabytes(captures.bytes)} on disk${captures.recording ? ", recording now" : ""}.`}
+        >
+          <Button variant="outline" onclick={revealCaptures}>Open folder</Button>
+        </Settings.Row>
       {/if}
     </Settings.Section>
   {/if}

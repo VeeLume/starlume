@@ -21,6 +21,7 @@ crates/
 ├── svc-patchnotes/ LIVE patch notes from RSI's public pages, paced + cached (online)
 ├── svc-commlinks/  newest comm-links from RSI's public listing, cached + first-seen (online)
 ├── svc-telemetry/  the running game's local telemetry stream → current state (own opt-in)
+├── svc-presence/   Discord Rich Presence: what a moment shows, the local IPC client (gated)
 ├── svc-log/        ONE Game.log tailer: typed events, the current game session
 ├── svc-sync/       server client: device-token auth, outbox, reference upload (stub)
 ├── mod-langpatch/  Text Patching

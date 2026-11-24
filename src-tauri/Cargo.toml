@@ -88,6 +88,7 @@ svc-spectrum.workspace = true
 svc-patchnotes.workspace = true
 svc-commlinks.workspace = true
 svc-shipstore.workspace = true
+svc-presence = { workspace = true, features = ["specta"] }
 svc-uex.workspace = true
 svc-telemetry.workspace = true
 

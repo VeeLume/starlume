@@ -292,7 +292,32 @@ describe("readSession", () => {
       jurisdictions: ["Brell Mining"],
       armistice: false,
       arrivedAt: T0 + 10 * MIN,
+      leftAt: null,
     });
+  });
+
+  it("knows a place was left: seated through a jurisdiction change, the armistice zone, a quantum course", () => {
+    const where = (timeline: Entry[]) => readSession(session(timeline), names, T0 + 30 * MIN).status.where;
+    const arrived = entry(1, T0 + MIN, location("Vega2_NewCorvo"));
+    // On foot, a change is the place's own.
+    expect(where([arrived, entry(2, T0 + 2 * MIN, jurisdiction("Open Space"))])?.leftAt).toBeNull();
+    // Seated, it is flying off.
+    expect(
+      where([arrived, entry(2, T0 + 2 * MIN, entered, "telemetry"), entry(3, T0 + 3 * MIN, jurisdiction("Open Space"))])
+        ?.leftAt,
+    ).toBe(T0 + 3 * MIN);
+    expect(where([arrived, entry(2, T0 + 4 * MIN, { type: "zone", zone: "Armistice", entered: false })])?.leftAt).toBe(
+      T0 + 4 * MIN,
+    );
+    expect(where([arrived, entry(2, T0 + 5 * MIN, { ...trip, arrived_at: null })])?.leftAt).toBe(T0 + 5 * MIN);
+    // The next place is where you are again.
+    expect(
+      where([
+        arrived,
+        entry(2, T0 + 5 * MIN, { ...trip, arrived_at: null }),
+        entry(3, T0 + 9 * MIN, location("Vega3_Tarnhold")),
+      ]),
+    ).toMatchObject({ name: "Tarnhold", leftAt: null });
   });
 
   it("keeps only the arrival's jurisdiction without telemetry", () => {

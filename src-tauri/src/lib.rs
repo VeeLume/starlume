@@ -25,6 +25,7 @@
 mod activity;
 mod auth;
 mod bus;
+mod capture;
 mod commlinks;
 mod crafting;
 mod data;
@@ -47,6 +48,7 @@ mod patchnotes;
 mod performance;
 mod plans;
 mod plans_contracts;
+mod presence;
 mod sc;
 mod session;
 mod session_names;

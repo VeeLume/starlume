@@ -1420,6 +1420,13 @@ async sessionState() : Promise<SessionStateView> {
     return await TAURI_INVOKE("session_state");
 },
 /**
+ * What Discord shows now and why; while the switch is off, what it would
+ * show, for the preview.
+ */
+async presenceState() : Promise<PresenceView> {
+    return await TAURI_INVOKE("presence_state");
+},
+/**
  * The finished sessions, newest first (at most [`HISTORY_CAP`]). One small
  * file read, after the queue has drained (so a session being filed is in
  * it); empty while the module is off.
@@ -1461,6 +1468,33 @@ async sessionGet(id: string) : Promise<Result<Session | null, AppError>> {
 async sessionReread(id: string) : Promise<Result<SessionSummary | null, AppError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("session_reread", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Start, step or stop a replay (dev builds): `id` a filed session and
+ * `step` the entries to show (clamped); `id: None` stops it. Announces the
+ * change like a live one, so the page and Rich Presence follow.
+ */
+async sessionReplay(id: string | null, step: number) : Promise<Result<ReplayView | null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("session_replay", { id, step }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async sessionCaptureUsage() : Promise<CaptureUsage> {
+    return await TAURI_INVOKE("session_capture_usage");
+},
+/**
+ * Open the folder the captures are in.
+ */
+async sessionCaptureReveal() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("session_capture_reveal") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1615,6 +1649,15 @@ async leaveGroup(groupId: string) : Promise<Result<null, AppError>> {
  * G per direction.
  */
 export type AccelView = { forward: number; backward: number; left: number; right: number; up: number; down: number }
+export type Activity = { 
+/**
+ * The top line: what you are doing.
+ */
+details?: string | null; 
+/**
+ * The second line: where.
+ */
+state?: string | null; timestamps?: Timestamps | null; assets?: Assets | null; buttons: Button[] }
 /**
  * What kind of work an activity is — inline surfaces filter on it.
  */
@@ -1849,7 +1892,24 @@ telemetry_enabled: boolean;
  * **not** behind `online_enabled`. Turning it on starts the watcher
  * (`gamelog::sync`); off, no log is statted or read.
  */
-gamelog_enabled: boolean }
+gamelog_enabled: boolean; 
+/**
+ * Keep a capture of every session (Session Log): all its telemetry
+ * frames and its Game.log, compressed, beside the session's file
+ * (`capture.rs`). Default OFF. About 3 MB an hour.
+ */
+session_capture: boolean; 
+/**
+ * The most all captures may take together, in MB; the oldest go
+ * first. Default 500.
+ */
+session_capture_budget_mb?: number; 
+/**
+ * Discord Rich Presence (Settings › Discord). Sends what you are doing
+ * to the Discord app, which publishes it: a network call, so it also
+ * needs `online_enabled`. Off by default.
+ */
+presence: PresenceSettings }
 export type AreaRockView = { rockType: string; name: string; 
 /**
  * Share of the area's ship-mineable rocks.
@@ -1915,6 +1975,11 @@ export type ArticleRefView = { url: string; title: string; version: string | nul
  * Relative, as RSI's index shows it ("1 year ago").
  */
 age_text: string }
+/**
+ * An image is an asset key uploaded to the Discord application, or an
+ * https URL Discord fetches itself; its text is the hover.
+ */
+export type Assets = { large_image?: string | null; large_text?: string | null; small_image?: string | null; small_text?: string | null }
 /**
  * One attachment of an [`EntryKind::Attachments`] entry.
  */
@@ -2007,6 +2072,10 @@ export type BpPoolEntryView = { blueprint_record_guid: string; name: string | nu
 export type BpPoolRewardView = { pool_name: string; chance: number; blueprints: BpPoolEntryView[] }
 export type BuildInfoView = { label: string; value: string }
 /**
+ * A link under the activity. Discord hides buttons on your own profile.
+ */
+export type Button = { label: string; url: string }
+/**
  * One option for a port.
  */
 export type CandidateView = { item: string; name: string; recordName: string; size: number; grade: number; class: string | null; itemType: string; subType: string; stats: StatView[]; fitted: boolean; 
@@ -2047,6 +2116,14 @@ export type CaptureKind =
  * Scan mode, a signature pinged.
  */
 "signature"
+/**
+ * What the captures take, for Settings.
+ */
+export type CaptureUsage = { sessions: number; bytes: number; 
+/**
+ * A capture is being written now.
+ */
+recording: boolean }
 export type CaptureView = { kind: CaptureKind; 
 /**
  * The image read (a kept capture, or the picked file).
@@ -3778,6 +3855,19 @@ export type PickView = { kind: "average" } | { kind: "mostCommon" } | { kind: "s
  * Spawn tables at a Lagrange point, by what they spawn at.
  */
 export type PlaceGroupView = { title: string | null; detail: string | null; areas: string[] }
+export type PlaceLevel = 
+/**
+ * The station, moon or quantum target.
+ */
+"exact" | 
+/**
+ * Only the system: Stanton, Pyro, Nyx.
+ */
+"system" | 
+/**
+ * No place; State shows progress.
+ */
+"off"
 /**
  * A place in the generator's tree, or a field standing for many places.
  */
@@ -4115,6 +4205,71 @@ plants: PlantView[];
  */
 sources: SourceView[] }
 /**
+ * What Discord Rich Presence shares ([`AppSettings::presence`]; decision
+ * 01a2085d). Mirrors `svc_presence::Share` plus the switch.
+ */
+export type PresenceSettings = { 
+/**
+ * Show the game on Discord at all. Default OFF.
+ */
+enabled: boolean; 
+/**
+ * How much of the place: exact, the system (default), or none.
+ */
+place: PlaceLevel; 
+/**
+ * The ship's picture and name.
+ */
+ship: boolean; 
+/**
+ * The contract's type and faction; its title and progress on hover.
+ */
+contracts: boolean; 
+/**
+ * The "Get Starlume" button.
+ */
+button: boolean }
+/**
+ * Why Discord shows what it shows.
+ */
+export type PresenceStatus = 
+/**
+ * The switch is off.
+ */
+"off" | 
+/**
+ * Online features are off.
+ */
+"offline" | 
+/**
+ * The Session Log module is off, or neither of its sources is on.
+ */
+"no_session" | 
+/**
+ * No game session is live.
+ */
+"not_playing" | 
+/**
+ * The Discord app is not running (looked for again every 30 s).
+ */
+"no_discord" | 
+/**
+ * Discord shows the activity.
+ */
+"shown"
+/**
+ * What Discord shows now, for Settings.
+ */
+export type PresenceView = { status: PresenceStatus; 
+/**
+ * What Discord shows; while off, what it would show (the preview).
+ */
+activity: Activity | null; 
+/**
+ * The Discord user the app is signed in as, while connected.
+ */
+user: string | null }
+/**
  * One INI value before and after patching (`mod_langpatch::preview`).
  */
 export type PreviewTextView = { key: string | null; original: string; patched: string }
@@ -4305,6 +4460,23 @@ scope_id: string; score: number;
  * The rank the score falls in (`SReputationStandingParams` GUID).
  */
 standing_id: string | null; standing_min: number | null }
+/**
+ * Where a replay stands, for the page's step bar.
+ */
+export type ReplayView = { 
+/**
+ * The past session played back.
+ */
+id: string; 
+/**
+ * Entries shown: 0 is before the first.
+ */
+step: number; total: number; 
+/**
+ * The last entry shown: its kind (`mission_accepted`) and when, in
+ * the session's own time.
+ */
+kind: string | null; at: number | null }
 /**
  * What became of a request the client sent a shop.
  */
@@ -4658,8 +4830,13 @@ log_enabled: boolean;
 telemetry_enabled: boolean; 
 /**
  * The live session, or the last one seen in this run of the app.
+ * While a replay runs (dev builds), the replayed session.
  */
-current: Session | null }
+current: Session | null; 
+/**
+ * The replay that stands in for the live session, if one runs.
+ */
+replay: ReplayView | null }
 /**
  * A session without its timeline: one row of the history list.
  */
@@ -5169,6 +5346,11 @@ export type TimeSource =
  * recipe's craft time).
  */
 "game"
+/**
+ * Unix seconds. Discord counts up from `start`; with none it counts from
+ * when the activity was first set.
+ */
+export type Timestamps = { start?: number | null; end?: number | null }
 /**
  * One moment of the plan for everyone.
  */

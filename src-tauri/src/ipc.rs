@@ -5,9 +5,10 @@ use specta_typescript::Typescript;
 use tauri_specta::{Builder, collect_commands};
 
 use crate::{
-    activity, auth, commlinks, crafting, data, devtracker, dossier, friends, gamelog, groups,
-    items, langpatch, launcher, mining, mining_capture, modules, notify, patchnotes, performance,
-    plans, sc, session, session_names, settings, ships, telemetry, uex, window,
+    activity, auth, capture, commlinks, crafting, data, devtracker, dossier, friends, gamelog,
+    groups, items, langpatch, launcher, mining, mining_capture, modules, notify, patchnotes,
+    performance, plans, presence, sc, session, session_names, settings, ships, telemetry, uex,
+    window,
 };
 
 /// Single source of truth for the IPC command list. Used both by `run()` at
@@ -144,10 +145,14 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
         plans::plans_board,
         plans::plans_loadout_choices,
         session::session_state,
+        presence::presence_state,
         session::session_history,
         session::session_run_minutes,
         session::session_get,
         session::session_reread,
+        session::session_replay,
+        capture::session_capture_usage,
+        capture::session_capture_reveal,
         session_names::session_names,
         auth::auth_status,
         auth::login_start,

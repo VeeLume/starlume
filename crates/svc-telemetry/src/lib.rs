@@ -33,6 +33,7 @@
 //! runs and drops the [`Reducer`] when the opt-in goes off, so the idle cost
 //! of an unused feature is zero.
 
+pub mod capture;
 pub mod enable;
 mod state;
 mod throttle;

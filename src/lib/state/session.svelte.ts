@@ -73,6 +73,14 @@ export async function loadSession(): Promise<void> {
   _state = await commands.sessionState();
 }
 
+/** Start, step or stop a replay of a past session (dev builds): it stands
+ *  in for the live session until stopped. Returns an error message. */
+export async function replaySession(id: string | null, step: number): Promise<string | null> {
+  const result = await commands.sessionReplay(id, step);
+  await loadSession();
+  return result.status === "ok" ? null : result.error.message;
+}
+
 /** The history list: one small file read. */
 export async function loadHistory(): Promise<void> {
   const result = await commands.sessionHistory();

@@ -123,6 +123,58 @@ pub struct AppSettings {
     /// **not** behind `online_enabled`. Turning it on starts the watcher
     /// (`gamelog::sync`); off, no log is statted or read.
     pub gamelog_enabled: bool,
+    /// Keep a capture of every session (Session Log): all its telemetry
+    /// frames and its Game.log, compressed, beside the session's file
+    /// (`capture.rs`). Default OFF. About 3 MB an hour.
+    pub session_capture: bool,
+    /// The most all captures may take together, in MB; the oldest go
+    /// first. Default 500.
+    #[serde(default = "default_capture_budget")]
+    pub session_capture_budget_mb: u32,
+    /// Discord Rich Presence (Settings › Discord). Sends what you are doing
+    /// to the Discord app, which publishes it: a network call, so it also
+    /// needs `online_enabled`. Off by default.
+    pub presence: PresenceSettings,
+}
+
+/// What Discord Rich Presence shares ([`AppSettings::presence`]; decision
+/// 01a2085d). Mirrors `svc_presence::Share` plus the switch.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(default)]
+pub struct PresenceSettings {
+    /// Show the game on Discord at all. Default OFF.
+    pub enabled: bool,
+    /// How much of the place: exact, the system (default), or none.
+    pub place: svc_presence::PlaceLevel,
+    /// The ship's picture and name.
+    pub ship: bool,
+    /// The contract's type and faction; its title and progress on hover.
+    pub contracts: bool,
+    /// The "Get Starlume" button.
+    pub button: bool,
+}
+
+impl Default for PresenceSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            place: svc_presence::PlaceLevel::System,
+            ship: true,
+            contracts: true,
+            button: false,
+        }
+    }
+}
+
+impl PresenceSettings {
+    pub fn share(&self) -> svc_presence::Share {
+        svc_presence::Share {
+            place: self.place,
+            ship: self.ship,
+            contracts: self.contracts,
+            button: self.button,
+        }
+    }
 }
 
 /// What an install that finished onboarding before the What's-new guide
@@ -139,6 +191,10 @@ pub struct HomeCardPref {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_capture_budget() -> u32 {
+    500
 }
 
 impl Default for AppSettings {
@@ -168,6 +224,9 @@ impl Default for AppSettings {
             ship_holo: true,
             telemetry_enabled: false,
             gamelog_enabled: false,
+            session_capture: false,
+            session_capture_budget_mb: default_capture_budget(),
+            presence: PresenceSettings::default(),
         }
     }
 }
@@ -207,6 +266,11 @@ pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
         "Dev tracker",
         "Read the CIG staff posts feed from Spectrum (RSI's forums and chat) with your launcher session, for the dev tracker.",
     ),
+    (
+        "standing",
+        "Reputation and completed contracts",
+        "Read your reputation with each faction and which contracts you have completed from CIG's backend, so Contracts can show what is open to you.",
+    ),
 ];
 
 /// Unofficial-API features whose consumer hasn't shipped: listed in debug
@@ -214,18 +278,11 @@ pub(crate) const GRPC_FEATURES: &[(&str, &str, &str)] = &[
 /// Rust half of `$lib/unreleased` for features, like the debug-only half of
 /// `modules::registry()`. Move an entry into [`GRPC_FEATURES`] when its
 /// consumer ships.
-const UNRELEASED_GRPC_FEATURES: &[(&str, &str, &str)] = &[
-    (
-        "launcher",
-        "Launcher library",
-        "Read which game channels your account can play and their current builds from the RSI launcher's API, so Home can tell when an install needs an update.",
-    ),
-    (
-        "standing",
-        "Reputation and completed contracts",
-        "Read your reputation with each faction and which contracts you have completed from CIG's backend, so Contracts can show what is open to you.",
-    ),
-];
+const UNRELEASED_GRPC_FEATURES: &[(&str, &str, &str)] = &[(
+    "launcher",
+    "Launcher library",
+    "Read which game channels your account can play and their current builds from the RSI launcher's API, so Home can tell when an install needs an update.",
+)];
 
 /// The unofficial-API features this build offers.
 fn grpc_features() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str)> {
@@ -335,6 +392,10 @@ pub(crate) fn update_settings(
     // After both: the session log lets go of what it holds when its module
     // or its last source went off.
     crate::session::sync(&app);
+    // A capture ends with its switch; a tighter budget trims at once.
+    crate::capture::sync(&app);
+    // Rich Presence follows its switch, its share choices and the online gate.
+    crate::presence::nudge(&app);
     // A tighter archive retention applies right away; a looser one only
     // keeps future builds (pruned ones are gone).
     if retention(&settings) != old_retention {

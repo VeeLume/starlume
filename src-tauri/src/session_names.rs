@@ -124,7 +124,10 @@ fn clean_place_name(internal: &str) -> DisplayName {
 }
 
 /// Answer `query` from `cooked` (or from the cleaners alone without it).
-fn resolve(query: &SessionNameQuery, cooked: Option<&svc_data::CookedData>) -> SessionNames {
+pub(crate) fn resolve(
+    query: &SessionNameQuery,
+    cooked: Option<&svc_data::CookedData>,
+) -> SessionNames {
     let places = cooked.map(|c| c.place_names());
     let by_class = cooked
         .map(|c| c.item_names_by_class(&query.item_classes))
@@ -243,7 +246,7 @@ fn needs_data(query: &SessionNameQuery) -> bool {
 }
 
 /// The channel of the install the app treats as the user's default.
-async fn default_channel(app: &AppHandle) -> Option<String> {
+pub(crate) async fn default_channel(app: &AppHandle) -> Option<String> {
     let cached = app.state::<AppState>().installs.lock().unwrap().clone();
     let installs = if cached.is_empty() {
         crate::data::refresh_installs(app).await.ok()?
