@@ -28,10 +28,12 @@ export const moduleRegistry: ModuleDescriptor[] = [
   itemsModule,
   craftingModule,
   miningModule,
-  ...(SHOW_UNRELEASED ? [contractsModule] : []),
+  contractsModule,
   // Alongside the game (`section: "companion"`).
   sessionModule,
-  discordModule,
+  // Rich Presence waits on telemetry captures to reshape it (Valerie,
+  // 2026-11-24): dev builds only.
+  ...(SHOW_UNRELEASED ? [discordModule] : []),
   langpatchModule,
 ];
 

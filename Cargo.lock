@@ -6086,9 +6086,11 @@ name = "svc-telemetry"
 version = "0.6.0"
 dependencies = [
  "anyhow",
+ "flate2",
  "sc-dossier",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "windows-sys 0.61.2",
  "winreg 0.55.0",

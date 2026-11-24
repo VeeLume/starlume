@@ -15,6 +15,9 @@ sc-dossier.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 tokio.workspace = true
+# Session captures: compressed frame blocks.
+flate2.workspace = true
+serde_json.workspace = true
 
 # The per-user environment variable that makes the game serve the stream
 # (HKCU\Environment), its receipt beside it, and the settings-change
@@ -24,4 +27,4 @@ winreg = "0.55"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
-serde_json.workspace = true
+tempfile.workspace = true

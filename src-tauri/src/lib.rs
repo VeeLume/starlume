@@ -25,6 +25,7 @@
 mod activity;
 mod auth;
 mod bus;
+mod capture;
 mod commlinks;
 mod crafting;
 mod data;

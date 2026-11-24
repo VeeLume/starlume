@@ -206,6 +206,8 @@ async fn read(app: &AppHandle, generation: u64, mut stream: TelemetryStream) {
             Err(_) => throttle.flush(Instant::now()),
             Ok(Ok(Some(frame))) => {
                 let now = chrono::Utc::now();
+                // Every frame, before anything is folded away.
+                crate::capture::on_frame(app, now.timestamp_millis(), &frame);
                 let (change, sample) = with_live(generation, |live| {
                     live.reducer.as_mut().map(|r| {
                         let change = r.apply(&frame, now.timestamp());

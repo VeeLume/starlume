@@ -192,10 +192,10 @@ impl Module for Discord {
 }
 
 /// All modules offered by this build, enabled or not. Unreleased modules
-/// (Contracts) exist only in debug builds — the Rust half of the frontend's
+/// (Discord) exist only in debug builds — the Rust half of the frontend's
 /// `$lib/unreleased` gate (v0.1.0 scope decision; the Dev Tracker shipped in
 /// v0.2.0, Mining in v0.3.0, Ships in v0.4.0, Crafting, Session Log and
-/// Plans in v0.6.0).
+/// Plans in v0.6.0, Contracts in v0.7.0).
 pub(crate) fn registry() -> &'static [&'static dyn Module] {
     if cfg!(debug_assertions) {
         &[
@@ -218,8 +218,8 @@ pub(crate) fn registry() -> &'static [&'static dyn Module] {
             &Mining,
             &Ships,
             &Crafting,
+            &Contracts,
             &SessionLog,
-            &Discord,
             &Plans,
         ]
     }

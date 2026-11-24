@@ -1486,6 +1486,20 @@ async sessionReplay(id: string | null, step: number) : Promise<Result<ReplayView
     else return { status: "error", error: e  as any };
 }
 },
+async sessionCaptureUsage() : Promise<CaptureUsage> {
+    return await TAURI_INVOKE("session_capture_usage");
+},
+/**
+ * Open the folder the captures are in.
+ */
+async sessionCaptureReveal() : Promise<Result<null, AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("session_capture_reveal") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Display names for a session's internal names. Never fails: without game
  * data (not loaded, no install for the channel) every name is the cleaned
@@ -1880,6 +1894,17 @@ telemetry_enabled: boolean;
  */
 gamelog_enabled: boolean; 
 /**
+ * Keep a capture of every session (Session Log): all its telemetry
+ * frames and its Game.log, compressed, beside the session's file
+ * (`capture.rs`). Default OFF. About 3 MB an hour.
+ */
+session_capture: boolean; 
+/**
+ * The most all captures may take together, in MB; the oldest go
+ * first. Default 500.
+ */
+session_capture_budget_mb?: number; 
+/**
  * Discord Rich Presence (Settings › Discord). Sends what you are doing
  * to the Discord app, which publishes it: a network call, so it also
  * needs `online_enabled`. Off by default.
@@ -2091,6 +2116,14 @@ export type CaptureKind =
  * Scan mode, a signature pinged.
  */
 "signature"
+/**
+ * What the captures take, for Settings.
+ */
+export type CaptureUsage = { sessions: number; bytes: number; 
+/**
+ * A capture is being written now.
+ */
+recording: boolean }
 export type CaptureView = { kind: CaptureKind; 
 /**
  * The image read (a kept capture, or the picked file).

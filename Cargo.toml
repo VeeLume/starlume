@@ -61,6 +61,9 @@ sc-dossier = { git = "https://github.com/VeeLume/sc-dossier", tag = "v0.16.0", f
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
+# Session captures (svc-telemetry::capture): gzip blocks. Already in the
+# tree through other crates.
+flate2 = "1"
 
 # Device-token storage in Windows Credential Manager (the fleetsync pattern).
 keyring = { version = "3", features = ["windows-native"] }

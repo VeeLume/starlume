@@ -161,6 +161,11 @@ impl Store {
         mod_session::is_session_id(id).then(|| self.dir.join(format!("{id}.json")))
     }
 
+    /// A session's capture (`capture.rs`): its frames and its Game.log.
+    fn capture_dir(&self, id: &str) -> Option<PathBuf> {
+        mod_session::is_session_id(id).then(|| self.dir.join(format!("{id}.capture")))
+    }
+
     /// The kept sessions, newest first.
     fn index(&self) -> Vec<SessionSummary> {
         app_kit::load_json(&self.index_path())
@@ -190,6 +195,9 @@ impl Store {
         for dropped in index.drain(HISTORY_CAP.min(index.len())..) {
             if let Some(old) = self.session_path(&dropped.id) {
                 let _ = std::fs::remove_file(old);
+            }
+            if let Some(capture) = self.capture_dir(&dropped.id) {
+                let _ = std::fs::remove_dir_all(capture);
             }
         }
         write_compact(&self.index_path(), &index)?;
@@ -459,6 +467,7 @@ fn feed(app: &AppHandle, call: impl FnOnce(&mut Host) -> Outcome + Send + 'stati
         if let Some(change) = change {
             let _ = app.emit(SESSION_CHANGED_EVENT, change);
             crate::presence::nudge(&app);
+            crate::capture::on_session_change(&app);
         }
     });
     let _ = QUEUE.send(job);
@@ -572,6 +581,8 @@ pub(crate) fn flush(app: &AppHandle) {
     if gates(app).module {
         HOST.lock().unwrap().checkpoint(&Store::at_data_root());
     }
+    // The capture's held frames: the session goes on after a restart.
+    crate::capture::flush();
 }
 
 // ── IPC ─────────────────────────────────────────────────────────────────────
@@ -665,6 +676,36 @@ pub(crate) fn live(app: &AppHandle) -> Option<Session> {
         .current()
         .filter(|s| s.live)
         .cloned()
+}
+
+/// The session being played right now, by id, for captures (`capture.rs`):
+/// never a replay. `None` while the module is off or no game runs.
+pub(crate) fn live_id(app: &AppHandle) -> Option<String> {
+    if !gates(app).module {
+        return None;
+    }
+    HOST.lock()
+        .unwrap()
+        .reducer
+        .current()
+        .filter(|s| s.live)
+        .map(|s| s.id.clone())
+}
+
+/// Where a session's capture is kept; `None` for an id that is not one.
+pub(crate) fn capture_dir(id: &str) -> Option<PathBuf> {
+    Store::at_data_root().capture_dir(id)
+}
+
+/// The sessions directory, where the captures sit beside the sessions.
+pub(crate) fn sessions_dir() -> PathBuf {
+    Store::at_data_root().dir
+}
+
+/// The Game.log a filed session was read from, if it is still there.
+pub(crate) fn log_for(app: &AppHandle, id: &str) -> Option<PathBuf> {
+    let session = Store::at_data_root().get(id)?;
+    log_of(&game_dirs(app), &session)
 }
 
 /// Your average minutes per mission contract (its record name), measured
