@@ -30,6 +30,33 @@ export interface ReleaseGuide {
 
 export const RELEASE_GUIDES: ReleaseGuide[] = [
   {
+    version: "0.7.0",
+    changes: [
+      {
+        kind: "changed",
+        title: "Plan and Bookmark",
+        body: "Two icons at the end of a row on Ships, Crafting, Contracts and Mining: Plan to work on it now, Bookmark to keep it for later. What you marked as wanted in Crafting is now a bookmark.",
+        href: "/plans",
+        action: "Open Plans",
+      },
+      {
+        kind: "changed",
+        title: "Plans finds the way",
+        body: "A blueprint to earn follows the path to its nearest mission and says the runs it takes; a rank to reach says the time. The page keeps the plan you focus on beside all your plans, and you can drag them into the order you want.",
+        href: "/plans",
+        action: "Open Plans",
+      },
+      {
+        kind: "setting",
+        title: "Capture full sessions",
+        body: "Settings → Game data can keep everything the game reported during each session, compressed on this PC: about 1.5 MB an hour of play. Off unless you turn it on.",
+        href: "/settings/game-data",
+        action: "Open Game data",
+        yours: (s) => (s.session_capture ? "on" : "off"),
+      },
+    ],
+  },
+  {
     version: "0.6.0",
     changes: [
       {
