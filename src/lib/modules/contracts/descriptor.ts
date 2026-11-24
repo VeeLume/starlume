@@ -15,8 +15,11 @@ export const contractsModule: ModuleDescriptor = {
     "Every mission in the game: what it gives, where it runs, what rank it needs and what you will fight.",
   pitch: [
     "Every mission with its pay, rep and blueprint pool",
-    "The rank each one needs, on the faction's ladder",
-    "Which missions grant a blueprint, and the odds",
+    "Your standing with each faction, and what its next rank opens",
+    "Your own time per mission, from your Session Log",
   ],
+  needsGame: true,
+  // Your standing; without it the catalog still lists every mission.
+  unofficial: [{ feature: "standing", required: false }],
   nav: [{ href: "/contracts", label: "Contracts", icon: ScrollText }],
 };

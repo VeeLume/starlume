@@ -2,6 +2,59 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-24
+
+Starlume gets Contracts, Plans finds the way to a blueprint or a rank, and
+the Session Log can keep whole sessions. Game data is rebuilt once on the
+first start after updating.
+
+- **Contracts** — every mission in the game: its pay, the rep it gives, its
+  blueprint pool and the odds, where it runs, the rank it needs on the
+  faction's ladder and the missions that open it. Times are your own from
+  the Session Log first, then CIG's. The Standing tab shows your reputation
+  with each faction and the contracts you completed, read from your account
+  when online features and its unofficial-API feature are allowed. Contracts
+  replaces the Missions catalog page.
+- **Plan and Bookmark on every page** — two icons at the end of a row on
+  Ships, Crafting, Contracts, Standing and Mining: Plan to work on it now,
+  Bookmark to keep it for later. Crafting's "want" marks become bookmarks.
+- **Plans finds the way** — a blueprint to earn follows the path to its
+  nearest mission, with the runs it takes: a pool gives one blueprint you
+  lack each run that draws. A rank to reach says the time by rep per
+  minute, an unlock step links every mission that can do it, and each
+  mission step opens it in Contracts.
+- **The Plans page** — the plan you focus on left (its next step, a note,
+  what it needs), your plans right. Active, Bookmarks and Done each list
+  their own; drag a plan to reorder, rename it in place.
+- **A crafted part at a quality per stat** — in Ships' part picker, a
+  crafted part takes a minimum quality for each stat its recipe moves:
+  push Impact Force, leave Integrity at what you have. Every other part the
+  picker lists is compared crafted at the same qualities, and picking one
+  crafted keeps the picker open.
+- **The recipe on one screen** — Crafting's recipe sheet keeps its header
+  in place, with the variant and colourway in one picker.
+- **Capture full sessions** — a new switch under Settings → Game data keeps
+  everything the game reported during each session, every telemetry frame
+  and its Game.log, compressed beside the session on this PC: about 1.5 MB
+  an hour of play, within a space you set (500 MB to start). Off by
+  default; nothing is sent anywhere.
+- **The Session Log reads more** — ships you destroyed and ships you lost,
+  injuries and med bed surgery, armistice zones and private property, ship
+  services paid at the vehicle terminal. A past session can read its
+  Game.log again with what this version understands. Where you are holds
+  only until you leave: flying off to a mission site no longer shows the
+  station you left.
+- **The sidebar in groups** — what's going on (Home, News, Dev Tracker,
+  Plans), the game tools (Ships, My Items, Crafting, Mining, Contracts),
+  and what runs alongside the game (Session Log, Text Patching).
+- **Fixed: account reads while the launcher was on PTU** — your standing,
+  blueprints and items failed to refresh with "error decoding response
+  body" when the RSI launcher last ran PTU.
+- **Fixed: a mission you left ends** in the Session Log, and accepting the
+  same mission twice is one mission.
+- **Fixed: no aUEC estimate for event missions**, which showed absurd
+  amounts.
+
 ## [0.6.0] - 2026-11-17
 
 Starlume gets Crafting, Plans and a Session Log, Ships and Mining try a part
