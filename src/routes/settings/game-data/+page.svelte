@@ -128,8 +128,13 @@
     if (releases !== settings?.archive_releases) void apply({ archive_releases: releases });
   }
 
-  const megabytes = (bytes: number) =>
-    `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(bytes / 1048576)} MB`;
+  // Whole megabytes for builds; a capture of a short session is well under
+  // one, so small sizes keep a decimal or say kilobytes.
+  const megabytes = (bytes: number) => {
+    if (bytes < 1048576) return `${new Intl.NumberFormat().format(Math.ceil(bytes / 1024))} KB`;
+    const mb = bytes / 1048576;
+    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: mb < 10 ? 1 : 0 }).format(mb)} MB`;
+  };
 
   const totalBytes = $derived(dataStore.builds.reduce((sum, b) => sum + b.bytes, 0));
 </script>
